@@ -1,0 +1,68 @@
+// Native (no-Dart) OpenBubbles Android app. Coexists with the Flutter app
+// (:app) until the cutover milestone; dev applicationId is suffixed so both
+// can be installed side by side.
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
+
+android {
+    namespace "app.openbubbles.nativeapp"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+
+    defaultConfig {
+        applicationId "com.openbubbles.messaging.native"
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName "0.1.0"
+
+        // Keep in sync with installed Rust cross targets (rustup target list)
+        ndk {
+            abiFilters += ["arm64-v8a", "x86_64"]
+        }
+    }
+
+    buildTypes {
+        release {
+            // Hello-stage signing; the real keystore wiring lands with M4.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = "21"
+    }
+    buildFeatures {
+        compose true
+    }
+}
+
+dependencies {
+    implementation project(":shared")
+
+    // Rust core via UniFFI (JNA-based bindings)
+    implementation "net.java.dev.jna:jna:5.12.0@aar"
+
+    implementation "androidx.core:core-ktx:1.15.0"
+    implementation "androidx.activity:activity-compose:1.9.3"
+    implementation platform("androidx.compose:compose-bom:2024.12.01")
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.7"
+}
+
+// UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native
+// (each app bundles its own copy); M0.2 moves generation into :shared.
+android.sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+
+// Build the same Rust cdylib the Flutter app uses, packaged into this APK.
+// Standalone cargokit invocation (upstream plugin.gradle requires Flutter).
+apply from: "cargokit-standalone.gradle"

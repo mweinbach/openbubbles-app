@@ -1,0 +1,77 @@
+// Builds the Rust cdylib for :app-native using cargokit's build_tool.
+//
+// Upstream cargokit (rust_builder/cargokit/gradle/plugin.gradle) refuses to
+// apply without the Flutter Gradle plugin present — it borrows the Flutter
+// app's variants and target platforms. This script drives the exact same
+// run_build_tool.sh with the same environment contract, but sourced from
+// THIS module's applicationVariants and ndk.abiFilters instead.
+//
+// Keep the env var names/values in sync with CargoKitBuildTask.build() in
+// rust_builder/cargokit/gradle/plugin.gradle.
+
+def cargokitDir = file("../rust_builder/cargokit")
+def cargoRoot = new File(project.buildDir, "cargokit")
+
+// Flutter platform names used by cargokit's build_tool
+def ABI_TO_PLATFORM = [
+        "arm64-v8a"   : "android-arm64",
+        "armeabi-v7a" : "android-arm",
+        "x86"         : "android-x86",
+        "x86_64"      : "android-x64",
+]
+
+def libname = "rust_lib_bluebubbles"
+def manifestDir = file("../rust")
+
+android.applicationVariants.all { variant ->
+    def buildType = variant.buildType.name
+    def cargoOutputDir = new File(cargoRoot, "jniLibs/${buildType}")
+
+    def taskName = "cargokitCargoBuild${libname.capitalize()}${buildType.capitalize()}"
+
+    def t = tasks.register(taskName) {
+        description = "Builds ${libname} (.so) via cargokit for ${variant.name}"
+        // Cargo's own caching makes the incremental call cheap; always re-run
+        // so merged jniLibs pick up Rust changes (mirrors upstream behavior).
+        outputs.upToDateWhen { false }
+
+        doLast {
+            def abis = android.defaultConfig.ndk.abiFilters.toList()
+            if (abis.isEmpty()) {
+                throw new GradleException("Set ndk.abiFilters in defaultConfig so cargokit knows which Rust targets to build")
+            }
+            def platforms = abis.collect { ABI_TO_PLATFORM[it] }
+            for (p in platforms) {
+                if (p == null) throw new GradleException("Unknown ABI in ndk.abiFilters")
+            }
+
+            def executableName = org.apache.tools.ant.taskdefs.condition.Os.isFamily(
+                    org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS) ? "run_build_tool.cmd" : "run_build_tool.sh"
+
+            exec {
+                executable new File(cargokitDir, executableName)
+                args "build-gradle"
+                environment "CARGOKIT_ROOT_PROJECT_DIR", project.rootProject.projectDir
+                environment "CARGOKIT_TOOL_TEMP_DIR", new File(cargoRoot, "build_tool")
+                environment "CARGOKIT_MANIFEST_DIR", manifestDir
+                environment "CARGOKIT_CONFIGURATION", buildType
+                environment "CARGOKIT_TARGET_TEMP_DIR", new File(cargoRoot, "build")
+                environment "CARGOKIT_OUTPUT_DIR", cargoOutputDir
+                environment "CARGOKIT_NDK_VERSION", android.ndkVersion
+                environment "CARGOKIT_SDK_DIR", android.sdkDirectory
+                environment "CARGOKIT_COMPILE_SDK_VERSION", android.compileSdkVersion.replace("android-", "").toInteger()
+                environment "CARGOKIT_MIN_SDK_VERSION", android.defaultConfig.minSdkVersion.apiLevel as int
+                environment "CARGOKIT_TARGET_PLATFORMS", platforms.join(",")
+                environment "CARGOKIT_JAVA_HOME", System.properties['java.home']
+            }
+        }
+    }
+
+    android.sourceSets.maybeCreate(buildType).jniLibs.srcDir(cargoOutputDir)
+
+    // AGP 8: merge<Variant>JniLibFolders must wait for cargo
+    def mergeName = "merge${variant.name.capitalize()}JniLibFolders"
+    tasks.matching { it.name == mergeName }.configureEach {
+        dependsOn t
+    }
+}

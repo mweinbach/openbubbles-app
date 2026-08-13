@@ -58,6 +58,12 @@ pubspeck.lock
 
 .claude/projects
 
+# Native (no-Dart) gradle build
+native/local.properties
+native/.gradle/
+.kotlin/
+/build-native/
+
 # Tool droppings / build artifacts
 codegen_logs
 .codex

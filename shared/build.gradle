@@ -1,0 +1,30 @@
+// Shared Kotlin Multiplatform module: common app logic for the native
+// (no-Dart) OpenBubbles clients. Compose UI lands here when the desktop
+// target is wired up; for now this carries common logic + platform names.
+plugins {
+    id "org.jetbrains.kotlin.multiplatform"
+    id "com.android.library"
+}
+
+android {
+    namespace "app.openbubbles.shared"
+    compileSdk 36
+    defaultConfig {
+        minSdk 26
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+
+    androidTarget()
+    jvm()
+
+    sourceSets {
+        commonMain.dependencies {}
+    }
+}
