@@ -417,14 +417,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.2"
-  cronet_http:
-    dependency: transitive
-    description:
-      name: cronet_http
-      sha256: "8e77bc6f203e0bc9126e6a9092508a3435dbcb04da3b53ed1a358909385c5e0e"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.8.0"
   crop_your_image:
     dependency: "direct main"
     description:
@@ -458,7 +450,7 @@ packages:
     source: hosted
     version: "0.3.1"
   csslib:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: csslib
       sha256: "09bad715f418841f976c77db72d5398dc1253c21fb9c0c7f0b0b985860b2d58e"
@@ -473,14 +465,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "8.0.0"
-  cupertino_http:
-    dependency: transitive
-    description:
-      name: cupertino_http
-      sha256: "3c8c69cc1b94b9c7570d9454bf1e11fa7010b248547a0760843adc71f0c08fbe"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.2"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -740,7 +724,7 @@ packages:
     source: hosted
     version: "2.2.0"
   ffi:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: ffi
       sha256: "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45"
@@ -873,14 +857,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.4"
-  flutter_audio_waveforms:
-    dependency: "direct main"
-    description:
-      name: flutter_audio_waveforms
-      sha256: "425dda9ee5ef9bb2ff2a2000b19ec595593b3baba6a1274da8d1d729846a144b"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.2.1+8"
   flutter_contacts:
     dependency: "direct main"
     description:
@@ -1155,7 +1131,7 @@ packages:
     source: hosted
     version: "1.0.7"
   flutter_native_splash:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: flutter_native_splash
       sha256: "9db4b80b044e9af17cc4b1272137fc7ace0054d879ef8210a76adc34aaf4cdff"
@@ -1381,14 +1357,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "9.2.1"
-  git:
-    dependency: transitive
-    description:
-      name: git
-      sha256: "46556ed28a3b25b1be9bcde0291d84a57b206a899f8b37bf7ab335d8fb640e84"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.3.2"
   github:
     dependency: "direct main"
     description:
@@ -1813,14 +1781,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
-  http_profile:
-    dependency: transitive
-    description:
-      name: http_profile
-      sha256: "7e679e355b09aaee2ab5010915c932cce3f2d1c11c3b2dc177891687014ffa78"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.0"
   idb_shim:
     dependency: "direct main"
     description:
@@ -1982,7 +1942,7 @@ packages:
     source: hosted
     version: "1.0.5"
   jni:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: jni
       sha256: "8706a77e94c76fe9ec9315e18949cc9479cc03af97085ca9c1077b61323ea12d"
@@ -2311,7 +2271,7 @@ packages:
     source: hosted
     version: "7.2.0"
   msix:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: msix
       sha256: bed33b53662c7eac66dc4f9b4176d03140307e6a892ab21ce529be6f74393db0
@@ -2334,14 +2294,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.3+1"
-  native_dio_adapter:
-    dependency: "direct main"
-    description:
-      name: native_dio_adapter
-      sha256: "89a84d8936a108c206e481b8da090422abb1351febac4956cd4a8113627ebb5e"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.6.0"
   native_toolchain_c:
     dependency: transitive
     description:
@@ -2590,14 +2542,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.4"
-  peanut:
-    dependency: "direct dev"
-    description:
-      name: peanut
-      sha256: "82f85e67a6f8bfea1516e7e3e69eb9cc6963ef02f7b35540027b4335d35988f9"
-      url: "https://pub.dev"
-    source: hosted
-    version: "6.0.1"
   permission_handler:
     dependency: "direct main"
     description:
@@ -2815,14 +2759,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
-  qr_flutter:
-    dependency: "direct main"
-    description:
-      name: qr_flutter
-      sha256: "5095f0fc6e3f71d08adef8feccc8cea4f12eec18a2e31c2e8d82cb6019f4b097"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.0"
   quiver:
     dependency: transitive
     description:
@@ -2927,7 +2863,7 @@ packages:
     source: path
     version: "0.0.1"
   rxdart:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: rxdart
       sha256: "5c3004a4a8dbb94bd4bf5412a4def4acdaa12e12f269737a5751369e12d1a962"
@@ -3374,10 +3310,10 @@ packages:
     dependency: transitive
     description:
       name: test_api
-      sha256: "8161c84903fd860b26bfdefb7963b3f0b68fee7adea0f59ef805ecca346f0c7a"
+      sha256: "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.10"
+    version: "0.7.11"
   throttling:
     dependency: transitive
     description:
@@ -3731,7 +3667,7 @@ packages:
     source: hosted
     version: "2.4.0"
   win32:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: win32
       sha256: d7cb55e04cd34096cd3a79b3330245f54cb96a370a1c27adb3c84b917de8b08e

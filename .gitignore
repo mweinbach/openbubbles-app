@@ -39,6 +39,7 @@ pubspeck.lock
 #signing
 **/android/key.properties
 **/android/.settings
+**/android/keystore
 **/releases
 
 #objectbox
