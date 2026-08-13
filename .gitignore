@@ -56,3 +56,8 @@ pubspeck.lock
 .fvmrc
 
 .claude/projects
+
+# Tool droppings / build artifacts
+codegen_logs
+.codex
+android/.project
