@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package bbhwinfo;
+
+message HwInfo {
+    message InnerHwInfo {
+        string product_name = 1;
+        bytes io_mac_address = 2;
+        string platform_serial_number = 3;
+        string platform_uuid = 4;
+        string root_disk_uuid = 5;
+        string board_id = 6;
+        string os_build_num = 7;
+        bytes platform_serial_number_enc = 8;
+        bytes platform_uuid_enc = 9;
+        bytes root_disk_uuid_enc = 10;
+        bytes rom = 11;
+        bytes rom_enc = 12;
+        string mlb = 13;
+        bytes mlb_enc = 14;
+    }
+    InnerHwInfo inner = 1;
+    string version = 2;
+    int32 protocol_version = 3;
+    string device_id = 4;
+    string icloud_ua = 5;
+    string aoskit_version = 6;
+}
