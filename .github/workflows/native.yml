@@ -18,6 +18,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Set up Dart
+        # cargokit's run_build_tool.sh compiles its build tool with Dart
+        uses: dart-lang/setup-dart@v1
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
