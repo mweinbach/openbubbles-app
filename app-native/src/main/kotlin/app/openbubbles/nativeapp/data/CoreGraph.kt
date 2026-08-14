@@ -4,6 +4,8 @@ import android.content.Context
 import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
 import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.core.backup.BackupManager
+import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.ChatRepo
@@ -204,9 +206,10 @@ object CoreGraph {
 
     private fun attachmentStore(): AttachmentStore? {
         val st = store ?: return null
-        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
-            ?: NativeMainActivity.appContext?.filesDir
-            ?: return null
+        val root = File(
+            NativeMainActivity.appContext?.dataDir ?: return null,
+            "app_flutter",
+        )
         return AttachmentStore(st, root)
     }
 
@@ -257,6 +260,75 @@ object CoreGraph {
             }
         }
     }
+
+    // ---------------------------------------------------------------------------
+    // Backup / restore — additive zone
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Backup composition root over the Flutter-era data root
+     * (`<dataDir>/app_flutter`: `objectbox/` + `attachments/`); null when the
+     * store or app context is unavailable.
+     */
+    val backupManager: BackupManager? by lazy {
+        val st = store ?: return@lazy null
+        val ctx = NativeMainActivity.appContext ?: return@lazy null
+        if (st.isClosed) return@lazy null
+        val version = runCatching {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+        }.getOrNull()
+        BackupManager(
+            rootDir = File(ctx.dataDir, "app_flutter"),
+            store = { store },
+            storeGate = BackupStoreGate,
+            appVersion = version,
+        )
+    }
+
+    /**
+     * One-shot export of the database + attachments into [stream] (a SAF
+     * output stream on Android). Does not close [stream]. Run on IO.
+     */
+    fun backupTo(
+        stream: java.io.OutputStream,
+        progress: (String) -> Unit = {},
+    ): Result<BackupManager.BackupInfo> =
+        backupManager?.snapshot(stream, progress)
+            ?: Result.failure(IllegalStateException("backup unavailable — store not open"))
+
+    /**
+     * One-shot restore from [stream] (a SAF-picked zip). Run on IO. REPLACES
+     * the current database + attachments on success.
+     *
+     * RESTART REQUIRED: this process keeps the old (open) store handles, and
+     * CoreGraph's lazy singletons cannot be rebuilt in place — callers must
+     * restart the process after a successful restore (the settings screen
+     * does `Runtime.getRuntime().exit(0)` after surfacing the result).
+     */
+    fun restoreFrom(stream: java.io.InputStream): Result<BackupManager.BackupInfo> {
+        val manager = backupManager
+            ?: return Result.failure(IllegalStateException("backup unavailable — store not open"))
+        val ctx = NativeMainActivity.appContext
+            ?: return Result.failure(IllegalStateException("no app context"))
+        return manager.restore(stream, File(ctx.dataDir, "app_flutter"))
+    }
+}
+
+/**
+ * Pass-through [StoreGate] with a process-wide mutex: serializes
+ * backup/restore against each other and against anything else that takes
+ * [writeMutex]. Caveat: writers that do not take the mutex (the ingestor's
+ * background loop, attachment downloads) can still land mid-copy, so an
+ * export may miss the very newest messages — [BackupManager] additionally
+ * runs an empty write-tx barrier before copying `data.mdb`, and exports are
+ * safest while the app is idle. Single-process by design; restore is followed
+ * by a process restart, so no write can race the swap.
+ */
+internal object BackupStoreGate : StoreGate {
+    private val writeMutex = Any()
+
+    override fun <T> withStorePaused(block: () -> T): T =
+        synchronized(writeMutex) { block() }
 }
 
 /** Set by the push service once the Rust state is live. */
@@ -734,9 +806,10 @@ internal object CoreAttachmentSender : AttachmentSender {
 
         // 2. Placeholder attachment metadata + payload in the canonical
         //    layout so the bubble renders (and image-previews) right away.
-        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
-            ?: NativeMainActivity.appContext?.filesDir
-            ?: error("no files dir")
+        val root = File(
+            NativeMainActivity.appContext?.dataDir ?: error("no files dir"),
+            "app_flutter",
+        )
         val disk = AttachmentStore(store, root)
         val displayName = attachment.name ?: "attachment"
         val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
