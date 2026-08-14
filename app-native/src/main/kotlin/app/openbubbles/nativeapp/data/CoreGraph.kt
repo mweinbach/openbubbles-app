@@ -156,6 +156,15 @@ object CoreGraph {
     }.getOrNull()
 
     /**
+     * Get-or-create a chat for the new-conversation UI. Returns the chat id
+     * (existing row reused when the participant set matches).
+     */
+    fun findOrCreateChat(addresses: List<String>, sms: Boolean): Long? = runCatching {
+        val repo = chatRepo ?: return@runCatching null
+        repo.findOrCreateByAddresses(addresses, if (sms) "SMS" else "iMessage").id
+    }.getOrNull()
+
+    /**
      * Battery-saver poll: one incremental CloudKit sync, notifying chats
      * that gained unread messages. The service then tears itself down; the
      * persistent APNs loop never starts.

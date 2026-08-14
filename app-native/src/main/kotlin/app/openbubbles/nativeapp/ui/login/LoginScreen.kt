@@ -299,17 +299,20 @@ private fun SmsPhoneChooserStep(state: LoginScreen.SmsPhoneChooser, events: Logi
         state.options.forEach { option ->
             val rowId = option.id.toInt()
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = if (selectedId == rowId) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainer
+                },
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
                     modifier = Modifier
                         .clickable { selectedId = rowId }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     RadioButton(selected = selectedId == rowId, onClick = null)
                     Text(option.label, style = MaterialTheme.typography.bodyLarge)
@@ -508,17 +511,19 @@ private fun BlockedStep(state: LoginScreen.Blocked) {
 /** Simple monogram "app icon" — no assets in this module yet. */
 @Composable
 private fun AppBadge() {
-    Box(
-        modifier = Modifier
-            .size(72.dp)
-            .background(MaterialTheme.colorScheme.primary, CircleShape),
-        contentAlignment = Alignment.Center,
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shadowElevation = 0.dp,
+        modifier = Modifier.size(72.dp),
     ) {
-        Text(
-            text = "OB",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onPrimary,
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = "OB",
+                style = MaterialTheme.typography.headlineMedium,
+            )
+        }
     }
 }
 
@@ -543,7 +548,7 @@ private fun LoginTextField(
         keyboardOptions = keyboardOptions,
         trailingIcon = trailingIcon,
         textStyle = textStyle,
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = TextFieldDefaults.colors(
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,

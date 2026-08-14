@@ -2,5 +2,6 @@
 <resources>
     <style name="Theme.OpenBubblesNative" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowBackground">@color/app_background</item>
     </style>
 </resources>

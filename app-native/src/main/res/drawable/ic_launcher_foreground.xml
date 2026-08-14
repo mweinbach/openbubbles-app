@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon foreground: white speech bubble with typing dots.
+     Drawn inside the 66dp safe zone of the 108dp viewport. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Speech bubble: rounded body with a tail bottom-left. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,32 h38 a10,10 0 0 1 10,10 v18 a10,10 0 0 1 -10,10 h-22 l-11,9 a2.5,2.5 0 0 1 -4,-2 v-7.4 a10,10 0 0 1 -11,-9.6 v-18 a10,10 0 0 1 10,-10 z" />
+
+    <!-- Typing dots, in the brand background color. -->
+    <path
+        android:fillColor="@color/ic_launcher_background"
+        android:pathData="M41,50.5 a3.4,3.4 0 1 1 -0.1,0 z M54,50.5 a3.4,3.4 0 1 1 -0.1,0 z M67,50.5 a3.4,3.4 0 1 1 -0.1,0 z" />
+</vector>

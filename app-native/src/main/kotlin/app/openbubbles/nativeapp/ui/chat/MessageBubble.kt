@@ -35,9 +35,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.openbubbles.nativeapp.data.AttachmentMeta
@@ -48,27 +50,48 @@ import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import kotlinx.coroutines.delay
 
-private val BubbleMaxWidth = 300.dp
+/** Outer bubble radius (tail-free modern iMessage look). */
+private val BubbleCornerRadius = 20.dp
 
-private fun bubbleShape(isFromMe: Boolean): RoundedCornerShape = if (isFromMe) {
-    // Slightly tighter corner toward the tail (bottom end).
-    RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 16.dp, bottomStart = 20.dp)
-} else {
-    RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 16.dp)
+/** Tightened radius on sides that touch a same-author neighbor. */
+private val GroupedCornerRadius = 8.dp
+
+/** Bubbles never exceed 78% of the screen width (or this absolute cap). */
+private val BubbleMaxWidthCap = 320.dp
+
+/**
+ * Caps the bubble column at ~78% of the screen so conversations breathe in
+ * any orientation; also caps in landscape so bubbles stay readable.
+ */
+private fun bubbleMaxWidth(screenWidth: Dp): Dp =
+    (screenWidth * 0.78f).coerceAtMost(BubbleMaxWidthCap)
+
+/**
+ * Grouping-aware corner radii: edges facing a consecutive same-author
+ * message tighten to 8dp; outer edges stay at 20dp.
+ */
+private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerShape {
+    val top = if (tightTop) GroupedCornerRadius else BubbleCornerRadius
+    val bottom = if (tightBottom) GroupedCornerRadius else BubbleCornerRadius
+    return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
 
 /**
  * A single conversation row: message bubble (mine right / theirs left),
  * centered caption for group events, an italic row for unsent messages,
  * attachment bubbles (image / video / file) above the text, an "Edited"
- * label, reaction chip overlapping the corner, and an optional delivery
- * status row under my latest outgoing message.
+ * label, reaction chip overlapping the corner, an optional sender name for
+ * group chats, and an optional delivery status row under my latest outgoing
+ * message.
  */
 @Composable
 fun MessageBubble(
     message: MessageItem,
     showStatus: Boolean,
     modifier: Modifier = Modifier,
+    tightTop: Boolean = false,
+    tightBottom: Boolean = false,
+    showSenderName: Boolean = false,
     attachmentFile: (String) -> File? = { null },
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -88,6 +111,11 @@ fun MessageBubble(
             return
         }
     }
+    val maxBubbleWidth = bubbleMaxWidth(LocalConfiguration.current.screenWidthDp.dp)
+    val shape = bubbleShape(tightTop, tightBottom)
+    // Attachment-only messages take the grouping shape directly; stacked
+    // attachment + text keeps the standalone attachment radius.
+    val attachmentShape = if (message.text.isEmpty()) shape else null
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -97,9 +125,17 @@ fun MessageBubble(
             horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier
-                .widthIn(max = BubbleMaxWidth)
+                .widthIn(max = maxBubbleWidth)
                 .align(if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart),
         ) {
+            if (showSenderName && !message.isFromMe) {
+                Text(
+                    text = senderDisplayName ?: message.senderAddress.orEmpty(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+            }
             message.attachmentMeta?.let { attachment ->
                 Box {
                     AttachmentContent(
@@ -107,6 +143,7 @@ fun MessageBubble(
                         attachmentFile = attachmentFile,
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
+                        shape = attachmentShape,
                     )
                     message.reactionEmoji?.let { emoji ->
                         ReactionChip(
@@ -125,24 +162,24 @@ fun MessageBubble(
             if (message.text.isNotEmpty()) {
                 Box {
                     if (isInvisibleInk(message.expressiveSendStyleId)) {
-                        InvisibleInkBubble(message = message)
+                        InvisibleInkBubble(message = message, shape = shape)
                     } else {
                         Surface(
-                            shape = bubbleShape(message.isFromMe),
+                            shape = shape,
                             color = if (message.isFromMe) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            contentColor = if (message.isFromMe) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
                             },
                         ) {
                             Text(
                                 text = message.text,
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (message.isFromMe) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                             )
                         }
@@ -180,7 +217,11 @@ fun MessageBubble(
  * text renders blurred until tapped, then reveals for 3s and re-hides.
  */
 @Composable
-private fun InvisibleInkBubble(message: MessageItem, modifier: Modifier = Modifier) {
+private fun InvisibleInkBubble(
+    message: MessageItem,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier,
+) {
     var revealed by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(revealed, message.id) {
         if (revealed) {
@@ -189,22 +230,22 @@ private fun InvisibleInkBubble(message: MessageItem, modifier: Modifier = Modifi
         }
     }
     Surface(
-        shape = bubbleShape(message.isFromMe),
+        shape = shape,
         color = if (message.isFromMe) {
-            MaterialTheme.colorScheme.primaryContainer
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceVariant
+        },
+        contentColor = if (message.isFromMe) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurface
         },
         modifier = modifier,
     ) {
         Text(
             text = message.text,
             style = MaterialTheme.typography.bodyLarge,
-            color = if (message.isFromMe) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
             modifier = Modifier
                 .clickable { revealed = !revealed }
                 .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -277,11 +318,11 @@ fun MessageStatusRow(status: MessageStatus, modifier: Modifier = Modifier) {
         MessageStatus.FAILED -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error, "Send failed")
     }
     Row(
-        modifier = modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp),
+        modifier = modifier.padding(top = 2.dp, start = 6.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(15.dp))
+        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(14.dp))
         Text(text = label, style = MaterialTheme.typography.labelSmall, color = tint)
     }
 }
@@ -389,6 +430,35 @@ private fun MessageBubblePreview() {
             UnsentRow("You unsent a message")
             UnsentRow("Emma unsent a message")
             DaySeparatorRow("Today")
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun MessageGroupingPreview() {
+    OpenBubblesTheme {
+        Column {
+            MessageBubble(
+                message = previewMessage("running 5 behind", isFromMe = false).copy(id = 1),
+                showStatus = false,
+                showSenderName = true,
+                senderDisplayName = "Alex Chen",
+            )
+            MessageBubble(
+                message = previewMessage("ok see you soon!", isFromMe = false).copy(id = 2),
+                showStatus = false,
+                tightTop = true,
+            )
+            MessageBubble(
+                message = previewMessage("great", isFromMe = true, status = MessageStatus.DELIVERED).copy(id = 3),
+                showStatus = true,
+                tightBottom = true,
+            )
+            MessageBubble(
+                message = previewMessage("grabbing coffee now, want anything?", isFromMe = true, status = MessageStatus.SENT).copy(id = 4),
+                showStatus = false,
+            )
         }
     }
 }

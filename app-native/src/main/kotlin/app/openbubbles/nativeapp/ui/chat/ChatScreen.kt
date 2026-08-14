@@ -5,12 +5,21 @@ import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,21 +42,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,16 +74,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
@@ -102,19 +113,39 @@ sealed interface ConversationEntry {
         override val key: String = "day-$epochMillis"
     }
 
-    data class Message(val message: MessageItem, val showStatus: Boolean) : ConversationEntry {
+    data class Message(
+        val message: MessageItem,
+        val showStatus: Boolean,
+        /**
+         * The message directly above (older) is from the same author — tighten
+         * the bubble's top corners so runs read as one group.
+         */
+        val tightTop: Boolean = false,
+        /** The message directly below (newer) is from the same author. */
+        val tightBottom: Boolean = false,
+        /** First visible message of an author's run in a group chat. */
+        val showSenderName: Boolean = false,
+    ) : ConversationEntry {
         override val key: String = "message-${message.id}"
     }
 }
 
+/** Bubble-author identity for grouping (mine vs. a specific sender). */
+private fun MessageItem.authorKey(): Pair<Boolean, String?> = isFromMe to senderAddress
+
+/** True when this message renders as a bubble (rows like group events break runs). */
+private fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
+
 /**
  * Builds newest-first entries (the reversed list renders index 0 at the
- * bottom) with day separators between calendar days and the status row on my
- * newest outgoing message (or any failed one).
+ * bottom) with day separators between calendar days, grouping-aware corner
+ * hints, optional group sender-name labels, and the status row on my newest
+ * outgoing message (or any failed one).
  */
 fun buildConversationEntries(
     messages: List<MessageItem>,
     zone: ZoneId = ZoneId.systemDefault(),
+    showSenderNames: Boolean = false,
 ): List<ConversationEntry> {
     val lastFromMeId = messages.lastOrNull { it.isFromMe && !it.isGroupEvent }?.id
     val entries = mutableListOf<ConversationEntry>()
@@ -127,6 +158,32 @@ fun buildConversationEntries(
         }
         val showStatus = message.id == lastFromMeId || message.status == MessageStatus.FAILED
         entries += ConversationEntry.Message(message, showStatus)
+    }
+
+    // Second pass: grouping corners + sender names from visual neighbors.
+    // Index 0 is the visual bottom, so the message "above" entry i is i+1.
+    for (i in entries.indices) {
+        val entry = entries[i] as? ConversationEntry.Message ?: continue
+        val message = entry.message
+        if (!message.rendersAsBubble()) continue
+
+        val above = entries.getOrNull(i + 1) as? ConversationEntry.Message
+        val below = entries.getOrNull(i - 1) as? ConversationEntry.Message
+        val tightTop = above != null &&
+            above.message.rendersAsBubble() &&
+            above.message.authorKey() == message.authorKey()
+        val tightBottom = below != null &&
+            below.message.rendersAsBubble() &&
+            below.message.authorKey() == message.authorKey()
+        val showName = showSenderNames &&
+            !message.isFromMe &&
+            message.senderAddress != null &&
+            !tightTop
+        entries[i] = entry.copy(
+            tightTop = tightTop,
+            tightBottom = tightBottom,
+            showSenderName = showName,
+        )
     }
     return entries
 }
@@ -157,7 +214,18 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val entries = remember(uiState.messages) { buildConversationEntries(uiState.messages) }
+
+    // Group chats (two or more distinct other senders in the transcript)
+    // label incoming runs with the sender's name.
+    val isGroupChat = remember(uiState.messages) {
+        uiState.messages.asSequence()
+            .mapNotNull { it.senderAddress }
+            .distinct()
+            .count() >= 2
+    }
+    val entries = remember(uiState.messages, isGroupChat) {
+        buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
+    }
     val isTyping = uiState.typingSenders.isNotEmpty()
 
     // ---- Send screen effects -------------------------------------------------
@@ -199,12 +267,13 @@ fun ChatScreen(
         ActivityResultContracts.GetContent(),
     ) { uri -> dispatchAttachment(uri) }
 
-    // Contact names for "<name> unsent a message" rows (best effort).
+    // Contact names for group sender labels and "<name> unsent a message"
+    // rows (best effort).
     val senderNames = remember { mutableStateMapOf<String, String>() }
     LaunchedEffect(uiState.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
         val addresses = uiState.messages
-            .filter { it.unsent && !it.isFromMe && it.senderAddress != null }
+            .filter { !it.isFromMe && it.senderAddress != null }
             .mapNotNull { it.senderAddress }
             .distinct()
         addresses.forEach { address ->
@@ -270,13 +339,7 @@ fun ChatScreen(
                         CircularProgressIndicator()
                     }
                     uiState.messages.isEmpty() && !isTyping ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "No messages yet — say hi!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        ChatEmptyState(Modifier.fillMaxSize())
                     else -> LazyColumn(
                         state = listState,
                         reverseLayout = true,
@@ -293,6 +356,9 @@ fun ChatScreen(
                                 is ConversationEntry.Message -> MessageBubble(
                                     message = entry.message,
                                     showStatus = entry.showStatus,
+                                    tightTop = entry.tightTop,
+                                    tightBottom = entry.tightBottom,
+                                    showSenderName = entry.showSenderName,
                                     attachmentFile = attachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
@@ -361,6 +427,13 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(
+                imageVector = Icons.Filled.ExpandMore,
+                contentDescription = "Conversation details",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
         } else {
             Text(
@@ -370,6 +443,43 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/** Friendly placeholder before the first message of a conversation. */
+@Composable
+private fun ChatEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.size(64.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.ChatBubble,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
+        Text(
+            text = "No messages yet",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 14.dp),
+        )
+        Text(
+            text = "Say hi — everything stays in sync with iMessage.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -395,11 +505,11 @@ fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
                     text = "$name is typing",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 6.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
                 )
             }
             Surface(
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
             ) {
                 TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
@@ -423,9 +533,20 @@ private fun TypingDots(modifier: Modifier = Modifier) {
                 ),
                 label = "dot-$index",
             )
+            val scale by transition.animateFloat(
+                initialValue = 0.8f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 450, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
+                ),
+                label = "dot-scale-$index",
+            )
             Box(
                 modifier = Modifier
                     .size(8.dp)
+                    .graphicsLayer(scaleX = scale, scaleY = scale)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)),
             )
@@ -447,6 +568,35 @@ private fun TypingIndicatorPreview() {
     }
 }
 
+@Preview(showBackground = true)
+@Composable
+private fun MessageInputBarPreview() {
+    OpenBubblesTheme {
+        Column {
+            MessageInputBar(
+                value = "",
+                onValueChange = {},
+                onSend = {},
+                onAttachClick = {},
+                onAttachLongClick = {},
+            )
+            MessageInputBar(
+                value = "see you at the trailhead!",
+                onValueChange = {},
+                onSend = {},
+                onAttachClick = {},
+                onAttachLongClick = {},
+            )
+        }
+    }
+}
+
+/**
+ * iMessage-style capsule input bar: attachment icon + growing text field +
+ * a circular send button that morphs color/scale when text is present.
+ * Long-press the send button for the send-effect picker; long-press the
+ * paperclip to attach any file.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageInputBar(
@@ -460,6 +610,36 @@ private fun MessageInputBar(
     onClearPendingEffect: () -> Unit = {},
     onSendLongClick: () -> Unit = {},
 ) {
+    val hasText = value.isNotBlank()
+
+    // Send button morph: blue when there's text to send, muted otherwise.
+    val sendContainer by animateColorAsState(
+        targetValue = if (hasText) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "sendContainer",
+    )
+    val sendContent by animateColorAsState(
+        targetValue = if (hasText) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "sendContent",
+    )
+    val sendScale by animateFloatAsState(
+        targetValue = if (hasText) 1f else 0.88f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+        ),
+        label = "sendScale",
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -467,57 +647,94 @@ private fun MessageInputBar(
             .imePadding(),
     ) {
         // Pending send-effect chip staged from the picker.
-        pendingEffect?.let { option ->
-            Row(
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                PendingEffectChip(option = option, onClear = onClearPendingEffect)
+        AnimatedVisibility(
+            visible = pendingEffect != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            pendingEffect?.let { option ->
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    PendingEffectChip(option = option, onClear = onClearPendingEffect)
+                }
             }
         }
-        Row(
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.AttachFile,
-                contentDescription = "Attach photo or video (long-press for any file)",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(bottom = 12.dp)
-                    .size(26.dp)
-                    .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
-            )
-            TextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message") },
-                maxLines = 5,
-                shape = RoundedCornerShape(24.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Send,
-                    capitalization = KeyboardCapitalization.Sentences,
-                ),
-                keyboardActions = KeyboardActions(onSend = { onSend() }),
-            )
-            // Long-press opens the send-effect picker (iMessage behavior).
-            FilledIconButton(
-                onClick = onSend,
-                enabled = value.isNotBlank(),
-                shape = CircleShape,
-                modifier = Modifier.pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { onSendLongClick() })
-                },
+            Row(
+                modifier = Modifier.padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                Icon(
+                    imageVector = Icons.Filled.AttachFile,
+                    contentDescription = "Attach photo or video (long-press for any file)",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(start = 8.dp, end = 4.dp, bottom = 12.dp)
+                        .size(26.dp)
+                        .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
+                )
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    maxLines = 5,
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Send,
+                        capitalization = KeyboardCapitalization.Sentences,
+                    ),
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 2.dp, vertical = 12.dp),
+                        ) {
+                            if (value.isEmpty()) {
+                                Text(
+                                    text = "Message",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                // Long-press opens the send-effect picker (iMessage behavior).
+                Box(
+                    modifier = Modifier
+                        .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                        .size(40.dp)
+                        .graphicsLayer(scaleX = sendScale, scaleY = sendScale)
+                        .clip(CircleShape)
+                        .background(sendContainer)
+                        .pointerInput(hasText) {
+                            detectTapGestures(
+                                onTap = { if (hasText) onSend() },
+                                onLongPress = { onSendLongClick() },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowUpward,
+                        contentDescription = "Send (long-press to pick an effect)",
+                        tint = sendContent,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
     }

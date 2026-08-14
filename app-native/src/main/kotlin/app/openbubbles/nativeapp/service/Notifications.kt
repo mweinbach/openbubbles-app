@@ -67,7 +67,7 @@ object Notifications {
 
     /** Flutter's accent color (0x4A90F6) for parity. */
     private const val ACCENT_COLOR = 4888294
-    private const val SMALL_ICON = android.R.drawable.sym_action_chat
+    private val SMALL_ICON = app.openbubbles.nativeapp.R.drawable.ic_stat_message
 
     /**
      * Posts a notification for one incoming message in [chatId]/[chatGuid].

@@ -1,18 +1,13 @@
 package app.openbubbles.nativeapp
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
@@ -25,13 +20,6 @@ import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 
 class NativeMainActivity : ComponentActivity() {
 
-    private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            if (grants[Manifest.permission.READ_CONTACTS] == true) {
-                syncContacts()
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -43,21 +31,9 @@ class NativeMainActivity : ComponentActivity() {
         // intent extras).
         if (savedInstanceState == null) readPendingChatGuid(intent)
 
-        val wanted = buildList {
-            if (Build.VERSION.SDK_INT >= 33 &&
-                notGranted(Manifest.permission.POST_NOTIFICATIONS)
-            ) add(Manifest.permission.POST_NOTIFICATIONS)
-            if (notGranted(Manifest.permission.READ_CONTACTS)) add(Manifest.permission.READ_CONTACTS)
-            // On-device SMS (dangerous perms degrade gracefully until granted)
-            listOf(
-                Manifest.permission.RECEIVE_SMS,
-                Manifest.permission.SEND_SMS,
-                Manifest.permission.READ_SMS,
-            ).filter { notGranted(it) }.forEach { add(it) }
-        }
-        if (wanted.isNotEmpty()) {
-            permissionLauncher.launch(wanted.toTypedArray())
-        } else if (DeviceContacts.hasPermission(this)) {
+        // Permission priming moved into the onboarding flow; returning users
+        // (or taps into the signed-in app) just get a contact re-sync.
+        if (DeviceContacts.hasPermission(this)) {
             syncContacts()
         }
 
@@ -91,9 +67,6 @@ class NativeMainActivity : ComponentActivity() {
     private fun readPendingChatGuid(intent: Intent?) {
         pendingChatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID)?.takeIf { it.isNotBlank() }
     }
-
-    private fun notGranted(permission: String): Boolean =
-        ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
 
     private fun syncContacts() {
         lifecycleScope.launch {

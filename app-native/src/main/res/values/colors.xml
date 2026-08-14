@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#4285F4</color>
+    <!-- Matches the light M3 surface in ui/theme/Theme.kt so cold starts
+         (and the Android 12+ welcome screen) blend into the app UI. -->
+    <color name="app_background">#F9F9FD</color>
+</resources>

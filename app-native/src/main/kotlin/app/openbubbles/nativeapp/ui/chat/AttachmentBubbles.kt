@@ -62,6 +62,8 @@ private val AttachmentShape = RoundedCornerShape(18.dp)
  * Renders one attachment in a message bubble: image (thumbnail, tap opens
  * the viewer), video (poster + play affordance), or a generic file row.
  * Undownloaded transfers show a download chip wired to the callback.
+ * [shape] overrides the default radius (grouping-aware for text-free
+ * messages); null falls back to [AttachmentShape].
  */
 @Composable
 fun AttachmentContent(
@@ -70,7 +72,9 @@ fun AttachmentContent(
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
+    shape: RoundedCornerShape? = null,
 ) {
+    val effectiveShape = shape ?: AttachmentShape
     when {
         attachment.isImage -> ImageAttachmentBubble(
             attachment = attachment,
@@ -78,15 +82,18 @@ fun AttachmentContent(
             onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
             modifier = modifier,
+            shape = effectiveShape,
         )
         attachment.isVideo -> VideoAttachmentBubble(
             attachment = attachment,
             onDownloadAttachment = onDownloadAttachment,
             modifier = modifier,
+            shape = effectiveShape,
         )
         else -> FileAttachmentRow(
             attachment = attachment,
             modifier = modifier,
+            shape = effectiveShape,
         )
     }
 }
@@ -99,6 +106,7 @@ private fun ImageAttachmentBubble(
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
 ) {
     // Disk presence beats the persisted `downloaded` flag (the flag can
     // drift); attachmentFile returns null when nothing is on disk.
@@ -109,7 +117,7 @@ private fun ImageAttachmentBubble(
     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
 
     Surface(
-        shape = AttachmentShape,
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
@@ -141,9 +149,10 @@ private fun VideoAttachmentBubble(
     attachment: AttachmentMeta,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
 ) {
     Surface(
-        shape = AttachmentShape,
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
@@ -179,9 +188,10 @@ private fun VideoAttachmentBubble(
 private fun FileAttachmentRow(
     attachment: AttachmentMeta,
     modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
 ) {
     Surface(
-        shape = AttachmentShape,
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier.widthIn(max = ImageBubbleMaxWidth),
     ) {

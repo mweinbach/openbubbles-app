@@ -6,26 +6,42 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AlternateEmail
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -42,6 +58,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -77,10 +94,10 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 }
 
 /**
- * Settings (M2 "lite"): connection health (registration state + handles via
- * the live Rust push state), an appearance placeholder, attachment storage
- * maintenance, and an about row. Sign out is a stub pending the M3 teardown
- * flow.
+ * Settings: iOS-style inset grouped cards — connection health (registration
+ * state + handles via the live Rust push state), iCloud sync, power,
+ * notifications, attachment storage maintenance, backup/restore, and an
+ * about row.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,44 +211,45 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             SectionCard(title = "Connection") {
                 if (pushState == null) {
                     SettingRow(
                         title = "Not connected",
                         supporting = "Sign in from the banner on the chat list",
+                        icon = Icons.Filled.CloudDone,
                     )
                 } else {
                     SettingRow(
                         title = "Registration",
                         supporting = connection?.regstate ?: "Checking…",
+                        icon = Icons.Filled.CloudDone,
                     )
                     SettingRow(
                         title = "Handles",
                         supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
+                        icon = Icons.Filled.AlternateEmail,
                         multiline = true,
                     )
                     var signingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
-                    TextButton(
+                    SettingActionRow(
+                        title = if (signingOut) "Signing out…" else "Sign out",
+                        supporting = "Disconnect this Apple ID on this device",
+                        icon = Icons.AutoMirrored.Filled.Logout,
+                        destructive = true,
                         enabled = !signingOut,
                         onClick = {
                             signingOut = true
                             scope.launch {
-                                app.openbubbles.nativeapp.data.CoreGraph.signOut(context)
+                                CoreGraph.signOut(context)
                                 signingOut = false
                                 onBack()
                             }
                         },
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
-                        Text(if (signingOut) "Signing out…" else "Sign out")
-                    }
+                    )
                 }
             }
 
@@ -246,6 +264,7 @@ fun SettingsScreen(
                     SettingRow(
                         title = "History sync",
                         supporting = "Connect to enable syncing messages from iCloud",
+                        icon = Icons.Filled.CloudSync,
                     )
                 } else {
                     val progress = syncProgress
@@ -257,11 +276,13 @@ fun SettingsScreen(
                             syncResult != null -> syncResult!!
                             else -> "Chats back up to iCloud; new devices sync history on sign-in"
                         },
+                        icon = Icons.Filled.CloudSync,
+                        multiline = true,
                     )
                     if (syncing) {
                         TextButton(onClick = { syncManager.cancel() }) { Text("Stop") }
                     } else {
-                        TextButton(
+                        FilledTonalButton(
                             onClick = {
                                 syncing = true
                                 syncResult = null
@@ -279,6 +300,7 @@ fun SettingsScreen(
                                     }
                                 }
                             },
+                            modifier = Modifier.fillMaxWidth(),
                         ) { Text("Sync all history now") }
                     }
                 }
@@ -290,15 +312,14 @@ fun SettingsScreen(
                     androidx.compose.runtime.mutableStateOf(
                         app.openbubbles.nativeapp.service.BatterySaver.isEnabled(ctx))
                 }
-                SettingRow(
+                SwitchSettingRow(
                     title = "Battery saver",
                     supporting = if (batterySaver) {
                         "Checking iCloud every 15 min — messages may be delayed"
                     } else {
                         "Live connection — instant messages, uses more battery"
                     },
-                )
-                androidx.compose.material3.Switch(
+                    icon = Icons.Filled.BatterySaver,
                     checked = batterySaver,
                     onCheckedChange = { enabled ->
                         batterySaver = app.openbubbles.nativeapp.service.BatterySaver
@@ -314,6 +335,7 @@ fun SettingsScreen(
                 SwitchSettingRow(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
+                    icon = Icons.Filled.NotificationsActive,
                     checked = hidePreviews,
                     onCheckedChange = { enabled ->
                         hidePreviews = enabled
@@ -323,6 +345,7 @@ fun SettingsScreen(
                 SwitchSettingRow(
                     title = "Quick reply",
                     supporting = "Show the Reply action on message notifications",
+                    icon = Icons.Filled.NotificationsActive,
                     checked = replyEnabled,
                     onCheckedChange = { enabled ->
                         replyEnabled = enabled
@@ -331,34 +354,20 @@ fun SettingsScreen(
                 )
             }
 
-            SectionCard(title = "Find My") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenFindMy),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.LocationOn,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Column {
-                        Text(text = "Find My", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            text = "Devices, friends and items",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            SectionCard(title = "Location") {
+                SettingActionRow(
+                    title = "Find My",
+                    supporting = "Devices, friends and items",
+                    icon = Icons.Filled.LocationOn,
+                    onClick = onOpenFindMy,
+                )
             }
 
             SectionCard(title = "Appearance") {
                 SettingRow(
                     title = "Theme",
-                    supporting = "Coming soon — M3 theming milestone",
+                    supporting = "Follows your system's light or dark mode",
+                    icon = Icons.Filled.Palette,
                 )
             }
 
@@ -368,8 +377,9 @@ fun SettingsScreen(
                     supporting = cacheBytes
                         ?.let { formatBytes(it).ifEmpty { "Empty" } }
                         ?: "Calculating…",
+                    icon = Icons.Filled.Folder,
                 )
-                Button(
+                FilledTonalButton(
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
@@ -377,6 +387,7 @@ fun SettingsScreen(
                         }
                     },
                     enabled = (cacheBytes ?: 0L) > 0L,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Clear attachment cache")
                 }
@@ -386,36 +397,50 @@ fun SettingsScreen(
                 SettingRow(
                     title = "Local backup",
                     supporting = "Export the database and attachments to a zip file, or restore from one.",
+                    icon = Icons.Filled.Archive,
                 )
-                Button(
-                    onClick = { exportLauncher.launch(backupFileName()) },
-                    enabled = !backupBusy,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("Export backup")
-                }
-                Button(
-                    onClick = {
-                        restoreLauncher.launch(arrayOf(
-                            "application/zip",
-                            "application/x-zip-compressed",
-                            "application/octet-stream",
-                        ))
-                    },
-                    enabled = !backupBusy,
-                ) {
-                    Text("Restore backup")
+                    Button(
+                        onClick = { exportLauncher.launch(backupFileName()) },
+                        enabled = !backupBusy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Export")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            restoreLauncher.launch(arrayOf(
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/octet-stream",
+                            ))
+                        },
+                        enabled = !backupBusy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Restore")
+                    }
                 }
                 if (backupStage != null) {
-                    SettingRow(title = "Working…", supporting = backupStage ?: "")
+                    SettingRow(title = "Working…", supporting = backupStage ?: "", icon = Icons.Filled.Archive)
                 }
                 if (restarting) {
                     SettingRow(
                         title = "Restore complete",
                         supporting = "Restarting to load the restored data…",
+                        icon = Icons.Filled.Archive,
                     )
                 }
                 backupError?.let {
-                    SettingRow(title = "Backup error", supporting = it, multiline = true)
+                    SettingRow(
+                        title = "Backup error",
+                        supporting = it,
+                        icon = Icons.Filled.Archive,
+                        multiline = true,
+                    )
                 }
             }
 
@@ -423,6 +448,7 @@ fun SettingsScreen(
                 SettingRow(
                     title = "OpenBubbles native",
                     supporting = "Version ${versionName ?: "unknown"}",
+                    icon = Icons.Filled.Info,
                 )
             }
         }
@@ -452,6 +478,7 @@ fun SettingsScreen(
     }
 }
 
+/** iOS-style inset grouped card: small header above a rounded surface. */
 @Composable
 private fun SectionCard(
     title: String,
@@ -459,19 +486,19 @@ private fun SectionCard(
 ) {
     Column {
         Text(
-            text = title,
+            text = title.uppercase(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
         )
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 content()
             }
@@ -479,36 +506,124 @@ private fun SectionCard(
     }
 }
 
+/** Tinted rounded-square leading icon (iOS settings row flavor). */
+@Composable
+private fun SettingsIcon(
+    icon: ImageVector,
+    destructive: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (destructive) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        },
+        contentColor = if (destructive) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        },
+        modifier = modifier.size(36.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/** Read-only row: leading icon, title, supporting text, optional trailing. */
 @Composable
 private fun SettingRow(
     title: String,
     supporting: String,
+    icon: ImageVector? = null,
     multiline: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
-    Column {
-        Text(text = title, style = MaterialTheme.typography.bodyLarge)
-        Text(
-            text = supporting,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = if (multiline) 6 else 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        icon?.let { SettingsIcon(it) }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = supporting,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (multiline) 6 else 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        trailing?.invoke()
     }
 }
 
-/** [SettingRow] with a trailing Material3 switch (notification toggles). */
+/** Clickable row with a chevron (or spinner while busy). */
+@Composable
+private fun SettingActionRow(
+    title: String,
+    supporting: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        SettingsIcon(icon, destructive)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = supporting,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!enabled) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** [SettingRow] with a trailing Material3 switch (toggles). */
 @Composable
 private fun SwitchSettingRow(
     title: String,
     supporting: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    icon: ImageVector? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        icon?.let { SettingsIcon(it) }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
             Text(
