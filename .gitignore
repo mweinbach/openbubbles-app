@@ -70,3 +70,4 @@ db/objectbox-model.json.bak
 codegen_logs
 .codex
 android/.project
+db/libobjectbox-jni*
