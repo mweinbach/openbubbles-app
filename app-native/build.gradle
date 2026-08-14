@@ -54,7 +54,7 @@ dependencies {
     implementation "io.objectbox:objectbox-android:4.3.0"
 
     // Rust core via UniFFI (JNA-based bindings)
-    implementation "net.java.dev.jna:jna:5.12.0@aar"
+    implementation "net.java.dev.jna:jna:5.16.0@aar"
 
     implementation "androidx.core:core-ktx:1.15.0"
     implementation "androidx.activity:activity-compose:1.9.3"
