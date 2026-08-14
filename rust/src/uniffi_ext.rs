@@ -19,6 +19,12 @@
 //! pulls with caller-owned continuation cursors, remote tombstone deletes,
 //! and a coarse `sync_history` driver with progress + cooperative cancel.
 //!
+//! Batch 8: FindMy (devices / following / beacon items), contact posters
+//! (transcript + incoming-call parse/pack), the CloudKit upload half
+//! (save chats/messages/attachments + group photo via re-uploadable record
+//! blobs), profile fetch/set, and the SMS helpers (send via the relay
+//! service type, SMS routing targets for the forwarding UI).
+//!
 //! Design notes:
 //! - rustpush's protocol types can't derive UniFFI traits (they live in the
 //!   upstream crate), so every type crossing the FFI boundary is mirrored
@@ -1858,6 +1864,10 @@ pub struct UCloudMessage {
 pub struct UChatChange {
     pub record_id: String,
     pub chat: Option<UCloudChat>,
+    /// Re-uploadable record payload (binary plist of the rustpush
+    /// `CloudChat`). Persist alongside the local row; feed back through
+    /// `upload_chats` to push local modifications. Empty for tombstones.
+    pub blob: Vec<u8>,
 }
 
 /// One message-zone change: `message == None` is a tombstone.
@@ -1865,6 +1875,10 @@ pub struct UChatChange {
 pub struct UMessageChange {
     pub record_id: String,
     pub message: Option<UCloudMessage>,
+    /// Re-uploadable record payload (batch-8 blob format of the rustpush
+    /// `CloudMessage`). Persist alongside the local row; feed back through
+    /// `upload_messages`. Empty for tombstones.
+    pub blob: Vec<u8>,
 }
 
 /// A page from the chat zone (`sync_chats`).
@@ -1925,8 +1939,8 @@ pub trait USyncPageCallback: Send + Sync + Debug {
 /// A single changed record inside a `sync_history` page.
 #[derive(uniffi::Enum)]
 pub enum USyncRecord {
-    Chat { record_id: String, chat: Option<UCloudChat> },
-    Message { record_id: String, message: Option<UCloudMessage> },
+    Chat { record_id: String, chat: Option<UCloudChat>, blob: Vec<u8> },
+    Message { record_id: String, message: Option<UCloudMessage>, blob: Vec<u8> },
 }
 
 fn cloud_messages_client(state: &SharedPushState) -> Result<Arc<CloudMessagesClient<DefaultAnisetteProvider>>, UError> {
@@ -2112,7 +2126,11 @@ impl NativePushState {
         Ok(UChatSyncPage {
             records: items
                 .into_iter()
-                .map(|(record_id, chat)| UChatChange { record_id, chat: chat.as_ref().map(conv_chat) })
+                .map(|(record_id, chat)| UChatChange {
+                    blob: chat.as_ref().map(chat_blob).unwrap_or_default(),
+                    record_id,
+                    chat: chat.as_ref().map(conv_chat),
+                })
                 .collect(),
             next_cursor: next,
             more: status != 3,
@@ -2130,6 +2148,7 @@ impl NativePushState {
             records: items
                 .into_iter()
                 .map(|(record_id, message)| UMessageChange {
+                    blob: message.as_ref().map(message_blob).unwrap_or_default(),
                     record_id,
                     message: message.as_ref().map(conv_cloud_message),
                 })
@@ -2196,11 +2215,15 @@ impl NativePushState {
                 match chat {
                     Some(c) => {
                         summary.chats_done += 1;
-                        records.push(USyncRecord::Chat { record_id, chat: Some(conv_chat(&c)) });
+                        records.push(USyncRecord::Chat {
+                            blob: chat_blob(&c),
+                            record_id,
+                            chat: Some(conv_chat(&c)),
+                        });
                     }
                     None => {
                         summary.chat_tombstones += 1;
-                        records.push(USyncRecord::Chat { record_id, chat: None });
+                        records.push(USyncRecord::Chat { record_id, chat: None, blob: Vec::new() });
                     }
                 }
             }
@@ -2226,11 +2249,15 @@ impl NativePushState {
                     match message {
                         Some(m) => {
                             summary.messages_done += 1;
-                            records.push(USyncRecord::Message { record_id, message: Some(conv_cloud_message(&m)) });
+                            records.push(USyncRecord::Message {
+                                blob: message_blob(&m),
+                                record_id,
+                                message: Some(conv_cloud_message(&m)),
+                            });
                         }
                         None => {
                             summary.message_tombstones += 1;
-                            records.push(USyncRecord::Message { record_id, message: None });
+                            records.push(USyncRecord::Message { record_id, message: None, blob: Vec::new() });
                         }
                     }
                 }
@@ -2483,5 +2510,1201 @@ impl NativePushState {
         RUNTIME
             .block_on(api::answer_ft_request(&self.shared().ft_client, request, approved_group))
             .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 8a: FindMy — devices, followed friends, beacon items
+// ---------------------------------------------------------------------------
+//
+// Mirrors the FRB surface in api.rs (`make_find_my_phone` / `get_devices` /
+// `refresh_devices`, `get_background_following` / `refresh_background_following`
+// over the fmfd daemon, `get_beacon_items` / `accept_beacon_share` /
+// `delete_beacon_share` / `update_beacon_name`). The Dart app created the
+// phone client once at setup (`makeFindMyPhone`) and held it; here the client
+// is cached process-wide and rebuilt when the config dir changes (fresh
+// login/teardown). Friends + items go through `icloud_services.fmfd`
+// (the persistent FindMy daemon client) — NotReady before iCloud setup.
+// There is no FRB "play sound" function upstream, so none is exposed.
+
+use std::collections::HashMap;
+
+use rustpush::findmy::{BeaconNamingRecord, FindMyClient, FindMyPhoneClient};
+
+/// Mirror of rustpush findmy `Address` (reverse-geocode of a location).
+#[derive(uniffi::Record)]
+pub struct UFmAddress {
+    pub administrative_area: Option<String>,
+    pub country: String,
+    pub country_code: String,
+    pub formatted_address_lines: Option<Vec<String>>,
+    pub locality: Option<String>,
+    pub state_code: Option<String>,
+    pub street_address: Option<String>,
+    pub street_name: Option<String>,
+}
+
+/// Mirror of rustpush findmy `Location` (shared by devices and friends).
+#[derive(uniffi::Record)]
+pub struct UFmLocation {
+    pub address: Option<UFmAddress>,
+    pub altitude: f64,
+    pub floor_level: i64,
+    pub horizontal_accuracy: f64,
+    pub is_inaccurate: bool,
+    pub latitude: f64,
+    pub location_id: Option<String>,
+    /// Ms since the Apple epoch (2001-01-01), like every fmf timestamp.
+    pub location_timestamp: Option<i64>,
+    pub longitude: f64,
+    pub secure_location_ts: i64,
+    pub timestamp: i64,
+    pub vertical_accuracy: f64,
+    pub position_type: Option<String>,
+    pub is_old: Option<bool>,
+    pub location_finished: Option<bool>,
+}
+
+/// Mirror of rustpush findmy `FoundDevice` — every field, exactly as the
+/// Dart FindMy UI consumed them.
+#[derive(uniffi::Record)]
+pub struct UFmDevice {
+    pub device_model: Option<String>,
+    pub low_power_mode: Option<bool>,
+    pub passcode_length: Option<i64>,
+    pub id: Option<String>,
+    pub battery_status: Option<String>,
+    pub lost_mode_capable: Option<bool>,
+    /// 0.0 - 1.0.
+    pub battery_level: Option<f64>,
+    pub location_enabled: Option<bool>,
+    pub is_considered_accessory: Option<bool>,
+    pub location: Option<UFmLocation>,
+    pub model_display_name: Option<String>,
+    pub device_color: Option<String>,
+    pub activation_locked: Option<bool>,
+    pub rm2_state: Option<i64>,
+    pub loc_found_enabled: Option<bool>,
+    pub nwd: Option<bool>,
+    pub device_status: Option<String>,
+    pub fmly_share: Option<bool>,
+    pub features: HashMap<String, bool>,
+    pub this_device: Option<bool>,
+    pub lost_mode_enabled: Option<bool>,
+    pub device_display_name: Option<String>,
+    pub name: Option<String>,
+    pub can_wipe_after_lock: Option<bool>,
+    pub is_mac: Option<bool>,
+    pub raw_device_model: Option<String>,
+    pub ba_uuid: Option<String>,
+    pub device_discovery_id: Option<String>,
+    pub scd: Option<bool>,
+    pub location_capable: Option<bool>,
+    pub wipe_in_progress: Option<bool>,
+    pub dark_wake: Option<bool>,
+    pub device_with_you: Option<bool>,
+    pub max_msg_char: Option<i64>,
+    pub device_class: Option<String>,
+}
+
+/// Mirror of rustpush findmy `Follow` (a friend-sharing relationship),
+/// including the last known location when present.
+#[derive(uniffi::Record)]
+pub struct UFmFriend {
+    pub create_timestamp: i64,
+    pub expires: i64,
+    pub id: String,
+    pub invitation_accepted_handles: Vec<String>,
+    pub invitation_from_handles: Vec<String>,
+    pub is_from_messages: bool,
+    pub offer_id: Option<String>,
+    pub only_in_event: bool,
+    pub person_id_hash: String,
+    pub secure_locations_capable: bool,
+    pub shallow_or_live_secure_locations_capable: bool,
+    pub source: String,
+    pub tk_permission: bool,
+    pub update_timestamp: i64,
+    pub fallback_to_legacy_allowed: Option<bool>,
+    pub opted_not_to_share: Option<bool>,
+    pub last_location: Option<UFmLocation>,
+    pub locate_in_progress: bool,
+}
+
+/// Mirror of rustpush findmy `LocationReport` (FindMy-item beacon ping).
+#[derive(uniffi::Record)]
+pub struct UFmReport {
+    pub lat: f32,
+    pub long: f32,
+    pub horizontal_accuracy: u8,
+    pub status: u8,
+    pub confidence: u8,
+    /// Ms since the Unix epoch.
+    pub timestamp_ms: u64,
+    pub key_index: u64,
+}
+
+/// Mirror of api.rs `DartBeacon` (own + shared FindMy items), with the
+/// naming record flattened and the optional share info inlined.
+#[derive(uniffi::Record)]
+pub struct UFmItem {
+    pub emoji: String,
+    pub name: String,
+    pub associated_beacon: String,
+    pub role_id: i64,
+    pub last_report: Option<UFmReport>,
+    pub product_id: i64,
+    pub battery_level: Option<i64>,
+    pub vendor_id: i64,
+    pub model: String,
+    pub system_version: String,
+    /// Stable beacon identifier (record key).
+    pub id: String,
+    /// Present for items shared TO this account.
+    pub share_id: Option<String>,
+    pub acceptance_state: Option<i64>,
+    pub owner_handle: Option<String>,
+}
+
+/// Naming update payload for `update_beacon_name` (mirror of rustpush
+/// `BeaconNamingRecord`).
+#[derive(uniffi::Record)]
+pub struct UFmNaming {
+    pub emoji: String,
+    pub name: String,
+    pub associated_beacon: String,
+    pub role_id: i64,
+}
+
+fn conv_addr(a: &rustpush::findmy::Address) -> UFmAddress {
+    UFmAddress {
+        administrative_area: a.administrative_area.clone(),
+        country: a.country.clone(),
+        country_code: a.country_code.clone(),
+        formatted_address_lines: a.formatted_address_lines.clone(),
+        locality: a.locality.clone(),
+        state_code: a.state_code.clone(),
+        street_address: a.street_address.clone(),
+        street_name: a.street_name.clone(),
+    }
+}
+
+fn conv_location(l: &rustpush::findmy::Location) -> UFmLocation {
+    UFmLocation {
+        address: l.address.as_ref().map(conv_addr),
+        altitude: l.altitude,
+        floor_level: l.floor_level,
+        horizontal_accuracy: l.horizontal_accuracy,
+        is_inaccurate: l.is_inaccurate,
+        latitude: l.latitude,
+        location_id: l.location_id.clone(),
+        location_timestamp: l.location_timestamp,
+        longitude: l.longitude,
+        secure_location_ts: l.secure_location_ts,
+        timestamp: l.timestamp,
+        vertical_accuracy: l.vertical_accuracy,
+        position_type: l.position_type.clone(),
+        is_old: l.is_old,
+        location_finished: l.location_finished,
+    }
+}
+
+fn conv_device(d: &rustpush::findmy::FoundDevice) -> UFmDevice {
+    UFmDevice {
+        device_model: d.device_model.clone(),
+        low_power_mode: d.low_power_mode,
+        passcode_length: d.passcode_length,
+        id: d.id.clone(),
+        battery_status: d.battery_status.clone(),
+        lost_mode_capable: d.lost_mode_capable,
+        battery_level: d.battery_level,
+        location_enabled: d.location_enabled,
+        is_considered_accessory: d.is_considered_accessory,
+        location: d.location.as_ref().map(conv_location),
+        model_display_name: d.model_display_name.clone(),
+        device_color: d.device_color.clone(),
+        activation_locked: d.activation_locked,
+        rm2_state: d.rm2_state,
+        loc_found_enabled: d.loc_found_enabled,
+        nwd: d.nwd,
+        device_status: d.device_status.clone(),
+        fmly_share: d.fmly_share,
+        features: d.features.clone(),
+        this_device: d.this_device,
+        lost_mode_enabled: d.lost_mode_enabled,
+        device_display_name: d.device_display_name.clone(),
+        name: d.name.clone(),
+        can_wipe_after_lock: d.can_wipe_after_lock,
+        is_mac: d.is_mac,
+        raw_device_model: d.raw_device_model.clone(),
+        ba_uuid: d.ba_uuid.clone(),
+        device_discovery_id: d.device_discovery_id.clone(),
+        scd: d.scd,
+        location_capable: d.location_capable,
+        wipe_in_progress: d.wipe_in_progress,
+        dark_wake: d.dark_wake,
+        device_with_you: d.device_with_you,
+        max_msg_char: d.max_msg_char,
+        device_class: d.device_class.clone(),
+    }
+}
+
+fn conv_follow(f: &rustpush::findmy::Follow) -> UFmFriend {
+    UFmFriend {
+        create_timestamp: f.create_timestamp,
+        expires: f.expires,
+        id: f.id.clone(),
+        invitation_accepted_handles: f.invitation_accepted_handles.clone(),
+        invitation_from_handles: f.invitation_from_handles.clone(),
+        is_from_messages: f.is_from_messages,
+        offer_id: f.offer_id.clone(),
+        only_in_event: f.only_in_event,
+        person_id_hash: f.person_id_hash.clone(),
+        secure_locations_capable: f.secure_locations_capable,
+        shallow_or_live_secure_locations_capable: f.shallow_or_live_secure_locations_capable,
+        source: f.source.clone(),
+        tk_permission: f.tk_permission,
+        update_timestamp: f.update_timestamp,
+        fallback_to_legacy_allowed: f.fallback_to_legacy_allowed,
+        opted_not_to_share: f.opted_not_to_share,
+        last_location: f.last_location.as_ref().map(conv_location),
+        locate_in_progress: f.locate_in_progress,
+    }
+}
+
+fn conv_beacon(b: &api::DartBeacon) -> UFmItem {
+    UFmItem {
+        emoji: b.naming.emoji.clone(),
+        name: b.naming.name.clone(),
+        associated_beacon: b.naming.associated_beacon.clone(),
+        role_id: b.naming.role_id,
+        last_report: b.last_report.as_ref().map(|r| UFmReport {
+            lat: r.lat,
+            long: r.long,
+            horizontal_accuracy: r.horizontal_accuracy,
+            status: r.status,
+            confidence: r.confidence,
+            timestamp_ms: r
+                .timestamp
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+            key_index: r.key_index as u64,
+        }),
+        product_id: b.product_id,
+        battery_level: b.battery_level,
+        vendor_id: b.vendor_id,
+        model: b.model.clone(),
+        system_version: b.system_version.clone(),
+        id: b.id.clone(),
+        share_id: b.shared.as_ref().map(|s| s.share_id.clone()),
+        acceptance_state: b.shared.as_ref().map(|s| s.acceptance_state),
+        owner_handle: b.shared.as_ref().map(|s| s.owner_handle.clone()),
+    }
+}
+
+/// Process-wide FindMy-phone client cache (the Dart wizard held its FRB
+/// object for the app's lifetime). Keyed by config dir so a re-login
+/// rebuilds it; `RUNTIME.block_on` drives the async constructor.
+static FMI_PHONE: std::sync::LazyLock<std::sync::Mutex<Option<(String, FindMyPhoneClient<DefaultAnisetteProvider>)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+fn fmfd_client(state: &SharedPushState) -> Result<Arc<FindMyClient<DefaultAnisetteProvider>>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|s| s.fmfd.clone())
+        .ok_or_else(|| UError::NotReady {
+            reason: "FindMy friends/items unavailable: no iCloud account or keychain on this state".to_string(),
+        })
+}
+
+/// Borrow the cached FindMy-phone client for `state`, (re)creating it via
+/// `make_find_my_phone` when missing or stale. The guard is held across the
+/// `block_on` bodies of the callers — single-threaded per call site, no
+/// re-entrancy.
+fn with_fmi_phone<T>(
+    state: &SharedPushState,
+    f: impl FnOnce(&mut FindMyPhoneClient<DefaultAnisetteProvider>) -> Result<T, UError>,
+) -> Result<T, UError> {
+    let services = state.icloud_services.as_ref().ok_or_else(|| {
+        UError::NotReady { reason: "FindMy devices unavailable: finish iCloud login first".to_string() }
+    })?;
+    let mut locked = FMI_PHONE.lock().expect("findmy phone cache poisoned");
+    let needs_rebuild = match locked.as_ref() {
+        Some((dir, _)) => *dir != state.conf_dir,
+        None => true,
+    };
+    if needs_rebuild {
+        let client = RUNTIME
+            .block_on(api::make_find_my_phone(
+                state.conf_dir.clone(),
+                &state.os_config,
+                &state.conn,
+                &state.anisette,
+                &services.token_provider,
+            ))
+            .map_err(|e| UError::NotReady { reason: format!("failed to start FindMy devices: {e}") })?;
+        *locked = Some((state.conf_dir.clone(), client));
+    }
+    f(&mut locked.as_mut().expect("just ensured").1)
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// Devices on this Apple ID, from cache (creates the client on first
+    /// call — its constructor already fetches the device list).
+    pub fn get_devices(&self) -> Result<Vec<UFmDevice>, UError> {
+        with_fmi_phone(self.shared(), |client| {
+            Ok(RUNTIME.block_on(api::get_devices(client)).iter().map(conv_device).collect())
+        })
+    }
+
+    /// Devices on this Apple ID, after a server refresh (`refreshClient`).
+    pub fn refresh_devices(&self) -> Result<Vec<UFmDevice>, UError> {
+        let config = self.shared().os_config.clone();
+        with_fmi_phone(self.shared(), move |client| {
+            let devices = RUNTIME
+                .block_on(api::refresh_devices(&config, client))
+                .map_err(|e| UError::Failed { reason: format!("findmy refresh failed: {e}") })?;
+            Ok(devices.iter().map(conv_device).collect())
+        })
+    }
+
+    /// Friends this account follows, from the fmfd daemon cache (may be
+    /// empty before the first refresh).
+    pub fn get_following(&self) -> Result<Vec<UFmFriend>, UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        Ok(RUNTIME.block_on(api::get_background_following(&fmfd)).iter().map(conv_follow).collect())
+    }
+
+    /// Friends this account follows, after a server refresh.
+    pub fn refresh_following(&self) -> Result<Vec<UFmFriend>, UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        let config = self.shared().os_config.clone();
+        let following = RUNTIME
+            .block_on(api::refresh_background_following(&fmfd, &config))
+            .map_err(|e| UError::Failed { reason: format!("findmy friends refresh failed: {e}") })?;
+        Ok(following.iter().map(conv_follow).collect())
+    }
+
+    /// Own + shared FindMy items (AirTags etc.), syncing positions first
+    /// (api.rs `get_beacon_items`).
+    pub fn get_beacon_items(&self) -> Result<Vec<UFmItem>, UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        let items = RUNTIME
+            .block_on(api::get_beacon_items(&fmfd))
+            .map_err(|e| UError::Failed { reason: format!("findmy items failed: {e}") })?;
+        Ok(items.iter().map(conv_beacon).collect())
+    }
+
+    /// Accept a pending item share (the `BeaconShared` push payload's id).
+    pub fn accept_beacon_share(&self, share_id: String) -> Result<(), UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        RUNTIME
+            .block_on(api::accept_beacon_share(&fmfd, share_id))
+            .map_err(|e| UError::Failed { reason: format!("accept beacon share failed: {e}") })
+    }
+
+    /// Delete a shared item.
+    pub fn delete_beacon_share(&self, share_id: String) -> Result<(), UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        RUNTIME
+            .block_on(api::delete_beacon_share(&fmfd, share_id))
+            .map_err(|e| UError::Failed { reason: format!("delete beacon share failed: {e}") })
+    }
+
+    /// Rename / re-emoji an item (`update_beacon_name`).
+    pub fn update_beacon_name(&self, naming: UFmNaming) -> Result<(), UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        let record = BeaconNamingRecord {
+            emoji: naming.emoji,
+            name: naming.name,
+            associated_beacon: naming.associated_beacon,
+            role_id: naming.role_id,
+        };
+        RUNTIME
+            .block_on(api::update_beacon_name(&fmfd, &record))
+            .map_err(|e| UError::Failed { reason: format!("update beacon name failed: {e}") })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 8b: contact posters (transcript + incoming-call) and profiles
+// ---------------------------------------------------------------------------
+//
+// Mirrors the FRB poster fns in api.rs: `parse_transcript_poster` /
+// `pack_transcript_poster` (zip payload <-> SimplifiedTranscriptPoster),
+// `parse_poster` / `from_poster` (IMessagePosterRecord <->
+// SimplifiedIncomingCallPoster) and the binary-plist save/restore round
+// trips (`transcript_poster_save`, `from_poster_save`...). The parsed
+// posters are opaque objects with typed accessors (the UAttachment
+// pattern): full fidelity survives `to_payload` / `to_record` because the
+// upstream value is kept, not re-mirrored.
+
+use rustpush::posterkit::{
+    PosterType, SimplifiedIncomingCallPoster, SimplifiedPoster,
+    SimplifiedTranscriptPoster, WallpaperMetadata,
+};
+use rustpush::name_photo_sharing::{IMessageNameRecord, IMessageNicknameRecord, IMessagePosterRecord};
+
+/// RGBA color as used by poster backgrounds / text.
+#[derive(uniffi::Record)]
+pub struct UPosterColor {
+    pub alpha: f64,
+    pub blue: f64,
+    pub green: f64,
+    pub red: f64,
+}
+
+/// Watch-background half of a transcript poster.
+#[derive(uniffi::Record)]
+pub struct UWatchBackground {
+    pub is_high_key: bool,
+    pub luminance: f64,
+    /// Raw image bytes for the chat-background wallpaper.
+    pub background_image: Vec<u8>,
+    pub extension_identifier: String,
+}
+
+/// One file inside a photo-poster asset (the actual image layers).
+#[derive(uniffi::Record)]
+pub struct UPosterFile {
+    pub filename: String,
+    pub data: Vec<u8>,
+}
+
+/// Which poster flavor this is, with the cheap display fields inline.
+#[derive(uniffi::Enum)]
+pub enum UPosterKind {
+    Photo { asset_count: u64 },
+    Monogram {
+        initials: String,
+        background: UPosterColor,
+        top_background: UPosterColor,
+        monogram_supported_for_name: bool,
+    },
+    Memoji { background: UPosterColor, has_body: bool },
+    TranscriptDynamic { identifier: String },
+    TranscriptGradient { colors: Vec<UPosterColor> },
+}
+
+fn conv_color(c: &rustpush::posterkit::PosterColor) -> UPosterColor {
+    UPosterColor { alpha: c.alpha, blue: c.blue, green: c.green, red: c.red }
+}
+
+fn poster_kind(poster: &SimplifiedPoster) -> UPosterKind {
+    match &poster.r#type {
+        PosterType::Photo { assets } => UPosterKind::Photo { asset_count: assets.len() as u64 },
+        PosterType::Monogram { data, background } => UPosterKind::Monogram {
+            initials: data.initials.clone(),
+            background: conv_color(background),
+            top_background: conv_color(&data.top_background_color_description),
+            monogram_supported_for_name: data.monogram_supported_for_name,
+        },
+        PosterType::Memoji { data, background } => {
+            UPosterKind::Memoji { background: conv_color(background), has_body: data.has_body }
+        }
+        PosterType::TranscriptDynamic { data } => {
+            UPosterKind::TranscriptDynamic { identifier: data.identifier.clone() }
+        }
+        PosterType::TranscriptGradient { colors } => {
+            UPosterKind::TranscriptGradient { colors: colors.iter().map(conv_color).collect() }
+        }
+    }
+}
+
+/// Text styling of an incoming-call poster (WallpaperMetadata).
+#[derive(uniffi::Record)]
+pub struct UWallpaperMetadata {
+    pub background_color: Option<UPosterColor>,
+    pub font_color: UPosterColor,
+    pub font_name: String,
+    pub font_size: f32,
+    pub font_weight: f32,
+    pub is_vertical: bool,
+    pub type_key: String,
+}
+
+fn conv_wallpaper(w: &WallpaperMetadata) -> UWallpaperMetadata {
+    UWallpaperMetadata {
+        background_color: w.background_color_key.as_ref().map(conv_color),
+        font_color: conv_color(&w.font_color_key),
+        font_name: w.font_name_key.clone(),
+        font_size: w.font_size_key,
+        font_weight: w.font_weight_key,
+        is_vertical: w.is_vertical_key,
+        type_key: w.type_key.clone(),
+    }
+}
+
+/// Raw iCloud poster record (`IMessagePosterRecord`) — what
+/// `fetch_profile` returns and `set_profile` accepts; parse it with
+/// `parse_call_poster` to render.
+#[derive(uniffi::Record)]
+pub struct UPosterRecord {
+    pub low_res_poster: Vec<u8>,
+    pub package: Vec<u8>,
+    pub meta: Vec<u8>,
+}
+
+fn back_poster_record(r: UPosterRecord) -> IMessagePosterRecord {
+    IMessagePosterRecord {
+        low_res_poster: r.low_res_poster,
+        package: r.package,
+        meta: r.meta,
+    }
+}
+
+/// Parsed transcript (chat-background) poster. Parse from the zip payload
+/// bytes carried on `SetTranscriptBackground` messages; `to_payload`
+/// packs a (possibly unchanged) poster back into sendable bytes.
+#[derive(uniffi::Object)]
+pub struct UTranscriptPoster {
+    inner: SimplifiedTranscriptPoster,
+}
+
+/// api.rs `parse_transcript_poster` — decode a transcript-background zip
+/// payload.
+#[uniffi::export]
+pub fn parse_poster(data: Vec<u8>) -> Result<Arc<UTranscriptPoster>, UError> {
+    let inner = SimplifiedTranscriptPoster::parse_payload(&data)
+        .map_err(|e| UError::InvalidArgument { reason: format!("failed to parse transcript poster: {e}") })?;
+    Ok(Arc::new(UTranscriptPoster { inner }))
+}
+
+/// api.rs `from_transcript_poster_save` — restore a poster persisted via
+/// `UTranscriptPoster.save` (binary plist).
+#[uniffi::export]
+pub fn restore_transcript_poster_save(data: Vec<u8>) -> Result<Arc<UTranscriptPoster>, UError> {
+    let inner: SimplifiedTranscriptPoster = plist::from_bytes(&data)
+        .map_err(|e| UError::InvalidArgument { reason: format!("invalid saved transcript poster: {e}") })?;
+    Ok(Arc::new(UTranscriptPoster { inner }))
+}
+
+#[uniffi::export]
+impl UTranscriptPoster {
+    /// api.rs `pack_transcript_poster` — serialize back to the zip payload.
+    pub fn to_payload(&self) -> Result<Vec<u8>, UError> {
+        let mut inner = self.inner.clone();
+        inner
+            .to_payload()
+            .map_err(|e| UError::Failed { reason: format!("failed to pack transcript poster: {e}") })
+    }
+
+    /// api.rs `transcript_poster_save` — binary plist for persistence.
+    pub fn save(&self) -> Result<Vec<u8>, UError> {
+        to_plist_bin(&self.inner)
+    }
+
+    /// The watch/chat background half (contains the wallpaper image bytes).
+    pub fn watch(&self) -> UWatchBackground {
+        UWatchBackground {
+            is_high_key: self.inner.watch.is_high_key,
+            luminance: self.inner.watch.luminance,
+            background_image: self.inner.watch.background_image_data.clone(),
+            extension_identifier: self.inner.watch.extension_identifier.clone(),
+        }
+    }
+
+    /// Which poster flavor this is (colors / initials / identifiers).
+    pub fn kind(&self) -> UPosterKind {
+        poster_kind(&self.inner.poster)
+    }
+
+    /// Title luminance (0..1) — pick contrasting text color against it.
+    pub fn title_luminance(&self) -> f64 {
+        self.inner.poster.title_configuration.contents_luminence
+    }
+
+    /// All files of the idx'th photo asset (empty for non-photo posters).
+    pub fn photo_files(&self, asset_index: u64) -> Vec<UPosterFile> {
+        match &self.inner.poster.r#type {
+            PosterType::Photo { assets } => assets.get(asset_index as usize).map(|a| {
+                a.files
+                    .iter()
+                    .map(|(name, data)| UPosterFile { filename: name.clone(), data: data.clone() })
+                    .collect()
+            }).unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// Parsed incoming-call / contact poster (`SimplifiedIncomingCallPoster`).
+#[derive(uniffi::Object)]
+pub struct UCallPoster {
+    inner: SimplifiedIncomingCallPoster,
+}
+
+/// api.rs `parse_poster` — decode a raw `IMessagePosterRecord` (from
+/// `fetch_profile` or a saved record) into a renderable poster.
+#[uniffi::export]
+pub fn parse_call_poster(record: UPosterRecord) -> Result<Arc<UCallPoster>, UError> {
+    let raw = back_poster_record(record);
+    let inner = SimplifiedIncomingCallPoster::from_poster(&raw)
+        .map_err(|e| UError::InvalidArgument { reason: format!("failed to parse call poster: {e}") })?;
+    Ok(Arc::new(UCallPoster { inner }))
+}
+
+/// api.rs `from_poster_save` (with its tolerant fallback for the older
+/// save format) — restore a poster persisted via `UCallPoster.save`.
+#[uniffi::export]
+pub fn restore_call_poster_save(data: Vec<u8>) -> Result<Arc<UCallPoster>, UError> {
+    let inner = match plist::from_bytes::<SimplifiedIncomingCallPoster>(&data) {
+        Ok(poster) => poster,
+        Err(_) => {
+            #[derive(serde::Deserialize)]
+            struct Extras {
+                text_metadata: WallpaperMetadata,
+                low_res: plist::Data,
+            }
+            let poster: SimplifiedPoster = plist::from_bytes(&data)
+                .map_err(|e| UError::InvalidArgument { reason: format!("invalid saved call poster: {e}") })?;
+            let extras: Extras = plist::from_bytes(&data)
+                .map_err(|e| UError::InvalidArgument { reason: format!("invalid saved call poster extras: {e}") })?;
+            SimplifiedIncomingCallPoster {
+                poster,
+                text_metadata: extras.text_metadata,
+                low_res: extras.low_res.into(),
+            }
+        }
+    };
+    Ok(Arc::new(UCallPoster { inner }))
+}
+
+#[uniffi::export]
+impl UCallPoster {
+    /// api.rs `from_poster` — rebuild the raw record (for `set_profile`).
+    pub fn to_record(&self) -> Result<UPosterRecord, UError> {
+        let mut inner = self.inner.clone();
+        let record = inner
+            .to_poster()
+            .map_err(|e| UError::Failed { reason: format!("failed to pack call poster: {e}") })?;
+        Ok(UPosterRecord {
+            low_res_poster: record.low_res_poster,
+            package: record.package,
+            meta: record.meta,
+        })
+    }
+
+    /// api.rs `parse_poster_save` — binary plist for persistence.
+    pub fn save(&self) -> Result<Vec<u8>, UError> {
+        to_plist_bin(&self.inner)
+    }
+
+    /// Text styling (font color/size, background color, type).
+    pub fn text_metadata(&self) -> UWallpaperMetadata {
+        conv_wallpaper(&self.inner.text_metadata)
+    }
+
+    /// Low-res preview image bytes.
+    pub fn low_res_image(&self) -> Vec<u8> {
+        self.inner.low_res.clone()
+    }
+
+    /// Which poster flavor this is.
+    pub fn kind(&self) -> UPosterKind {
+        poster_kind(&self.inner.poster)
+    }
+
+    /// All files of the idx'th photo asset (empty for non-photo posters).
+    pub fn photo_files(&self, asset_index: u64) -> Vec<UPosterFile> {
+        match &self.inner.poster.r#type {
+            PosterType::Photo { assets } => assets.get(asset_index as usize).map(|a| {
+                a.files
+                    .iter()
+                    .map(|(name, data)| UPosterFile { filename: name.clone(), data: data.clone() })
+                    .collect()
+            }).unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// Result of `fetch_profile` (api.rs `IMessageNicknameRecord`): the name a
+/// contact shared, an optional avatar image, and an optional raw poster
+/// record (parse with `parse_call_poster`).
+#[derive(uniffi::Record)]
+pub struct UNicknameRecord {
+    pub name: String,
+    pub first: String,
+    pub last: String,
+    pub image: Option<Vec<u8>>,
+    pub poster: Option<UPosterRecord>,
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
+    /// from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
+    /// sender's shared name + avatar + poster.
+    pub fn fetch_profile(&self, profile_json: String) -> Result<UNicknameRecord, UError> {
+        let services = self.shared().icloud_services.as_ref().ok_or_else(|| {
+            UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
+        })?;
+        let message: ShareProfileMessage = serde_json::from_str(&profile_json)
+            .map_err(|e| UError::InvalidArgument { reason: format!("invalid profile message json: {e}") })?;
+        let record = RUNTIME
+            .block_on(api::fetch_profile(&services.profiles_client, &message))
+            .map_err(|e| UError::Failed { reason: format!("fetch profile failed: {e}") })?;
+        Ok(UNicknameRecord {
+            name: record.name.name,
+            first: record.name.first,
+            last: record.name.last,
+            image: record.image,
+            poster: record.poster.map(|p| UPosterRecord {
+                low_res_poster: p.low_res_poster,
+                package: p.package,
+                meta: p.meta,
+            }),
+        })
+    }
+
+    /// api.rs `set_profile` — publish this account's shared name/image/
+    /// poster. `existing_json` is the previously returned profile JSON
+    /// (kept across runs, like Dart's `shareProfileMessage` setting).
+    /// Returns the new `ShareProfileMessage` JSON: persist it, and send it
+    /// to contacts with `send_profile`.
+    pub fn set_profile(
+        &self,
+        name: String,
+        first: String,
+        last: String,
+        image: Option<Vec<u8>>,
+        poster: Option<UPosterRecord>,
+        existing_json: Option<String>,
+    ) -> Result<String, UError> {
+        let services = self.shared().icloud_services.as_ref().ok_or_else(|| {
+            UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
+        })?;
+        let existing = match existing_json {
+            Some(json) => Some(serde_json::from_str::<ShareProfileMessage>(&json)
+                .map_err(|e| UError::InvalidArgument { reason: format!("invalid existing profile json: {e}") })?),
+            None => None,
+        };
+        let record = IMessageNicknameRecord {
+            name: IMessageNameRecord { name, first, last },
+            image,
+            poster: poster.map(back_poster_record),
+        };
+        let message = RUNTIME
+            .block_on(api::set_profile(&services.profiles_client, record, existing))
+            .map_err(|e| UError::Failed { reason: format!("set profile failed: {e}") })?;
+        serde_json::to_string(&message)
+            .map_err(|e| UError::Failed { reason: format!("failed to serialize profile message: {e}") })
+    }
+
+    /// Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
+    /// conversation — the "share name and photo" message.
+    pub fn send_profile(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        profile_json: String,
+    ) -> Result<UMessageInst, UError> {
+        let message: ShareProfileMessage = serde_json::from_str(&profile_json)
+            .map_err(|e| UError::InvalidArgument { reason: format!("invalid profile message json: {e}") })?;
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::ShareProfile(message),
+        ));
+        send_inst(self.shared(), inst)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 8c: CloudKit upload half (save chats / messages / attachments,
+// group photos) + the blob round trip that feeds it
+// ---------------------------------------------------------------------------
+//
+// Mirrors the Dart `uploadMessages` / chat-save half of
+// doCloudKitSyncPrivate (lib/services/rustpush/rustpush_service.dart):
+// - `save_chats` / `save_messages` take the full rustpush records, which
+//   Kotlin cannot construct. Instead every record pulled by the batch-4
+//   sync now carries a re-uploadable `blob` (binary plist of `CloudChat`;
+//   a plist wrapping of `CloudMessage`'s fields with the protobuf halves
+//   kept as the exact gzipped wire bytes). Persist the blob next to the
+//   local row (ckRecordId) and feed it back through `upload_chats` /
+//   `upload_messages` to push updates. Constructing brand-new cloud
+//   records from purely local rows (Dart's `Message.toCloud`) stays a
+//   later batch — this is the re-sync/update half.
+// - `upload_attachments` mirrors uploadCloudAttachments + saveAttachments
+//   in one call: bytes go up, the resulting Asset is folded into a
+//   `CloudAttachment` record with the caller-supplied meta.
+// - `upload_group_photo` mirrors uploadGroupPhoto + saveChats: uploads the
+//   image, grafts the Asset onto the restored chat record, saves it.
+
+use rustpush::cloud_messages::{AttachmentMeta, CloudAttachment, MessageFlags};
+use rustpush::cloudkit_proto::{Asset, CloudKitBytes};
+use rustpush::cloud_messages::cloudmessagesp::{MessageProto, MessageProto2, MessageProto3, MessageProto4};
+use rustpush::cloud_messages::GZipWrapper;
+
+use futures::FutureExt;
+
+/// Run an upload future, converting panics and anyhow errors to UError
+/// (api.rs unwraps on inconsistent server responses).
+fn ck_run<T>(fut: impl std::future::Future<Output = anyhow::Result<T>>) -> Result<T, UError> {
+    RUNTIME
+        .block_on(std::panic::AssertUnwindSafe(fut).catch_unwind())
+        .map_err(ck_panic)?
+        .map_err(sync_err)
+}
+
+fn to_plist_bin<T: Serialize>(value: &T) -> Result<Vec<u8>, UError> {
+    let mut buf = Vec::new();
+    plist::to_writer_binary(&mut buf, value)
+        .map_err(|e| UError::Failed { reason: format!("failed to serialize binary plist: {e}") })?;
+    Ok(buf)
+}
+
+/// Binary-plist serialization of a `CloudChat` (same format api.rs
+/// `save_cloud_chat` produces — blobs are interchangeable with FRB's).
+fn chat_blob(c: &CloudChat) -> Vec<u8> {
+    to_plist_bin(c).unwrap_or_default()
+}
+
+/// Serializable stand-in for `CloudMessage` (which carries no serde
+/// derives upstream): the protobuf fields keep their exact CloudKit wire
+/// form (gzipped prost bytes) so the round trip is lossless.
+#[derive(Serialize, serde::Deserialize)]
+struct CkMessageBlob {
+    utm_ms: Option<u64>,
+    msg_type: i64,
+    error: i64,
+    chat_id: String,
+    sender: String,
+    time: i64,
+    msg_proto_2: Option<Vec<u8>>,
+    destination_caller_id: String,
+    msg_proto: Vec<u8>,
+    flags_bits: i64,
+    guid: String,
+    msg_proto_3: Option<Vec<u8>>,
+    service: String,
+    msg_proto_4: Option<Vec<u8>>,
+}
+
+impl CkMessageBlob {
+    fn from_message(m: &CloudMessage) -> Self {
+        Self {
+            utm_ms: m.utm.map(|t| {
+                t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0)
+            }),
+            msg_type: m.r#type,
+            error: m.error,
+            chat_id: m.chat_id.clone(),
+            sender: m.sender.clone(),
+            time: m.time,
+            msg_proto_2: m.msg_proto_2.as_ref().map(|p| p.to_bytes()),
+            destination_caller_id: m.destination_caller_id.clone(),
+            msg_proto: m.msg_proto.to_bytes(),
+            flags_bits: m.flags.bits(),
+            guid: m.guid.clone(),
+            msg_proto_3: m.msg_proto_3.as_ref().map(|p| p.to_bytes()),
+            service: m.service.clone(),
+            msg_proto_4: m.msg_proto_4.as_ref().map(|p| p.to_bytes()),
+        }
+    }
+
+    fn into_message(self) -> CloudMessage {
+        CloudMessage {
+            utm: self.utm_ms.map(|ms| std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(ms)),
+            r#type: self.msg_type,
+            error: self.error,
+            chat_id: self.chat_id,
+            sender: self.sender,
+            time: self.time,
+            msg_proto_2: self.msg_proto_2.map(GZipWrapper::<MessageProto2>::from_bytes),
+            destination_caller_id: self.destination_caller_id,
+            msg_proto: GZipWrapper::<MessageProto>::from_bytes(self.msg_proto),
+            flags: MessageFlags::from_bits_truncate(self.flags_bits),
+            guid: self.guid,
+            msg_proto_3: self.msg_proto_3.map(GZipWrapper::<MessageProto3>::from_bytes),
+            service: self.service,
+            msg_proto_4: self.msg_proto_4.map(GZipWrapper::<MessageProto4>::from_bytes),
+        }
+    }
+}
+
+fn message_blob(m: &CloudMessage) -> Vec<u8> {
+    to_plist_bin(&CkMessageBlob::from_message(m)).unwrap_or_default()
+}
+
+/// One record to (re-)upload: the CloudKit record id plus the blob pulled
+/// from a `UChatChange` / `UMessageChange` during sync.
+#[derive(uniffi::Record)]
+pub struct UCkBlob {
+    pub record_id: String,
+    pub blob: Vec<u8>,
+}
+
+/// Per-record outcome of an upload call.
+#[derive(uniffi::Record)]
+pub struct UCkSaveResult {
+    pub record_id: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+/// One attachment upload: local file + target record id + the
+/// `AttachmentMeta` JSON (rustpush field keys: "mimet", "sdt", "tb",
+/// "st", "is", "aguid", "ha", "ui", "fn", "ig", "tn", "vers", "t", "cdt",
+/// "pathc", "mdh", "aui" — same map Dart's `getAttachmentMeta` built).
+#[derive(uniffi::Record)]
+pub struct UCkAttachmentUpload {
+    pub file_path: String,
+    pub record_id: String,
+    pub meta_json: String,
+}
+
+fn ck_result(record_id: String, ok: bool) -> UCkSaveResult {
+    UCkSaveResult { record_id, ok, error: if ok { None } else { Some("save rejected by CloudKit".to_string()) } }
+}
+
+/// The upload fns unwind-panic inside api.rs on inconsistent server
+/// responses (signature unwraps); keep the process alive and surface it.
+fn ck_panic(e: Box<dyn std::any::Any + Send>) -> UError {
+    let reason = match e.downcast_ref::<&'static str>() {
+        Some(s) => *s,
+        None => match e.downcast_ref::<String>() {
+            Some(s) => s.as_str(),
+            None => "unknown",
+        },
+    };
+    UError::Failed { reason: format!("cloudkit upload panicked: {reason}") }
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// api.rs `save_chats` — push chat records back to iCloud. Each entry
+    /// is a `UChatChange.blob` (restored to a `CloudChat`); restore
+    /// failures are reported per record without aborting the batch.
+    pub fn upload_chats(&self, records: Vec<UCkBlob>) -> Result<Vec<UCkSaveResult>, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let mut map: HashMap<String, CloudChat> = HashMap::new();
+        let mut restore_errors: Vec<UCkSaveResult> = Vec::new();
+        for record in records {
+            match plist::from_bytes::<CloudChat>(&record.blob) {
+                Ok(chat) => {
+                    map.insert(record.record_id, chat);
+                }
+                Err(e) => restore_errors.push(UCkSaveResult {
+                    record_id: record.record_id,
+                    ok: false,
+                    error: Some(format!("invalid chat blob: {e}")),
+                }),
+            }
+        }
+        let saved = ck_run(api::save_chats(&client, map))?;
+        let mut results: Vec<UCkSaveResult> = saved
+            .into_iter()
+            .map(|(id, ok)| ck_result(id, ok))
+            .collect();
+        results.extend(restore_errors);
+        Ok(results)
+    }
+
+    /// api.rs `save_messages` — push message records back to iCloud, from
+    /// their `UMessageChange.blob` payloads. Same per-record contract as
+    /// `upload_chats`.
+    pub fn upload_messages(&self, records: Vec<UCkBlob>) -> Result<Vec<UCkSaveResult>, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let mut map: HashMap<String, CloudMessage> = HashMap::new();
+        let mut restore_errors: Vec<UCkSaveResult> = Vec::new();
+        for record in records {
+            match plist::from_bytes::<CkMessageBlob>(&record.blob) {
+                Ok(blob) => {
+                    map.insert(record.record_id, blob.into_message());
+                }
+                Err(e) => restore_errors.push(UCkSaveResult {
+                    record_id: record.record_id,
+                    ok: false,
+                    error: Some(format!("invalid message blob: {e}")),
+                }),
+            }
+        }
+        let saved = ck_run(api::save_messages(&client, map))?;
+        let mut results: Vec<UCkSaveResult> = saved
+            .into_iter()
+            .map(|(id, ok)| ck_result(id, ok))
+            .collect();
+        results.extend(restore_errors);
+        Ok(results)
+    }
+
+    /// api.rs `upload_cloud_attachments` + `save_attachments` in one call
+    /// (the attachment half of Dart `uploadMessages`): uploads each local
+    /// file, folds the resulting asset into a `CloudAttachment` record
+    /// with the given meta, and saves the records. Restore/parse failures
+    /// are per-record; a transport failure fails the call.
+    pub fn upload_attachments(&self, uploads: Vec<UCkAttachmentUpload>) -> Result<Vec<UCkSaveResult>, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let mut files: Vec<(String, String)> = Vec::with_capacity(uploads.len());
+        let mut metas: HashMap<String, AttachmentMeta> = HashMap::new();
+        let mut results: Vec<UCkSaveResult> = Vec::with_capacity(uploads.len());
+        for upload in uploads {
+            match serde_json::from_str::<AttachmentMeta>(&upload.meta_json) {
+                Ok(meta) => {
+                    metas.insert(upload.record_id.clone(), meta);
+                    files.push((upload.file_path, upload.record_id));
+                }
+                Err(e) => results.push(UCkSaveResult {
+                    record_id: upload.record_id,
+                    ok: false,
+                    error: Some(format!("invalid attachment meta json: {e}")),
+                }),
+            }
+        }
+        if files.is_empty() {
+            return Ok(results);
+        }
+        let assets: HashMap<String, Asset> =
+            ck_run(api::upload_cloud_attachments(&client, files.clone()))?;
+        let mut records: HashMap<String, CloudAttachment> = HashMap::new();
+        for (file, record_id) in &files {
+            let Some(asset) = assets.get(record_id) else {
+                results.push(UCkSaveResult {
+                    record_id: record_id.clone(),
+                    ok: false,
+                    error: Some(format!("no asset returned for {file}")),
+                });
+                continue;
+            };
+            let meta = metas.remove(record_id).unwrap_or_default();
+            records.insert(record_id.clone(), CloudAttachment { cm: GZipWrapper(meta), lqa: asset.clone() });
+        }
+        let saved = ck_run(api::save_attachments(&client, records))?;
+        for (id, ok) in saved {
+            results.push(ck_result(id, ok));
+        }
+        Ok(results)
+    }
+
+    /// api.rs `upload_group_photo` + `save_chats` (Dart `uploadChats`'s
+    /// photo step): uploads the image file, grafts the asset onto the
+    /// chat record restored from `chat_blob` (a `UChatChange.blob`), and
+    /// saves the chat back to iCloud.
+    pub fn upload_group_photo(
+        &self,
+        file_path: String,
+        chat_record_id: String,
+        chat_blob: Vec<u8>,
+    ) -> Result<UCkSaveResult, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let mut chat: CloudChat = plist::from_bytes(&chat_blob)
+            .map_err(|e| UError::InvalidArgument { reason: format!("invalid chat blob: {e}") })?;
+        let assets: HashMap<String, Asset> = ck_run(api::upload_group_photo(
+            &client,
+            vec![(file_path.clone(), chat_record_id.clone())],
+        ))?;
+        let Some(asset) = assets.get(&chat_record_id) else {
+            return Ok(UCkSaveResult {
+                record_id: chat_record_id,
+                ok: false,
+                error: Some(format!("no asset returned for {file_path}")),
+            });
+        };
+        chat.group_photo = Some(asset.clone());
+        let saved = ck_run(api::save_chats(
+            &client,
+            HashMap::from([(chat_record_id.clone(), chat)]),
+        ))?;
+        let ok = saved.get(&chat_record_id).copied().unwrap_or(false);
+        Ok(ck_result(chat_record_id, ok))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 8d: SMS helpers — relay-service send + routing targets
+// ---------------------------------------------------------------------------
+//
+// Dart built outgoing SMS as NormalMessage with
+// `MessageType.sms(isPhone: chat.shouldRoute(), usingNumber:
+// chat.ensureHandle(), fromHandle: <forwarded sender or null>)`; batch 1's
+// `send_text` hard-codes IMessage, so SMS needs its own entry point.
+// `sms_targets_for` wraps api.rs `get_sms_targets` (the device list the
+// forwarding / "send as SMS" UI picks from).
+
+/// Mirror of rustpush `PrivateDeviceInfo` — an SMS-capable device on the
+/// account (used by relay routing).
+#[derive(uniffi::Record)]
+pub struct USmsTarget {
+    pub uuid: Option<String>,
+    pub device_name: Option<String>,
+    pub token: Vec<u8>,
+    pub is_hsa_trusted: bool,
+    pub identities: Vec<String>,
+    pub sub_services: Vec<String>,
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// api.rs `get_sms_targets` — SMS relay targets for a handle.
+    /// `refresh` forces an IDS re-lookup.
+    pub fn sms_targets_for(&self, handle: String, refresh: bool) -> Result<Vec<USmsTarget>, UError> {
+        let targets = RUNTIME
+            .block_on(api::get_sms_targets(&self.shared().client, handle, refresh))
+            .map_err(|e| UError::Failed { reason: format!("sms target lookup failed: {e}") })?;
+        Ok(targets
+            .iter()
+            .map(|t| USmsTarget {
+                uuid: t.uuid.clone(),
+                device_name: t.device_name.clone(),
+                token: t.token.clone(),
+                is_hsa_trusted: t.is_hsa_trusted,
+                identities: t.identites.clone(),
+                sub_services: t.sub_services.clone(),
+            })
+            .collect())
+    }
+
+    /// Send a text over the SMS relay (`MessageType::SMS`). `using_number`
+    /// is the tel:-prefixed number of mine to route through (when None,
+    /// the first registered phone handle is used); `from_handle` marks a
+    /// forwarded message (the original sender). Other params mirror
+    /// `send_text`.
+    pub fn send_sms(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        text: String,
+        using_number: Option<String>,
+        from_handle: Option<String>,
+        reply_guid: Option<String>,
+        reply_part: Option<String>,
+        effect: Option<String>,
+        subject: Option<String>,
+    ) -> Result<UMessageInst, UError> {
+        let using_number = match using_number {
+            Some(n) => n,
+            None => {
+                let handles = RUNTIME
+                    .block_on(api::get_my_phone_handles(&self.shared().client))
+                    .map_err(|e| UError::NotReady { reason: format!("no phone handle for SMS: {e}") })?;
+                handles
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| UError::NotReady { reason: "no registered phone handle for SMS".to_string() })?
+            }
+        };
+        let mut normal = NormalMessage::new(text, MessageType::SMS {
+            is_phone: true,
+            using_number,
+            from_handle,
+        });
+        normal.reply_guid = reply_guid;
+        normal.reply_part = reply_part;
+        normal.effect = effect;
+        normal.subject = subject;
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::Message(normal),
+        ));
+        send_inst(self.shared(), inst)
     }
 }

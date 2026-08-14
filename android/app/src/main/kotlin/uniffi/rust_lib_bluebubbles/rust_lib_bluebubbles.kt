@@ -1366,6 +1366,76 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1401,6 +1471,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_is_locked(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_parse_call_poster(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_parse_poster(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data(
@@ -1412,6 +1486,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal(
 fun uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_restore_call_poster_save(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_restore_transcript_poster_save(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username(
 ): Short
@@ -1465,6 +1543,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_encrypt(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_beacon_share(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime(
@@ -1476,6 +1556,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote(
 ): Short
@@ -1489,11 +1571,19 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_fetch_profile(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_ft_sessions(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_devices(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_following(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_ft_link(
 ): Short
@@ -1517,6 +1607,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_following(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
@@ -1525,15 +1619,23 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
 ): Short
@@ -1549,7 +1651,17 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_update_beacon_name(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachments(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_chats(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_group_photo(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_messages(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys(
 ): Short
@@ -1570,6 +1682,18 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_save_attachment(
 fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_total_size(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_uti(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_kind(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_low_res_image(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_photo_files(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_save(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_text_metadata(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_to_record(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge(
 ): Short
@@ -1622,6 +1746,18 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_uprogresscallback_on_progress(
 fun uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_on_page(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_keep_going(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_kind(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_photo_files(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_save(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_title_luminance(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_to_payload(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_watch(
 ): Short
 fun ffi_rust_lib_bluebubbles_uniffi_contract_version(
 ): Int
@@ -1777,6 +1913,8 @@ fun uniffi_rust_lib_bluebubbles_fn_clone_nativepushstate(`ptr`: Pointer,uniffi_o
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1788,6 +1926,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1801,12 +1941,20 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: P
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(`ptr`: Pointer,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_ft_link(`ptr`: Pointer,`usage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1829,6 +1977,10 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Poin
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1837,15 +1989,23 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1861,8 +2021,18 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Po
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(`ptr`: Pointer,`naming`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachments(`ptr`: Pointer,`uploads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_chats(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`chatRecordId`: RustBuffer.ByValue,`chatBlob`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1898,6 +2068,22 @@ fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_save_attachment(`ptr`: Poi
 fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_total_size(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_uti(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_clone_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_low_res_image(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_text_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_to_record(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -1979,6 +2165,22 @@ fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(`ptr`: Point
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_keep_going(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_rust_lib_bluebubbles_fn_clone_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_title_luminance(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_to_payload(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_watch(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1999,6 +2201,10 @@ fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCall
 ): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(`id`: Long,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_parse_call_poster(`record`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_func_parse_poster(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2010,6 +2216,10 @@ fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: Unif
 fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(`xml`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_call_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_transcript_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2174,6 +2384,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt() != 52117.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_parse_call_poster() != 56461.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_parse_poster() != 41669.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay() != 31657.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2190,6 +2406,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment() != 16887.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_restore_call_poster_save() != 19887.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_restore_transcript_poster_save() != 39203.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username() != 45470.toShort()) {
@@ -2270,6 +2492,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt() != 31689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_beacon_share() != 24803.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in() != 16891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2286,6 +2511,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share() != 9292.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote() != 16821.toShort()) {
@@ -2306,6 +2534,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 40142.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_fetch_profile() != 48307.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_ft_sessions() != 13636.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2313,6 +2544,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups() != 36969.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items() != 27025.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_devices() != 11917.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_following() != 6533.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_ft_link() != 65438.toShort()) {
@@ -2348,6 +2588,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices() != 32109.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_following() != 57034.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon() != 56013.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2360,10 +2606,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 10762.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 55432.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 36838.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read() != 64189.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms() != 26102.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text() != 53337.toShort()) {
@@ -2373,6 +2625,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon() != 2313.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile() != 2431.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for() != 30326.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
@@ -2396,7 +2654,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message() != 47632.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_update_beacon_name() != 13718.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachment() != 62416.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachments() != 1032.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_chats() != 15887.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_group_photo() != 34901.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_messages() != 31511.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys() != 62637.toShort()) {
@@ -2427,6 +2700,24 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_uti() != 33589.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_kind() != 36972.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_low_res_image() != 61991.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_photo_files() != 54657.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_save() != 63887.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_text_metadata() != 19290.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ucallposter_to_record() != 52906.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge() != 63002.toShort()) {
@@ -2505,6 +2796,24 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_keep_going() != 44031.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_kind() != 17922.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_photo_files() != 42156.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_save() != 65303.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_title_luminance() != 424.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_to_payload() != 16466.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_utranscriptposter_watch() != 25336.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -2696,6 +3005,29 @@ public object FfiConverterLong: FfiConverter<Long, Long> {
 
     override fun write(value: Long, buf: ByteBuffer) {
         buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterFloat: FfiConverter<Float, Float> {
+    override fun lift(value: Float): Float {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Float {
+        return buf.getFloat()
+    }
+
+    override fun lower(value: Float): Float {
+        return value
+    }
+
+    override fun allocationSize(value: Float) = 4UL
+
+    override fun write(value: Float, buf: ByteBuffer) {
+        buf.putFloat(value)
     }
 }
 
@@ -5428,6 +5760,11 @@ public object FfiConverterTypeNativeKeystore: FfiConverter<NativeKeystore, Point
 public interface NativePushStateInterface {
     
     /**
+     * Accept a pending item share (the `BeaconShared` push payload's id).
+     */
+    fun `acceptBeaconShare`(`shareId`: kotlin.String)
+    
+    /**
      * Approve a knock-to-join request (answer_ft_request).
      */
     fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
@@ -5456,6 +5793,11 @@ public interface NativePushStateInterface {
     fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
     
     fun `declineFacetime`(`guid`: kotlin.String)
+    
+    /**
+     * Delete a shared item.
+     */
+    fun `deleteBeaconShare`(`shareId`: kotlin.String)
     
     /**
      * Push local deletions to iCloud BEFORE pulling (`delete_chats`);
@@ -5496,6 +5838,13 @@ public interface NativePushStateInterface {
     fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
     
     /**
+     * api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
+     * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
+     * sender's shared name + avatar + poster.
+     */
+    fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord
+    
+    /**
      * Active + known FaceTime sessions (caller resolution for the UI).
      */
     fun `ftSessions`(): List<UFtSession>
@@ -5503,6 +5852,24 @@ public interface NativePushStateInterface {
     fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt
     
     fun `getAvailableGroups`(`groupsCallback`: AvailableGroupsCallback)
+    
+    /**
+     * Own + shared FindMy items (AirTags etc.), syncing positions first
+     * (api.rs `get_beacon_items`).
+     */
+    fun `getBeaconItems`(): List<UFmItem>
+    
+    /**
+     * Devices on this Apple ID, from cache (creates the client on first
+     * call — its constructor already fetches the device list).
+     */
+    fun `getDevices`(): List<UFmDevice>
+    
+    /**
+     * Friends this account follows, from the fmfd daemon cache (may be
+     * empty before the first refresh).
+     */
+    fun `getFollowing`(): List<UFmFriend>
     
     /**
      * FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
@@ -5550,6 +5917,16 @@ public interface NativePushStateInterface {
     fun `publishStatus`(`guid`: kotlin.String?)
     
     /**
+     * Devices on this Apple ID, after a server refresh (`refreshClient`).
+     */
+    fun `refreshDevices`(): List<UFmDevice>
+    
+    /**
+     * Friends this account follows, after a server refresh.
+     */
+    fun `refreshFollowing`(): List<UFmFriend>
+    
+    /**
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
      */
@@ -5575,6 +5952,12 @@ public interface NativePushStateInterface {
     fun `sendAttachment`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `text`: kotlin.String?, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
     
     /**
+     * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
+     * conversation — the "share name and photo" message.
+     */
+    fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst
+    
+    /**
      * Send (or remove, with `enable: false`) a tapback.
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
      * 5 question; 6 + `emoji` for custom emoji tapbacks.
@@ -5582,6 +5965,15 @@ public interface NativePushStateInterface {
     fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean)
     
     fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String)
+    
+    /**
+     * Send a text over the SMS relay (`MessageType::SMS`). `using_number`
+     * is the tel:-prefixed number of mine to route through (when None,
+     * the first registered phone handle is used); `from_handle` marks a
+     * forwarded message (the original sender). Other params mirror
+     * `send_text`.
+     */
+    fun `sendSms`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `usingNumber`: kotlin.String?, `fromHandle`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
     
     /**
      * Send a plain (optionally formatted-later) text message. Returns the
@@ -5597,6 +5989,21 @@ public interface NativePushStateInterface {
      * message. The file should be a 570x570 PNG.
      */
     fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
+    
+    /**
+     * api.rs `set_profile` — publish this account's shared name/image/
+     * poster. `existing_json` is the previously returned profile JSON
+     * (kept across runs, like Dart's `shareProfileMessage` setting).
+     * Returns the new `ShareProfileMessage` JSON: persist it, and send it
+     * to contacts with `send_profile`.
+     */
+    fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String
+    
+    /**
+     * api.rs `get_sms_targets` — SMS relay targets for a handle.
+     * `refresh` forces an IDS re-lookup.
+     */
+    fun `smsTargetsFor`(`handle`: kotlin.String, `refresh`: kotlin.Boolean): List<USmsTarget>
     
     fun `startLoop`(`handler`: MsgReceiver)
     
@@ -5646,11 +6053,47 @@ public interface NativePushStateInterface {
     fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst
     
     /**
+     * Rename / re-emoji an item (`update_beacon_name`).
+     */
+    fun `updateBeaconName`(`naming`: UFmNaming)
+    
+    /**
      * Upload a local file to MMCS without sending a message (api.rs
      * `upload_attachment`). Persist the result XML before sending if the
      * send may be retried after a restart.
      */
     fun `uploadAttachment`(`filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `progress`: UProgressCallback?): UAttachment
+    
+    /**
+     * api.rs `upload_cloud_attachments` + `save_attachments` in one call
+     * (the attachment half of Dart `uploadMessages`): uploads each local
+     * file, folds the resulting asset into a `CloudAttachment` record
+     * with the given meta, and saves the records. Restore/parse failures
+     * are per-record; a transport failure fails the call.
+     */
+    fun `uploadAttachments`(`uploads`: List<UCkAttachmentUpload>): List<UCkSaveResult>
+    
+    /**
+     * api.rs `save_chats` — push chat records back to iCloud. Each entry
+     * is a `UChatChange.blob` (restored to a `CloudChat`); restore
+     * failures are reported per record without aborting the batch.
+     */
+    fun `uploadChats`(`records`: List<UCkBlob>): List<UCkSaveResult>
+    
+    /**
+     * api.rs `upload_group_photo` + `save_chats` (Dart `uploadChats`'s
+     * photo step): uploads the image file, grafts the asset onto the
+     * chat record restored from `chat_blob` (a `UChatChange.blob`), and
+     * saves the chat back to iCloud.
+     */
+    fun `uploadGroupPhoto`(`filePath`: kotlin.String, `chatRecordId`: kotlin.String, `chatBlob`: kotlin.ByteArray): UCkSaveResult
+    
+    /**
+     * api.rs `save_messages` — push message records back to iCloud, from
+     * their `UMessageChange.blob` payloads. Same per-record contract as
+     * `upload_chats`.
+     */
+    fun `uploadMessages`(`records`: List<UCkBlob>): List<UCkSaveResult>
     
     companion object
 }
@@ -5739,6 +6182,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Accept a pending item share (the `BeaconShared` push payload's id).
+     */
+    @Throws(UException::class)override fun `acceptBeaconShare`(`shareId`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(
+        it, FfiConverterString.lower(`shareId`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Approve a knock-to-join request (answer_ft_request).
      */
     @Throws(UException::class)override fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
@@ -5822,6 +6280,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(
         it, FfiConverterString.lower(`guid`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Delete a shared item.
+     */
+    @Throws(UException::class)override fun `deleteBeaconShare`(`shareId`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(
+        it, FfiConverterString.lower(`shareId`),_status)
 }
     }
     
@@ -5927,6 +6400,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
+     * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
+     * sender's shared name + avatar + poster.
+     */
+    @Throws(UException::class)override fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord {
+            return FfiConverterTypeUNicknameRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(
+        it, FfiConverterString.lower(`profileJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Active + known FaceTime sessions (caller resolution for the UI).
      */
     @Throws(UException::class)override fun `ftSessions`(): List<UFtSession> {
@@ -5962,6 +6453,57 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Own + shared FindMy items (AirTags etc.), syncing positions first
+     * (api.rs `get_beacon_items`).
+     */
+    @Throws(UException::class)override fun `getBeaconItems`(): List<UFmItem> {
+            return FfiConverterSequenceTypeUFmItem.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Devices on this Apple ID, from cache (creates the client on first
+     * call — its constructor already fetches the device list).
+     */
+    @Throws(UException::class)override fun `getDevices`(): List<UFmDevice> {
+            return FfiConverterSequenceTypeUFmDevice.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Friends this account follows, from the fmfd daemon cache (may be
+     * empty before the first refresh).
+     */
+    @Throws(UException::class)override fun `getFollowing`(): List<UFmFriend> {
+            return FfiConverterSequenceTypeUFmFriend.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_following(
+        it, _status)
+}
+    }
+    )
+    }
     
 
     
@@ -6123,6 +6665,38 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Devices on this Apple ID, after a server refresh (`refreshClient`).
+     */
+    @Throws(UException::class)override fun `refreshDevices`(): List<UFmDevice> {
+            return FfiConverterSequenceTypeUFmDevice.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Friends this account follows, after a server refresh.
+     */
+    @Throws(UException::class)override fun `refreshFollowing`(): List<UFmFriend> {
+            return FfiConverterSequenceTypeUFmFriend.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
      */
@@ -6191,6 +6765,23 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
+     * conversation — the "share name and photo" message.
+     */
+    @Throws(UException::class)override fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`profileJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Send (or remove, with `enable: false`) a tapback.
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
      * 5 question; 6 + `emoji` for custom emoji tapbacks.
@@ -6216,6 +6807,26 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Send a text over the SMS relay (`MessageType::SMS`). `using_number`
+     * is the tel:-prefixed number of mine to route through (when None,
+     * the first registered phone handle is used); `from_handle` marks a
+     * forwarded message (the original sender). Other params mirror
+     * `send_text`.
+     */
+    @Throws(UException::class)override fun `sendSms`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `usingNumber`: kotlin.String?, `fromHandle`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`text`),FfiConverterOptionalString.lower(`usingNumber`),FfiConverterOptionalString.lower(`fromHandle`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -6259,6 +6870,43 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterULong.lower(`groupVersion`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `set_profile` — publish this account's shared name/image/
+     * poster. `existing_json` is the previously returned profile JSON
+     * (kept across runs, like Dart's `shareProfileMessage` setting).
+     * Returns the new `ShareProfileMessage` JSON: persist it, and send it
+     * to contacts with `send_profile`.
+     */
+    @Throws(UException::class)override fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(
+        it, FfiConverterString.lower(`name`),FfiConverterString.lower(`first`),FfiConverterString.lower(`last`),FfiConverterOptionalByteArray.lower(`image`),FfiConverterOptionalTypeUPosterRecord.lower(`poster`),FfiConverterOptionalString.lower(`existingJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `get_sms_targets` — SMS relay targets for a handle.
+     * `refresh` forces an IDS re-lookup.
+     */
+    @Throws(UException::class)override fun `smsTargetsFor`(`handle`: kotlin.String, `refresh`: kotlin.Boolean): List<USmsTarget> {
+            return FfiConverterSequenceTypeUSmsTarget.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(
+        it, FfiConverterString.lower(`handle`),FfiConverterBoolean.lower(`refresh`),_status)
 }
     }
     )
@@ -6386,6 +7034,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Rename / re-emoji an item (`update_beacon_name`).
+     */
+    @Throws(UException::class)override fun `updateBeaconName`(`naming`: UFmNaming)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(
+        it, FfiConverterTypeUFmNaming.lower(`naming`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Upload a local file to MMCS without sending a message (api.rs
      * `upload_attachment`). Persist the result XML before sending if the
      * send may be retried after a restart.
@@ -6396,6 +7059,81 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(
         it, FfiConverterString.lower(`filePath`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `upload_cloud_attachments` + `save_attachments` in one call
+     * (the attachment half of Dart `uploadMessages`): uploads each local
+     * file, folds the resulting asset into a `CloudAttachment` record
+     * with the given meta, and saves the records. Restore/parse failures
+     * are per-record; a transport failure fails the call.
+     */
+    @Throws(UException::class)override fun `uploadAttachments`(`uploads`: List<UCkAttachmentUpload>): List<UCkSaveResult> {
+            return FfiConverterSequenceTypeUCkSaveResult.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachments(
+        it, FfiConverterSequenceTypeUCkAttachmentUpload.lower(`uploads`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `save_chats` — push chat records back to iCloud. Each entry
+     * is a `UChatChange.blob` (restored to a `CloudChat`); restore
+     * failures are reported per record without aborting the batch.
+     */
+    @Throws(UException::class)override fun `uploadChats`(`records`: List<UCkBlob>): List<UCkSaveResult> {
+            return FfiConverterSequenceTypeUCkSaveResult.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_chats(
+        it, FfiConverterSequenceTypeUCkBlob.lower(`records`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `upload_group_photo` + `save_chats` (Dart `uploadChats`'s
+     * photo step): uploads the image file, grafts the asset onto the
+     * chat record restored from `chat_blob` (a `UChatChange.blob`), and
+     * saves the chat back to iCloud.
+     */
+    @Throws(UException::class)override fun `uploadGroupPhoto`(`filePath`: kotlin.String, `chatRecordId`: kotlin.String, `chatBlob`: kotlin.ByteArray): UCkSaveResult {
+            return FfiConverterTypeUCkSaveResult.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(
+        it, FfiConverterString.lower(`filePath`),FfiConverterString.lower(`chatRecordId`),FfiConverterByteArray.lower(`chatBlob`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `save_messages` — push message records back to iCloud, from
+     * their `UMessageChange.blob` payloads. Same per-record contract as
+     * `upload_chats`.
+     */
+    @Throws(UException::class)override fun `uploadMessages`(`records`: List<UCkBlob>): List<UCkSaveResult> {
+            return FfiConverterSequenceTypeUCkSaveResult.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(
+        it, FfiConverterSequenceTypeUCkBlob.lower(`records`),_status)
 }
     }
     )
@@ -7353,6 +8091,356 @@ public object FfiConverterTypeUAttachment: FfiConverter<UAttachment, Pointer> {
     override fun allocationSize(value: UAttachment) = 8UL
 
     override fun write(value: UAttachment, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Parsed incoming-call / contact poster (`SimplifiedIncomingCallPoster`).
+ */
+public interface UCallPosterInterface {
+    
+    /**
+     * Which poster flavor this is.
+     */
+    fun `kind`(): UPosterKind
+    
+    /**
+     * Low-res preview image bytes.
+     */
+    fun `lowResImage`(): kotlin.ByteArray
+    
+    /**
+     * All files of the idx'th photo asset (empty for non-photo posters).
+     */
+    fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile>
+    
+    /**
+     * api.rs `parse_poster_save` — binary plist for persistence.
+     */
+    fun `save`(): kotlin.ByteArray
+    
+    /**
+     * Text styling (font color/size, background color, type).
+     */
+    fun `textMetadata`(): UWallpaperMetadata
+    
+    /**
+     * api.rs `from_poster` — rebuild the raw record (for `set_profile`).
+     */
+    fun `toRecord`(): UPosterRecord
+    
+    companion object
+}
+
+/**
+ * Parsed incoming-call / contact poster (`SimplifiedIncomingCallPoster`).
+ */
+open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_ucallposter(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_ucallposter(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Which poster flavor this is.
+     */override fun `kind`(): UPosterKind {
+            return FfiConverterTypeUPosterKind.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_kind(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Low-res preview image bytes.
+     */override fun `lowResImage`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_low_res_image(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * All files of the idx'th photo asset (empty for non-photo posters).
+     */override fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile> {
+            return FfiConverterSequenceTypeUPosterFile.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_photo_files(
+        it, FfiConverterULong.lower(`assetIndex`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `parse_poster_save` — binary plist for persistence.
+     */
+    @Throws(UException::class)override fun `save`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_save(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Text styling (font color/size, background color, type).
+     */override fun `textMetadata`(): UWallpaperMetadata {
+            return FfiConverterTypeUWallpaperMetadata.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_text_metadata(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `from_poster` — rebuild the raw record (for `set_profile`).
+     */
+    @Throws(UException::class)override fun `toRecord`(): UPosterRecord {
+            return FfiConverterTypeUPosterRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ucallposter_to_record(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCallPoster: FfiConverter<UCallPoster, Pointer> {
+
+    override fun lower(value: UCallPoster): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): UCallPoster {
+        return UCallPoster(value)
+    }
+
+    override fun read(buf: ByteBuffer): UCallPoster {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: UCallPoster) = 8UL
+
+    override fun write(value: UCallPoster, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -9297,6 +10385,360 @@ public object FfiConverterTypeUSyncPageCallback: FfiConverter<USyncPageCallback,
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Parsed transcript (chat-background) poster. Parse from the zip payload
+ * bytes carried on `SetTranscriptBackground` messages; `to_payload`
+ * packs a (possibly unchanged) poster back into sendable bytes.
+ */
+public interface UTranscriptPosterInterface {
+    
+    /**
+     * Which poster flavor this is (colors / initials / identifiers).
+     */
+    fun `kind`(): UPosterKind
+    
+    /**
+     * All files of the idx'th photo asset (empty for non-photo posters).
+     */
+    fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile>
+    
+    /**
+     * api.rs `transcript_poster_save` — binary plist for persistence.
+     */
+    fun `save`(): kotlin.ByteArray
+    
+    /**
+     * Title luminance (0..1) — pick contrasting text color against it.
+     */
+    fun `titleLuminance`(): kotlin.Double
+    
+    /**
+     * api.rs `pack_transcript_poster` — serialize back to the zip payload.
+     */
+    fun `toPayload`(): kotlin.ByteArray
+    
+    /**
+     * The watch/chat background half (contains the wallpaper image bytes).
+     */
+    fun `watch`(): UWatchBackground
+    
+    companion object
+}
+
+/**
+ * Parsed transcript (chat-background) poster. Parse from the zip payload
+ * bytes carried on `SetTranscriptBackground` messages; `to_payload`
+ * packs a (possibly unchanged) poster back into sendable bytes.
+ */
+open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_utranscriptposter(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_utranscriptposter(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Which poster flavor this is (colors / initials / identifiers).
+     */override fun `kind`(): UPosterKind {
+            return FfiConverterTypeUPosterKind.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_kind(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * All files of the idx'th photo asset (empty for non-photo posters).
+     */override fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile> {
+            return FfiConverterSequenceTypeUPosterFile.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_photo_files(
+        it, FfiConverterULong.lower(`assetIndex`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `transcript_poster_save` — binary plist for persistence.
+     */
+    @Throws(UException::class)override fun `save`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_save(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Title luminance (0..1) — pick contrasting text color against it.
+     */override fun `titleLuminance`(): kotlin.Double {
+            return FfiConverterDouble.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_title_luminance(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * api.rs `pack_transcript_poster` — serialize back to the zip payload.
+     */
+    @Throws(UException::class)override fun `toPayload`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_to_payload(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The watch/chat background half (contains the wallpaper image bytes).
+     */override fun `watch`(): UWatchBackground {
+            return FfiConverterTypeUWatchBackground.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_watch(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUTranscriptPoster: FfiConverter<UTranscriptPoster, Pointer> {
+
+    override fun lower(value: UTranscriptPoster): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): UTranscriptPoster {
+        return UTranscriptPoster(value)
+    }
+
+    override fun read(buf: ByteBuffer): UTranscriptPoster {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: UTranscriptPoster) = 8UL
+
+    override fun write(value: UTranscriptPoster, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 data class FileInfo (
     var `duration`: kotlin.Double?, 
@@ -9487,7 +10929,13 @@ public object FfiConverterTypeSavedPassword: FfiConverterRustBuffer<SavedPasswor
  */
 data class UChatChange (
     var `recordId`: kotlin.String, 
-    var `chat`: UCloudChat?
+    var `chat`: UCloudChat?, 
+    /**
+     * Re-uploadable record payload (binary plist of the rustpush
+     * `CloudChat`). Persist alongside the local row; feed back through
+     * `upload_chats` to push local modifications. Empty for tombstones.
+     */
+    var `blob`: kotlin.ByteArray
 ) {
     
     companion object
@@ -9501,17 +10949,20 @@ public object FfiConverterTypeUChatChange: FfiConverterRustBuffer<UChatChange> {
         return UChatChange(
             FfiConverterString.read(buf),
             FfiConverterOptionalTypeUCloudChat.read(buf),
+            FfiConverterByteArray.read(buf),
         )
     }
 
     override fun allocationSize(value: UChatChange) = (
             FfiConverterString.allocationSize(value.`recordId`) +
-            FfiConverterOptionalTypeUCloudChat.allocationSize(value.`chat`)
+            FfiConverterOptionalTypeUCloudChat.allocationSize(value.`chat`) +
+            FfiConverterByteArray.allocationSize(value.`blob`)
     )
 
     override fun write(value: UChatChange, buf: ByteBuffer) {
             FfiConverterString.write(value.`recordId`, buf)
             FfiConverterOptionalTypeUCloudChat.write(value.`chat`, buf)
+            FfiConverterByteArray.write(value.`blob`, buf)
     }
 }
 
@@ -9561,6 +11012,123 @@ public object FfiConverterTypeUChatSyncPage: FfiConverterRustBuffer<UChatSyncPag
             FfiConverterByteArray.write(value.`nextCursor`, buf)
             FfiConverterBoolean.write(value.`more`, buf)
             FfiConverterInt.write(value.`status`, buf)
+    }
+}
+
+
+
+/**
+ * One attachment upload: local file + target record id + the
+ * `AttachmentMeta` JSON (rustpush field keys: "mimet", "sdt", "tb",
+ * "st", "is", "aguid", "ha", "ui", "fn", "ig", "tn", "vers", "t", "cdt",
+ * "pathc", "mdh", "aui" — same map Dart's `getAttachmentMeta` built).
+ */
+data class UCkAttachmentUpload (
+    var `filePath`: kotlin.String, 
+    var `recordId`: kotlin.String, 
+    var `metaJson`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCkAttachmentUpload: FfiConverterRustBuffer<UCkAttachmentUpload> {
+    override fun read(buf: ByteBuffer): UCkAttachmentUpload {
+        return UCkAttachmentUpload(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCkAttachmentUpload) = (
+            FfiConverterString.allocationSize(value.`filePath`) +
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterString.allocationSize(value.`metaJson`)
+    )
+
+    override fun write(value: UCkAttachmentUpload, buf: ByteBuffer) {
+            FfiConverterString.write(value.`filePath`, buf)
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterString.write(value.`metaJson`, buf)
+    }
+}
+
+
+
+/**
+ * One record to (re-)upload: the CloudKit record id plus the blob pulled
+ * from a `UChatChange` / `UMessageChange` during sync.
+ */
+data class UCkBlob (
+    var `recordId`: kotlin.String, 
+    var `blob`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCkBlob: FfiConverterRustBuffer<UCkBlob> {
+    override fun read(buf: ByteBuffer): UCkBlob {
+        return UCkBlob(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCkBlob) = (
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterByteArray.allocationSize(value.`blob`)
+    )
+
+    override fun write(value: UCkBlob, buf: ByteBuffer) {
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterByteArray.write(value.`blob`, buf)
+    }
+}
+
+
+
+/**
+ * Per-record outcome of an upload call.
+ */
+data class UCkSaveResult (
+    var `recordId`: kotlin.String, 
+    var `ok`: kotlin.Boolean, 
+    var `error`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCkSaveResult: FfiConverterRustBuffer<UCkSaveResult> {
+    override fun read(buf: ByteBuffer): UCkSaveResult {
+        return UCkSaveResult(
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCkSaveResult) = (
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterBoolean.allocationSize(value.`ok`) +
+            FfiConverterOptionalString.allocationSize(value.`error`)
+    )
+
+    override fun write(value: UCkSaveResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterBoolean.write(value.`ok`, buf)
+            FfiConverterOptionalString.write(value.`error`, buf)
     }
 }
 
@@ -9918,6 +11486,618 @@ public object FfiConverterTypeUDeviceInfo: FfiConverterRustBuffer<UDeviceInfo> {
 
 
 
+/**
+ * Mirror of rustpush findmy `Address` (reverse-geocode of a location).
+ */
+data class UFmAddress (
+    var `administrativeArea`: kotlin.String?, 
+    var `country`: kotlin.String, 
+    var `countryCode`: kotlin.String, 
+    var `formattedAddressLines`: List<kotlin.String>?, 
+    var `locality`: kotlin.String?, 
+    var `stateCode`: kotlin.String?, 
+    var `streetAddress`: kotlin.String?, 
+    var `streetName`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmAddress: FfiConverterRustBuffer<UFmAddress> {
+    override fun read(buf: ByteBuffer): UFmAddress {
+        return UFmAddress(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmAddress) = (
+            FfiConverterOptionalString.allocationSize(value.`administrativeArea`) +
+            FfiConverterString.allocationSize(value.`country`) +
+            FfiConverterString.allocationSize(value.`countryCode`) +
+            FfiConverterOptionalSequenceString.allocationSize(value.`formattedAddressLines`) +
+            FfiConverterOptionalString.allocationSize(value.`locality`) +
+            FfiConverterOptionalString.allocationSize(value.`stateCode`) +
+            FfiConverterOptionalString.allocationSize(value.`streetAddress`) +
+            FfiConverterOptionalString.allocationSize(value.`streetName`)
+    )
+
+    override fun write(value: UFmAddress, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`administrativeArea`, buf)
+            FfiConverterString.write(value.`country`, buf)
+            FfiConverterString.write(value.`countryCode`, buf)
+            FfiConverterOptionalSequenceString.write(value.`formattedAddressLines`, buf)
+            FfiConverterOptionalString.write(value.`locality`, buf)
+            FfiConverterOptionalString.write(value.`stateCode`, buf)
+            FfiConverterOptionalString.write(value.`streetAddress`, buf)
+            FfiConverterOptionalString.write(value.`streetName`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush findmy `FoundDevice` — every field, exactly as the
+ * Dart FindMy UI consumed them.
+ */
+data class UFmDevice (
+    var `deviceModel`: kotlin.String?, 
+    var `lowPowerMode`: kotlin.Boolean?, 
+    var `passcodeLength`: kotlin.Long?, 
+    var `id`: kotlin.String?, 
+    var `batteryStatus`: kotlin.String?, 
+    var `lostModeCapable`: kotlin.Boolean?, 
+    /**
+     * 0.0 - 1.0.
+     */
+    var `batteryLevel`: kotlin.Double?, 
+    var `locationEnabled`: kotlin.Boolean?, 
+    var `isConsideredAccessory`: kotlin.Boolean?, 
+    var `location`: UFmLocation?, 
+    var `modelDisplayName`: kotlin.String?, 
+    var `deviceColor`: kotlin.String?, 
+    var `activationLocked`: kotlin.Boolean?, 
+    var `rm2State`: kotlin.Long?, 
+    var `locFoundEnabled`: kotlin.Boolean?, 
+    var `nwd`: kotlin.Boolean?, 
+    var `deviceStatus`: kotlin.String?, 
+    var `fmlyShare`: kotlin.Boolean?, 
+    var `features`: Map<kotlin.String, kotlin.Boolean>, 
+    var `thisDevice`: kotlin.Boolean?, 
+    var `lostModeEnabled`: kotlin.Boolean?, 
+    var `deviceDisplayName`: kotlin.String?, 
+    var `name`: kotlin.String?, 
+    var `canWipeAfterLock`: kotlin.Boolean?, 
+    var `isMac`: kotlin.Boolean?, 
+    var `rawDeviceModel`: kotlin.String?, 
+    var `baUuid`: kotlin.String?, 
+    var `deviceDiscoveryId`: kotlin.String?, 
+    var `scd`: kotlin.Boolean?, 
+    var `locationCapable`: kotlin.Boolean?, 
+    var `wipeInProgress`: kotlin.Boolean?, 
+    var `darkWake`: kotlin.Boolean?, 
+    var `deviceWithYou`: kotlin.Boolean?, 
+    var `maxMsgChar`: kotlin.Long?, 
+    var `deviceClass`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmDevice: FfiConverterRustBuffer<UFmDevice> {
+    override fun read(buf: ByteBuffer): UFmDevice {
+        return UFmDevice(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalDouble.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalTypeUFmLocation.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterMapStringBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmDevice) = (
+            FfiConverterOptionalString.allocationSize(value.`deviceModel`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`lowPowerMode`) +
+            FfiConverterOptionalLong.allocationSize(value.`passcodeLength`) +
+            FfiConverterOptionalString.allocationSize(value.`id`) +
+            FfiConverterOptionalString.allocationSize(value.`batteryStatus`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`lostModeCapable`) +
+            FfiConverterOptionalDouble.allocationSize(value.`batteryLevel`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`locationEnabled`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`isConsideredAccessory`) +
+            FfiConverterOptionalTypeUFmLocation.allocationSize(value.`location`) +
+            FfiConverterOptionalString.allocationSize(value.`modelDisplayName`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceColor`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`activationLocked`) +
+            FfiConverterOptionalLong.allocationSize(value.`rm2State`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`locFoundEnabled`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`nwd`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceStatus`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`fmlyShare`) +
+            FfiConverterMapStringBoolean.allocationSize(value.`features`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`thisDevice`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`lostModeEnabled`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceDisplayName`) +
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`canWipeAfterLock`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`isMac`) +
+            FfiConverterOptionalString.allocationSize(value.`rawDeviceModel`) +
+            FfiConverterOptionalString.allocationSize(value.`baUuid`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceDiscoveryId`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`scd`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`locationCapable`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`wipeInProgress`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`darkWake`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`deviceWithYou`) +
+            FfiConverterOptionalLong.allocationSize(value.`maxMsgChar`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceClass`)
+    )
+
+    override fun write(value: UFmDevice, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`deviceModel`, buf)
+            FfiConverterOptionalBoolean.write(value.`lowPowerMode`, buf)
+            FfiConverterOptionalLong.write(value.`passcodeLength`, buf)
+            FfiConverterOptionalString.write(value.`id`, buf)
+            FfiConverterOptionalString.write(value.`batteryStatus`, buf)
+            FfiConverterOptionalBoolean.write(value.`lostModeCapable`, buf)
+            FfiConverterOptionalDouble.write(value.`batteryLevel`, buf)
+            FfiConverterOptionalBoolean.write(value.`locationEnabled`, buf)
+            FfiConverterOptionalBoolean.write(value.`isConsideredAccessory`, buf)
+            FfiConverterOptionalTypeUFmLocation.write(value.`location`, buf)
+            FfiConverterOptionalString.write(value.`modelDisplayName`, buf)
+            FfiConverterOptionalString.write(value.`deviceColor`, buf)
+            FfiConverterOptionalBoolean.write(value.`activationLocked`, buf)
+            FfiConverterOptionalLong.write(value.`rm2State`, buf)
+            FfiConverterOptionalBoolean.write(value.`locFoundEnabled`, buf)
+            FfiConverterOptionalBoolean.write(value.`nwd`, buf)
+            FfiConverterOptionalString.write(value.`deviceStatus`, buf)
+            FfiConverterOptionalBoolean.write(value.`fmlyShare`, buf)
+            FfiConverterMapStringBoolean.write(value.`features`, buf)
+            FfiConverterOptionalBoolean.write(value.`thisDevice`, buf)
+            FfiConverterOptionalBoolean.write(value.`lostModeEnabled`, buf)
+            FfiConverterOptionalString.write(value.`deviceDisplayName`, buf)
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterOptionalBoolean.write(value.`canWipeAfterLock`, buf)
+            FfiConverterOptionalBoolean.write(value.`isMac`, buf)
+            FfiConverterOptionalString.write(value.`rawDeviceModel`, buf)
+            FfiConverterOptionalString.write(value.`baUuid`, buf)
+            FfiConverterOptionalString.write(value.`deviceDiscoveryId`, buf)
+            FfiConverterOptionalBoolean.write(value.`scd`, buf)
+            FfiConverterOptionalBoolean.write(value.`locationCapable`, buf)
+            FfiConverterOptionalBoolean.write(value.`wipeInProgress`, buf)
+            FfiConverterOptionalBoolean.write(value.`darkWake`, buf)
+            FfiConverterOptionalBoolean.write(value.`deviceWithYou`, buf)
+            FfiConverterOptionalLong.write(value.`maxMsgChar`, buf)
+            FfiConverterOptionalString.write(value.`deviceClass`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush findmy `Follow` (a friend-sharing relationship),
+ * including the last known location when present.
+ */
+data class UFmFriend (
+    var `createTimestamp`: kotlin.Long, 
+    var `expires`: kotlin.Long, 
+    var `id`: kotlin.String, 
+    var `invitationAcceptedHandles`: List<kotlin.String>, 
+    var `invitationFromHandles`: List<kotlin.String>, 
+    var `isFromMessages`: kotlin.Boolean, 
+    var `offerId`: kotlin.String?, 
+    var `onlyInEvent`: kotlin.Boolean, 
+    var `personIdHash`: kotlin.String, 
+    var `secureLocationsCapable`: kotlin.Boolean, 
+    var `shallowOrLiveSecureLocationsCapable`: kotlin.Boolean, 
+    var `source`: kotlin.String, 
+    var `tkPermission`: kotlin.Boolean, 
+    var `updateTimestamp`: kotlin.Long, 
+    var `fallbackToLegacyAllowed`: kotlin.Boolean?, 
+    var `optedNotToShare`: kotlin.Boolean?, 
+    var `lastLocation`: UFmLocation?, 
+    var `locateInProgress`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmFriend: FfiConverterRustBuffer<UFmFriend> {
+    override fun read(buf: ByteBuffer): UFmFriend {
+        return UFmFriend(
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalTypeUFmLocation.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmFriend) = (
+            FfiConverterLong.allocationSize(value.`createTimestamp`) +
+            FfiConverterLong.allocationSize(value.`expires`) +
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterSequenceString.allocationSize(value.`invitationAcceptedHandles`) +
+            FfiConverterSequenceString.allocationSize(value.`invitationFromHandles`) +
+            FfiConverterBoolean.allocationSize(value.`isFromMessages`) +
+            FfiConverterOptionalString.allocationSize(value.`offerId`) +
+            FfiConverterBoolean.allocationSize(value.`onlyInEvent`) +
+            FfiConverterString.allocationSize(value.`personIdHash`) +
+            FfiConverterBoolean.allocationSize(value.`secureLocationsCapable`) +
+            FfiConverterBoolean.allocationSize(value.`shallowOrLiveSecureLocationsCapable`) +
+            FfiConverterString.allocationSize(value.`source`) +
+            FfiConverterBoolean.allocationSize(value.`tkPermission`) +
+            FfiConverterLong.allocationSize(value.`updateTimestamp`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`fallbackToLegacyAllowed`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`optedNotToShare`) +
+            FfiConverterOptionalTypeUFmLocation.allocationSize(value.`lastLocation`) +
+            FfiConverterBoolean.allocationSize(value.`locateInProgress`)
+    )
+
+    override fun write(value: UFmFriend, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`createTimestamp`, buf)
+            FfiConverterLong.write(value.`expires`, buf)
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterSequenceString.write(value.`invitationAcceptedHandles`, buf)
+            FfiConverterSequenceString.write(value.`invitationFromHandles`, buf)
+            FfiConverterBoolean.write(value.`isFromMessages`, buf)
+            FfiConverterOptionalString.write(value.`offerId`, buf)
+            FfiConverterBoolean.write(value.`onlyInEvent`, buf)
+            FfiConverterString.write(value.`personIdHash`, buf)
+            FfiConverterBoolean.write(value.`secureLocationsCapable`, buf)
+            FfiConverterBoolean.write(value.`shallowOrLiveSecureLocationsCapable`, buf)
+            FfiConverterString.write(value.`source`, buf)
+            FfiConverterBoolean.write(value.`tkPermission`, buf)
+            FfiConverterLong.write(value.`updateTimestamp`, buf)
+            FfiConverterOptionalBoolean.write(value.`fallbackToLegacyAllowed`, buf)
+            FfiConverterOptionalBoolean.write(value.`optedNotToShare`, buf)
+            FfiConverterOptionalTypeUFmLocation.write(value.`lastLocation`, buf)
+            FfiConverterBoolean.write(value.`locateInProgress`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of api.rs `DartBeacon` (own + shared FindMy items), with the
+ * naming record flattened and the optional share info inlined.
+ */
+data class UFmItem (
+    var `emoji`: kotlin.String, 
+    var `name`: kotlin.String, 
+    var `associatedBeacon`: kotlin.String, 
+    var `roleId`: kotlin.Long, 
+    var `lastReport`: UFmReport?, 
+    var `productId`: kotlin.Long, 
+    var `batteryLevel`: kotlin.Long?, 
+    var `vendorId`: kotlin.Long, 
+    var `model`: kotlin.String, 
+    var `systemVersion`: kotlin.String, 
+    /**
+     * Stable beacon identifier (record key).
+     */
+    var `id`: kotlin.String, 
+    /**
+     * Present for items shared TO this account.
+     */
+    var `shareId`: kotlin.String?, 
+    var `acceptanceState`: kotlin.Long?, 
+    var `ownerHandle`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmItem: FfiConverterRustBuffer<UFmItem> {
+    override fun read(buf: ByteBuffer): UFmItem {
+        return UFmItem(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalTypeUFmReport.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmItem) = (
+            FfiConverterString.allocationSize(value.`emoji`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`associatedBeacon`) +
+            FfiConverterLong.allocationSize(value.`roleId`) +
+            FfiConverterOptionalTypeUFmReport.allocationSize(value.`lastReport`) +
+            FfiConverterLong.allocationSize(value.`productId`) +
+            FfiConverterOptionalLong.allocationSize(value.`batteryLevel`) +
+            FfiConverterLong.allocationSize(value.`vendorId`) +
+            FfiConverterString.allocationSize(value.`model`) +
+            FfiConverterString.allocationSize(value.`systemVersion`) +
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterOptionalString.allocationSize(value.`shareId`) +
+            FfiConverterOptionalLong.allocationSize(value.`acceptanceState`) +
+            FfiConverterOptionalString.allocationSize(value.`ownerHandle`)
+    )
+
+    override fun write(value: UFmItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`emoji`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`associatedBeacon`, buf)
+            FfiConverterLong.write(value.`roleId`, buf)
+            FfiConverterOptionalTypeUFmReport.write(value.`lastReport`, buf)
+            FfiConverterLong.write(value.`productId`, buf)
+            FfiConverterOptionalLong.write(value.`batteryLevel`, buf)
+            FfiConverterLong.write(value.`vendorId`, buf)
+            FfiConverterString.write(value.`model`, buf)
+            FfiConverterString.write(value.`systemVersion`, buf)
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterOptionalString.write(value.`shareId`, buf)
+            FfiConverterOptionalLong.write(value.`acceptanceState`, buf)
+            FfiConverterOptionalString.write(value.`ownerHandle`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush findmy `Location` (shared by devices and friends).
+ */
+data class UFmLocation (
+    var `address`: UFmAddress?, 
+    var `altitude`: kotlin.Double, 
+    var `floorLevel`: kotlin.Long, 
+    var `horizontalAccuracy`: kotlin.Double, 
+    var `isInaccurate`: kotlin.Boolean, 
+    var `latitude`: kotlin.Double, 
+    var `locationId`: kotlin.String?, 
+    /**
+     * Ms since the Apple epoch (2001-01-01), like every fmf timestamp.
+     */
+    var `locationTimestamp`: kotlin.Long?, 
+    var `longitude`: kotlin.Double, 
+    var `secureLocationTs`: kotlin.Long, 
+    var `timestamp`: kotlin.Long, 
+    var `verticalAccuracy`: kotlin.Double, 
+    var `positionType`: kotlin.String?, 
+    var `isOld`: kotlin.Boolean?, 
+    var `locationFinished`: kotlin.Boolean?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmLocation: FfiConverterRustBuffer<UFmLocation> {
+    override fun read(buf: ByteBuffer): UFmLocation {
+        return UFmLocation(
+            FfiConverterOptionalTypeUFmAddress.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmLocation) = (
+            FfiConverterOptionalTypeUFmAddress.allocationSize(value.`address`) +
+            FfiConverterDouble.allocationSize(value.`altitude`) +
+            FfiConverterLong.allocationSize(value.`floorLevel`) +
+            FfiConverterDouble.allocationSize(value.`horizontalAccuracy`) +
+            FfiConverterBoolean.allocationSize(value.`isInaccurate`) +
+            FfiConverterDouble.allocationSize(value.`latitude`) +
+            FfiConverterOptionalString.allocationSize(value.`locationId`) +
+            FfiConverterOptionalLong.allocationSize(value.`locationTimestamp`) +
+            FfiConverterDouble.allocationSize(value.`longitude`) +
+            FfiConverterLong.allocationSize(value.`secureLocationTs`) +
+            FfiConverterLong.allocationSize(value.`timestamp`) +
+            FfiConverterDouble.allocationSize(value.`verticalAccuracy`) +
+            FfiConverterOptionalString.allocationSize(value.`positionType`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`isOld`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`locationFinished`)
+    )
+
+    override fun write(value: UFmLocation, buf: ByteBuffer) {
+            FfiConverterOptionalTypeUFmAddress.write(value.`address`, buf)
+            FfiConverterDouble.write(value.`altitude`, buf)
+            FfiConverterLong.write(value.`floorLevel`, buf)
+            FfiConverterDouble.write(value.`horizontalAccuracy`, buf)
+            FfiConverterBoolean.write(value.`isInaccurate`, buf)
+            FfiConverterDouble.write(value.`latitude`, buf)
+            FfiConverterOptionalString.write(value.`locationId`, buf)
+            FfiConverterOptionalLong.write(value.`locationTimestamp`, buf)
+            FfiConverterDouble.write(value.`longitude`, buf)
+            FfiConverterLong.write(value.`secureLocationTs`, buf)
+            FfiConverterLong.write(value.`timestamp`, buf)
+            FfiConverterDouble.write(value.`verticalAccuracy`, buf)
+            FfiConverterOptionalString.write(value.`positionType`, buf)
+            FfiConverterOptionalBoolean.write(value.`isOld`, buf)
+            FfiConverterOptionalBoolean.write(value.`locationFinished`, buf)
+    }
+}
+
+
+
+/**
+ * Naming update payload for `update_beacon_name` (mirror of rustpush
+ * `BeaconNamingRecord`).
+ */
+data class UFmNaming (
+    var `emoji`: kotlin.String, 
+    var `name`: kotlin.String, 
+    var `associatedBeacon`: kotlin.String, 
+    var `roleId`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmNaming: FfiConverterRustBuffer<UFmNaming> {
+    override fun read(buf: ByteBuffer): UFmNaming {
+        return UFmNaming(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmNaming) = (
+            FfiConverterString.allocationSize(value.`emoji`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`associatedBeacon`) +
+            FfiConverterLong.allocationSize(value.`roleId`)
+    )
+
+    override fun write(value: UFmNaming, buf: ByteBuffer) {
+            FfiConverterString.write(value.`emoji`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`associatedBeacon`, buf)
+            FfiConverterLong.write(value.`roleId`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush findmy `LocationReport` (FindMy-item beacon ping).
+ */
+data class UFmReport (
+    var `lat`: kotlin.Float, 
+    var `long`: kotlin.Float, 
+    var `horizontalAccuracy`: kotlin.UByte, 
+    var `status`: kotlin.UByte, 
+    var `confidence`: kotlin.UByte, 
+    /**
+     * Ms since the Unix epoch.
+     */
+    var `timestampMs`: kotlin.ULong, 
+    var `keyIndex`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFmReport: FfiConverterRustBuffer<UFmReport> {
+    override fun read(buf: ByteBuffer): UFmReport {
+        return UFmReport(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFmReport) = (
+            FfiConverterFloat.allocationSize(value.`lat`) +
+            FfiConverterFloat.allocationSize(value.`long`) +
+            FfiConverterUByte.allocationSize(value.`horizontalAccuracy`) +
+            FfiConverterUByte.allocationSize(value.`status`) +
+            FfiConverterUByte.allocationSize(value.`confidence`) +
+            FfiConverterULong.allocationSize(value.`timestampMs`) +
+            FfiConverterULong.allocationSize(value.`keyIndex`)
+    )
+
+    override fun write(value: UFmReport, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`lat`, buf)
+            FfiConverterFloat.write(value.`long`, buf)
+            FfiConverterUByte.write(value.`horizontalAccuracy`, buf)
+            FfiConverterUByte.write(value.`status`, buf)
+            FfiConverterUByte.write(value.`confidence`, buf)
+            FfiConverterULong.write(value.`timestampMs`, buf)
+            FfiConverterULong.write(value.`keyIndex`, buf)
+    }
+}
+
+
+
 data class UFtMember (
     var `nickname`: kotlin.String?, 
     var `handle`: kotlin.String
@@ -10075,7 +12255,13 @@ public object FfiConverterTypeUIndexedPart: FfiConverterRustBuffer<UIndexedPart>
  */
 data class UMessageChange (
     var `recordId`: kotlin.String, 
-    var `message`: UCloudMessage?
+    var `message`: UCloudMessage?, 
+    /**
+     * Re-uploadable record payload (batch-8 blob format of the rustpush
+     * `CloudMessage`). Persist alongside the local row; feed back through
+     * `upload_messages`. Empty for tombstones.
+     */
+    var `blob`: kotlin.ByteArray
 ) {
     
     companion object
@@ -10089,17 +12275,20 @@ public object FfiConverterTypeUMessageChange: FfiConverterRustBuffer<UMessageCha
         return UMessageChange(
             FfiConverterString.read(buf),
             FfiConverterOptionalTypeUCloudMessage.read(buf),
+            FfiConverterByteArray.read(buf),
         )
     }
 
     override fun allocationSize(value: UMessageChange) = (
             FfiConverterString.allocationSize(value.`recordId`) +
-            FfiConverterOptionalTypeUCloudMessage.allocationSize(value.`message`)
+            FfiConverterOptionalTypeUCloudMessage.allocationSize(value.`message`) +
+            FfiConverterByteArray.allocationSize(value.`blob`)
     )
 
     override fun write(value: UMessageChange, buf: ByteBuffer) {
             FfiConverterString.write(value.`recordId`, buf)
             FfiConverterOptionalTypeUCloudMessage.write(value.`message`, buf)
+            FfiConverterByteArray.write(value.`blob`, buf)
     }
 }
 
@@ -10204,6 +12393,55 @@ public object FfiConverterTypeUMessageSyncPage: FfiConverterRustBuffer<UMessageS
 
 
 /**
+ * Result of `fetch_profile` (api.rs `IMessageNicknameRecord`): the name a
+ * contact shared, an optional avatar image, and an optional raw poster
+ * record (parse with `parse_call_poster`).
+ */
+data class UNicknameRecord (
+    var `name`: kotlin.String, 
+    var `first`: kotlin.String, 
+    var `last`: kotlin.String, 
+    var `image`: kotlin.ByteArray?, 
+    var `poster`: UPosterRecord?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUNicknameRecord: FfiConverterRustBuffer<UNicknameRecord> {
+    override fun read(buf: ByteBuffer): UNicknameRecord {
+        return UNicknameRecord(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+            FfiConverterOptionalTypeUPosterRecord.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UNicknameRecord) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`first`) +
+            FfiConverterString.allocationSize(value.`last`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`image`) +
+            FfiConverterOptionalTypeUPosterRecord.allocationSize(value.`poster`)
+    )
+
+    override fun write(value: UNicknameRecord, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`first`, buf)
+            FfiConverterString.write(value.`last`, buf)
+            FfiConverterOptionalByteArray.write(value.`image`, buf)
+            FfiConverterOptionalTypeUPosterRecord.write(value.`poster`, buf)
+    }
+}
+
+
+
+/**
  * A carrier-authenticated phone user, serialized for Kotlin-side caching
  * (mirrors the Dart `sms-auth-<subscription>` cachedCodes entries).
  */
@@ -10234,6 +12472,125 @@ public object FfiConverterTypeUPhoneUser: FfiConverterRustBuffer<UPhoneUser> {
     override fun write(value: UPhoneUser, buf: ByteBuffer) {
             FfiConverterLong.write(value.`subscription`, buf)
             FfiConverterString.write(value.`serialized`, buf)
+    }
+}
+
+
+
+/**
+ * RGBA color as used by poster backgrounds / text.
+ */
+data class UPosterColor (
+    var `alpha`: kotlin.Double, 
+    var `blue`: kotlin.Double, 
+    var `green`: kotlin.Double, 
+    var `red`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPosterColor: FfiConverterRustBuffer<UPosterColor> {
+    override fun read(buf: ByteBuffer): UPosterColor {
+        return UPosterColor(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPosterColor) = (
+            FfiConverterDouble.allocationSize(value.`alpha`) +
+            FfiConverterDouble.allocationSize(value.`blue`) +
+            FfiConverterDouble.allocationSize(value.`green`) +
+            FfiConverterDouble.allocationSize(value.`red`)
+    )
+
+    override fun write(value: UPosterColor, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`alpha`, buf)
+            FfiConverterDouble.write(value.`blue`, buf)
+            FfiConverterDouble.write(value.`green`, buf)
+            FfiConverterDouble.write(value.`red`, buf)
+    }
+}
+
+
+
+/**
+ * One file inside a photo-poster asset (the actual image layers).
+ */
+data class UPosterFile (
+    var `filename`: kotlin.String, 
+    var `data`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPosterFile: FfiConverterRustBuffer<UPosterFile> {
+    override fun read(buf: ByteBuffer): UPosterFile {
+        return UPosterFile(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPosterFile) = (
+            FfiConverterString.allocationSize(value.`filename`) +
+            FfiConverterByteArray.allocationSize(value.`data`)
+    )
+
+    override fun write(value: UPosterFile, buf: ByteBuffer) {
+            FfiConverterString.write(value.`filename`, buf)
+            FfiConverterByteArray.write(value.`data`, buf)
+    }
+}
+
+
+
+/**
+ * Raw iCloud poster record (`IMessagePosterRecord`) — what
+ * `fetch_profile` returns and `set_profile` accepts; parse it with
+ * `parse_call_poster` to render.
+ */
+data class UPosterRecord (
+    var `lowResPoster`: kotlin.ByteArray, 
+    var `package`: kotlin.ByteArray, 
+    var `meta`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPosterRecord: FfiConverterRustBuffer<UPosterRecord> {
+    override fun read(buf: ByteBuffer): UPosterRecord {
+        return UPosterRecord(
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPosterRecord) = (
+            FfiConverterByteArray.allocationSize(value.`lowResPoster`) +
+            FfiConverterByteArray.allocationSize(value.`package`) +
+            FfiConverterByteArray.allocationSize(value.`meta`)
+    )
+
+    override fun write(value: UPosterRecord, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`lowResPoster`, buf)
+            FfiConverterByteArray.write(value.`package`, buf)
+            FfiConverterByteArray.write(value.`meta`, buf)
     }
 }
 
@@ -10270,6 +12627,58 @@ public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJour
             FfiConverterULong.write(value.`id`, buf)
             FfiConverterUByte.write(value.`attempts`, buf)
             FfiConverterTypeUPushMessage.write(value.`message`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush `PrivateDeviceInfo` — an SMS-capable device on the
+ * account (used by relay routing).
+ */
+data class USmsTarget (
+    var `uuid`: kotlin.String?, 
+    var `deviceName`: kotlin.String?, 
+    var `token`: kotlin.ByteArray, 
+    var `isHsaTrusted`: kotlin.Boolean, 
+    var `identities`: List<kotlin.String>, 
+    var `subServices`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSmsTarget: FfiConverterRustBuffer<USmsTarget> {
+    override fun read(buf: ByteBuffer): USmsTarget {
+        return USmsTarget(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USmsTarget) = (
+            FfiConverterOptionalString.allocationSize(value.`uuid`) +
+            FfiConverterOptionalString.allocationSize(value.`deviceName`) +
+            FfiConverterByteArray.allocationSize(value.`token`) +
+            FfiConverterBoolean.allocationSize(value.`isHsaTrusted`) +
+            FfiConverterSequenceString.allocationSize(value.`identities`) +
+            FfiConverterSequenceString.allocationSize(value.`subServices`)
+    )
+
+    override fun write(value: USmsTarget, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`uuid`, buf)
+            FfiConverterOptionalString.write(value.`deviceName`, buf)
+            FfiConverterByteArray.write(value.`token`, buf)
+            FfiConverterBoolean.write(value.`isHsaTrusted`, buf)
+            FfiConverterSequenceString.write(value.`identities`, buf)
+            FfiConverterSequenceString.write(value.`subServices`, buf)
     }
 }
 
@@ -10407,6 +12816,107 @@ public object FfiConverterTypeUTrustedPhone: FfiConverterRustBuffer<UTrustedPhon
             FfiConverterString.write(value.`lastTwoDigits`, buf)
             FfiConverterString.write(value.`pushMode`, buf)
             FfiConverterUInt.write(value.`id`, buf)
+    }
+}
+
+
+
+/**
+ * Text styling of an incoming-call poster (WallpaperMetadata).
+ */
+data class UWallpaperMetadata (
+    var `backgroundColor`: UPosterColor?, 
+    var `fontColor`: UPosterColor, 
+    var `fontName`: kotlin.String, 
+    var `fontSize`: kotlin.Float, 
+    var `fontWeight`: kotlin.Float, 
+    var `isVertical`: kotlin.Boolean, 
+    var `typeKey`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUWallpaperMetadata: FfiConverterRustBuffer<UWallpaperMetadata> {
+    override fun read(buf: ByteBuffer): UWallpaperMetadata {
+        return UWallpaperMetadata(
+            FfiConverterOptionalTypeUPosterColor.read(buf),
+            FfiConverterTypeUPosterColor.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UWallpaperMetadata) = (
+            FfiConverterOptionalTypeUPosterColor.allocationSize(value.`backgroundColor`) +
+            FfiConverterTypeUPosterColor.allocationSize(value.`fontColor`) +
+            FfiConverterString.allocationSize(value.`fontName`) +
+            FfiConverterFloat.allocationSize(value.`fontSize`) +
+            FfiConverterFloat.allocationSize(value.`fontWeight`) +
+            FfiConverterBoolean.allocationSize(value.`isVertical`) +
+            FfiConverterString.allocationSize(value.`typeKey`)
+    )
+
+    override fun write(value: UWallpaperMetadata, buf: ByteBuffer) {
+            FfiConverterOptionalTypeUPosterColor.write(value.`backgroundColor`, buf)
+            FfiConverterTypeUPosterColor.write(value.`fontColor`, buf)
+            FfiConverterString.write(value.`fontName`, buf)
+            FfiConverterFloat.write(value.`fontSize`, buf)
+            FfiConverterFloat.write(value.`fontWeight`, buf)
+            FfiConverterBoolean.write(value.`isVertical`, buf)
+            FfiConverterString.write(value.`typeKey`, buf)
+    }
+}
+
+
+
+/**
+ * Watch-background half of a transcript poster.
+ */
+data class UWatchBackground (
+    var `isHighKey`: kotlin.Boolean, 
+    var `luminance`: kotlin.Double, 
+    /**
+     * Raw image bytes for the chat-background wallpaper.
+     */
+    var `backgroundImage`: kotlin.ByteArray, 
+    var `extensionIdentifier`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUWatchBackground: FfiConverterRustBuffer<UWatchBackground> {
+    override fun read(buf: ByteBuffer): UWatchBackground {
+        return UWatchBackground(
+            FfiConverterBoolean.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UWatchBackground) = (
+            FfiConverterBoolean.allocationSize(value.`isHighKey`) +
+            FfiConverterDouble.allocationSize(value.`luminance`) +
+            FfiConverterByteArray.allocationSize(value.`backgroundImage`) +
+            FfiConverterString.allocationSize(value.`extensionIdentifier`)
+    )
+
+    override fun write(value: UWatchBackground, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`isHighKey`, buf)
+            FfiConverterDouble.write(value.`luminance`, buf)
+            FfiConverterByteArray.write(value.`backgroundImage`, buf)
+            FfiConverterString.write(value.`extensionIdentifier`, buf)
     }
 }
 
@@ -12202,6 +14712,155 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
 
 
 
+/**
+ * Which poster flavor this is, with the cheap display fields inline.
+ */
+sealed class UPosterKind {
+    
+    data class Photo(
+        val `assetCount`: kotlin.ULong) : UPosterKind() {
+        companion object
+    }
+    
+    data class Monogram(
+        val `initials`: kotlin.String, 
+        val `background`: UPosterColor, 
+        val `topBackground`: UPosterColor, 
+        val `monogramSupportedForName`: kotlin.Boolean) : UPosterKind() {
+        companion object
+    }
+    
+    data class Memoji(
+        val `background`: UPosterColor, 
+        val `hasBody`: kotlin.Boolean) : UPosterKind() {
+        companion object
+    }
+    
+    data class TranscriptDynamic(
+        val `identifier`: kotlin.String) : UPosterKind() {
+        companion object
+    }
+    
+    data class TranscriptGradient(
+        val `colors`: List<UPosterColor>) : UPosterKind() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPosterKind : FfiConverterRustBuffer<UPosterKind>{
+    override fun read(buf: ByteBuffer): UPosterKind {
+        return when(buf.getInt()) {
+            1 -> UPosterKind.Photo(
+                FfiConverterULong.read(buf),
+                )
+            2 -> UPosterKind.Monogram(
+                FfiConverterString.read(buf),
+                FfiConverterTypeUPosterColor.read(buf),
+                FfiConverterTypeUPosterColor.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            3 -> UPosterKind.Memoji(
+                FfiConverterTypeUPosterColor.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            4 -> UPosterKind.TranscriptDynamic(
+                FfiConverterString.read(buf),
+                )
+            5 -> UPosterKind.TranscriptGradient(
+                FfiConverterSequenceTypeUPosterColor.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UPosterKind) = when(value) {
+        is UPosterKind.Photo -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterULong.allocationSize(value.`assetCount`)
+            )
+        }
+        is UPosterKind.Monogram -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`initials`)
+                + FfiConverterTypeUPosterColor.allocationSize(value.`background`)
+                + FfiConverterTypeUPosterColor.allocationSize(value.`topBackground`)
+                + FfiConverterBoolean.allocationSize(value.`monogramSupportedForName`)
+            )
+        }
+        is UPosterKind.Memoji -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeUPosterColor.allocationSize(value.`background`)
+                + FfiConverterBoolean.allocationSize(value.`hasBody`)
+            )
+        }
+        is UPosterKind.TranscriptDynamic -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`identifier`)
+            )
+        }
+        is UPosterKind.TranscriptGradient -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeUPosterColor.allocationSize(value.`colors`)
+            )
+        }
+    }
+
+    override fun write(value: UPosterKind, buf: ByteBuffer) {
+        when(value) {
+            is UPosterKind.Photo -> {
+                buf.putInt(1)
+                FfiConverterULong.write(value.`assetCount`, buf)
+                Unit
+            }
+            is UPosterKind.Monogram -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`initials`, buf)
+                FfiConverterTypeUPosterColor.write(value.`background`, buf)
+                FfiConverterTypeUPosterColor.write(value.`topBackground`, buf)
+                FfiConverterBoolean.write(value.`monogramSupportedForName`, buf)
+                Unit
+            }
+            is UPosterKind.Memoji -> {
+                buf.putInt(3)
+                FfiConverterTypeUPosterColor.write(value.`background`, buf)
+                FfiConverterBoolean.write(value.`hasBody`, buf)
+                Unit
+            }
+            is UPosterKind.TranscriptDynamic -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`identifier`, buf)
+                Unit
+            }
+            is UPosterKind.TranscriptGradient -> {
+                buf.putInt(5)
+                FfiConverterSequenceTypeUPosterColor.write(value.`colors`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 sealed class UPushMessage {
     
     data class IMessage(
@@ -12663,13 +15322,15 @@ sealed class USyncRecord {
     
     data class Chat(
         val `recordId`: kotlin.String, 
-        val `chat`: UCloudChat?) : USyncRecord() {
+        val `chat`: UCloudChat?, 
+        val `blob`: kotlin.ByteArray) : USyncRecord() {
         companion object
     }
     
     data class Message(
         val `recordId`: kotlin.String, 
-        val `message`: UCloudMessage?) : USyncRecord() {
+        val `message`: UCloudMessage?, 
+        val `blob`: kotlin.ByteArray) : USyncRecord() {
         companion object
     }
     
@@ -12687,10 +15348,12 @@ public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
             1 -> USyncRecord.Chat(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypeUCloudChat.read(buf),
+                FfiConverterByteArray.read(buf),
                 )
             2 -> USyncRecord.Message(
                 FfiConverterString.read(buf),
                 FfiConverterOptionalTypeUCloudMessage.read(buf),
+                FfiConverterByteArray.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -12703,6 +15366,7 @@ public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
                 4UL
                 + FfiConverterString.allocationSize(value.`recordId`)
                 + FfiConverterOptionalTypeUCloudChat.allocationSize(value.`chat`)
+                + FfiConverterByteArray.allocationSize(value.`blob`)
             )
         }
         is USyncRecord.Message -> {
@@ -12711,6 +15375,7 @@ public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
                 4UL
                 + FfiConverterString.allocationSize(value.`recordId`)
                 + FfiConverterOptionalTypeUCloudMessage.allocationSize(value.`message`)
+                + FfiConverterByteArray.allocationSize(value.`blob`)
             )
         }
     }
@@ -12721,12 +15386,14 @@ public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
                 buf.putInt(1)
                 FfiConverterString.write(value.`recordId`, buf)
                 FfiConverterOptionalTypeUCloudChat.write(value.`chat`, buf)
+                FfiConverterByteArray.write(value.`blob`, buf)
                 Unit
             }
             is USyncRecord.Message -> {
                 buf.putInt(2)
                 FfiConverterString.write(value.`recordId`, buf)
                 FfiConverterOptionalTypeUCloudMessage.write(value.`message`, buf)
+                FfiConverterByteArray.write(value.`blob`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -12903,6 +15570,38 @@ public object FfiConverterOptionalDouble: FfiConverterRustBuffer<kotlin.Double?>
         } else {
             buf.put(1)
             FfiConverterDouble.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalBoolean: FfiConverterRustBuffer<kotlin.Boolean?> {
+    override fun read(buf: ByteBuffer): kotlin.Boolean? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterBoolean.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Boolean?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterBoolean.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Boolean?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterBoolean.write(value, buf)
         }
     }
 }
@@ -13137,6 +15836,166 @@ public object FfiConverterOptionalTypeUConversation: FfiConverterRustBuffer<UCon
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeUFmAddress: FfiConverterRustBuffer<UFmAddress?> {
+    override fun read(buf: ByteBuffer): UFmAddress? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUFmAddress.read(buf)
+    }
+
+    override fun allocationSize(value: UFmAddress?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUFmAddress.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UFmAddress?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUFmAddress.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUFmLocation: FfiConverterRustBuffer<UFmLocation?> {
+    override fun read(buf: ByteBuffer): UFmLocation? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUFmLocation.read(buf)
+    }
+
+    override fun allocationSize(value: UFmLocation?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUFmLocation.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UFmLocation?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUFmLocation.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUFmReport: FfiConverterRustBuffer<UFmReport?> {
+    override fun read(buf: ByteBuffer): UFmReport? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUFmReport.read(buf)
+    }
+
+    override fun allocationSize(value: UFmReport?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUFmReport.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UFmReport?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUFmReport.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUPosterColor: FfiConverterRustBuffer<UPosterColor?> {
+    override fun read(buf: ByteBuffer): UPosterColor? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUPosterColor.read(buf)
+    }
+
+    override fun allocationSize(value: UPosterColor?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUPosterColor.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UPosterColor?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUPosterColor.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUPosterRecord: FfiConverterRustBuffer<UPosterRecord?> {
+    override fun read(buf: ByteBuffer): UPosterRecord? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUPosterRecord.read(buf)
+    }
+
+    override fun allocationSize(value: UPosterRecord?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUPosterRecord.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UPosterRecord?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUPosterRecord.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJournal?> {
     override fun read(buf: ByteBuffer): UQueuedJournal? {
         if (buf.get().toInt() == 0) {
@@ -13223,6 +16082,38 @@ public object FfiConverterOptionalTypeUPushMessage: FfiConverterRustBuffer<UPush
         } else {
             buf.put(1)
             FfiConverterTypeUPushMessage.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalSequenceString: FfiConverterRustBuffer<List<kotlin.String>?> {
+    override fun read(buf: ByteBuffer): List<kotlin.String>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceString.read(buf)
+    }
+
+    override fun allocationSize(value: List<kotlin.String>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<kotlin.String>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceString.write(value, buf)
         }
     }
 }
@@ -13335,6 +16226,174 @@ public object FfiConverterSequenceTypeUChatChange: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUChatChange.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUCkAttachmentUpload: FfiConverterRustBuffer<List<UCkAttachmentUpload>> {
+    override fun read(buf: ByteBuffer): List<UCkAttachmentUpload> {
+        val len = buf.getInt()
+        return List<UCkAttachmentUpload>(len) {
+            FfiConverterTypeUCkAttachmentUpload.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UCkAttachmentUpload>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUCkAttachmentUpload.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UCkAttachmentUpload>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUCkAttachmentUpload.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUCkBlob: FfiConverterRustBuffer<List<UCkBlob>> {
+    override fun read(buf: ByteBuffer): List<UCkBlob> {
+        val len = buf.getInt()
+        return List<UCkBlob>(len) {
+            FfiConverterTypeUCkBlob.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UCkBlob>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUCkBlob.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UCkBlob>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUCkBlob.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUCkSaveResult: FfiConverterRustBuffer<List<UCkSaveResult>> {
+    override fun read(buf: ByteBuffer): List<UCkSaveResult> {
+        val len = buf.getInt()
+        return List<UCkSaveResult>(len) {
+            FfiConverterTypeUCkSaveResult.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UCkSaveResult>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUCkSaveResult.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UCkSaveResult>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUCkSaveResult.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUFmDevice: FfiConverterRustBuffer<List<UFmDevice>> {
+    override fun read(buf: ByteBuffer): List<UFmDevice> {
+        val len = buf.getInt()
+        return List<UFmDevice>(len) {
+            FfiConverterTypeUFmDevice.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UFmDevice>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUFmDevice.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UFmDevice>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUFmDevice.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUFmFriend: FfiConverterRustBuffer<List<UFmFriend>> {
+    override fun read(buf: ByteBuffer): List<UFmFriend> {
+        val len = buf.getInt()
+        return List<UFmFriend>(len) {
+            FfiConverterTypeUFmFriend.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UFmFriend>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUFmFriend.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UFmFriend>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUFmFriend.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUFmItem: FfiConverterRustBuffer<List<UFmItem>> {
+    override fun read(buf: ByteBuffer): List<UFmItem> {
+        val len = buf.getInt()
+        return List<UFmItem>(len) {
+            FfiConverterTypeUFmItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UFmItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUFmItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UFmItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUFmItem.write(it, buf)
         }
     }
 }
@@ -13485,6 +16544,90 @@ public object FfiConverterSequenceTypeUPhoneUser: FfiConverterRustBuffer<List<UP
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeUPosterColor: FfiConverterRustBuffer<List<UPosterColor>> {
+    override fun read(buf: ByteBuffer): List<UPosterColor> {
+        val len = buf.getInt()
+        return List<UPosterColor>(len) {
+            FfiConverterTypeUPosterColor.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UPosterColor>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUPosterColor.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UPosterColor>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUPosterColor.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUPosterFile: FfiConverterRustBuffer<List<UPosterFile>> {
+    override fun read(buf: ByteBuffer): List<UPosterFile> {
+        val len = buf.getInt()
+        return List<UPosterFile>(len) {
+            FfiConverterTypeUPosterFile.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UPosterFile>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUPosterFile.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UPosterFile>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUPosterFile.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUSmsTarget: FfiConverterRustBuffer<List<USmsTarget>> {
+    override fun read(buf: ByteBuffer): List<USmsTarget> {
+        val len = buf.getInt()
+        return List<USmsTarget>(len) {
+            FfiConverterTypeUSmsTarget.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<USmsTarget>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUSmsTarget.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<USmsTarget>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUSmsTarget.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeUTrustedPhone: FfiConverterRustBuffer<List<UTrustedPhone>> {
     override fun read(buf: ByteBuffer): List<UTrustedPhone> {
         val len = buf.getInt()
@@ -13615,6 +16758,45 @@ public object FfiConverterSequenceTypeUSyncRecord: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUSyncRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringBoolean: FfiConverterRustBuffer<Map<kotlin.String, kotlin.Boolean>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.Boolean> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.Boolean>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterBoolean.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.Boolean>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterBoolean.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.Boolean>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterBoolean.write(v, buf)
         }
     }
 }
@@ -13756,6 +16938,34 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     
 
         /**
+         * api.rs `parse_poster` — decode a raw `IMessagePosterRecord` (from
+         * `fetch_profile` or a saved record) into a renderable poster.
+         */
+    @Throws(UException::class) fun `parseCallPoster`(`record`: UPosterRecord): UCallPoster {
+            return FfiConverterTypeUCallPoster.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_parse_call_poster(
+        FfiConverterTypeUPosterRecord.lower(`record`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * api.rs `parse_transcript_poster` — decode a transcript-background zip
+         * payload.
+         */
+    @Throws(UException::class) fun `parsePoster`(`data`: kotlin.ByteArray): UTranscriptPoster {
+            return FfiConverterTypeUTranscriptPoster.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_parse_poster(
+        FfiConverterByteArray.lower(`data`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
          */
     @Throws(UException::class) fun `provisionFromRelay`(`dir`: kotlin.String, `code`: kotlin.String, `host`: kotlin.String, `token`: kotlin.String?)
@@ -13815,6 +17025,34 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(
         FfiConverterString.lower(`xml`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * api.rs `from_poster_save` (with its tolerant fallback for the older
+         * save format) — restore a poster persisted via `UCallPoster.save`.
+         */
+    @Throws(UException::class) fun `restoreCallPosterSave`(`data`: kotlin.ByteArray): UCallPoster {
+            return FfiConverterTypeUCallPoster.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_restore_call_poster_save(
+        FfiConverterByteArray.lower(`data`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * api.rs `from_transcript_poster_save` — restore a poster persisted via
+         * `UTranscriptPoster.save` (binary plist).
+         */
+    @Throws(UException::class) fun `restoreTranscriptPosterSave`(`data`: kotlin.ByteArray): UTranscriptPoster {
+            return FfiConverterTypeUTranscriptPoster.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_restore_transcript_poster_save(
+        FfiConverterByteArray.lower(`data`),_status)
 }
     )
     }
