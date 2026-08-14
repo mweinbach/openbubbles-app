@@ -97,6 +97,13 @@ pub struct NativePushState {
     watcher: Mutex<APSWatcher>,
 }
 
+impl NativePushState {
+    /// Access the shared push state from sibling modules (uniffi_ext).
+    pub(crate) fn shared(&self) -> &SharedPushState {
+        &self.state
+    }
+}
+
 #[uniffi::export]
 pub fn start(dir: String, packager: Arc<dyn KotlinFilePackager>, wifi: Arc<dyn HandleWifiNetworksCallback>) {
     let _ = PACKAGER_LOCK.set(packager);

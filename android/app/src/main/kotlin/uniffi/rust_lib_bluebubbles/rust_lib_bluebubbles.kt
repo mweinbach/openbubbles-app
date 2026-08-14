@@ -1096,6 +1096,22 @@ internal open class UniffiVTableCallbackInterfaceSpecialAppleAuthCallback(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1111,7 +1127,9 @@ internal open class UniffiVTableCallbackInterfaceSpecialAppleAuthCallback(
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_rust_lib_bluebubbles_checksum_func_do_lock(
+    fun uniffi_rust_lib_bluebubbles_checksum_func_complete_message(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_do_lock(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_finish_unlock(
 ): Short
@@ -1120,6 +1138,12 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_get_carrier(
 fun uniffi_rust_lib_bluebubbles_checksum_func_init_native(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_is_locked(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain(
 ): Short
@@ -1190,6 +1214,14 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_password_insert(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
 ): Short
@@ -1367,6 +1399,14 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_inse
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1387,6 +1427,8 @@ fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_specialappleauthcallback
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(`ptr`: Pointer,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_do_lock(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(uniffi_out_err: UniffiRustCallStatus, 
@@ -1397,6 +1439,12 @@ fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`h
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(`id`: Long,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(`dir`: RustBuffer.ByValue,`keystore`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1530,6 +1578,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_complete_message() != 64391.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_do_lock() != 42972.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1543,6 +1594,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_is_locked() != 51144.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt() != 52117.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message() != 44576.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal() != 5198.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain() != 40899.toShort()) {
@@ -1650,6 +1710,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 36838.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read() != 64189.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text() != 53337.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing() != 31465.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1715,6 +1787,29 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
  * @suppress
  * */
 object NoPointer
+
+/**
+ * @suppress
+ */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
 
 /**
  * @suppress
@@ -4531,6 +4626,23 @@ public interface NativePushStateInterface {
     
     fun `publishStatus`(`guid`: kotlin.String?)
     
+    /**
+     * Send (or remove, with `enable: false`) a tapback.
+     * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
+     * 5 question; 6 + `emoji` for custom emoji tapbacks.
+     */
+    fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean)
+    
+    fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String)
+    
+    /**
+     * Send a plain (optionally formatted-later) text message. Returns the
+     * staged MessageInst — `id` is the staging GUID to persist.
+     */
+    fun `sendText`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
+    
+    fun `sendTyping`(`conversation`: UConversation, `sender`: kotlin.String, `typing`: kotlin.Boolean)
+    
     fun `startLoop`(`handler`: MsgReceiver)
     
     fun `teardown2fa`(`action`: kotlin.String, `txnid`: kotlin.String)
@@ -4716,6 +4828,64 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(
         it, FfiConverterOptionalString.lower(`guid`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Send (or remove, with `enable: false`) a tapback.
+     * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
+     * 5 question; 6 + `emoji` for custom emoji tapbacks.
+     */
+    @Throws(UException::class)override fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterOptionalULong.lower(`toPart`),FfiConverterULong.lower(`reactionIdx`),FfiConverterOptionalString.lower(`emoji`),FfiConverterString.lower(`toText`),FfiConverterBoolean.lower(`enable`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(UException::class)override fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Send a plain (optionally formatted-later) text message. Returns the
+     * staged MessageInst — `id` is the staging GUID to persist.
+     */
+    @Throws(UException::class)override fun `sendText`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`text`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(UException::class)override fun `sendTyping`(`conversation`: UConversation, `sender`: kotlin.String, `typing`: kotlin.Boolean)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterBoolean.lower(`typing`),_status)
 }
     }
     
@@ -5507,6 +5677,169 @@ public object FfiConverterTypeSavedPassword: FfiConverterRustBuffer<SavedPasswor
 
 
 
+data class UConversation (
+    var `participants`: List<kotlin.String>, 
+    var `cvName`: kotlin.String?, 
+    var `senderGuid`: kotlin.String?, 
+    var `afterGuid`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUConversation: FfiConverterRustBuffer<UConversation> {
+    override fun read(buf: ByteBuffer): UConversation {
+        return UConversation(
+            FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UConversation) = (
+            FfiConverterSequenceString.allocationSize(value.`participants`) +
+            FfiConverterOptionalString.allocationSize(value.`cvName`) +
+            FfiConverterOptionalString.allocationSize(value.`senderGuid`) +
+            FfiConverterOptionalString.allocationSize(value.`afterGuid`)
+    )
+
+    override fun write(value: UConversation, buf: ByteBuffer) {
+            FfiConverterSequenceString.write(value.`participants`, buf)
+            FfiConverterOptionalString.write(value.`cvName`, buf)
+            FfiConverterOptionalString.write(value.`senderGuid`, buf)
+            FfiConverterOptionalString.write(value.`afterGuid`, buf)
+    }
+}
+
+
+
+data class UIndexedPart (
+    var `part`: UPart, 
+    var `idx`: kotlin.ULong?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUIndexedPart: FfiConverterRustBuffer<UIndexedPart> {
+    override fun read(buf: ByteBuffer): UIndexedPart {
+        return UIndexedPart(
+            FfiConverterTypeUPart.read(buf),
+            FfiConverterOptionalULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UIndexedPart) = (
+            FfiConverterTypeUPart.allocationSize(value.`part`) +
+            FfiConverterOptionalULong.allocationSize(value.`idx`)
+    )
+
+    override fun write(value: UIndexedPart, buf: ByteBuffer) {
+            FfiConverterTypeUPart.write(value.`part`, buf)
+            FfiConverterOptionalULong.write(value.`idx`, buf)
+    }
+}
+
+
+
+data class UMessageInst (
+    /**
+     * Staging GUID; matches `Message.stagingGuid` on the persistence side.
+     */
+    var `id`: kotlin.String, 
+    var `sender`: kotlin.String?, 
+    var `conversation`: UConversation?, 
+    var `message`: UMessage, 
+    var `sentTimestamp`: kotlin.ULong, 
+    var `sendDelivered`: kotlin.Boolean, 
+    var `verificationFailed`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUMessageInst: FfiConverterRustBuffer<UMessageInst> {
+    override fun read(buf: ByteBuffer): UMessageInst {
+        return UMessageInst(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalTypeUConversation.read(buf),
+            FfiConverterTypeUMessage.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UMessageInst) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterOptionalString.allocationSize(value.`sender`) +
+            FfiConverterOptionalTypeUConversation.allocationSize(value.`conversation`) +
+            FfiConverterTypeUMessage.allocationSize(value.`message`) +
+            FfiConverterULong.allocationSize(value.`sentTimestamp`) +
+            FfiConverterBoolean.allocationSize(value.`sendDelivered`) +
+            FfiConverterBoolean.allocationSize(value.`verificationFailed`)
+    )
+
+    override fun write(value: UMessageInst, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterOptionalString.write(value.`sender`, buf)
+            FfiConverterOptionalTypeUConversation.write(value.`conversation`, buf)
+            FfiConverterTypeUMessage.write(value.`message`, buf)
+            FfiConverterULong.write(value.`sentTimestamp`, buf)
+            FfiConverterBoolean.write(value.`sendDelivered`, buf)
+            FfiConverterBoolean.write(value.`verificationFailed`, buf)
+    }
+}
+
+
+
+data class UQueuedJournal (
+    var `id`: kotlin.ULong, 
+    var `attempts`: kotlin.UByte, 
+    var `message`: UPushMessage
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJournal> {
+    override fun read(buf: ByteBuffer): UQueuedJournal {
+        return UQueuedJournal(
+            FfiConverterULong.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterTypeUPushMessage.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UQueuedJournal) = (
+            FfiConverterULong.allocationSize(value.`id`) +
+            FfiConverterUByte.allocationSize(value.`attempts`) +
+            FfiConverterTypeUPushMessage.allocationSize(value.`message`)
+    )
+
+    override fun write(value: UQueuedJournal, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`id`, buf)
+            FfiConverterUByte.write(value.`attempts`, buf)
+            FfiConverterTypeUPushMessage.write(value.`message`, buf)
+    }
+}
+
+
+
 
 enum class EcCurve {
     
@@ -5934,6 +6267,1037 @@ public object FfiConverterTypePackagedFile : FfiConverterRustBuffer<PackagedFile
 
 
 
+
+/**
+ * Error type crossing the FFI boundary (UniFFI rejects bare String throws).
+ */
+sealed class UException: kotlin.Exception() {
+    
+    class SendFailed(
+        
+        val `reason`: kotlin.String
+        ) : UException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    class InvalidArgument(
+        
+        val `reason`: kotlin.String
+        ) : UException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<UException> {
+        override fun lift(error_buf: RustBuffer.ByValue): UException = FfiConverterTypeUError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
+    override fun read(buf: ByteBuffer): UException {
+        
+
+        return when(buf.getInt()) {
+            1 -> UException.SendFailed(
+                FfiConverterString.read(buf),
+                )
+            2 -> UException.InvalidArgument(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UException): ULong {
+        return when(value) {
+            is UException.SendFailed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is UException.InvalidArgument -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: UException, buf: ByteBuffer) {
+        when(value) {
+            is UException.SendFailed -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is UException.InvalidArgument -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+sealed class UMessage {
+    
+    data class Normal(
+        val `parts`: List<UIndexedPart>, 
+        val `effect`: kotlin.String?, 
+        val `replyGuid`: kotlin.String?, 
+        val `replyPart`: kotlin.String?, 
+        val `subject`: kotlin.String?, 
+        val `voice`: kotlin.Boolean, 
+        val `isSms`: kotlin.Boolean, 
+        val `appJson`: kotlin.String?, 
+        val `linkJson`: kotlin.String?) : UMessage() {
+        companion object
+    }
+    
+    data class React(
+        val `toUuid`: kotlin.String, 
+        val `toPart`: kotlin.ULong?, 
+        val `reactionJson`: kotlin.String, 
+        val `toText`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class Rename(
+        val `newName`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class ChangeParticipants(
+        val `newParticipants`: List<kotlin.String>, 
+        val `groupVersion`: kotlin.ULong) : UMessage() {
+        companion object
+    }
+    
+    object Delivered : UMessage()
+    
+    
+    object Read : UMessage()
+    
+    
+    data class Typing(
+        val `typing`: kotlin.Boolean) : UMessage() {
+        companion object
+    }
+    
+    data class Unsend(
+        val `tuuid`: kotlin.String, 
+        val `editPart`: kotlin.ULong) : UMessage() {
+        companion object
+    }
+    
+    data class Edit(
+        val `tuuid`: kotlin.String, 
+        val `editPart`: kotlin.ULong, 
+        val `parts`: List<UIndexedPart>) : UMessage() {
+        companion object
+    }
+    
+    data class IconChange(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class SmsConfirmSent(
+        val `status`: kotlin.Boolean) : UMessage() {
+        companion object
+    }
+    
+    data class EnableSmsActivation(
+        val `enable`: kotlin.Boolean) : UMessage() {
+        companion object
+    }
+    
+    object MessageReadOnDevice : UMessage()
+    
+    
+    object MarkUnread : UMessage()
+    
+    
+    data class Error(
+        val `forUuid`: kotlin.String, 
+        val `status`: kotlin.ULong, 
+        val `statusStr`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class MoveToRecycleBin(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class RecoverChat(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class PermanentDelete(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class UpdateProfile(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class UpdateProfileSharing(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class ShareProfile(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class SetTranscriptBackground(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    data class UpdateExtension(
+        val `json`: kotlin.String) : UMessage() {
+        companion object
+    }
+    
+    object Unschedule : UMessage()
+    
+    
+    object PeerCacheInvalidate : UMessage()
+    
+    
+    object NotifyAnyways : UMessage()
+    
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
+    override fun read(buf: ByteBuffer): UMessage {
+        return when(buf.getInt()) {
+            1 -> UMessage.Normal(
+                FfiConverterSequenceTypeUIndexedPart.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            2 -> UMessage.React(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalULong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            3 -> UMessage.Rename(
+                FfiConverterString.read(buf),
+                )
+            4 -> UMessage.ChangeParticipants(
+                FfiConverterSequenceString.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            5 -> UMessage.Delivered
+            6 -> UMessage.Read
+            7 -> UMessage.Typing(
+                FfiConverterBoolean.read(buf),
+                )
+            8 -> UMessage.Unsend(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            9 -> UMessage.Edit(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterSequenceTypeUIndexedPart.read(buf),
+                )
+            10 -> UMessage.IconChange(
+                FfiConverterString.read(buf),
+                )
+            11 -> UMessage.SmsConfirmSent(
+                FfiConverterBoolean.read(buf),
+                )
+            12 -> UMessage.EnableSmsActivation(
+                FfiConverterBoolean.read(buf),
+                )
+            13 -> UMessage.MessageReadOnDevice
+            14 -> UMessage.MarkUnread
+            15 -> UMessage.Error(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            16 -> UMessage.MoveToRecycleBin(
+                FfiConverterString.read(buf),
+                )
+            17 -> UMessage.RecoverChat(
+                FfiConverterString.read(buf),
+                )
+            18 -> UMessage.PermanentDelete(
+                FfiConverterString.read(buf),
+                )
+            19 -> UMessage.UpdateProfile(
+                FfiConverterString.read(buf),
+                )
+            20 -> UMessage.UpdateProfileSharing(
+                FfiConverterString.read(buf),
+                )
+            21 -> UMessage.ShareProfile(
+                FfiConverterString.read(buf),
+                )
+            22 -> UMessage.SetTranscriptBackground(
+                FfiConverterString.read(buf),
+                )
+            23 -> UMessage.UpdateExtension(
+                FfiConverterString.read(buf),
+                )
+            24 -> UMessage.Unschedule
+            25 -> UMessage.PeerCacheInvalidate
+            26 -> UMessage.NotifyAnyways
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UMessage) = when(value) {
+        is UMessage.Normal -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeUIndexedPart.allocationSize(value.`parts`)
+                + FfiConverterOptionalString.allocationSize(value.`effect`)
+                + FfiConverterOptionalString.allocationSize(value.`replyGuid`)
+                + FfiConverterOptionalString.allocationSize(value.`replyPart`)
+                + FfiConverterOptionalString.allocationSize(value.`subject`)
+                + FfiConverterBoolean.allocationSize(value.`voice`)
+                + FfiConverterBoolean.allocationSize(value.`isSms`)
+                + FfiConverterOptionalString.allocationSize(value.`appJson`)
+                + FfiConverterOptionalString.allocationSize(value.`linkJson`)
+            )
+        }
+        is UMessage.React -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`toUuid`)
+                + FfiConverterOptionalULong.allocationSize(value.`toPart`)
+                + FfiConverterString.allocationSize(value.`reactionJson`)
+                + FfiConverterString.allocationSize(value.`toText`)
+            )
+        }
+        is UMessage.Rename -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`newName`)
+            )
+        }
+        is UMessage.ChangeParticipants -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceString.allocationSize(value.`newParticipants`)
+                + FfiConverterULong.allocationSize(value.`groupVersion`)
+            )
+        }
+        is UMessage.Delivered -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.Read -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.Typing -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`typing`)
+            )
+        }
+        is UMessage.Unsend -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`tuuid`)
+                + FfiConverterULong.allocationSize(value.`editPart`)
+            )
+        }
+        is UMessage.Edit -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`tuuid`)
+                + FfiConverterULong.allocationSize(value.`editPart`)
+                + FfiConverterSequenceTypeUIndexedPart.allocationSize(value.`parts`)
+            )
+        }
+        is UMessage.IconChange -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.SmsConfirmSent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`status`)
+            )
+        }
+        is UMessage.EnableSmsActivation -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`enable`)
+            )
+        }
+        is UMessage.MessageReadOnDevice -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.MarkUnread -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.Error -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`forUuid`)
+                + FfiConverterULong.allocationSize(value.`status`)
+                + FfiConverterString.allocationSize(value.`statusStr`)
+            )
+        }
+        is UMessage.MoveToRecycleBin -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.RecoverChat -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.PermanentDelete -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.UpdateProfile -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.UpdateProfileSharing -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.ShareProfile -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.SetTranscriptBackground -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.UpdateExtension -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UMessage.Unschedule -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.PeerCacheInvalidate -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UMessage.NotifyAnyways -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: UMessage, buf: ByteBuffer) {
+        when(value) {
+            is UMessage.Normal -> {
+                buf.putInt(1)
+                FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
+                FfiConverterOptionalString.write(value.`effect`, buf)
+                FfiConverterOptionalString.write(value.`replyGuid`, buf)
+                FfiConverterOptionalString.write(value.`replyPart`, buf)
+                FfiConverterOptionalString.write(value.`subject`, buf)
+                FfiConverterBoolean.write(value.`voice`, buf)
+                FfiConverterBoolean.write(value.`isSms`, buf)
+                FfiConverterOptionalString.write(value.`appJson`, buf)
+                FfiConverterOptionalString.write(value.`linkJson`, buf)
+                Unit
+            }
+            is UMessage.React -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`toUuid`, buf)
+                FfiConverterOptionalULong.write(value.`toPart`, buf)
+                FfiConverterString.write(value.`reactionJson`, buf)
+                FfiConverterString.write(value.`toText`, buf)
+                Unit
+            }
+            is UMessage.Rename -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`newName`, buf)
+                Unit
+            }
+            is UMessage.ChangeParticipants -> {
+                buf.putInt(4)
+                FfiConverterSequenceString.write(value.`newParticipants`, buf)
+                FfiConverterULong.write(value.`groupVersion`, buf)
+                Unit
+            }
+            is UMessage.Delivered -> {
+                buf.putInt(5)
+                Unit
+            }
+            is UMessage.Read -> {
+                buf.putInt(6)
+                Unit
+            }
+            is UMessage.Typing -> {
+                buf.putInt(7)
+                FfiConverterBoolean.write(value.`typing`, buf)
+                Unit
+            }
+            is UMessage.Unsend -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`tuuid`, buf)
+                FfiConverterULong.write(value.`editPart`, buf)
+                Unit
+            }
+            is UMessage.Edit -> {
+                buf.putInt(9)
+                FfiConverterString.write(value.`tuuid`, buf)
+                FfiConverterULong.write(value.`editPart`, buf)
+                FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
+                Unit
+            }
+            is UMessage.IconChange -> {
+                buf.putInt(10)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.SmsConfirmSent -> {
+                buf.putInt(11)
+                FfiConverterBoolean.write(value.`status`, buf)
+                Unit
+            }
+            is UMessage.EnableSmsActivation -> {
+                buf.putInt(12)
+                FfiConverterBoolean.write(value.`enable`, buf)
+                Unit
+            }
+            is UMessage.MessageReadOnDevice -> {
+                buf.putInt(13)
+                Unit
+            }
+            is UMessage.MarkUnread -> {
+                buf.putInt(14)
+                Unit
+            }
+            is UMessage.Error -> {
+                buf.putInt(15)
+                FfiConverterString.write(value.`forUuid`, buf)
+                FfiConverterULong.write(value.`status`, buf)
+                FfiConverterString.write(value.`statusStr`, buf)
+                Unit
+            }
+            is UMessage.MoveToRecycleBin -> {
+                buf.putInt(16)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.RecoverChat -> {
+                buf.putInt(17)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.PermanentDelete -> {
+                buf.putInt(18)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.UpdateProfile -> {
+                buf.putInt(19)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.UpdateProfileSharing -> {
+                buf.putInt(20)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.ShareProfile -> {
+                buf.putInt(21)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.SetTranscriptBackground -> {
+                buf.putInt(22)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.UpdateExtension -> {
+                buf.putInt(23)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UMessage.Unschedule -> {
+                buf.putInt(24)
+                Unit
+            }
+            is UMessage.PeerCacheInvalidate -> {
+                buf.putInt(25)
+                Unit
+            }
+            is UMessage.NotifyAnyways -> {
+                buf.putInt(26)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class UPart {
+    
+    data class Text(
+        val `text`: kotlin.String, 
+        val `formatJson`: kotlin.String) : UPart() {
+        companion object
+    }
+    
+    data class Attachment(
+        val `part`: kotlin.ULong, 
+        val `uti`: kotlin.String, 
+        val `mime`: kotlin.String, 
+        val `name`: kotlin.String, 
+        val `iris`: kotlin.Boolean) : UPart() {
+        companion object
+    }
+    
+    data class Mention(
+        val `mention`: kotlin.String, 
+        val `text`: kotlin.String) : UPart() {
+        companion object
+    }
+    
+    data class Object(
+        val `json`: kotlin.String) : UPart() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
+    override fun read(buf: ByteBuffer): UPart {
+        return when(buf.getInt()) {
+            1 -> UPart.Text(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            2 -> UPart.Attachment(
+                FfiConverterULong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            3 -> UPart.Mention(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            4 -> UPart.Object(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UPart) = when(value) {
+        is UPart.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterString.allocationSize(value.`formatJson`)
+            )
+        }
+        is UPart.Attachment -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterULong.allocationSize(value.`part`)
+                + FfiConverterString.allocationSize(value.`uti`)
+                + FfiConverterString.allocationSize(value.`mime`)
+                + FfiConverterString.allocationSize(value.`name`)
+                + FfiConverterBoolean.allocationSize(value.`iris`)
+            )
+        }
+        is UPart.Mention -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`mention`)
+                + FfiConverterString.allocationSize(value.`text`)
+            )
+        }
+        is UPart.Object -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+    }
+
+    override fun write(value: UPart, buf: ByteBuffer) {
+        when(value) {
+            is UPart.Text -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterString.write(value.`formatJson`, buf)
+                Unit
+            }
+            is UPart.Attachment -> {
+                buf.putInt(2)
+                FfiConverterULong.write(value.`part`, buf)
+                FfiConverterString.write(value.`uti`, buf)
+                FfiConverterString.write(value.`mime`, buf)
+                FfiConverterString.write(value.`name`, buf)
+                FfiConverterBoolean.write(value.`iris`, buf)
+                Unit
+            }
+            is UPart.Mention -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`mention`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                Unit
+            }
+            is UPart.Object -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class UPushMessage {
+    
+    data class IMessage(
+        val `inst`: UMessageInst) : UPushMessage() {
+        companion object
+    }
+    
+    data class SendConfirm(
+        val `uuid`: kotlin.String, 
+        val `error`: kotlin.String?) : UPushMessage() {
+        companion object
+    }
+    
+    object RegistrationState : UPushMessage()
+    
+    
+    data class NewPhotostream(
+        val `json`: kotlin.String) : UPushMessage() {
+        companion object
+    }
+    
+    data class FaceTime(
+        val `debug`: kotlin.String) : UPushMessage() {
+        companion object
+    }
+    
+    object StatusUpdate : UPushMessage()
+    
+    
+    data class Idms(
+        val `debug`: kotlin.String) : UPushMessage() {
+        companion object
+    }
+    
+    data class TwoFaAuthEvent(
+        val `success`: kotlin.Boolean) : UPushMessage() {
+        companion object
+    }
+    
+    object CircleFinishEvent : UPushMessage()
+    
+    
+    data class BeaconShared(
+        val `sender`: kotlin.String, 
+        val `beacon`: kotlin.String, 
+        val `attributesJson`: kotlin.String) : UPushMessage() {
+        companion object
+    }
+    
+    object ProcessQueue : UPushMessage()
+    
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage>{
+    override fun read(buf: ByteBuffer): UPushMessage {
+        return when(buf.getInt()) {
+            1 -> UPushMessage.IMessage(
+                FfiConverterTypeUMessageInst.read(buf),
+                )
+            2 -> UPushMessage.SendConfirm(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            3 -> UPushMessage.RegistrationState
+            4 -> UPushMessage.NewPhotostream(
+                FfiConverterString.read(buf),
+                )
+            5 -> UPushMessage.FaceTime(
+                FfiConverterString.read(buf),
+                )
+            6 -> UPushMessage.StatusUpdate
+            7 -> UPushMessage.Idms(
+                FfiConverterString.read(buf),
+                )
+            8 -> UPushMessage.TwoFaAuthEvent(
+                FfiConverterBoolean.read(buf),
+                )
+            9 -> UPushMessage.CircleFinishEvent
+            10 -> UPushMessage.BeaconShared(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            11 -> UPushMessage.ProcessQueue
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UPushMessage) = when(value) {
+        is UPushMessage.IMessage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeUMessageInst.allocationSize(value.`inst`)
+            )
+        }
+        is UPushMessage.SendConfirm -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`uuid`)
+                + FfiConverterOptionalString.allocationSize(value.`error`)
+            )
+        }
+        is UPushMessage.RegistrationState -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UPushMessage.NewPhotostream -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`json`)
+            )
+        }
+        is UPushMessage.FaceTime -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`debug`)
+            )
+        }
+        is UPushMessage.StatusUpdate -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UPushMessage.Idms -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`debug`)
+            )
+        }
+        is UPushMessage.TwoFaAuthEvent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`success`)
+            )
+        }
+        is UPushMessage.CircleFinishEvent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UPushMessage.BeaconShared -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sender`)
+                + FfiConverterString.allocationSize(value.`beacon`)
+                + FfiConverterString.allocationSize(value.`attributesJson`)
+            )
+        }
+        is UPushMessage.ProcessQueue -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: UPushMessage, buf: ByteBuffer) {
+        when(value) {
+            is UPushMessage.IMessage -> {
+                buf.putInt(1)
+                FfiConverterTypeUMessageInst.write(value.`inst`, buf)
+                Unit
+            }
+            is UPushMessage.SendConfirm -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`uuid`, buf)
+                FfiConverterOptionalString.write(value.`error`, buf)
+                Unit
+            }
+            is UPushMessage.RegistrationState -> {
+                buf.putInt(3)
+                Unit
+            }
+            is UPushMessage.NewPhotostream -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`json`, buf)
+                Unit
+            }
+            is UPushMessage.FaceTime -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`debug`, buf)
+                Unit
+            }
+            is UPushMessage.StatusUpdate -> {
+                buf.putInt(6)
+                Unit
+            }
+            is UPushMessage.Idms -> {
+                buf.putInt(7)
+                FfiConverterString.write(value.`debug`, buf)
+                Unit
+            }
+            is UPushMessage.TwoFaAuthEvent -> {
+                buf.putInt(8)
+                FfiConverterBoolean.write(value.`success`, buf)
+                Unit
+            }
+            is UPushMessage.CircleFinishEvent -> {
+                buf.putInt(9)
+                Unit
+            }
+            is UPushMessage.BeaconShared -> {
+                buf.putInt(10)
+                FfiConverterString.write(value.`sender`, buf)
+                FfiConverterString.write(value.`beacon`, buf)
+                FfiConverterString.write(value.`attributesJson`, buf)
+                Unit
+            }
+            is UPushMessage.ProcessQueue -> {
+                buf.putInt(11)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
 /**
  * @suppress
  */
@@ -5959,6 +7323,38 @@ public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
         } else {
             buf.put(1)
             FfiConverterUInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
         }
     }
 }
@@ -6097,6 +7493,70 @@ public object FfiConverterOptionalTypeNativePushState: FfiConverterRustBuffer<Na
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeUConversation: FfiConverterRustBuffer<UConversation?> {
+    override fun read(buf: ByteBuffer): UConversation? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUConversation.read(buf)
+    }
+
+    override fun allocationSize(value: UConversation?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUConversation.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UConversation?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUConversation.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJournal?> {
+    override fun read(buf: ByteBuffer): UQueuedJournal? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUQueuedJournal.read(buf)
+    }
+
+    override fun allocationSize(value: UQueuedJournal?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUQueuedJournal.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UQueuedJournal?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUQueuedJournal.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeKeyType: FfiConverterRustBuffer<KeyType?> {
     override fun read(buf: ByteBuffer): KeyType? {
         if (buf.get().toInt() == 0) {
@@ -6119,6 +7579,38 @@ public object FfiConverterOptionalTypeKeyType: FfiConverterRustBuffer<KeyType?> 
         } else {
             buf.put(1)
             FfiConverterTypeKeyType.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUPushMessage: FfiConverterRustBuffer<UPushMessage?> {
+    override fun read(buf: ByteBuffer): UPushMessage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUPushMessage.read(buf)
+    }
+
+    override fun allocationSize(value: UPushMessage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUPushMessage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UPushMessage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUPushMessage.write(value, buf)
         }
     }
 }
@@ -6203,6 +7695,34 @@ public object FfiConverterSequenceTypeSavedPassword: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeSavedPassword.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUIndexedPart: FfiConverterRustBuffer<List<UIndexedPart>> {
+    override fun read(buf: ByteBuffer): List<UIndexedPart> {
+        val len = buf.getInt()
+        return List<UIndexedPart>(len) {
+            FfiConverterTypeUIndexedPart.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UIndexedPart>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUIndexedPart.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UIndexedPart>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUIndexedPart.write(it, buf)
         }
     }
 }
@@ -6328,7 +7848,15 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
             FfiConverterString.write(v, buf)
         }
     }
-} fun `doLock`()
+} fun `completeMessage`(`ptr`: kotlin.String)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_complete_message(
+        FfiConverterString.lower(`ptr`),_status)
+}
+    
+    
+ fun `doLock`()
         = 
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_do_lock(
@@ -6364,6 +7892,32 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_is_locked(
+        _status)
+}
+    )
+    }
+    
+ fun `markJournalAttempt`(`id`: kotlin.ULong, `success`: kotlin.Boolean)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(
+        FfiConverterULong.lower(`id`),FfiConverterBoolean.lower(`success`),_status)
+}
+    
+    
+ fun `ptrToMessage`(`ptr`: kotlin.String): UPushMessage? {
+            return FfiConverterOptionalTypeUPushMessage.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(
+        FfiConverterString.lower(`ptr`),_status)
+}
+    )
+    }
+    
+ fun `readQueuedJournal`(): UQueuedJournal? {
+            return FfiConverterOptionalTypeUQueuedJournal.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(
         _status)
 }
     )

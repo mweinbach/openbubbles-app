@@ -3150,6 +3150,7 @@ dependencies = [
  "rasn",
  "rustpush",
  "serde",
+ "serde_json",
  "sha2",
  "tokio",
  "uniffi",

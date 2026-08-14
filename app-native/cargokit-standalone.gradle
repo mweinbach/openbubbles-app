@@ -75,3 +75,31 @@ android.applicationVariants.all { variant ->
         dependsOn t
     }
 }
+
+// Guards against the committed UniFFI bindings drifting from the Rust
+// surface: regenerates into a temp dir and diffs. Slow (release cargo
+// build); run explicitly or from CI, not part of assembleDebug.
+tasks.register("checkUniffiBindings") {
+    doLast {
+        def tmp = File.createTempDir()
+        tmp.deleteOnExit()
+        exec {
+            workingDir file("../rust")
+            executable "cargo"
+            args "run", "--bin", "uniffi-bindgen", "generate",
+                    "--library", "target/release/librust_lib_bluebubbles.dylib",
+                    "--language", "kotlin", "--no-format",
+                    "--out-dir", tmp.absolutePath
+        }
+        def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
+        def committed = file("../android/app/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
+        if (!generated.exists()) {
+            throw new GradleException("bindgen produced no kotlin file in temp dir")
+        }
+        if (generated.text.trim() != committed.text.trim()) {
+            throw new GradleException(
+                "UniFFI bindings are stale. Run: (cd rust && ./build-uniffi.sh)")
+        }
+        logger.lifecycle("UniFFI bindings up to date")
+    }
+}
