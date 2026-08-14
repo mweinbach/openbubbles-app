@@ -21,6 +21,11 @@ data class ChatListItem(
     val unread: Int,
     val pinned: Boolean,
     val avatarColor: Long,
+    /**
+     * For direct messages: the other participant's handle address. Used to
+     * resolve a contact photo for the avatar (null for groups/unknown).
+     */
+    val avatarAddress: String? = null,
 )
 
 /**
@@ -55,6 +60,12 @@ data class MessageItem(
     val unsent: Boolean = false,
     /** Sender's handle address (null for messages from me). */
     val senderAddress: String? = null,
+    /**
+     * Upload progress (bytesDone, bytesTotal) while an outgoing attachment
+     * transfer is in flight; total may be 0 when the size is unknown.
+     * Null for everything else.
+     */
+    val uploadProgress: Pair<Long, Long>? = null,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -71,6 +82,41 @@ interface MessageListRepository {
 
 interface Sender {
     suspend fun send(chatId: Long, text: String)
+}
+
+/** A picked outgoing attachment, ready to stage and upload. */
+data class OutgoingAttachment(
+    /** Local copy of the payload (app cache); the sender moves it into the store. */
+    val file: File,
+    /** Resolved MIME type ("image/jpeg"; never null). */
+    val mime: String,
+    /** Best-effort UTI ("public.jpeg"; "public.data" fallback). */
+    val uti: String,
+    /** Display / transfer name ("trailhead.jpg"). */
+    val name: String?,
+    /** Payload size in bytes. */
+    val sizeBytes: Long,
+)
+
+/**
+ * Sends one attachment with an optional caption using the same optimistic
+ * staging pattern as [Sender]: a staged message row appears immediately
+ * (SENDING), upload progress surfaces through the message flow, and errors
+ * leave a FAILED bubble.
+ */
+interface AttachmentSender {
+    suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?)
+}
+
+/** One live "X is typing…" entry; entries expire automatically upstream. */
+data class TypingEntry(
+    val chatId: Long,
+    val senderAddress: String,
+)
+
+/** Live typing indicators across all chats (filtered per chat by the UI). */
+interface TypingRepository {
+    fun typing(): Flow<List<TypingEntry>>
 }
 
 /**

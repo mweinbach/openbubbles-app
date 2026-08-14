@@ -1,6 +1,20 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import android.net.Uri
+import android.content.res.Configuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -28,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -36,26 +52,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
+import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import java.time.ZoneId
 import kotlinx.coroutines.launch
@@ -101,7 +124,9 @@ fun buildConversationEntries(
  * Conversation view: reversed LazyColumn (newest at the bottom, stays pinned
  * while sending), day separators, bubbles with attachments, edited/unsent
  * rendering, reactions and delivery status, older-history paging when
- * scrolled to the top, and an IME-aware input bar.
+ * scrolled to the top, an animated typing indicator, attachment sending via
+ * the system photo picker (long-press the paperclip for any file), and an
+ * IME-aware input bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,6 +136,7 @@ fun ChatScreen(
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
+    onSendAttachment: (OutgoingAttachment) -> Unit = {},
     onOpenChatInfo: () -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -119,7 +145,26 @@ fun ChatScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val entries = remember(uiState.messages) { buildConversationEntries(uiState.messages) }
+    val isTyping = uiState.typingSenders.isNotEmpty()
+
+    fun dispatchAttachment(uri: Uri?) {
+        if (uri == null) return
+        scope.launch {
+            val prepared = prepareOutgoingAttachment(context, uri) ?: return@launch
+            onSendAttachment(prepared)
+            listState.animateScrollToItem(0)
+        }
+    }
+
+    // System photo picker for images/videos; GetContent for any file.
+    val pickMedia = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> dispatchAttachment(uri) }
+    val pickFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri -> dispatchAttachment(uri) }
 
     // Contact names for "<name> unsent a message" rows (best effort).
     val senderNames = remember { mutableStateMapOf<String, String>() }
@@ -172,6 +217,12 @@ fun ChatScreen(
                     onSend()
                     scope.launch { listState.animateScrollToItem(0) }
                 },
+                onAttachClick = {
+                    pickMedia.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                    )
+                },
+                onAttachLongClick = { pickFile.launch("*/*") },
             )
         },
     ) { padding ->
@@ -180,19 +231,25 @@ fun ChatScreen(
                 uiState.initialLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                uiState.messages.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "No messages yet — say hi!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                uiState.messages.isEmpty() && !isTyping ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No messages yet — say hi!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 else -> LazyColumn(
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
+                    if (isTyping) {
+                        item(key = "typing-indicator") {
+                            TypingIndicatorRow(senderAddress = uiState.typingSenders.first())
+                        }
+                    }
                     items(entries, key = { it.key }) { entry ->
                         when (entry) {
                             is ConversationEntry.Message -> MessageBubble(
@@ -234,7 +291,12 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (chat != null) {
-            ChatAvatar(title = chat.title, avatarColor = chat.avatarColor, size = 34.dp)
+            ChatAvatar(
+                title = chat.title,
+                avatarColor = chat.avatarColor,
+                size = 34.dp,
+                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
+            )
             Text(
                 text = chat.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -252,11 +314,88 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Animated "•••" bubble shown at the bottom of the transcript while a
+ * participant is typing (dots fade in sequence via an infinite transition).
+ */
+@Composable
+fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
+    val name = senderAddress?.let { address ->
+        produceState<String?>(null, address) {
+            value = runCatching { UiContacts.contactNames?.invoke(address)?.first }.getOrNull()
+        }.value
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Column {
+            if (name != null) {
+                Text(
+                    text = "$name is typing",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 2.dp),
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingDots(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "typing")
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 450, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
+                ),
+                label = "dot-$index",
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)),
+            )
+        }
+    }
+}
+
+// --------------------------------------------------------------------- previews
+
+@Preview(showBackground = true)
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun TypingIndicatorPreview() {
+    OpenBubblesTheme {
+        Column {
+            TypingIndicatorRow(senderAddress = "emma@icloud.com")
+            TypingIndicatorRow(senderAddress = null)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageInputBar(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAttachClick: () -> Unit,
+    onAttachLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -268,6 +407,15 @@ private fun MessageInputBar(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Icon(
+            imageVector = Icons.Filled.AttachFile,
+            contentDescription = "Attach photo or video (long-press for any file)",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(bottom = 12.dp)
+                .size(26.dp)
+                .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
+        )
         TextField(
             value = value,
             onValueChange = onValueChange,

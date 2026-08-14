@@ -111,6 +111,42 @@ internal object FakeChatData {
         }
     }
 
+    /** Fake attachment send: optimistic bubble that settles like a text send. */
+    suspend fun sendAttachment(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+        val meta = AttachmentMeta(
+            guid = "outgoing-${nextMessageId.incrementAndGet()}",
+            mime = attachment.mime,
+            name = attachment.name,
+            sizeBytes = attachment.sizeBytes,
+            isImage = attachment.mime.startsWith("image/", ignoreCase = true),
+            downloaded = true,
+        )
+        val message = MessageItem(
+            id = nextMessageId.incrementAndGet(),
+            text = caption.orEmpty(),
+            isFromMe = true,
+            date = System.currentTimeMillis(),
+            status = MessageStatus.SENDING,
+            isGroupEvent = false,
+            reactionEmoji = null,
+            attachmentMeta = meta,
+        )
+        append(chatId, message)
+        _chats.update { chats ->
+            chats.map {
+                if (it.id == chatId) {
+                    it.copy(date = message.date, snippet = "📎 ${attachment.name ?: "Attachment"}")
+                } else it
+            }
+        }
+        delay(150)
+        updateMessage(chatId, message.id) { it.copy(status = MessageStatus.SENT) }
+        scope.launch {
+            delay(900)
+            updateMessage(chatId, message.id) { it.copy(status = MessageStatus.DELIVERED) }
+        }
+    }
+
     private fun append(chatId: Long, message: MessageItem) {
         history[chatId] = history[chatId].orEmpty() + message
         _windows.update { windows -> windows + (chatId to windows[chatId].orEmpty() + message) }
@@ -314,6 +350,18 @@ object FakeSender : Sender {
     override suspend fun send(chatId: Long, text: String) = FakeChatData.send(chatId, text)
 }
 
+/** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
+object FakeAttachmentSender : AttachmentSender {
+    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) =
+        FakeChatData.sendAttachment(chatId, attachment, caption)
+}
+
+/** Fake [TypingRepository]: never any typing activity. */
+object FakeTypingRepository : TypingRepository {
+    private val empty = kotlinx.coroutines.flow.flowOf(emptyList<TypingEntry>())
+    override fun typing(): Flow<List<TypingEntry>> = empty
+}
+
 /** Fake [AttachmentProvider]: metadata only, no local files (download chip demo). */
 object FakeAttachmentProvider : AttachmentProvider {
     private val known = listOf(
@@ -346,9 +394,15 @@ object AppGraph {
     val chats: ChatListRepository get() = CoreGraph.chats
     val messages: MessageListRepository get() = CoreGraph.messages
     val sender: Sender get() = CoreGraph.sender
+    val attachmentSender: AttachmentSender get() = CoreGraph.attachmentSender
+    val typing: TypingRepository get() = CoreGraph.typing
     val attachments: AttachmentProvider get() = CoreGraph.attachments
     val chatInfo: ChatInfoRepository get() = CoreGraph.chatInfo
 
     /** Fire-and-forget attachment download (no-op on the fake path). */
     fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)
+
+    /** Attachment cache maintenance for the settings screen. */
+    fun attachmentsCacheBytes(): Long = CoreGraph.attachmentsCacheBytes()
+    fun clearAttachmentCache(): Long = CoreGraph.clearAttachmentCache()
 }

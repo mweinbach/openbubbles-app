@@ -1,10 +1,12 @@
 package app.openbubbles.nativeapp.ui.common
 
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -54,6 +56,51 @@ fun rememberDecodedImage(
             }.getOrNull()
         }
     }.value
+
+/**
+ * Decodes an image referenced by a string URI (contact photo URIs are
+ * `content://` lookups; plain file paths also work) off the main thread,
+ * downsampled so neither side exceeds [maxDimensionPx]. Returns null while
+ * decoding, for null/blank input, or on failure — callers fall back.
+ */
+@Composable
+fun rememberDecodedUriImage(
+    uri: String?,
+    maxDimensionPx: Int = 256,
+): DecodedImage? {
+    val context = LocalContext.current
+    return produceState<DecodedImage?>(initialValue = null, uri, maxDimensionPx) {
+        if (uri.isNullOrBlank()) return@produceState
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                fun openStream() = when {
+                    uri.startsWith("content://") || uri.startsWith("file://") ->
+                        context.contentResolver.openInputStream(Uri.parse(uri))
+                    else -> File(uri).takeIf { it.isFile }?.inputStream()
+                }
+
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                openStream()?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
+                    bounds.outHeight / (sample * 2) >= maxDimensionPx
+                ) {
+                    sample *= 2
+                }
+                val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = openStream()?.use {
+                    BitmapFactory.decodeStream(it, null, options)
+                } ?: return@runCatching null
+                DecodedImage(
+                    image = bitmap.asImageBitmap(),
+                    aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat(),
+                )
+            }.getOrNull()
+        }
+    }.value
+}
 
 /** Human-readable byte size: "412 KB", "18.9 MB". */
 fun formatBytes(sizeBytes: Long?): String {

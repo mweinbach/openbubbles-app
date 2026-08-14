@@ -37,6 +37,7 @@ import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
+import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -44,6 +45,7 @@ object Routes {
     const val CHATS = "chats"
     const val CHAT_PATTERN = "chat/{id}"
     const val LOGIN = "login"
+    const val SETTINGS = "settings"
     const val CHAT_INFO_PATTERN = "chatinfo/{id}"
     const val ATTACHMENT_PATTERN = "attachment/{guid}"
     const val CHAT_ARG = "id"
@@ -82,6 +84,7 @@ fun OpenBubblesApp(
                     uiState = state,
                     onQueryChange = viewModel::onQueryChange,
                     onChatClick = { chat -> navController.navigate(Routes.chat(chat.id)) },
+                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     footer = { DebugStatusFooter(debugLines) },
                 )
             }
@@ -92,7 +95,14 @@ fun OpenBubblesApp(
                 val chatId = backStackEntry.arguments?.getLong(Routes.CHAT_ARG) ?: 0L
                 val viewModel: ChatViewModel = viewModel(
                     key = "chat-$chatId",
-                    factory = ChatViewModel.factory(chatId, AppGraph.chats, AppGraph.messages, AppGraph.sender),
+                    factory = ChatViewModel.factory(
+                        chatId,
+                        AppGraph.chats,
+                        AppGraph.messages,
+                        AppGraph.sender,
+                        AppGraph.attachmentSender,
+                        AppGraph.typing,
+                    ),
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 ChatScreen(
@@ -100,12 +110,16 @@ fun OpenBubblesApp(
                     onInputChange = viewModel::onInputChange,
                     onSend = viewModel::sendMessage,
                     onLoadOlder = viewModel::loadOlder,
+                    onSendAttachment = viewModel::sendAttachment,
                     onBack = { navController.popBackStack() },
                     onOpenChatInfo = { navController.navigate(Routes.chatInfo(chatId)) },
                     onOpenAttachment = { guid -> navController.navigate(Routes.attachment(guid)) },
                     onDownloadAttachment = { attachment -> AppGraph.requestAttachmentDownload(attachment.guid) },
                     attachmentFile = AppGraph.attachments::localFile,
                 )
+            }
+            composable(Routes.SETTINGS) {
+                SettingsScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 route = Routes.CHAT_INFO_PATTERN,

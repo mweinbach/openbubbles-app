@@ -20,10 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
+import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 
 private val RowShape = RoundedCornerShape(20.dp)
@@ -55,12 +58,22 @@ fun ChatListScreen(
     uiState: ChatListUiState,
     onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     footer: @Composable ColumnScope.() -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
-        topBar = { TopAppBar(title = { Text("OpenBubbles") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("OpenBubbles") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -138,7 +151,11 @@ fun ChatListRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ChatAvatar(title = chat.title, avatarColor = chat.avatarColor)
+            ChatAvatar(
+                title = chat.title,
+                avatarColor = chat.avatarColor,
+                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

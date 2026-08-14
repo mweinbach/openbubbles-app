@@ -39,12 +39,15 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 
-/** One participant row model: raw address plus the resolved contact name. */
+/** One participant row model: raw address plus the resolved contact info. */
 data class ParticipantRow(
     val address: String,
     val name: String?,
+    /** Contact photo URI when the participant resolves to a contact. */
+    val avatarPath: String? = null,
 )
 
 /**
@@ -142,6 +145,7 @@ private fun HeaderSection(chat: ChatListItem?, participantCount: Int) {
                 title = chat.title,
                 avatarColor = chat.avatarColor,
                 size = 96.dp,
+                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
             )
             Text(
                 text = chat.title,
@@ -184,6 +188,7 @@ private fun ParticipantListRow(participant: ParticipantRow) {
                 title = displayName,
                 avatarColor = avatarColorForAddress(participant.address),
                 size = 40.dp,
+                avatarPath = participant.avatarPath,
             )
             Column {
                 Text(
@@ -216,20 +221,27 @@ private fun avatarColorForAddress(address: String): Long {
 }
 
 /**
- * Resolves contact names for participant addresses via [UiContacts] (null
- * resolver or unknown addresses keep the raw address as the display name).
+ * Resolves contact names + photo URIs for participant addresses via
+ * [UiContacts] (null resolver or unknown addresses keep the raw address as
+ * the display name).
  */
 @Composable
 fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
-    val names = remember { mutableStateMapOf<String, String>() }
+    val resolved = remember { mutableStateMapOf<String, Pair<String?, String?>>() }
     LaunchedEffect(addresses) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
         addresses.distinct().forEach { address ->
-            val name = resolver(address)?.first ?: return@forEach
-            names[address] = name
+            val info = resolver(address) ?: return@forEach
+            resolved[address] = info
         }
     }
-    return addresses.map { ParticipantRow(address = it, name = names[it]) }
+    return addresses.map {
+        ParticipantRow(
+            address = it,
+            name = resolved[it]?.first,
+            avatarPath = resolved[it]?.second,
+        )
+    }
 }
 
 // --------------------------------------------------------------------- previews

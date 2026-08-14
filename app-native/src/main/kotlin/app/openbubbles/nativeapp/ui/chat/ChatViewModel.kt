@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.Sender
+import app.openbubbles.nativeapp.data.TypingRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +29,8 @@ data class ChatUiState(
     val messages: List<MessageItem> = emptyList(),
     val input: String = "",
     val loadingOlder: Boolean = false,
+    /** Sender addresses with a live typing indicator in this chat. */
+    val typingSenders: List<String> = emptyList(),
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
@@ -38,6 +43,8 @@ class ChatViewModel(
     private val chatListRepository: ChatListRepository,
     private val messageRepository: MessageListRepository,
     private val sender: Sender,
+    private val attachmentSender: AttachmentSender,
+    typingRepository: TypingRepository,
 ) : ViewModel() {
 
     init {
@@ -58,9 +65,20 @@ class ChatViewModel(
             .map { chats -> chats.firstOrNull { it.id == chatId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val typingSenders: StateFlow<List<String>> =
+        typingRepository.typing()
+            .map { entries -> entries.filter { it.chatId == chatId }.map { it.senderAddress } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val uiState: StateFlow<ChatUiState> =
-        combine(messages, chat, input, loadingOlder) { messages, chat, input, loadingOlder ->
-            ChatUiState(chat = chat, messages = messages, input = input, loadingOlder = loadingOlder)
+        combine(messages, chat, input, loadingOlder, typingSenders) { messages, chat, input, loadingOlder, typing ->
+            ChatUiState(
+                chat = chat,
+                messages = messages,
+                input = input,
+                loadingOlder = loadingOlder,
+                typingSenders = typing,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
@@ -72,6 +90,18 @@ class ChatViewModel(
         if (text.isEmpty()) return
         input.value = ""
         viewModelScope.launch { sender.send(chatId, text) }
+    }
+
+    /**
+     * Sends a picked attachment; whatever is typed becomes the caption (the
+     * input is consumed either way).
+     */
+    fun sendAttachment(attachment: OutgoingAttachment) {
+        val caption = input.value.trim()
+        input.value = ""
+        viewModelScope.launch {
+            runCatching { attachmentSender.send(chatId, attachment, caption.ifEmpty { null }) }
+        }
     }
 
     /**
@@ -100,8 +130,12 @@ class ChatViewModel(
             chatListRepository: ChatListRepository,
             messageRepository: MessageListRepository,
             sender: Sender,
+            attachmentSender: AttachmentSender,
+            typingRepository: TypingRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ChatViewModel(chatId, chatListRepository, messageRepository, sender) }
+            initializer {
+                ChatViewModel(chatId, chatListRepository, messageRepository, sender, attachmentSender, typingRepository)
+            }
         }
     }
 }

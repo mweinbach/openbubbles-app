@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -108,6 +110,9 @@ fun MessageBubble(
                     }
                 }
             }
+            message.uploadProgress?.let { progress ->
+                UploadProgressRow(done = progress.first, total = progress.second)
+            }
             if (message.text.isNotEmpty()) {
                 Box {
                     Surface(
@@ -173,6 +178,36 @@ private fun ReactionChip(emoji: String, isFromMe: Boolean, modifier: Modifier = 
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(4.dp),
+        )
+    }
+}
+
+/** Slim upload progress row shown under an outgoing attachment in flight. */
+@Composable
+fun UploadProgressRow(done: Long, total: Long, modifier: Modifier = Modifier) {
+    val fraction = if (total > 0) (done.toFloat() / total.toFloat()).coerceIn(0f, 1f) else null
+    Row(
+        modifier = modifier
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LinearProgressIndicator(
+            progress = { fraction ?: 0.1f },
+            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            modifier = Modifier
+                .weight(1f)
+                .height(4.dp),
+        )
+        Text(
+            text = if (fraction != null) {
+                "Uploading ${(fraction * 100).toInt()}%"
+            } else {
+                "Uploading ${app.openbubbles.nativeapp.ui.common.formatBytes(done)}…"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -336,6 +371,17 @@ private fun MessageStatusRowPreview() {
             MessageStatusRow(status = MessageStatus.DELIVERED)
             MessageStatusRow(status = MessageStatus.READ)
             MessageStatusRow(status = MessageStatus.FAILED)
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun UploadProgressRowPreview() {
+    OpenBubblesTheme {
+        Column {
+            UploadProgressRow(done = 1_200_000, total = 2_411_520)
+            UploadProgressRow(done = 90_000, total = 0)
         }
     }
 }

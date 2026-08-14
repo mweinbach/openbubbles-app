@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.data
 import android.content.Context
 import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.ChatRepo
@@ -10,6 +11,7 @@ import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
+import app.openbubbles.db.Chat_
 import app.openbubbles.db.Db
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
@@ -23,8 +25,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -135,6 +139,58 @@ object CoreGraph {
     /** Upsert device contacts + invalidate the handle→contact index. */
     fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
         CoreContacts.syncFromDevice(raw)
+
+    /** Attachment send path (staging + Rust upload + echo ingest). */
+    val attachmentSender: AttachmentSender by lazy {
+        if (store != null) CoreAttachmentSender else FakeAttachmentSender
+    }
+
+    /** Live typing indicators translated from the ingestor's chat guids. */
+    val typing: TypingRepository by lazy {
+        val ing = ingestor
+        val st = store
+        if (ing != null && st != null) CoreTypingRepository(ing, st) else FakeTypingRepository
+    }
+
+    /** Bytes used by the attachments cache directory (0 when unavailable). */
+    fun attachmentsCacheBytes(): Long {
+        val disk = attachmentStore() ?: return 0L
+        return dirSize(disk.attachmentsDir)
+    }
+
+    /**
+     * Deletes every cached attachment payload and resets `isDownloaded` so
+     * bubbles re-offer the download chip. Returns the bytes freed.
+     */
+    fun clearAttachmentCache(): Long {
+        val disk = attachmentStore() ?: return 0L
+        val st = store ?: return 0L
+        val dir = disk.attachmentsDir
+        val freed = dirSize(dir)
+        dir.deleteRecursively()
+        runCatching {
+            val box = st.boxFor(Attachment::class.java)
+            box.query()
+                .equal(Attachment_.isDownloaded, true)
+                .build().use { it.find() }
+                .forEach { row ->
+                    row.isDownloaded = false
+                    box.put(row)
+                }
+        }
+        return freed
+    }
+
+    private fun attachmentStore(): AttachmentStore? {
+        val st = store ?: return null
+        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
+            ?: NativeMainActivity.appContext?.filesDir
+            ?: return null
+        return AttachmentStore(st, root)
+    }
+
+    private fun dirSize(dir: File): Long =
+        if (!dir.isDirectory) 0L else dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
     val chatInfo: ChatInfoRepository by lazy {
         store?.let { st -> CoreChatInfoRepository(st) } ?: FakeChatInfoRepository
@@ -299,6 +355,7 @@ private fun enrichWithEntityDetails(
                 attachmentMeta = attachment?.let(::attachmentToMeta),
                 edited = edited,
                 unsent = unsent,
+                uploadProgress = attachment?.guid?.let { UploadProgressBoard.current[it] },
             )
         }
     }.getOrDefault(items)
@@ -376,11 +433,13 @@ private object CoreContacts {
             ?: return item
         if (chat.displayName != null || chat.handles.size != 1) return item
         val handle = chat.handles.firstOrNull() ?: return item
-        if (runCatching { handle.contactsV2.isEmpty() }.getOrDefault(true)) return item
+        // DMs keep the participant address so the UI can resolve a photo avatar.
+        val withAvatar = item.copy(avatarAddress = handle.formattedAddress ?: handle.address)
+        if (runCatching { handle.contactsV2.isEmpty() }.getOrDefault(true)) return withAvatar
         val name = runCatching { contactSync.displayInfoFor(handle).name }.getOrNull()
-            ?: return item
-        if (name.isBlank() || name == item.title) return item
-        return item.copy(title = name)
+            ?: return withAvatar
+        if (name.isBlank() || name == withAvatar.title) return withAvatar
+        return withAvatar.copy(title = name)
     }
 }
 
@@ -410,11 +469,13 @@ private class CoreMessageListRepository(
 
     override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
         window.flatMapLatest { size ->
-            repo.observeMessages(chatId, size.coerceAtLeast(limit))
-                .map { page ->
-                    enrichWithEntityDetails(page.map(::coreMessageToUi), store)
-                }
-                .flowOn(Dispatchers.IO)
+            // Combined with the upload board so progress ticks re-emit the page.
+            combine(
+                repo.observeMessages(chatId, size.coerceAtLeast(limit)),
+                UploadProgressBoard.progress,
+            ) { page, _ ->
+                enrichWithEntityDetails(page.map(::coreMessageToUi), store)
+            }.flowOn(Dispatchers.IO)
         }
 
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
@@ -578,4 +639,169 @@ internal object CoreGroupOps {
             )
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Attachment sending (M2 polish) — additive zone
+// ---------------------------------------------------------------------------
+
+/**
+ * Ephemeral upload progress keyed by staged attachment guid
+ * (`"<staging-guid>_att0"`). The message flow combines with [progress] so
+ * ticks re-emit the page and bubbles can render an "Uploading…" row.
+ */
+internal object UploadProgressBoard {
+    private val _progress = MutableStateFlow<Map<String, Pair<Long, Long>>>(emptyMap())
+    val progress: StateFlow<Map<String, Pair<Long, Long>>> = _progress.asStateFlow()
+    val current: Map<String, Pair<Long, Long>> get() = _progress.value
+
+    fun update(guid: String, value: Pair<Long, Long>) {
+        _progress.value = _progress.value + (guid to value)
+    }
+
+    fun clear(guid: String) {
+        _progress.value = _progress.value - guid
+    }
+}
+
+/**
+ * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
+ * semantics: stage optimistically under a temp guid with a placeholder
+ * attachment row (payload moved into the canonical store layout so the
+ * bubble previews immediately), upload through the Rust sendAttachment
+ * binding with progress surfaced via [UploadProgressBoard], promote the row
+ * to the Rust staging guid, then ingest the echo.
+ */
+internal object CoreAttachmentSender : AttachmentSender {
+    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+        val graph = CoreGraph
+        val store = graph.store ?: error("store unavailable")
+        val ing = graph.ingestor ?: error("ingestor unavailable")
+
+        val chatBox = store.boxFor(Chat::class.java)
+        val messageBox = store.boxFor(Message::class.java)
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+
+        val myHandle = PushStateHolder.myHandles.firstOrNull()
+            ?: chat.usingHandle
+            ?: "unknown-sender"
+
+        val tempGuid = MessageIngestor.tempGuid()
+        val attachmentGuid = "${tempGuid}_att0"
+
+        // 1. Stage the outgoing row (caption rides as the text part).
+        val staged = CoreGraphStageHolder.messageRepo(store)
+            .stageOutgoingMessage(chat.guid, myHandle, caption.orEmpty(), tempGuid)
+
+        // 2. Placeholder attachment metadata + payload in the canonical
+        //    layout so the bubble renders (and image-previews) right away.
+        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
+            ?: NativeMainActivity.appContext?.filesDir
+            ?: error("no files dir")
+        val disk = AttachmentStore(store, root)
+        val displayName = attachment.name ?: "attachment"
+        val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
+        payload.parentFile?.mkdirs()
+        attachment.file.copyTo(payload, overwrite = true)
+        runCatching { attachment.file.delete() } // cache copy no longer needed
+
+        store.runInTx {
+            attachmentBox.put(
+                Attachment().apply {
+                    guid = attachmentGuid
+                    isOutgoing = true
+                    mimeType = attachment.mime
+                    uti = attachment.uti
+                    transferName = displayName
+                    totalBytes = payload.length()
+                    isDownloaded = false
+                    message.target = staged
+                },
+            )
+            staged.hasAttachments = true
+            messageBox.put(staged)
+        }
+        UploadProgressBoard.update(attachmentGuid, 0L to payload.length())
+
+        val pushState = PushStateHolder.state
+        if (pushState == null) {
+            // Not connected: leave the bubble SENDING (same as CoreSender);
+            // the queue/SendConfirm path resolves it once connected.
+            return
+        }
+
+        try {
+            val inst = runInterruptible(Dispatchers.IO) {
+                pushState.sendAttachment(
+                    UConversation(
+                        participants = chat.handles.map { it.address }.distinct(),
+                        cvName = chat.displayName,
+                        senderGuid = null,
+                        afterGuid = null,
+                    ),
+                    myHandle,
+                    payload.absolutePath,
+                    caption?.takeIf { it.isNotBlank() },
+                    attachment.mime,
+                    attachment.uti,
+                    displayName,
+                    null, null, null, null, false,
+                    object : uniffi.rust_lib_bluebubbles.UProgressCallback {
+                        override fun onProgress(done: ULong, total: ULong) {
+                            UploadProgressBoard.update(
+                                attachmentGuid,
+                                done.toLong() to total.toLong(),
+                            )
+                        }
+                    },
+                )
+            }
+            // Promote to the Rust staging guid so the echo and SendConfirm
+            // receipts find the row (same swap Dart performs).
+            store.runInTx {
+                messageBox.query()
+                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+                    ?.apply {
+                        guid = inst.id
+                        stagingGuid = inst.id
+                        messageBox.put(this)
+                    }
+            }
+            ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+        } catch (t: Throwable) {
+            store.runInTx {
+                messageBox.query()
+                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+                    ?.apply {
+                        sendingServiceId = null
+                        error = 1
+                        errorMessage = t.message?.take(200)
+                        messageBox.put(this)
+                    }
+            }
+        } finally {
+            UploadProgressBoard.clear(attachmentGuid)
+        }
+    }
+}
+
+/** Translates the ingestor's typing list (chat guids) into chat ids. */
+private class CoreTypingRepository(
+    private val ingestor: MessageIngestor,
+    private val store: BoxStore,
+) : TypingRepository {
+    override fun typing(): Flow<List<TypingEntry>> = ingestor.typing.map { list ->
+        list.mapNotNull { indicator ->
+            val chat = runCatching {
+                store.boxFor(Chat::class.java)
+                    .query()
+                    .equal(Chat_.guid, indicator.chatGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+            }.getOrNull() ?: return@mapNotNull null
+            TypingEntry(chatId = chat.id, senderAddress = indicator.senderAddress)
+        }.distinctBy { it.chatId to it.senderAddress }
+    }.flowOn(Dispatchers.IO)
 }
