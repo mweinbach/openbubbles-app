@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,6 +38,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -277,6 +281,53 @@ fun SettingsScreen(
                 }
             }
 
+            SectionCard(title = "Power") {
+                val ctx = context
+                var batterySaver by remember {
+                    androidx.compose.runtime.mutableStateOf(
+                        app.openbubbles.nativeapp.service.BatterySaver.isEnabled(ctx))
+                }
+                SettingRow(
+                    title = "Battery saver",
+                    supporting = if (batterySaver) {
+                        "Checking iCloud every 15 min — messages may be delayed"
+                    } else {
+                        "Live connection — instant messages, uses more battery"
+                    },
+                )
+                androidx.compose.material3.Switch(
+                    checked = batterySaver,
+                    onCheckedChange = { enabled ->
+                        batterySaver = app.openbubbles.nativeapp.service.BatterySaver
+                            .setEnabled(ctx, enabled)
+                    },
+                )
+            }
+
+            SectionCard(title = "Notifications") {
+                val notifPrefs = remember { NotifPrefs(context) }
+                var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
+                var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
+                SwitchSettingRow(
+                    title = "Hide message previews",
+                    supporting = "Show \"iMessage\" instead of message content on notifications",
+                    checked = hidePreviews,
+                    onCheckedChange = { enabled ->
+                        hidePreviews = enabled
+                        notifPrefs.hidePreviews = enabled
+                    },
+                )
+                SwitchSettingRow(
+                    title = "Quick reply",
+                    supporting = "Show the Reply action on message notifications",
+                    checked = replyEnabled,
+                    onCheckedChange = { enabled ->
+                        replyEnabled = enabled
+                        notifPrefs.replyEnabled = enabled
+                    },
+                )
+            }
+
             SectionCard(title = "Appearance") {
                 SettingRow(
                     title = "Theme",
@@ -416,6 +467,32 @@ private fun SettingRow(
             maxLines = if (multiline) 6 else 2,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** [SettingRow] with a trailing Material3 switch (notification toggles). */
+@Composable
+private fun SwitchSettingRow(
+    title: String,
+    supporting: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = supporting,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

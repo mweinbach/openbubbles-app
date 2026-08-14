@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -8,6 +9,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.CoreGraph
@@ -33,6 +37,12 @@ class NativeMainActivity : ComponentActivity() {
         enableEdgeToEdge()
         appContext = applicationContext
 
+        // Notification deep link: only a fresh launch carries a new tap
+        // (config-change recreations would re-fire the original intent and
+        // re-trigger navigation; process death still works via the launch
+        // intent extras).
+        if (savedInstanceState == null) readPendingChatGuid(intent)
+
         val wanted = buildList {
             if (Build.VERSION.SDK_INT >= 33 &&
                 notGranted(Manifest.permission.POST_NOTIFICATIONS)
@@ -57,9 +67,23 @@ class NativeMainActivity : ComponentActivity() {
 
         setContent {
             OpenBubblesTheme {
-                OpenBubblesApp(debugLines = listOf(Hello.greeting(), rustStatus))
+                OpenBubblesApp(
+                    debugLines = listOf(Hello.greeting(), rustStatus),
+                    startChatGuid = pendingChatGuid,
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Notification tap while the activity is alive (launchMode=singleTask
+        // routes it here instead of stacking a second instance).
+        readPendingChatGuid(intent)
+    }
+
+    private fun readPendingChatGuid(intent: Intent?) {
+        pendingChatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID)?.takeIf { it.isNotBlank() }
     }
 
     private fun notGranted(permission: String): Boolean =
@@ -73,8 +97,18 @@ class NativeMainActivity : ComponentActivity() {
     }
 
     companion object {
+        /** Deep-link extra carrying the tapped notification's chat guid. */
+        const val EXTRA_CHAT_GUID = "chat_guid"
+
         /** Application context for the composition root (set in onCreate). */
         @Volatile
         var appContext: android.content.Context? = null
+
+        /**
+         * Chat guid requested by a notification tap, consumed once by
+         * [OpenBubblesApp] (which resolves it, navigates, and nulls it).
+         * Compose state, so an onNewIntent tap recomposes the scaffold.
+         */
+        var pendingChatGuid: String? by mutableStateOf<String?>(null)
     }
 }

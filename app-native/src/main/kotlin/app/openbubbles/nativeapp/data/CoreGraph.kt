@@ -143,6 +143,57 @@ object CoreGraph {
     /** Leave a group chat via the Rust group ops. */
     fun leaveChat(chatId: Long): Result<Unit> = CoreGroupOps.leaveChat(chatId)
 
+    /**
+     * Read-only chat id lookup by guid (notification deep links resolve the
+     * tapped chat before navigating). Null when unknown or store unavailable.
+     */
+    fun chatIdForGuid(guid: String): Long? = runCatching {
+        store?.boxFor(Chat::class.java)
+            ?.query()
+            ?.equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            ?.build()
+            ?.use { it.findFirst()?.id }
+    }.getOrNull()
+
+    /**
+     * Battery-saver poll: one incremental CloudKit sync, notifying chats
+     * that gained unread messages. The service then tears itself down; the
+     * persistent APNs loop never starts.
+     */
+    fun pollOnce(
+        context: android.content.Context,
+        state: NativePushState,
+        onNewUnread: (chatId: Long, title: String, body: String) -> Unit,
+    ) {
+        val st = store ?: return
+        val chatBox = st.boxFor(Chat::class.java)
+        val before: Map<Long, Boolean> = chatBox.query()
+            .equal(Chat_.hasUnreadMessage, true)
+            .build().use { q -> q.find().associate { it.id to true } }
+
+        CloudSyncWiring.onStateInstalled(context, state, autoSync = false)
+        val manager = CloudSyncWiring.manager
+        kotlinx.coroutines.runBlocking {
+            manager?.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
+        }
+
+        chatBox.query()
+            .equal(Chat_.hasUnreadMessage, true)
+            .build().use { q ->
+                q.find().forEach { chat ->
+                    if (!before.containsKey(chat.id)) {
+                        val latest = chat.dbLatestMessage.target
+                        onNewUnread(
+                            chat.id,
+                            chat.displayName ?: chat.guid,
+                            latest?.text?.takeIf { it.isNotBlank() } ?: "New message",
+                        )
+                    }
+                }
+            }
+        CloudSyncWiring.clear()
+    }
+
     /** Upsert device contacts + invalidate the handle→contact index. */
     fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
         CoreContacts.syncFromDevice(raw)

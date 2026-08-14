@@ -56,7 +56,15 @@ class NativePushService : Service(), MsgReceiver {
         bootRust()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    private var pollMode = false
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == BatterySaver.ACTION_POLL_ONCE) {
+            pollMode = true
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     // -- Rust lifecycle -----------------------------------------------------
 
@@ -84,8 +92,8 @@ class NativePushService : Service(), MsgReceiver {
                 val handles = PushStateHolder.myHandles
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
                 if (decoded != null) {
-                    ingestor.ingest(decoded, handles)
-                    notifyIncoming(decoded)
+                    val chat = ingestor.ingest(decoded, handles)
+                    notifyIncoming(decoded, chat)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
             } catch (_: Throwable) {
@@ -97,8 +105,48 @@ class NativePushService : Service(), MsgReceiver {
     override fun nativeReady(state: NativePushState?) {
         val live = state ?: return
         val handles = runCatching { live.getHandles().toSet() }.getOrDefault(emptySet())
+        if (pollMode) {
+            runPollOnce(live)
+            return
+        }
         PushStateHolder.install(live, handles)
         runCatching { live.startLoop(this@NativePushService) }
+    }
+
+    /**
+     * Battery-saver cycle: restore state WITHOUT the persistent loop, run
+     * one incremental CloudKit sync, notify chats that gained unread
+     * messages, then exit until the next WorkManager tick.
+     */
+    private fun runPollOnce(live: NativePushState) {
+        scope.launch {
+            try {
+                val appCtx = applicationContext
+                app.openbubbles.nativeapp.data.CoreGraph.pollOnce(
+                    appCtx, live,
+                    onNewUnread = { chatId, title, body ->
+                        notifyPollResult(chatId, title, body)
+                    },
+                )
+            } catch (_: Throwable) {
+                // next WorkManager tick retries
+            } finally {
+                stopSelf()
+            }
+        }
+    }
+
+    private fun notifyPollResult(chatId: Long, title: String, body: String) {
+        val chat = CoreGraph.store?.boxFor(app.openbubbles.db.Chat::class.java)?.get(chatId) ?: return
+        val guid = chat.guid ?: return
+        Notifications.postIncoming(
+            context = this,
+            chatId = chatId,
+            chatGuid = guid,
+            title = title,
+            text = body,
+            isGroup = chat.handles.size > 2,
+        )
     }
 
     override fun twofaEvent(success: Boolean) {
@@ -112,28 +160,27 @@ class NativePushService : Service(), MsgReceiver {
 
     // -- Notifications -------------------------------------------------------
 
-    private fun notifyIncoming(decoded: UPushMessage) {
+    private fun notifyIncoming(decoded: UPushMessage, chat: app.openbubbles.db.Chat?) {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
         val body = plainText(inst) ?: return
-        val nm = getSystemService(NotificationManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT >= 33 &&
-            nm.areNotificationsEnabled().not()
+        val target = chat ?: return
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
         ) return
 
-        val contentIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, NativeMainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        Notifications.postIncoming(
+            context = this,
+            chatId = target.id,
+            chatGuid = target.guid ?: return,
+            title = if (target.handles.size > 2) {
+                inst.sender ?: "Message"
+            } else {
+                target.displayName ?: inst.sender ?: "Message"
+            },
+            text = body,
+            isGroup = target.handles.size > 2,
         )
-        val notification = Notification.Builder(this, CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.sym_action_chat)
-            .setContentTitle(inst.sender)
-            .setContentText(body)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent)
-            .build()
-        nm.notify(inst.sender.hashCode(), notification)
     }
 
     private fun plainText(inst: UMessageInst): String? {

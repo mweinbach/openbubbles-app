@@ -28,7 +28,7 @@ object CloudSyncWiring {
     private val managerRef = AtomicReference<CloudSyncManager?>(null)
     val manager: CloudSyncManager? get() = managerRef.get()
 
-    fun onStateInstalled(context: Context, state: NativePushState) {
+    fun onStateInstalled(context: Context, state: NativePushState, autoSync: Boolean = true) {
         val store = CoreGraph.store ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stateStore = PrefsCloudSyncStateStore(prefs)
@@ -36,8 +36,11 @@ object CloudSyncWiring {
         managerRef.set(CloudSyncManager(store, port, stateStore))
 
         // Auto incremental sync on connect (Dart parity: startup + daily).
-        CoroutineScope(Dispatchers.IO).launch {
-            runCatching { managerRef.get()?.sync(SyncMode.INCREMENTAL) }
+        // Poll mode (battery saver) drives its own single sync instead.
+        if (autoSync) {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { managerRef.get()?.sync(SyncMode.INCREMENTAL) }
+            }
         }
     }
 

@@ -85,22 +85,29 @@ class MessageIngestor(
     val typing: StateFlow<List<TypingIndicator>> = _typing.asStateFlow()
 
     /** Entry point for the push queue consumer. Safe to call from any thread. */
-    suspend fun ingest(msg: UPushMessage, myHandles: Set<String>) {
-        withContext(Dispatchers.IO) {
+    /**
+     * Ingest one push message. Returns the affected [Chat] for message-type
+     * pushes (so callers can notify with real chat context), null otherwise.
+     */
+    suspend fun ingest(msg: UPushMessage, myHandles: Set<String>): Chat? {
+        return withContext(Dispatchers.IO) {
             mutex.withLock {
                 ingestLocked(msg, myHandles)
             }
         }
     }
 
-    private fun ingestLocked(push: UPushMessage, myHandles: Set<String>) {
-        when (push) {
+    private fun ingestLocked(push: UPushMessage, myHandles: Set<String>): Chat? {
+        return when (push) {
             is UPushMessage.IMessage -> ingestInst(push.inst, myHandles)
-            is UPushMessage.SendConfirm -> handleSendConfirm(push.uuid, push.error)
+            is UPushMessage.SendConfirm -> {
+                handleSendConfirm(push.uuid, push.error)
+                null
+            }
             // RegistrationState / StatusUpdate / FaceTime / Idms / photostreams /
             // beacons carry UI-only or not-yet-typed payloads — the service
             // layer listens for them directly. Nothing to persist.
-            else -> Unit
+            else -> null
         }
     }
 
@@ -108,10 +115,10 @@ class MessageIngestor(
     // UMessageInst dispatch (handleMsgInner port)
     // ------------------------------------------------------------------
 
-    private fun ingestInst(inst: UMessageInst, myHandles: Set<String>) {
+    private fun ingestInst(inst: UMessageInst, myHandles: Set<String>): Chat? {
         when (val msg = inst.message) {
-            is UMessage.Normal -> ingestNormal(inst, msg, myHandles)
-            is UMessage.React -> ingestReaction(inst, msg, myHandles)
+            is UMessage.Normal -> return ingestNormal(inst, msg, myHandles)
+            is UMessage.React -> return ingestReaction(inst, msg, myHandles)
             is UMessage.Rename -> ingestRename(inst, msg, myHandles)
             is UMessage.ChangeParticipants -> ingestChangeParticipants(inst, msg, myHandles)
             is UMessage.IconChange -> ingestIconChange(inst, myHandles)
@@ -136,23 +143,26 @@ class MessageIngestor(
             // ride on later batches.
             else -> Unit
         }
+        return null
     }
 
-    private fun ingestNormal(inst: UMessageInst, msg: UMessage.Normal, myHandles: Set<String>) {
+    private fun ingestNormal(inst: UMessageInst, msg: UMessage.Normal, myHandles: Set<String>): Chat? {
         // Dart: skip empty messages (no text and no attachment parts).
-        if (MessageMapper.rawText(msg.parts).isEmpty() && !MessageMapper.hasAttachmentParts(msg.parts)) return
-        val chat = chatForInst(inst, myHandles) ?: return
+        if (MessageMapper.rawText(msg.parts).isEmpty() && !MessageMapper.hasAttachmentParts(msg.parts)) return null
+        val chat = chatForInst(inst, myHandles) ?: return null
         val mapped = MessageMapper.mapNormal(inst, msg, myHandles)
         persistMapped(mapped, chat, inst, myHandles)
         // A real message clears the sender's typing indicator.
         inst.sender?.let { sender ->
             clearTyping(chat.guid, MessageMapper.normalizeAddress(sender))
         }
+        return chat
     }
 
-    private fun ingestReaction(inst: UMessageInst, msg: UMessage.React, myHandles: Set<String>) {
-        val chat = chatForInst(inst, myHandles) ?: return
+    private fun ingestReaction(inst: UMessageInst, msg: UMessage.React, myHandles: Set<String>): Chat? {
+        val chat = chatForInst(inst, myHandles) ?: return null
         persistMapped(MessageMapper.mapReaction(inst, msg, myHandles), chat, inst, myHandles)
+        return chat
     }
 
     private fun ingestRename(inst: UMessageInst, msg: UMessage.Rename, myHandles: Set<String>) {

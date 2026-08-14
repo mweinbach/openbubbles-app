@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
@@ -27,6 +28,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.AppGraph
+import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
@@ -62,12 +64,28 @@ object Routes {
 @Composable
 fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
+    /** Chat guid from a notification tap; resolved and consumed once. */
+    startChatGuid: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+
+    // Deep link from a notification tap: resolve the guid to a chat id and
+    // navigate once, then clear the pending static so config changes (and
+    // any recomposition) don't re-trigger it.
+    LaunchedEffect(startChatGuid) {
+        val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
+        if (chatId != null && chatId > 0L &&
+            navController.currentDestination?.route != Routes.chat(chatId)
+        ) {
+            navController.navigate(Routes.chat(chatId))
+        }
+        NativeMainActivity.pendingChatGuid = null
+    }
 
     Column(modifier = modifier) {
         if (route == Routes.CHATS && pushState == null) {
