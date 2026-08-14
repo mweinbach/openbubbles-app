@@ -26,11 +26,15 @@ upgrade path the native app must ship with the SAME applicationId
 Flutter app used:
 `context.filesDir/../` — the Flutter app used
 `getApplicationDocumentsDirectory()` (= `/data/data/<pkg>/app_flutter` on
-Android via path_provider) while `Db.build` currently takes
-`getExternalFilesDir`. **Before cutover**, point the native store at the
-Flutter location (copy-on-first-run is also acceptable: open fresh, then
-copy the four `data.mdb/lock.mdb` files in if absent — ObjectBox handles
-the rest) and TEST with a real backup from the Flutter app.
+Android via path_provider).
+
+**UPDATE: the Android side is fixed** — `CoreGraph` now builds its store
+and attachment root at `<dataDir>/app_flutter`, matching the Flutter app
+exactly. Remaining: (a) test against a real device backup, (b) the
+DESKTOP app still uses `~/.openbubbles-natives` — at cutover switch it
+to the Flutter desktop location (`getApplicationSupportDirectory()` —
+`%APPDATA%/<org>/<app>` on Windows) with a first-run copy, since the
+Flutter desktop app may have data there.
 
 ## Steps (one commit each, on the `m4-cutover` branch)
 1. `git checkout -b m4-cutover`
