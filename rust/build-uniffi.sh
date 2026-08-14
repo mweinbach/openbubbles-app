@@ -7,4 +7,4 @@ if [ -z "$LIB" ]; then
     echo "cdylib not found in target/release" >&2
     exit 1
 fi
-cargo run --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin/uniffi
+cargo run --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin

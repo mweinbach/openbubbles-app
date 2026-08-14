@@ -1436,6 +1436,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1474,6 +1476,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt(
 fun uniffi_rust_lib_bluebubbles_checksum_func_parse_call_poster(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_parse_poster(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_encoded(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay(
 ): Short
@@ -2205,6 +2209,8 @@ fun uniffi_rust_lib_bluebubbles_fn_func_parse_call_poster(`record`: RustBuffer.B
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_parse_poster(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_encoded(`dir`: RustBuffer.ByValue,`encoded`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2388,6 +2394,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_parse_poster() != 41669.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_encoded() != 5641.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay() != 31657.toShort()) {
@@ -16963,6 +16972,20 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
+    
+
+        /**
+         * Provision from an encoded HwInfo blob — the QR pairing payload after
+         * the `OABS` magic + sharing flag ("Share Mac" on a real Mac). Carries the
+         * full config incl. version strings, so no HwExtra needed.
+         */
+    @Throws(UException::class) fun `provisionFromEncoded`(`dir`: kotlin.String, `encoded`: kotlin.ByteArray)
+        = 
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_encoded(
+        FfiConverterString.lower(`dir`),FfiConverterByteArray.lower(`encoded`),_status)
+}
+    
     
 
         /**

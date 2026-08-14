@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.UHwExtra
 import uniffi.rust_lib_bluebubbles.hasHardwareConfig
+import uniffi.rust_lib_bluebubbles.provisionFromEncoded
 import uniffi.rust_lib_bluebubbles.provisionFromRelay
 import uniffi.rust_lib_bluebubbles.provisionFromValidationData
 import java.util.UUID
@@ -75,11 +76,26 @@ fun ProvisionScreen(
         }
     }
 
+    /** QR path: the payload after `OABS`+flag is a full encoded HwInfo. */
+    fun provisionWithEncoded(encoded: ByteArray) {
+        busy = true; error = null
+        scope.launch {
+            val result: Result<Unit> = withContext(Dispatchers.IO) {
+                runCatching { provisionFromEncoded(dir = confDir, encoded = encoded) }
+            }
+            busy = false
+            result.fold(
+                onSuccess = { onProvisioned() },
+                onFailure = { failure -> error = failure.message },
+            )
+        }
+    }
+
     /** QR result: `OABS` binary pairs directly; URLs/relay codes prefill. */
     fun handleScan(bytes: ByteArray?, text: String?) {
         val payload = bytes ?: text?.toByteArray(Charsets.UTF_8)
         if (payload != null && payload.size > 5 && String(payload.copyOfRange(0, 4), Charsets.US_ASCII) == "OABS") {
-            provisionWithData(payload.copyOfRange(5, payload.size))
+            provisionWithEncoded(payload.copyOfRange(5, payload.size))
             return
         }
         val value = text?.trim().orEmpty()
