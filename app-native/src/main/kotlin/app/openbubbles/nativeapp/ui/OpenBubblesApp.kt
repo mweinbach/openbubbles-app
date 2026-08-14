@@ -173,7 +173,10 @@ fun OpenBubblesApp(
                     LoginScreen(
                         handle = RustLoginHandle(path = confDir),
                         onFinished = { _ ->
-                            context?.let { NativePushService.start(it) }
+                            context?.let { ctx ->
+                                NativePushService.start(ctx)
+                                requestBatteryExemptionOnce(ctx)
+                            }
                             navController.popBackStack(Routes.CHATS, inclusive = false)
                         },
                         onBack = { navController.popBackStack() },
@@ -229,5 +232,27 @@ private fun DebugStatusFooter(lines: List<String>) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+
+/**
+ * One-time system dialog asking to exempt the app from battery optimization.
+ * The push connection is the app's lifeline — OEM killers (and Doze on some
+ * ROMs) will murder a "normal" background service; the exemption is what the
+ * Flutter app asked for too (disable_battery_optimization plugin).
+ */
+private fun requestBatteryExemptionOnce(context: android.content.Context) {
+    val prefs = context.getSharedPreferences("native_setup", android.content.Context.MODE_PRIVATE)
+    if (prefs.getBoolean("battery_exemption_asked", false)) return
+    prefs.edit().putBoolean("battery_exemption_asked", true).apply()
+
+    runCatching {
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            android.net.Uri.parse("package:${context.packageName}"),
+        )
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
     }
 }
