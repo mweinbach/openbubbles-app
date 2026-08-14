@@ -37,6 +37,10 @@ to the Flutter desktop location (`getApplicationSupportDirectory()` —
 Flutter desktop app may have data there.
 
 ## Steps (one commit each, on the `m4-cutover` branch)
+Mechanical steps 1-7 are scripted: `bash tools/prepare-cutover.sh` (phased,
+interactive confirms, one commit per phase). Manual follow-ups below still
+apply (store-path device test, boot behavior, README polish).
+
 1. `git checkout -b m4-cutover`
 2. app-native `defaultConfig`: `applicationId "com.openbubbles.messaging"`
    (drop the `.native` suffix), versionCode continuing the Flutter app's
