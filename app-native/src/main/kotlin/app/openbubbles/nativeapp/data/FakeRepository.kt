@@ -290,9 +290,9 @@ object FakeSender : Sender {
     override suspend fun send(chatId: Long, text: String) = FakeChatData.send(chatId, text)
 }
 
-/** Composition root for the app until the real core repositories are bound. */
+/** Composition root. Real core-backed bindings; fakes only as fallback. */
 object AppGraph {
-    val chats: ChatListRepository = FakeChatListRepository()
-    val messages: MessageListRepository = FakeMessageListRepository()
-    val sender: Sender = FakeSender
+    val chats: ChatListRepository get() = CoreGraph.chats
+    val messages: MessageListRepository get() = CoreGraph.messages
+    val sender: Sender get() = CoreGraph.sender
 }

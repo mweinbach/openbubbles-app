@@ -48,6 +48,7 @@ android {
 dependencies {
     implementation project(":shared")
     implementation project(":db")
+    implementation project(":core")
 
     // ObjectBox native runtime for Android (entities live in :db)
     implementation "io.objectbox:objectbox-android:4.3.0"

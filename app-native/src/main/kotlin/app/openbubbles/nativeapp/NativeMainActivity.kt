@@ -15,6 +15,7 @@ class NativeMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        appContext = applicationContext
 
         // Smoke test: load librust_lib_bluebubbles.so (built by cargokit from
         // the same Rust crate the Flutter app uses) and call through UniFFI.
@@ -31,5 +32,11 @@ class NativeMainActivity : ComponentActivity() {
                 OpenBubblesApp(debugLines = listOf(Hello.greeting(), rustStatus))
             }
         }
+    }
+
+    companion object {
+        /** Application context for the composition root (set in onCreate). */
+        @Volatile
+        var appContext: android.content.Context? = null
     }
 }

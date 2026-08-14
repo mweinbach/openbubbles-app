@@ -35,5 +35,7 @@ include ":app-native"
 project(":app-native").projectDir = file("../app-native")
 include ":db"
 project(":db").projectDir = file("../db")
+include ":core"
+project(":core").projectDir = file("../core")
 include ":desktopApp"
 project(":desktopApp").projectDir = file("../desktopApp")
