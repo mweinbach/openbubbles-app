@@ -7,9 +7,9 @@ allprojects {
 
 rootProject.buildDir = '../build-native'
 subprojects {
-    // :db keeps its default build dir — the ObjectBox bytecode transformer
-    // for JVM projects does not follow redirected build directories.
-    if (project.name != 'db') {
+    // :db (ObjectBox bytecode transformer) and :desktopApp (Compose
+    // packaging) only follow standard build directory paths.
+    if (!(project.name in ['db', 'desktopApp'])) {
         project.buildDir = "${rootProject.buildDir}/${project.name}"
     }
 }

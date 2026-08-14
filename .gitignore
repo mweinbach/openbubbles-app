@@ -64,6 +64,7 @@ native/.gradle/
 .kotlin/
 /build-native/
 /db/build/
+desktopApp/build/
 db/objectbox-model.json.bak
 
 # Tool droppings / build artifacts

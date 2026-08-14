@@ -1,0 +1,50 @@
+// Compose Desktop entry point (Windows is the target; develops fine on macOS).
+// Shares :db and the UniFFI bindings with the Android app; the Rust core
+// loads via JNA from the host-built cdylib (rust/target/release).
+plugins {
+    id "org.jetbrains.kotlin.jvm"
+    id "org.jetbrains.compose"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+// UniFFI bindings (same generated file the Android app compiles)
+sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+
+dependencies {
+    implementation project(":shared")
+    implementation project(":db")
+    implementation "io.objectbox:objectbox-kotlin:4.3.0"
+
+    implementation(compose.desktop.currentOs)
+    implementation(compose.foundation)
+    implementation(compose.material3)
+    implementation "net.java.dev.jna:jna:5.16.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0"
+}
+
+compose.desktop {
+    application {
+        mainClass = "app.openbubbles.desktop.MainKt"
+        nativeDistributions {
+            packageName = "OpenBubbles"
+            // macOS jpackage rejects versions with a leading 0
+            packageVersion = "1.0.0"
+        }
+    }
+}
+
+// Run with the host Rust build on the JNA path so the UniFFI smoke test
+// can load the real core during development:
+//   ./gradlew :desktopApp:run
+tasks.matching { it.name == "run" }.configureEach {
+    doFirst {
+        def rustLib = rootProject.file("../rust/target/release")
+        if (rustLib.exists()) {
+            systemProperty("jna.library.path", rustLib.absolutePath)
+        }
+    }
+}
