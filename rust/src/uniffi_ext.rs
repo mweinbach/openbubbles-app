@@ -178,7 +178,7 @@ pub enum UPushMessage {
     // consume them (FaceTime UI, StatusKit, Idms).
     RegistrationState,
     NewPhotostream { json: String },
-    FaceTime { debug: String },
+    FaceTime { message: UFtMessage },
     StatusUpdate,
     Idms { debug: String },
     TwoFaAuthEvent { success: bool },
@@ -314,7 +314,7 @@ fn conv_push(p: &PushMessage) -> UPushMessage {
         PushMessage::SendConfirm { uuid, error } => UPushMessage::SendConfirm { uuid: uuid.clone(), error: error.clone() },
         PushMessage::RegistrationState(_) => UPushMessage::RegistrationState,
         PushMessage::NewPhotostream(a) => UPushMessage::NewPhotostream { json: j(a) },
-        PushMessage::FaceTime(f) => UPushMessage::FaceTime { debug: format!("{f:?}") },
+        PushMessage::FaceTime(f) => UPushMessage::FaceTime { message: conv_ft(f) },
         PushMessage::StatusUpdate(_) => UPushMessage::StatusUpdate,
         PushMessage::Idms(i) => UPushMessage::Idms { debug: format!("{i:?}") },
         PushMessage::TwoFaAuthEvent(b) => UPushMessage::TwoFaAuthEvent { success: *b },
@@ -2313,4 +2313,175 @@ pub fn provision_from_relay(
 #[uniffi::export]
 pub fn has_hardware_config(dir: String) -> bool {
     api::read_hardware(dir).is_some()
+}
+
+// ---------------------------------------------------------------------------
+// Batch 7: typed FaceTime surface (replaces the batch-1 debug-string
+// variant). Drives the ported call UI: Ring -> notification + activity,
+// sessions resolve caller identity (Dart getSessionName parity).
+// ---------------------------------------------------------------------------
+
+#[derive(uniffi::Record)]
+pub struct UFtMember {
+    pub nickname: Option<String>,
+    pub handle: String,
+}
+
+/// Active FaceTime session projection — what Kotlin needs for caller
+/// resolution and group calls.
+#[derive(uniffi::Record)]
+pub struct UFtSession {
+    pub group_id: String,
+    pub my_handles: Vec<String>,
+    pub members: Vec<UFtMember>,
+    pub start_time: Option<u64>,
+}
+
+#[derive(uniffi::Enum)]
+pub enum UFtMessage {
+    LetMeInRequest {
+        shared_secret: Vec<u8>,
+        pseud: String,
+        requestor: String,
+        nickname: Option<String>,
+        token: Vec<u8>,
+        delegation_uuid: Option<String>,
+        usage: Option<String>,
+    },
+    LinkChanged { guid: String },
+    JoinEvent { guid: String, participant: u64, handle: String, ring: bool },
+    AddMembers { guid: String, members: Vec<UFtMember>, ring: bool },
+    RemoveMembers { guid: String, members: Vec<UFtMember> },
+    LeaveEvent { guid: String, participant: u64, handle: String },
+    Ring { guid: String },
+    Decline { guid: String },
+    RespondedElsewhere { guid: String },
+}
+
+fn conv_ft(msg: &rustpush::facetime::FTMessage) -> UFtMessage {
+    use rustpush::facetime::FTMessage as M;
+    let member = |m: &rustpush::facetime::FTMember| UFtMember {
+        nickname: m.nickname.clone(),
+        handle: m.handle.clone(),
+    };
+    match msg {
+        M::LetMeInRequest(r) => UFtMessage::LetMeInRequest {
+            shared_secret: r.shared_secret.clone(),
+            pseud: r.pseud.clone(),
+            requestor: r.requestor.clone(),
+            nickname: r.nickname.clone(),
+            token: r.token.clone(),
+            delegation_uuid: r.delegation_uuid.clone(),
+            usage: r.usage.clone(),
+        },
+        M::LinkChanged { guid } => UFtMessage::LinkChanged { guid: guid.clone() },
+        M::JoinEvent { guid, participant, handle, ring } => UFtMessage::JoinEvent {
+            guid: guid.clone(),
+            participant: *participant,
+            handle: handle.clone(),
+            ring: *ring,
+        },
+        M::AddMembers { guid, members, ring } => UFtMessage::AddMembers {
+            guid: guid.clone(),
+            members: members.iter().map(member).collect(),
+            ring: *ring,
+        },
+        M::RemoveMembers { guid, members } => UFtMessage::RemoveMembers {
+            guid: guid.clone(),
+            members: members.iter().map(member).collect(),
+        },
+        M::LeaveEvent { guid, participant, handle } => UFtMessage::LeaveEvent {
+            guid: guid.clone(),
+            participant: *participant,
+            handle: handle.clone(),
+        },
+        M::Ring { guid } => UFtMessage::Ring { guid: guid.clone() },
+        M::Decline { guid } => UFtMessage::Decline { guid: guid.clone() },
+        M::RespondedElsewhere { guid } => UFtMessage::RespondedElsewhere { guid: guid.clone() },
+    }
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// Active + known FaceTime sessions (caller resolution for the UI).
+    pub fn ft_sessions(&self) -> Result<Vec<UFtSession>, UError> {
+        RUNTIME
+            .block_on(async {
+                let sessions = api::ft_sessions(&self.shared().ft_client).await?;
+                Ok(sessions
+                    .iter()
+                    .map(|s| UFtSession {
+                        group_id: s.group_id.clone(),
+                        my_handles: s.my_handles.clone(),
+                        members: s.members.iter().map(|m| UFtMember {
+                            nickname: m.nickname.clone(),
+                            handle: m.handle.clone(),
+                        }).collect(),
+                        start_time: s.start_time,
+                    })
+                    .collect::<Vec<_>>())
+            })
+            .map_err(|e: anyhow::Error| UError::Failed { reason: e.to_string() })
+    }
+
+    /// FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
+    pub fn get_ft_link(&self, usage: String) -> Result<String, UError> {
+        RUNTIME
+            .block_on(api::get_ft_link(&self.shared().ft_client, usage))
+            .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+
+    /// Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
+    /// incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+    pub fn rotate_incoming_links(&self) -> Result<(), UError> {
+        let client = &self.shared().ft_client;
+        RUNTIME
+            .block_on(async {
+                api::use_link_for(client, "nextincomingcall".to_string(), "incomingcall".to_string()).await?;
+                api::use_link_for(client, "incomingcall".to_string(), "incomingcall-old".to_string()).await?;
+                api::get_ft_link(client, "nextincomingcall".to_string()).await?;
+                Ok(())
+            })
+            .map_err(|e: anyhow::Error| UError::Failed { reason: e.to_string() })
+    }
+
+    /// Start an outgoing call.
+    pub fn create_facetime(&self, uuid: String, handle: String, participants: Vec<String>) -> Result<(), UError> {
+        RUNTIME
+            .block_on(api::create_facetime(&self.shared().ft_client, uuid, handle, participants))
+            .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+
+    /// Cancel/hang up a call by guid.
+    pub fn cancel_facetime(&self, guid: String) -> Result<(), UError> {
+        RUNTIME
+            .block_on(api::cancel_facetime(&self.shared().ft_client, guid))
+            .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+
+    /// Approve a knock-to-join request (answer_ft_request).
+    pub fn approve_let_me_in(
+        &self,
+        shared_secret: Vec<u8>,
+        pseud: String,
+        requestor: String,
+        nickname: Option<String>,
+        token: Vec<u8>,
+        delegation_uuid: Option<String>,
+        usage: Option<String>,
+        approved_group: Option<String>,
+    ) -> Result<(), UError> {
+        let request = rustpush::facetime::LetMeInRequest {
+            shared_secret,
+            pseud,
+            requestor,
+            nickname,
+            token,
+            delegation_uuid,
+            usage,
+        };
+        RUNTIME
+            .block_on(api::answer_ft_request(&self.shared().ft_client, request, approved_group))
+            .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
 }

@@ -1354,6 +1354,18 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1453,9 +1465,15 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_encrypt(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
 ): Short
@@ -1471,9 +1489,13 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_ft_sessions(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_ft_link(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_handles(
 ): Short
@@ -1498,6 +1520,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
 ): Short
@@ -1753,10 +1777,16 @@ fun uniffi_rust_lib_bluebubbles_fn_clone_nativepushstate(`ptr`: Pointer,uniffi_o
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1771,10 +1801,14 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: P
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_ft_link(`ptr`: Pointer,`usage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_my_phone_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1799,6 +1833,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -2234,10 +2270,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt() != 31689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in() != 16891.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime() != 29235.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants() != 36972.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state() != 28004.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime() != 58173.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
@@ -2261,10 +2306,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 40142.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_ft_sessions() != 13636.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code() != 63817.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups() != 36969.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_ft_link() != 65438.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_handles() != 40045.toShort()) {
@@ -2301,6 +2352,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 37145.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 58611.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 10762.toShort()) {
@@ -5374,6 +5428,16 @@ public object FfiConverterTypeNativeKeystore: FfiConverter<NativeKeystore, Point
 public interface NativePushStateInterface {
     
     /**
+     * Approve a knock-to-join request (answer_ft_request).
+     */
+    fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
+    
+    /**
+     * Cancel/hang up a call by guid.
+     */
+    fun `cancelFacetime`(`guid`: kotlin.String)
+    
+    /**
      * Set the full participant list of a group (add/remove inferred by
      * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
      * participant including `sender`, formatted+prefixed
@@ -5385,6 +5449,11 @@ public interface NativePushStateInterface {
      * Whether CloudKit message-history sync can run on this state.
      */
     fun `cloudSyncState`(): USyncState
+    
+    /**
+     * Start an outgoing call.
+     */
+    fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
     
     fun `declineFacetime`(`guid`: kotlin.String)
     
@@ -5426,9 +5495,19 @@ public interface NativePushStateInterface {
      */
     fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
     
+    /**
+     * Active + known FaceTime sessions (caller resolution for the UI).
+     */
+    fun `ftSessions`(): List<UFtSession>
+    
     fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt
     
     fun `getAvailableGroups`(`groupsCallback`: AvailableGroupsCallback)
+    
+    /**
+     * FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
+     */
+    fun `getFtLink`(`usage`: kotlin.String): kotlin.String
     
     /**
      * All handles (emails + phone numbers) registered for this account.
@@ -5480,6 +5559,12 @@ public interface NativePushStateInterface {
      * Rename a group chat (Dart `renameChat`).
      */
     fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
+    
+    /**
+     * Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
+     * incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+     */
+    fun `rotateIncomingLinks`()
     
     /**
      * Upload a local file and send it as an attachment message in one call
@@ -5654,6 +5739,36 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Approve a knock-to-join request (answer_ft_request).
+     */
+    @Throws(UException::class)override fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(
+        it, FfiConverterByteArray.lower(`sharedSecret`),FfiConverterString.lower(`pseud`),FfiConverterString.lower(`requestor`),FfiConverterOptionalString.lower(`nickname`),FfiConverterByteArray.lower(`token`),FfiConverterOptionalString.lower(`delegationUuid`),FfiConverterOptionalString.lower(`usage`),FfiConverterOptionalString.lower(`approvedGroup`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Cancel/hang up a call by guid.
+     */
+    @Throws(UException::class)override fun `cancelFacetime`(`guid`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(
+        it, FfiConverterString.lower(`guid`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Set the full participant list of a group (add/remove inferred by
      * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
      * participant including `sender`, formatted+prefixed
@@ -5684,6 +5799,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Start an outgoing call.
+     */
+    @Throws(UException::class)override fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(
+        it, FfiConverterString.lower(`uuid`),FfiConverterString.lower(`handle`),FfiConverterSequenceString.lower(`participants`),_status)
+}
+    }
+    
     
 
     override fun `declineFacetime`(`guid`: kotlin.String)
@@ -5795,6 +5925,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     
 
+    
+    /**
+     * Active + known FaceTime sessions (caller resolution for the UI).
+     */
+    @Throws(UException::class)override fun `ftSessions`(): List<UFtSession> {
+            return FfiConverterSequenceTypeUFtSession.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
     override fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt {
             return FfiConverterUInt.lift(
     callWithPointer {
@@ -5816,6 +5962,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
+     */
+    @Throws(UException::class)override fun `getFtLink`(`usage`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_ft_link(
+        it, FfiConverterString.lower(`usage`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -5990,6 +6152,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
+     * incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+     */
+    @Throws(UException::class)override fun `rotateIncomingLinks`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(
+        it, _status)
+}
+    }
+    
     
 
     
@@ -9740,6 +9918,82 @@ public object FfiConverterTypeUDeviceInfo: FfiConverterRustBuffer<UDeviceInfo> {
 
 
 
+data class UFtMember (
+    var `nickname`: kotlin.String?, 
+    var `handle`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFtMember: FfiConverterRustBuffer<UFtMember> {
+    override fun read(buf: ByteBuffer): UFtMember {
+        return UFtMember(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFtMember) = (
+            FfiConverterOptionalString.allocationSize(value.`nickname`) +
+            FfiConverterString.allocationSize(value.`handle`)
+    )
+
+    override fun write(value: UFtMember, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`nickname`, buf)
+            FfiConverterString.write(value.`handle`, buf)
+    }
+}
+
+
+
+/**
+ * Active FaceTime session projection — what Kotlin needs for caller
+ * resolution and group calls.
+ */
+data class UFtSession (
+    var `groupId`: kotlin.String, 
+    var `myHandles`: List<kotlin.String>, 
+    var `members`: List<UFtMember>, 
+    var `startTime`: kotlin.ULong?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFtSession: FfiConverterRustBuffer<UFtSession> {
+    override fun read(buf: ByteBuffer): UFtSession {
+        return UFtSession(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceTypeUFtMember.read(buf),
+            FfiConverterOptionalULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UFtSession) = (
+            FfiConverterString.allocationSize(value.`groupId`) +
+            FfiConverterSequenceString.allocationSize(value.`myHandles`) +
+            FfiConverterSequenceTypeUFtMember.allocationSize(value.`members`) +
+            FfiConverterOptionalULong.allocationSize(value.`startTime`)
+    )
+
+    override fun write(value: UFtSession, buf: ByteBuffer) {
+            FfiConverterString.write(value.`groupId`, buf)
+            FfiConverterSequenceString.write(value.`myHandles`, buf)
+            FfiConverterSequenceTypeUFtMember.write(value.`members`, buf)
+            FfiConverterOptionalULong.write(value.`startTime`, buf)
+    }
+}
+
+
+
 data class UHwExtra (
     var `version`: kotlin.String, 
     var `protocolVersion`: kotlin.UInt, 
@@ -10741,6 +10995,272 @@ public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
 
 
 
+sealed class UFtMessage {
+    
+    data class LetMeInRequest(
+        val `sharedSecret`: kotlin.ByteArray, 
+        val `pseud`: kotlin.String, 
+        val `requestor`: kotlin.String, 
+        val `nickname`: kotlin.String?, 
+        val `token`: kotlin.ByteArray, 
+        val `delegationUuid`: kotlin.String?, 
+        val `usage`: kotlin.String?) : UFtMessage() {
+        companion object
+    }
+    
+    data class LinkChanged(
+        val `guid`: kotlin.String) : UFtMessage() {
+        companion object
+    }
+    
+    data class JoinEvent(
+        val `guid`: kotlin.String, 
+        val `participant`: kotlin.ULong, 
+        val `handle`: kotlin.String, 
+        val `ring`: kotlin.Boolean) : UFtMessage() {
+        companion object
+    }
+    
+    data class AddMembers(
+        val `guid`: kotlin.String, 
+        val `members`: List<UFtMember>, 
+        val `ring`: kotlin.Boolean) : UFtMessage() {
+        companion object
+    }
+    
+    data class RemoveMembers(
+        val `guid`: kotlin.String, 
+        val `members`: List<UFtMember>) : UFtMessage() {
+        companion object
+    }
+    
+    data class LeaveEvent(
+        val `guid`: kotlin.String, 
+        val `participant`: kotlin.ULong, 
+        val `handle`: kotlin.String) : UFtMessage() {
+        companion object
+    }
+    
+    data class Ring(
+        val `guid`: kotlin.String) : UFtMessage() {
+        companion object
+    }
+    
+    data class Decline(
+        val `guid`: kotlin.String) : UFtMessage() {
+        companion object
+    }
+    
+    data class RespondedElsewhere(
+        val `guid`: kotlin.String) : UFtMessage() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUFtMessage : FfiConverterRustBuffer<UFtMessage>{
+    override fun read(buf: ByteBuffer): UFtMessage {
+        return when(buf.getInt()) {
+            1 -> UFtMessage.LetMeInRequest(
+                FfiConverterByteArray.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterByteArray.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            2 -> UFtMessage.LinkChanged(
+                FfiConverterString.read(buf),
+                )
+            3 -> UFtMessage.JoinEvent(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            4 -> UFtMessage.AddMembers(
+                FfiConverterString.read(buf),
+                FfiConverterSequenceTypeUFtMember.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            5 -> UFtMessage.RemoveMembers(
+                FfiConverterString.read(buf),
+                FfiConverterSequenceTypeUFtMember.read(buf),
+                )
+            6 -> UFtMessage.LeaveEvent(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            7 -> UFtMessage.Ring(
+                FfiConverterString.read(buf),
+                )
+            8 -> UFtMessage.Decline(
+                FfiConverterString.read(buf),
+                )
+            9 -> UFtMessage.RespondedElsewhere(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UFtMessage) = when(value) {
+        is UFtMessage.LetMeInRequest -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterByteArray.allocationSize(value.`sharedSecret`)
+                + FfiConverterString.allocationSize(value.`pseud`)
+                + FfiConverterString.allocationSize(value.`requestor`)
+                + FfiConverterOptionalString.allocationSize(value.`nickname`)
+                + FfiConverterByteArray.allocationSize(value.`token`)
+                + FfiConverterOptionalString.allocationSize(value.`delegationUuid`)
+                + FfiConverterOptionalString.allocationSize(value.`usage`)
+            )
+        }
+        is UFtMessage.LinkChanged -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+            )
+        }
+        is UFtMessage.JoinEvent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+                + FfiConverterULong.allocationSize(value.`participant`)
+                + FfiConverterString.allocationSize(value.`handle`)
+                + FfiConverterBoolean.allocationSize(value.`ring`)
+            )
+        }
+        is UFtMessage.AddMembers -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+                + FfiConverterSequenceTypeUFtMember.allocationSize(value.`members`)
+                + FfiConverterBoolean.allocationSize(value.`ring`)
+            )
+        }
+        is UFtMessage.RemoveMembers -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+                + FfiConverterSequenceTypeUFtMember.allocationSize(value.`members`)
+            )
+        }
+        is UFtMessage.LeaveEvent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+                + FfiConverterULong.allocationSize(value.`participant`)
+                + FfiConverterString.allocationSize(value.`handle`)
+            )
+        }
+        is UFtMessage.Ring -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+            )
+        }
+        is UFtMessage.Decline -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+            )
+        }
+        is UFtMessage.RespondedElsewhere -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`guid`)
+            )
+        }
+    }
+
+    override fun write(value: UFtMessage, buf: ByteBuffer) {
+        when(value) {
+            is UFtMessage.LetMeInRequest -> {
+                buf.putInt(1)
+                FfiConverterByteArray.write(value.`sharedSecret`, buf)
+                FfiConverterString.write(value.`pseud`, buf)
+                FfiConverterString.write(value.`requestor`, buf)
+                FfiConverterOptionalString.write(value.`nickname`, buf)
+                FfiConverterByteArray.write(value.`token`, buf)
+                FfiConverterOptionalString.write(value.`delegationUuid`, buf)
+                FfiConverterOptionalString.write(value.`usage`, buf)
+                Unit
+            }
+            is UFtMessage.LinkChanged -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`guid`, buf)
+                Unit
+            }
+            is UFtMessage.JoinEvent -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`guid`, buf)
+                FfiConverterULong.write(value.`participant`, buf)
+                FfiConverterString.write(value.`handle`, buf)
+                FfiConverterBoolean.write(value.`ring`, buf)
+                Unit
+            }
+            is UFtMessage.AddMembers -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`guid`, buf)
+                FfiConverterSequenceTypeUFtMember.write(value.`members`, buf)
+                FfiConverterBoolean.write(value.`ring`, buf)
+                Unit
+            }
+            is UFtMessage.RemoveMembers -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`guid`, buf)
+                FfiConverterSequenceTypeUFtMember.write(value.`members`, buf)
+                Unit
+            }
+            is UFtMessage.LeaveEvent -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.`guid`, buf)
+                FfiConverterULong.write(value.`participant`, buf)
+                FfiConverterString.write(value.`handle`, buf)
+                Unit
+            }
+            is UFtMessage.Ring -> {
+                buf.putInt(7)
+                FfiConverterString.write(value.`guid`, buf)
+                Unit
+            }
+            is UFtMessage.Decline -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`guid`, buf)
+                Unit
+            }
+            is UFtMessage.RespondedElsewhere -> {
+                buf.putInt(9)
+                FfiConverterString.write(value.`guid`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 /**
  * Coarse progress signal fired through `ULoginDelegate::on_stage`.
  */
@@ -11704,7 +12224,7 @@ sealed class UPushMessage {
     }
     
     data class FaceTime(
-        val `debug`: kotlin.String) : UPushMessage() {
+        val `message`: UFtMessage) : UPushMessage() {
         companion object
     }
     
@@ -11757,7 +12277,7 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
                 FfiConverterString.read(buf),
                 )
             5 -> UPushMessage.FaceTime(
-                FfiConverterString.read(buf),
+                FfiConverterTypeUFtMessage.read(buf),
                 )
             6 -> UPushMessage.StatusUpdate
             7 -> UPushMessage.Idms(
@@ -11810,7 +12330,7 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
-                + FfiConverterString.allocationSize(value.`debug`)
+                + FfiConverterTypeUFtMessage.allocationSize(value.`message`)
             )
         }
         is UPushMessage.StatusUpdate -> {
@@ -11880,7 +12400,7 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
             }
             is UPushMessage.FaceTime -> {
                 buf.putInt(5)
-                FfiConverterString.write(value.`debug`, buf)
+                FfiConverterTypeUFtMessage.write(value.`message`, buf)
                 Unit
             }
             is UPushMessage.StatusUpdate -> {
@@ -12815,6 +13335,62 @@ public object FfiConverterSequenceTypeUChatChange: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUChatChange.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUFtMember: FfiConverterRustBuffer<List<UFtMember>> {
+    override fun read(buf: ByteBuffer): List<UFtMember> {
+        val len = buf.getInt()
+        return List<UFtMember>(len) {
+            FfiConverterTypeUFtMember.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UFtMember>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUFtMember.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UFtMember>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUFtMember.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUFtSession: FfiConverterRustBuffer<List<UFtSession>> {
+    override fun read(buf: ByteBuffer): List<UFtSession> {
+        val len = buf.getInt()
+        return List<UFtSession>(len) {
+            FfiConverterTypeUFtSession.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UFtSession>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUFtSession.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UFtSession>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUFtSession.write(it, buf)
         }
     }
 }
