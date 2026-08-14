@@ -13,6 +13,7 @@ import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.TypingRepository
+import app.openbubbles.nativeapp.sms.SmsBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,10 +139,14 @@ class ChatViewModel(
         PendingSendEffect.effectId = null
         input.value = ""
         viewModelScope.launch {
-            if (effectId == null) {
-                sender.send(chatId, text)
-            } else {
-                sender.sendWithEffect(chatId, text, effectId)
+            // SIM-routed chats (isRpSms) send over the modem; everything else
+            // goes through the APNs iMessage sender.
+            if (!SmsBridge.routeIfSmsChat(chatId, text)) {
+                if (effectId == null) {
+                    sender.send(chatId, text)
+                } else {
+                    sender.sendWithEffect(chatId, text, effectId)
+                }
             }
         }
     }

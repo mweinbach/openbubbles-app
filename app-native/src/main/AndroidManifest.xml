@@ -14,6 +14,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!-- SIM SMS/MMS: receive + send over the modem; READ_SMS backs MMS ingest
+         (provider rows written by the system/default SMS app) and telephony
+         thread-id tracking. RECEIVE_MMS is a normal (install-time) permission. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+
     <application
         android:label="OpenBubbles Native"
         android:theme="@style/Theme.OpenBubblesNative"
@@ -59,6 +68,32 @@
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver"
             android:enabled="true"
             android:exported="true" />
+
+        <!-- SIM SMS/MMS receive + send-status (blocks adapted from the Flutter
+             app's SMSReceiver registration; data-SMS/OTP receivers stay with
+             the login flow and are intentionally NOT registered here). -->
+        <receiver
+            android:name="app.openbubbles.nativeapp.sms.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="app.openbubbles.nativeapp.sms.MmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_RECEIVED" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="app.openbubbles.nativeapp.sms.SmsSendStatusReceiver"
+            android:exported="false" />
 
         <activity
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActivity"

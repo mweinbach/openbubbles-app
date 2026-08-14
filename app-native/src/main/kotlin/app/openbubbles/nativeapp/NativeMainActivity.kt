@@ -48,6 +48,12 @@ class NativeMainActivity : ComponentActivity() {
                 notGranted(Manifest.permission.POST_NOTIFICATIONS)
             ) add(Manifest.permission.POST_NOTIFICATIONS)
             if (notGranted(Manifest.permission.READ_CONTACTS)) add(Manifest.permission.READ_CONTACTS)
+            // On-device SMS (dangerous perms degrade gracefully until granted)
+            listOf(
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_SMS,
+            ).filter { notGranted(it) }.forEach { add(it) }
         }
         if (wanted.isNotEmpty()) {
             permissionLauncher.launch(wanted.toTypedArray())

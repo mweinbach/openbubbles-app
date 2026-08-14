@@ -79,6 +79,13 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.7"
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
+
+    // JVM unit tests for the sms/ receive->ingest builders (same objectbox
+    // desktop runtime :db/:core tests use, so the ingest integration can open
+    // a real store without a device).
+    testImplementation "org.jetbrains.kotlin:kotlin-test"
+    testImplementation "io.objectbox:objectbox-java:4.3.0"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0"
 }
 
 // UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native

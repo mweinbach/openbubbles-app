@@ -101,6 +101,18 @@ interface Sender {
     }
 }
 
+/**
+ * On-device (SIM) SMS send for chats flagged `isRpSms` — the modem twin of
+ * [Sender]. Implementations stage the outgoing row optimistically (SENDING)
+ * and resolve the status asynchronously (sent/delivery receipts); see
+ * `app.openbubbles.nativeapp.sms.SmsManagerSender`. Kept separate from
+ * [Sender] so the iMessage path stays untouched; routing lives in
+ * `sms.SmsBridge.routeIfSmsChat`.
+ */
+interface SmsSender {
+    suspend fun send(chatId: Long, text: String)
+}
+
 /** A picked outgoing attachment, ready to stage and upload. */
 data class OutgoingAttachment(
     /** Local copy of the payload (app cache); the sender moves it into the store. */

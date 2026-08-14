@@ -219,12 +219,12 @@ class CloudSyncManagerTest {
     @Test
     fun `full sync backfills chats and messages with entity mapping and latest wiring`() {
         port.chatPages += chatPage(
-            UChatChange("rec-chat-1", cloudChat("rec-chat-1", guid = "iMessage;+;family", displayName = "Family", participants = listOf("tel:+15550000001", "mailto:me@icloud.com"), style = 43, groupId = "cloud-family")),
-            UChatChange("rec-chat-2", cloudChat("rec-chat-2", guid = "iMessage;-;friend@icloud.com", identifier = "friend@icloud.com", groupId = "cloud-dm")),
+            UChatChange("rec-chat-1", cloudChat("rec-chat-1", guid = "iMessage;+;family", displayName = "Family", participants = listOf("tel:+15550000001", "mailto:me@icloud.com"), style = 43, groupId = "cloud-family"), blob = byteArrayOf()),
+            UChatChange("rec-chat-2", cloudChat("rec-chat-2", guid = "iMessage;-;friend@icloud.com", identifier = "friend@icloud.com", groupId = "cloud-dm"), blob = byteArrayOf()),
         )
         port.messagePages += messagePage(
-            UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;friend@icloud.com", text = "first", time = 700_000_000_000_000_000L)),
-            UMessageChange("rec-m2", cloudMessage("rec-m2", guid = "m2", chatId = "cloud-dm", text = "second (newest)", time = 900_000_000_000_000_000L, flags = 4)),
+            UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;friend@icloud.com", text = "first", time = 700_000_000_000_000_000L), blob = byteArrayOf()),
+            UMessageChange("rec-m2", cloudMessage("rec-m2", guid = "m2", chatId = "cloud-dm", text = "second (newest)", time = 900_000_000_000_000_000L, flags = 4), blob = byteArrayOf()),
         )
 
         val summary = runSync()
@@ -272,7 +272,7 @@ class CloudSyncManagerTest {
     @Test
     fun `group version gate keeps local state when cloud is not newer`() {
         // Cloud knows version 5, local chat starts absent -> applies v5.
-        port.chatPages += chatPage(UChatChange("rec-1", cloudChat("rec-1", groupVersion = 5u, displayName = "Cloud name")))
+        port.chatPages += chatPage(UChatChange("rec-1", cloudChat("rec-1", groupVersion = 5u, displayName = "Cloud name"), blob = byteArrayOf()))
         port.messagePages += messagePage()
         runSync()
         val chat = chatByGuid("iMessage;-;+15551234567")!!
@@ -281,7 +281,7 @@ class CloudSyncManagerTest {
 
         // Re-sync same version: identifiers refresh, content untouched.
         port.chatPages += chatPage(
-            UChatChange("rec-1b", cloudChat("rec-1b", groupVersion = 5u, displayName = "Different name")),
+            UChatChange("rec-1b", cloudChat("rec-1b", groupVersion = 5u, displayName = "Different name"), blob = byteArrayOf()),
         )
         port.messagePages += messagePage()
         runSync(SyncMode.INCREMENTAL)
@@ -293,11 +293,11 @@ class CloudSyncManagerTest {
     @Test
     fun `skips non-iMessage chats and chats that do not exist for messages`() {
         port.chatPages += chatPage(
-            UChatChange("rec-sms", cloudChat("rec-sms", serviceName = "SMS")),
-            UChatChange("rec-ok", cloudChat("rec-ok")),
+            UChatChange("rec-sms", cloudChat("rec-sms", serviceName = "SMS"), blob = byteArrayOf()),
+            UChatChange("rec-ok", cloudChat("rec-ok"), blob = byteArrayOf()),
         )
         port.messagePages += messagePage(
-            UMessageChange("rec-orphan", cloudMessage("rec-orphan", guid = "orphan", chatId = "unknown-chat-id")),
+            UMessageChange("rec-orphan", cloudMessage("rec-orphan", guid = "orphan", chatId = "unknown-chat-id"), blob = byteArrayOf()),
         )
         runSync()
 
@@ -312,9 +312,9 @@ class CloudSyncManagerTest {
 
     @Test
     fun `re-synced guid dedupes to one row and deletes the stale cloud record`() {
-        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat")))
+        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()))
         port.messagePages += messagePage(
-            UMessageChange("rec-old", cloudMessage("rec-old", guid = "same-guid", chatId = "iMessage;-;+15551234567")),
+            UMessageChange("rec-old", cloudMessage("rec-old", guid = "same-guid", chatId = "iMessage;-;+15551234567"), blob = byteArrayOf()),
         )
         runSync()
         assertEquals(1L, store.boxFor(Message::class.java).count())
@@ -323,7 +323,7 @@ class CloudSyncManagerTest {
         // old record remotely, never duplicate.
         port.chatPages += chatPage()
         port.messagePages += messagePage(
-            UMessageChange("rec-new", cloudMessage("rec-new", guid = "same-guid", chatId = "iMessage;-;+15551234567", text = "changed cloud text")),
+            UMessageChange("rec-new", cloudMessage("rec-new", guid = "same-guid", chatId = "iMessage;-;+15551234567", text = "changed cloud text"), blob = byteArrayOf()),
         )
         val summary = runSync(SyncMode.INCREMENTAL)
 
@@ -336,17 +336,17 @@ class CloudSyncManagerTest {
 
     @Test
     fun `tombstones delete chats with their messages and messages by record id`() {
-        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat")))
+        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()))
         port.messagePages += messagePage(
-            UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;+15551234567")),
-            UMessageChange("rec-m2", cloudMessage("rec-m2", guid = "m2", chatId = "iMessage;-;+15551234567")),
+            UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;+15551234567"), blob = byteArrayOf()),
+            UMessageChange("rec-m2", cloudMessage("rec-m2", guid = "m2", chatId = "iMessage;-;+15551234567"), blob = byteArrayOf()),
         )
         runSync()
         assertEquals(1L, store.boxFor(Chat::class.java).count())
         assertEquals(2L, store.boxFor(Message::class.java).count())
 
-        port.chatPages += chatPage(UChatChange("rec-chat", null))
-        port.messagePages += messagePage(UMessageChange("rec-m1", null))
+        port.chatPages += chatPage(UChatChange("rec-chat", null, blob = byteArrayOf()))
+        port.messagePages += messagePage(UMessageChange("rec-m1", null, blob = byteArrayOf()))
         val summary = runSync(SyncMode.INCREMENTAL)
 
         assertEquals(0L, store.boxFor(Chat::class.java).count()) // chat cascade
@@ -361,9 +361,9 @@ class CloudSyncManagerTest {
 
     @Test
     fun `incremental resumes from persisted cursors and full ignores them`() {
-        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat")), cursor = byteArrayOf(10), more = true)
+        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()), cursor = byteArrayOf(10), more = true)
         port.chatPages += chatPage(cursor = byteArrayOf(11))
-        port.messagePages += messagePage(UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;+15551234567")), cursor = byteArrayOf(20), more = true)
+        port.messagePages += messagePage(UMessageChange("rec-m1", cloudMessage("rec-m1", guid = "m1", chatId = "iMessage;-;+15551234567"), blob = byteArrayOf()), cursor = byteArrayOf(20), more = true)
         port.messagePages += messagePage(cursor = byteArrayOf(21))
         runSync()
 
@@ -389,7 +389,7 @@ class CloudSyncManagerTest {
 
     @Test
     fun `cursors persist after each page so crashes replay only the last page`() {
-        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat")), cursor = byteArrayOf(1), more = true)
+        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()), cursor = byteArrayOf(1), more = true)
         port.chatPages += chatPage(cursor = byteArrayOf(2), more = true)
         port.chatPages += chatPage(cursor = byteArrayOf(3))
         port.messagePages += messagePage()
@@ -442,8 +442,8 @@ class CloudSyncManagerTest {
 
     @Test
     fun `cancel stops between pages and keeps applied pages`() {
-        port.chatPages += chatPage(UChatChange("rec-1", cloudChat("rec-1")))
-        port.chatPages += chatPage(UChatChange("rec-2", cloudChat("rec-2"))) // never pulled
+        port.chatPages += chatPage(UChatChange("rec-1", cloudChat("rec-1"), blob = byteArrayOf()))
+        port.chatPages += chatPage(UChatChange("rec-2", cloudChat("rec-2"), blob = byteArrayOf())) // never pulled
         port.messagePages += messagePage()
         // Cancel from inside the port mid-run (sync() clears a pre-set flag).
         var served = 0
