@@ -17,11 +17,20 @@ sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
 dependencies {
     implementation project(":shared")
     implementation project(":db")
+    implementation project(":core")
     implementation "io.objectbox:objectbox-kotlin:4.3.0"
+    // ObjectBox's native library ships as separate per-OS jars that the
+    // objectbox-java POM does not pull in (Android bundles it in the AAR);
+    // add every desktop target so dev machines and the CI Windows build
+    // both resolve `native/libobjectbox-jni-<os>.dylib|dll|so` at runtime.
+    implementation "io.objectbox:objectbox-macos:4.3.0"
+    implementation "io.objectbox:objectbox-windows:4.3.0"
+    implementation "io.objectbox:objectbox-linux:4.3.0"
 
     implementation(compose.desktop.currentOs)
     implementation(compose.foundation)
     implementation(compose.material3)
+    implementation(compose.materialIconsExtended)
     implementation "net.java.dev.jna:jna:5.16.0"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0"
 }
