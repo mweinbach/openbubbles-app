@@ -72,3 +72,4 @@ codegen_logs
 .codex
 android/.project
 db/libobjectbox-jni*
+desktopApp/libobjectbox-jni*
