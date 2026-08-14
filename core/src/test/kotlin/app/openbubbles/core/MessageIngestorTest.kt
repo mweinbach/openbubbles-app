@@ -199,7 +199,7 @@ class MessageIngestorTest {
                 parts = listOf(
                     UIndexedPart(UPart.Text("look at this", ""), null),
                     UIndexedPart(
-                        UPart.Attachment(part = 0uL, uti = "public.png", mime = "image/png", name = "pic.png", iris = false),
+                        UPart.Attachment(part = 0uL, uti = "public.png", mime = "image/png", name = "pic.png", iris = false, xml = ""),
                         0uL,
                     ),
                 ),
