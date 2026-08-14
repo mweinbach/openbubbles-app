@@ -1348,6 +1348,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1373,6 +1379,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_finish_unlock(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_get_carrier(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_has_hardware_config(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_has_saved_users(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_init_native(
@@ -1380,6 +1388,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_init_native(
 fun uniffi_rust_lib_bluebubbles_checksum_func_is_locked(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message(
 ): Short
@@ -1941,6 +1953,8 @@ fun uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(uniffi_out_err: UniffiRust
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_get_carrier(`handler`: Pointer,`mccmnc`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_has_hardware_config(`dir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_has_saved_users(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1948,6 +1962,10 @@ fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`h
 fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(`id`: Long,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2105,6 +2123,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_get_carrier() != 30894.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_has_hardware_config() != 14438.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_has_saved_users() != 7569.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2115,6 +2136,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt() != 52117.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay() != 31657.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data() != 16595.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message() != 44576.toShort()) {
@@ -9713,6 +9740,50 @@ public object FfiConverterTypeUDeviceInfo: FfiConverterRustBuffer<UDeviceInfo> {
 
 
 
+data class UHwExtra (
+    var `version`: kotlin.String, 
+    var `protocolVersion`: kotlin.UInt, 
+    var `deviceId`: kotlin.String, 
+    var `icloudUa`: kotlin.String, 
+    var `aoskitVersion`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUHwExtra: FfiConverterRustBuffer<UHwExtra> {
+    override fun read(buf: ByteBuffer): UHwExtra {
+        return UHwExtra(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UHwExtra) = (
+            FfiConverterString.allocationSize(value.`version`) +
+            FfiConverterUInt.allocationSize(value.`protocolVersion`) +
+            FfiConverterString.allocationSize(value.`deviceId`) +
+            FfiConverterString.allocationSize(value.`icloudUa`) +
+            FfiConverterString.allocationSize(value.`aoskitVersion`)
+    )
+
+    override fun write(value: UHwExtra, buf: ByteBuffer) {
+            FfiConverterString.write(value.`version`, buf)
+            FfiConverterUInt.write(value.`protocolVersion`, buf)
+            FfiConverterString.write(value.`deviceId`, buf)
+            FfiConverterString.write(value.`icloudUa`, buf)
+            FfiConverterString.write(value.`aoskitVersion`, buf)
+    }
+}
+
+
+
 data class UIndexedPart (
     var `part`: UPart, 
     var `idx`: kotlin.ULong?
@@ -13058,6 +13129,19 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     
 
         /**
+         * True when hw_info.plist exists and parses — gates the login UI's
+         * provisioning step.
+         */ fun `hasHardwareConfig`(`dir`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_has_hardware_config(
+        FfiConverterString.lower(`dir`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Whether `id.plist` holds registered IDS users (i.e. setup previously
          * completed far enough to register).
          */ fun `hasSavedUsers`(`path`: kotlin.String): kotlin.Boolean {
@@ -13091,6 +13175,31 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(
         FfiConverterULong.lower(`id`),FfiConverterBoolean.lower(`success`),_status)
+}
+    
+    
+
+        /**
+         * Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
+         */
+    @Throws(UException::class) fun `provisionFromRelay`(`dir`: kotlin.String, `code`: kotlin.String, `host`: kotlin.String, `token`: kotlin.String?)
+        = 
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(
+        FfiConverterString.lower(`dir`),FfiConverterString.lower(`code`),FfiConverterString.lower(`host`),FfiConverterOptionalString.lower(`token`),_status)
+}
+    
+    
+
+        /**
+         * Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
+         * from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
+         */
+    @Throws(UException::class) fun `provisionFromValidationData`(`dir`: kotlin.String, `data`: kotlin.ByteArray, `extra`: UHwExtra)
+        = 
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(
+        FfiConverterString.lower(`dir`),FfiConverterByteArray.lower(`data`),FfiConverterTypeUHwExtra.lower(`extra`),_status)
 }
     
     

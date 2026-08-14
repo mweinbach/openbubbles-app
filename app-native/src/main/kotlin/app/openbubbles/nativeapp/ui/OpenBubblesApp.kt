@@ -11,6 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -156,16 +157,34 @@ fun OpenBubblesApp(
             }
             composable(Routes.LOGIN) {
                 val context = NativeMainActivity.appContext
-                LoginScreen(
-                    handle = RustLoginHandle(
-                        path = context?.filesDir?.absolutePath ?: "",
-                    ),
-                    onFinished = { _ ->
-                        context?.let { NativePushService.start(it) }
-                        navController.popBackStack(Routes.CHATS, inclusive = false)
-                    },
-                    onBack = { navController.popBackStack() },
-                )
+                val confDir = context?.filesDir?.absolutePath ?: ""
+                var provisioned by androidx.compose.runtime.saveable.rememberSaveable(confDir) {
+                    androidx.compose.runtime.mutableStateOf(false)
+                }
+                if (!provisioned) {
+                    androidx.compose.runtime.LaunchedEffect(confDir) {
+                        if (app.openbubbles.nativeapp.ui.login.isProvisioned(confDir)) {
+                            provisioned = true
+                        }
+                    }
+                }
+
+                if (provisioned) {
+                    LoginScreen(
+                        handle = RustLoginHandle(path = confDir),
+                        onFinished = { _ ->
+                            context?.let { NativePushService.start(it) }
+                            navController.popBackStack(Routes.CHATS, inclusive = false)
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                } else {
+                    app.openbubbles.nativeapp.ui.login.ProvisionScreen(
+                        confDir = confDir,
+                        onProvisioned = { provisioned = true },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
         }
     }

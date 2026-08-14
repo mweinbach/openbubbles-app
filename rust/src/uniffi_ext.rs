@@ -2249,3 +2249,68 @@ impl NativePushState {
         })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Batch 5: hardware provisioning (writes hw_info.plist so createLoginSession
+// can proceed on a fresh install). Mirrors the Flutter hw_inp.dart flow:
+// config -> fresh NGM identity -> setup_push -> SavedHardwareState persisted.
+// ---------------------------------------------------------------------------
+
+#[derive(uniffi::Record)]
+pub struct UHwExtra {
+    pub version: String,
+    pub protocol_version: u32,
+    pub device_id: String,
+    pub icloud_ua: String,
+    pub aoskit_version: String,
+}
+
+fn provision(config: api::JoinedOSConfig, dir: String) -> Result<(), UError> {
+    let identity = api::new_ngm_identity().map_err(|e| UError::Failed { reason: e.to_string() })?;
+    let (_, err) = RUNTIME.block_on(api::setup_push(&config, &identity, None, dir));
+    match err {
+        Some(e) => Err(UError::Failed { reason: e.to_string() }),
+        None => Ok(()),
+    }
+}
+
+/// Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
+/// from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
+#[uniffi::export]
+pub fn provision_from_validation_data(
+    dir: String,
+    data: Vec<u8>,
+    extra: UHwExtra,
+) -> Result<(), UError> {
+    let hw_extra = api::HwExtra {
+        version: extra.version,
+        protocol_version: extra.protocol_version,
+        device_id: extra.device_id,
+        icloud_ua: extra.icloud_ua,
+        aoskit_version: extra.aoskit_version,
+    };
+    let config = api::config_from_validation_data(data, hw_extra)
+        .map_err(|e| UError::InvalidArgument { reason: e.to_string() })?;
+    provision(config, dir)
+}
+
+/// Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
+#[uniffi::export]
+pub fn provision_from_relay(
+    dir: String,
+    code: String,
+    host: String,
+    token: Option<String>,
+) -> Result<(), UError> {
+    let config = RUNTIME
+        .block_on(api::config_from_relay(code, host, &token))
+        .map_err(|e| UError::Failed { reason: e.to_string() })?;
+    provision(config, dir)
+}
+
+/// True when hw_info.plist exists and parses — gates the login UI's
+/// provisioning step.
+#[uniffi::export]
+pub fn has_hardware_config(dir: String) -> bool {
+    api::read_hardware(dir).is_some()
+}
