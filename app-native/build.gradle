@@ -102,7 +102,7 @@ dependencies {
 
 // UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native
 // (each app bundles its own copy); M0.2 moves generation into :shared.
-android.sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+// bindings live in :core
 
 // Build the same Rust cdylib the Flutter app uses, packaged into this APK.
 // Standalone cargokit invocation (upstream plugin.gradle requires Flutter).

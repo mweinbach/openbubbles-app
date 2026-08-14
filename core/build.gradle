@@ -23,5 +23,5 @@ dependencies {
 }
 
 // UniFFI bindings (same generated file the apps compile)
-sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
-sourceSets.test.java.srcDir "../android/app/src/main/kotlin/uniffi"
+sourceSets.main.java.srcDir "src/main/kotlin/uniffi"
+sourceSets.test.java.srcDir "src/test/kotlin/uniffi"

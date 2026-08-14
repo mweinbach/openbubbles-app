@@ -92,7 +92,7 @@ tasks.register("checkUniffiBindings") {
                     "--out-dir", tmp.absolutePath
         }
         def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
-        def committed = file("../android/app/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
+        def committed = file("../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
         if (!generated.exists()) {
             throw new GradleException("bindgen produced no kotlin file in temp dir")
         }
