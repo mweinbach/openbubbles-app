@@ -729,6 +729,21 @@ internal interface UniffiCallbackInterfaceRetrieveKeysCallbackMethod0 : com.sun.
 internal interface UniffiCallbackInterfaceSpecialAppleAuthCallbackMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfaceUEapAkaHandlerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`challenge`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceULoginDelegateMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`stage`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceULoginDelegateMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`state`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceULoginDelegateMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`sid`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceULoginDelegateMethod3 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`reason`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 @Structure.FieldOrder("groups", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceAvailableGroupsCallback(
     @JvmField internal var `groups`: UniffiCallbackInterfaceAvailableGroupsCallbackMethod0? = null,
@@ -921,6 +936,113 @@ internal open class UniffiVTableCallbackInterfaceSpecialAppleAuthCallback(
     }
 
 }
+@Structure.FieldOrder("processChallenge", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceUEapAkaHandler(
+    @JvmField internal var `processChallenge`: UniffiCallbackInterfaceUEapAkaHandlerMethod0? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `processChallenge`: UniffiCallbackInterfaceUEapAkaHandlerMethod0? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceUEapAkaHandler(`processChallenge`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceUEapAkaHandler) {
+        `processChallenge` = other.`processChallenge`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
+}
+@Structure.FieldOrder("onStage", "onState", "onCircleSession", "onError", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceULoginDelegate(
+    @JvmField internal var `onStage`: UniffiCallbackInterfaceULoginDelegateMethod0? = null,
+    @JvmField internal var `onState`: UniffiCallbackInterfaceULoginDelegateMethod1? = null,
+    @JvmField internal var `onCircleSession`: UniffiCallbackInterfaceULoginDelegateMethod2? = null,
+    @JvmField internal var `onError`: UniffiCallbackInterfaceULoginDelegateMethod3? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `onStage`: UniffiCallbackInterfaceULoginDelegateMethod0? = null,
+        `onState`: UniffiCallbackInterfaceULoginDelegateMethod1? = null,
+        `onCircleSession`: UniffiCallbackInterfaceULoginDelegateMethod2? = null,
+        `onError`: UniffiCallbackInterfaceULoginDelegateMethod3? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceULoginDelegate(`onStage`,`onState`,`onCircleSession`,`onError`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceULoginDelegate) {
+        `onStage` = other.`onStage`
+        `onState` = other.`onState`
+        `onCircleSession` = other.`onCircleSession`
+        `onError` = other.`onError`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1129,11 +1251,15 @@ internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
     fun uniffi_rust_lib_bluebubbles_checksum_func_complete_message(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_create_login_session(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_do_lock(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_finish_unlock(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_get_carrier(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_has_saved_users(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_init_native(
 ): Short
@@ -1146,6 +1272,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message(
 fun uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_setup_keystore(
 ): Short
@@ -1205,6 +1333,12 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_handles(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_my_phone_handles(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_regstate(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_site_config(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state(
@@ -1230,6 +1364,52 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa(
 fun uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_specialappleauthcallback_got_verification(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_stage(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_state(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_circle_session(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_error(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_auth_phone(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_choose_sms_phone(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_complete_update_account(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_connect(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_device_info(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_export_phone_users(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_sms_phone_options(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_update_account_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_username(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_import_phone_user(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_login(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_register(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_request_sms_fallback(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_reset_connection(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_set_new_identity(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_sms_less_auth(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_state(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_submit_2fa_code(
 ): Short
 fun ffi_rust_lib_bluebubbles_uniffi_contract_version(
 ): Int
@@ -1278,6 +1458,8 @@ internal interface UniffiLib : Library {
             uniffiCallbackInterfaceNativeKeystore.register(lib)
             uniffiCallbackInterfaceRetrieveKeysCallback.register(lib)
             uniffiCallbackInterfaceSpecialAppleAuthCallback.register(lib)
+            uniffiCallbackInterfaceUEapAkaHandler.register(lib)
+            uniffiCallbackInterfaceULoginDelegate.register(lib)
             // Loading of library with integrity check done.
             lib
         }
@@ -1389,6 +1571,12 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: P
 ): Int
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_my_phone_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_regstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(`ptr`: Pointer,`site`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1427,14 +1615,80 @@ fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_specialappleauthcallback
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(`ptr`: Pointer,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ueapakahandler(`vtable`: UniffiVTableCallbackInterfaceUEapAkaHandler,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ueapakahandler_process_challenge(`ptr`: Pointer,`challenge`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_clone_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ulogindelegate(`vtable`: UniffiVTableCallbackInterfaceULoginDelegate,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_stage(`ptr`: Pointer,`stage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_state(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_circle_session(`ptr`: Pointer,`sid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_clone_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_auth_phone(`ptr`: Pointer,`subscription`: Long,`number`: RustBuffer.ByValue,`sig`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_choose_sms_phone(`ptr`: Pointer,`phoneId`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_complete_update_account(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_connect(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_device_info(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_export_phone_users(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_sms_phone_options(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_update_account_page(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_username(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_import_phone_user(`ptr`: Pointer,`subscription`: Long,`serialized`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_login(`ptr`: Pointer,`username`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_register(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_request_sms_fallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_reset_connection(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_set_new_identity(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_sms_less_auth(`ptr`: Pointer,`subscription`: Long,`mccmnc`: RustBuffer.ByValue,`subscriber`: RustBuffer.ByValue,`imei`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_submit_2fa_code(`ptr`: Pointer,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_do_lock(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_get_carrier(`handler`: Pointer,`mccmnc`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_has_saved_users(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCallStatus, 
@@ -1447,6 +1701,8 @@ fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: Unif
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(`dir`: RustBuffer.ByValue,`keystore`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_start(`dir`: RustBuffer.ByValue,`packager`: Pointer,`wifi`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1581,6 +1837,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_complete_message() != 64391.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_create_login_session() != 66.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_do_lock() != 42972.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1588,6 +1847,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_get_carrier() != 30894.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_has_saved_users() != 7569.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_init_native() != 63423.toShort()) {
@@ -1606,6 +1868,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain() != 40899.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username() != 45470.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_setup_keystore() != 48449.toShort()) {
@@ -1695,6 +1960,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups() != 36969.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_handles() != 40045.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_my_phone_handles() != 40850.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_regstate() != 43338.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_site_config() != 18452.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1732,6 +2006,75 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_specialappleauthcallback_got_verification() != 5368.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge() != 63002.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_stage() != 36501.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_state() != 35341.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_circle_session() != 30869.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ulogindelegate_on_error() != 20732.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_auth_phone() != 705.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_choose_sms_phone() != 34878.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_complete_update_account() != 49290.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_connect() != 58414.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_device_info() != 64231.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_export_phone_users() != 20321.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_sms_phone_options() != 41756.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_update_account_page() != 12628.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_get_username() != 59618.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_import_phone_user() != 16931.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_login() != 22433.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_register() != 30372.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_request_sms_fallback() != 56619.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_reset_connection() != 47433.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_set_new_identity() != 12451.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_sms_less_auth() != 62157.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_state() != 40785.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_submit_2fa_code() != 50978.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1877,6 +2220,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
     }
 }
 
@@ -4616,6 +4982,23 @@ public interface NativePushStateInterface {
     
     fun `getAvailableGroups`(`groupsCallback`: AvailableGroupsCallback)
     
+    /**
+     * All handles (emails + phone numbers) registered for this account.
+     * The intake layer uses these to decide `isFromMe`.
+     */
+    fun `getHandles`(): List<kotlin.String>
+    
+    /**
+     * Only the tel: handles registered for this account.
+     */
+    fun `getMyPhoneHandles`(): List<kotlin.String>
+    
+    /**
+     * IDS registration health of the live client (drives the
+     * "registering..." / retry UI).
+     */
+    fun `getRegstate`(): URegisterState
+    
     fun `getSiteConfig`(`site`: kotlin.String, `callback`: RetrieveKeysCallback)
     
     fun `getState`(): kotlin.ULong
@@ -4775,6 +5158,56 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * All handles (emails + phone numbers) registered for this account.
+     * The intake layer uses these to decide `isFromMe`.
+     */
+    @Throws(UException::class)override fun `getHandles`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Only the tel: handles registered for this account.
+     */
+    @Throws(UException::class)override fun `getMyPhoneHandles`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_my_phone_handles(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * IDS registration health of the live client (drives the
+     * "registering..." / retry UI).
+     */
+    @Throws(UException::class)override fun `getRegstate`(): URegisterState {
+            return FfiConverterTypeURegisterState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_regstate(
+        it, _status)
+}
+    }
+    )
+    }
     
 
     override fun `getSiteConfig`(`site`: kotlin.String, `callback`: RetrieveKeysCallback)
@@ -5492,6 +5925,1334 @@ public object FfiConverterTypeSpecialAppleAuthCallback: FfiConverter<SpecialAppl
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * EAP-AKA challenge callback for SMS-less carrier authentication
+ * (`sms_less_auth`). Runs on the Rust runtime thread; must not call back
+ * into Rust. Return an empty string to signal failure.
+ */
+public interface UEapAkaHandler {
+    
+    fun `processChallenge`(`challenge`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+/**
+ * EAP-AKA challenge callback for SMS-less carrier authentication
+ * (`sms_less_auth`). Runs on the Rust runtime thread; must not call back
+ * into Rust. Return an empty string to signal failure.
+ */
+open class UEapAkaHandlerImpl: Disposable, AutoCloseable, UEapAkaHandler
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_ueapakahandler(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(pointer!!, status)
+        }
+    }
+
+    override fun `processChallenge`(`challenge`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ueapakahandler_process_challenge(
+        it, FfiConverterString.lower(`challenge`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceUEapAkaHandler {
+    internal object `processChallenge`: UniffiCallbackInterfaceUEapAkaHandlerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`challenge`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeUEapAkaHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`processChallenge`(
+                    FfiConverterString.lift(`challenge`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeUEapAkaHandler.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceUEapAkaHandler.UniffiByValue(
+        `processChallenge`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ueapakahandler(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUEapAkaHandler: FfiConverter<UEapAkaHandler, Pointer> {
+    internal val handleMap = UniffiHandleMap<UEapAkaHandler>()
+
+    override fun lower(value: UEapAkaHandler): Pointer {
+        return Pointer(handleMap.insert(value))
+    }
+
+    override fun lift(value: Pointer): UEapAkaHandler {
+        return UEapAkaHandlerImpl(value)
+    }
+
+    override fun read(buf: ByteBuffer): UEapAkaHandler {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: UEapAkaHandler) = 8UL
+
+    override fun write(value: UEapAkaHandler, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Progress callbacks for the login flow. All methods run synchronously on
+ * the thread that invoked the session method; do NOT call back into the
+ * session (or any other UniFFI export) from inside them.
+ */
+public interface ULoginDelegate {
+    
+    /**
+     * Coarse progress (each step of the internal state machine).
+     */
+    fun `onStage`(`stage`: ULoginStage)
+    
+    /**
+     * Emitted whenever the machine settles: at the end of `login`,
+     * `submit_2fa_code`, `choose_sms_phone`, and `request_sms_fallback`.
+     */
+    fun `onState`(`state`: ULoginState)
+    
+    /**
+     * Circle proximity pairing session (mirrors the Dart
+     * `circle-proximity-session` method-channel call): `Some(sid)` starts
+     * the nearby-device pairing surface, `None` clears it.
+     */
+    fun `onCircleSession`(`sid`: kotlin.String?)
+    
+    /**
+     * Non-fatal diagnostics (e.g. no trusted phone numbers available).
+     * Fatal failures are returned as `UError` from the calling method.
+     */
+    fun `onError`(`reason`: kotlin.String)
+    
+    companion object
+}
+
+/**
+ * Progress callbacks for the login flow. All methods run synchronously on
+ * the thread that invoked the session method; do NOT call back into the
+ * session (or any other UniFFI export) from inside them.
+ */
+open class ULoginDelegateImpl: Disposable, AutoCloseable, ULoginDelegate
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_ulogindelegate(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_ulogindelegate(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Coarse progress (each step of the internal state machine).
+     */override fun `onStage`(`stage`: ULoginStage)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_stage(
+        it, FfiConverterTypeULoginStage.lower(`stage`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Emitted whenever the machine settles: at the end of `login`,
+     * `submit_2fa_code`, `choose_sms_phone`, and `request_sms_fallback`.
+     */override fun `onState`(`state`: ULoginState)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_state(
+        it, FfiConverterTypeULoginState.lower(`state`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Circle proximity pairing session (mirrors the Dart
+     * `circle-proximity-session` method-channel call): `Some(sid)` starts
+     * the nearby-device pairing surface, `None` clears it.
+     */override fun `onCircleSession`(`sid`: kotlin.String?)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_circle_session(
+        it, FfiConverterOptionalString.lower(`sid`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Non-fatal diagnostics (e.g. no trusted phone numbers available).
+     * Fatal failures are returned as `UError` from the calling method.
+     */override fun `onError`(`reason`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_error(
+        it, FfiConverterString.lower(`reason`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceULoginDelegate {
+    internal object `onStage`: UniffiCallbackInterfaceULoginDelegateMethod0 {
+        override fun callback(`uniffiHandle`: Long,`stage`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeULoginDelegate.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onStage`(
+                    FfiConverterTypeULoginStage.lift(`stage`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `onState`: UniffiCallbackInterfaceULoginDelegateMethod1 {
+        override fun callback(`uniffiHandle`: Long,`state`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeULoginDelegate.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onState`(
+                    FfiConverterTypeULoginState.lift(`state`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `onCircleSession`: UniffiCallbackInterfaceULoginDelegateMethod2 {
+        override fun callback(`uniffiHandle`: Long,`sid`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeULoginDelegate.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onCircleSession`(
+                    FfiConverterOptionalString.lift(`sid`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `onError`: UniffiCallbackInterfaceULoginDelegateMethod3 {
+        override fun callback(`uniffiHandle`: Long,`reason`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeULoginDelegate.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onError`(
+                    FfiConverterString.lift(`reason`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeULoginDelegate.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceULoginDelegate.UniffiByValue(
+        `onStage`,
+        `onState`,
+        `onCircleSession`,
+        `onError`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ulogindelegate(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeULoginDelegate: FfiConverter<ULoginDelegate, Pointer> {
+    internal val handleMap = UniffiHandleMap<ULoginDelegate>()
+
+    override fun lower(value: ULoginDelegate): Pointer {
+        return Pointer(handleMap.insert(value))
+    }
+
+    override fun lift(value: Pointer): ULoginDelegate {
+        return ULoginDelegateImpl(value)
+    }
+
+    override fun read(buf: ByteBuffer): ULoginDelegate {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: ULoginDelegate) = 8UL
+
+    override fun write(value: ULoginDelegate, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Stateful login driver. Create with [`create_login_session`].
+ */
+public interface ULoginSessionInterface {
+    
+    /**
+     * SMS-gateway phone registration: `number` + `sig` are the gateway
+     * response parts (the Dart side split on "|"), `sig` the hex-decoded
+     * signature bytes.
+     */
+    fun `authPhone`(`subscription`: kotlin.Long, `number`: kotlin.String, `sig`: kotlin.ByteArray)
+    
+    /**
+     * Send the SMS 2FA code to the chosen phone; then await
+     * `submit_2fa_code`.
+     */
+    fun `chooseSmsPhone`(`phoneId`: kotlin.UInt): ULoginState
+    
+    /**
+     * Finish the terms/account-update flow (calls `do_login` with the
+     * stored `UpdateAccountFinish`), producing the Apple IDS user.
+     */
+    fun `completeUpdateAccount`(): ULoginState
+    
+    /**
+     * Establish the APS connection + anisette (wraps `setup_push` +
+     * `make_anisette`). `login()` calls this automatically; it is separate
+     * so phone registration can connect before any Apple ID login.
+     */
+    fun `connect`()
+    
+    /**
+     * Identity (name/serial/OS) of the emulated hardware. `name` containing
+     * "iPhone"/"iPad"/"iPod" gates phone-number registration, like Dart.
+     */
+    fun `deviceInfo`(): UDeviceInfo
+    
+    /**
+     * Serialized phone users for Kotlin-side persistence. Restore with
+     * `import_phone_user` on future runs to skip carrier auth.
+     */
+    fun `exportPhoneUsers`(): List<UPhoneUser>
+    
+    /**
+     * Trusted phone numbers for SMS 2FA (cached from the last pump).
+     */
+    fun `getSmsPhoneOptions`(): List<UTrustedPhone>
+    
+    /**
+     * Fetch the account-update (terms) page HTML. Mirrors Dart's
+     * `updateAccountUi` webview source; the page is finished with
+     * `complete_update_account`.
+     */
+    fun `getUpdateAccountPage`(): kotlin.String
+    
+    /**
+     * Display name of the logged-in Apple account.
+     */
+    fun `getUsername`(): kotlin.String
+    
+    /**
+     * Restore a cached phone user. Returns `false` (and drops it) when the
+     * user's certificate no longer validates against the live connection —
+     * Kotlin should discard the cached entry then, like Dart did.
+     */
+    fun `importPhoneUser`(`subscription`: kotlin.Long, `serialized`: kotlin.String): kotlin.Boolean
+    
+    /**
+     * Start (or resume) Apple ID login. With `username`+`password` the
+     * stored credentials are replaced (fresh login); without them the
+     * previously saved `gsa.plist` credentials are reused. Pumps the 2FA
+     * state machine and returns the state requiring user action next.
+     */
+    fun `login`(`username`: kotlin.String?, `password`: kotlin.String?): ULoginState
+    
+    /**
+     * Register all collected users (Apple ID + phone numbers) with IDS.
+     * On `Registered`, `id.plist` is written — rebuild the live state with
+     * `init_native(dir, null, handler)`. `AppleBlocked` mirrors the Dart
+     * support-alert dialog (registration stopped until acknowledged).
+     */
+    fun `register`(): URegistrationResult
+    
+    /**
+     * Switch a device-2FA prompt to SMS 2FA (the "send code to phone
+     * instead" button in the Dart 2FA page).
+     */
+    fun `requestSmsFallback`(): ULoginState
+    
+    /**
+     * Tear down and re-establish the APS connection with a fresh push token
+     * (required before SMS-gateway phone registration, like Dart's PNR
+     * flow). Kept: account, users, login state.
+     */
+    fun `resetConnection`()
+    
+    /**
+     * Rotate the NGM identity: generates a fresh identity, persists it via
+     * `set_identity`, resets anisette, and tears the session down to
+     * `NeedsLogin` (mirrors Dart `configureHostedDevice`'s reset).
+     */
+    fun `setNewIdentity`()
+    
+    /**
+     * SMS-less carrier authentication (EAP-AKA): `mccmnc`/`subscriber`/`imei`
+     * come from the Android telephony stack (see native `get_carrier` for the
+     * gateway lookup); `handler.process_challenge` answers carrier challenges
+     * (return an empty string to abort). On success the phone user is stored
+     * for `register`.
+     */
+    fun `smsLessAuth`(`subscription`: kotlin.Long, `mccmnc`: kotlin.String, `subscriber`: kotlin.String, `imei`: kotlin.String, `handler`: UEapAkaHandler)
+    
+    /**
+     * Current login state snapshot.
+     */
+    fun `state`(): ULoginState
+    
+    /**
+     * Submit a 2FA code — either the trusted-device code (after
+     * `Needs2FaVerification`) or the SMS code (after
+     * `NeedsSms2FaVerification`). Pumps the machine afterwards.
+     */
+    fun `submit2faCode`(`code`: kotlin.String): ULoginState
+    
+    companion object
+}
+
+/**
+ * Stateful login driver. Create with [`create_login_session`].
+ */
+open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_uloginsession(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_uloginsession(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * SMS-gateway phone registration: `number` + `sig` are the gateway
+     * response parts (the Dart side split on "|"), `sig` the hex-decoded
+     * signature bytes.
+     */
+    @Throws(UException::class)override fun `authPhone`(`subscription`: kotlin.Long, `number`: kotlin.String, `sig`: kotlin.ByteArray)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_auth_phone(
+        it, FfiConverterLong.lower(`subscription`),FfiConverterString.lower(`number`),FfiConverterByteArray.lower(`sig`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Send the SMS 2FA code to the chosen phone; then await
+     * `submit_2fa_code`.
+     */
+    @Throws(UException::class)override fun `chooseSmsPhone`(`phoneId`: kotlin.UInt): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_choose_sms_phone(
+        it, FfiConverterUInt.lower(`phoneId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Finish the terms/account-update flow (calls `do_login` with the
+     * stored `UpdateAccountFinish`), producing the Apple IDS user.
+     */
+    @Throws(UException::class)override fun `completeUpdateAccount`(): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_complete_update_account(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Establish the APS connection + anisette (wraps `setup_push` +
+     * `make_anisette`). `login()` calls this automatically; it is separate
+     * so phone registration can connect before any Apple ID login.
+     */
+    @Throws(UException::class)override fun `connect`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_connect(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Identity (name/serial/OS) of the emulated hardware. `name` containing
+     * "iPhone"/"iPad"/"iPod" gates phone-number registration, like Dart.
+     */
+    @Throws(UException::class)override fun `deviceInfo`(): UDeviceInfo {
+            return FfiConverterTypeUDeviceInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_device_info(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Serialized phone users for Kotlin-side persistence. Restore with
+     * `import_phone_user` on future runs to skip carrier auth.
+     */override fun `exportPhoneUsers`(): List<UPhoneUser> {
+            return FfiConverterSequenceTypeUPhoneUser.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_export_phone_users(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Trusted phone numbers for SMS 2FA (cached from the last pump).
+     */
+    @Throws(UException::class)override fun `getSmsPhoneOptions`(): List<UTrustedPhone> {
+            return FfiConverterSequenceTypeUTrustedPhone.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_sms_phone_options(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Fetch the account-update (terms) page HTML. Mirrors Dart's
+     * `updateAccountUi` webview source; the page is finished with
+     * `complete_update_account`.
+     */
+    @Throws(UException::class)override fun `getUpdateAccountPage`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_update_account_page(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Display name of the logged-in Apple account.
+     */
+    @Throws(UException::class)override fun `getUsername`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_username(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Restore a cached phone user. Returns `false` (and drops it) when the
+     * user's certificate no longer validates against the live connection —
+     * Kotlin should discard the cached entry then, like Dart did.
+     */
+    @Throws(UException::class)override fun `importPhoneUser`(`subscription`: kotlin.Long, `serialized`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_import_phone_user(
+        it, FfiConverterLong.lower(`subscription`),FfiConverterString.lower(`serialized`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Start (or resume) Apple ID login. With `username`+`password` the
+     * stored credentials are replaced (fresh login); without them the
+     * previously saved `gsa.plist` credentials are reused. Pumps the 2FA
+     * state machine and returns the state requiring user action next.
+     */
+    @Throws(UException::class)override fun `login`(`username`: kotlin.String?, `password`: kotlin.String?): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_login(
+        it, FfiConverterOptionalString.lower(`username`),FfiConverterOptionalString.lower(`password`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Register all collected users (Apple ID + phone numbers) with IDS.
+     * On `Registered`, `id.plist` is written — rebuild the live state with
+     * `init_native(dir, null, handler)`. `AppleBlocked` mirrors the Dart
+     * support-alert dialog (registration stopped until acknowledged).
+     */
+    @Throws(UException::class)override fun `register`(): URegistrationResult {
+            return FfiConverterTypeURegistrationResult.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_register(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Switch a device-2FA prompt to SMS 2FA (the "send code to phone
+     * instead" button in the Dart 2FA page).
+     */
+    @Throws(UException::class)override fun `requestSmsFallback`(): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_request_sms_fallback(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Tear down and re-establish the APS connection with a fresh push token
+     * (required before SMS-gateway phone registration, like Dart's PNR
+     * flow). Kept: account, users, login state.
+     */
+    @Throws(UException::class)override fun `resetConnection`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_reset_connection(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Rotate the NGM identity: generates a fresh identity, persists it via
+     * `set_identity`, resets anisette, and tears the session down to
+     * `NeedsLogin` (mirrors Dart `configureHostedDevice`'s reset).
+     */
+    @Throws(UException::class)override fun `setNewIdentity`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_set_new_identity(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * SMS-less carrier authentication (EAP-AKA): `mccmnc`/`subscriber`/`imei`
+     * come from the Android telephony stack (see native `get_carrier` for the
+     * gateway lookup); `handler.process_challenge` answers carrier challenges
+     * (return an empty string to abort). On success the phone user is stored
+     * for `register`.
+     */
+    @Throws(UException::class)override fun `smsLessAuth`(`subscription`: kotlin.Long, `mccmnc`: kotlin.String, `subscriber`: kotlin.String, `imei`: kotlin.String, `handler`: UEapAkaHandler)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_sms_less_auth(
+        it, FfiConverterLong.lower(`subscription`),FfiConverterString.lower(`mccmnc`),FfiConverterString.lower(`subscriber`),FfiConverterString.lower(`imei`),FfiConverterTypeUEapAkaHandler.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Current login state snapshot.
+     */override fun `state`(): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_state(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Submit a 2FA code — either the trusted-device code (after
+     * `Needs2FaVerification`) or the SMS code (after
+     * `NeedsSms2FaVerification`). Pumps the machine afterwards.
+     */
+    @Throws(UException::class)override fun `submit2faCode`(`code`: kotlin.String): ULoginState {
+            return FfiConverterTypeULoginState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_submit_2fa_code(
+        it, FfiConverterString.lower(`code`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeULoginSession: FfiConverter<ULoginSession, Pointer> {
+
+    override fun lower(value: ULoginSession): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): ULoginSession {
+        return ULoginSession(value)
+    }
+
+    override fun read(buf: ByteBuffer): ULoginSession {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: ULoginSession) = 8UL
+
+    override fun write(value: ULoginSession, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 data class FileInfo (
     var `duration`: kotlin.Double?, 
@@ -5717,6 +7478,45 @@ public object FfiConverterTypeUConversation: FfiConverterRustBuffer<UConversatio
 
 
 
+/**
+ * Mirror of api.rs `DeviceInfo` (the emulated Mac's identity).
+ */
+data class UDeviceInfo (
+    var `name`: kotlin.String, 
+    var `serial`: kotlin.String, 
+    var `osVersion`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUDeviceInfo: FfiConverterRustBuffer<UDeviceInfo> {
+    override fun read(buf: ByteBuffer): UDeviceInfo {
+        return UDeviceInfo(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UDeviceInfo) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`serial`) +
+            FfiConverterString.allocationSize(value.`osVersion`)
+    )
+
+    override fun write(value: UDeviceInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`serial`, buf)
+            FfiConverterString.write(value.`osVersion`, buf)
+    }
+}
+
+
+
 data class UIndexedPart (
     var `part`: UPart, 
     var `idx`: kotlin.ULong?
@@ -5804,6 +7604,42 @@ public object FfiConverterTypeUMessageInst: FfiConverterRustBuffer<UMessageInst>
 
 
 
+/**
+ * A carrier-authenticated phone user, serialized for Kotlin-side caching
+ * (mirrors the Dart `sms-auth-<subscription>` cachedCodes entries).
+ */
+data class UPhoneUser (
+    var `subscription`: kotlin.Long, 
+    var `serialized`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhoneUser: FfiConverterRustBuffer<UPhoneUser> {
+    override fun read(buf: ByteBuffer): UPhoneUser {
+        return UPhoneUser(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhoneUser) = (
+            FfiConverterLong.allocationSize(value.`subscription`) +
+            FfiConverterString.allocationSize(value.`serialized`)
+    )
+
+    override fun write(value: UPhoneUser, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`subscription`, buf)
+            FfiConverterString.write(value.`serialized`, buf)
+    }
+}
+
+
+
 data class UQueuedJournal (
     var `id`: kotlin.ULong, 
     var `attempts`: kotlin.UByte, 
@@ -5835,6 +7671,49 @@ public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJour
             FfiConverterULong.write(value.`id`, buf)
             FfiConverterUByte.write(value.`attempts`, buf)
             FfiConverterTypeUPushMessage.write(value.`message`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of rustpush `TrustedPhoneNumber` (SMS 2FA target choice).
+ */
+data class UTrustedPhone (
+    var `numberWithDialCode`: kotlin.String, 
+    var `lastTwoDigits`: kotlin.String, 
+    var `pushMode`: kotlin.String, 
+    var `id`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUTrustedPhone: FfiConverterRustBuffer<UTrustedPhone> {
+    override fun read(buf: ByteBuffer): UTrustedPhone {
+        return UTrustedPhone(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UTrustedPhone) = (
+            FfiConverterString.allocationSize(value.`numberWithDialCode`) +
+            FfiConverterString.allocationSize(value.`lastTwoDigits`) +
+            FfiConverterString.allocationSize(value.`pushMode`) +
+            FfiConverterUInt.allocationSize(value.`id`)
+    )
+
+    override fun write(value: UTrustedPhone, buf: ByteBuffer) {
+            FfiConverterString.write(value.`numberWithDialCode`, buf)
+            FfiConverterString.write(value.`lastTwoDigits`, buf)
+            FfiConverterString.write(value.`pushMode`, buf)
+            FfiConverterUInt.write(value.`id`, buf)
     }
 }
 
@@ -6289,6 +8168,41 @@ sealed class UException: kotlin.Exception() {
             get() = "reason=${ `reason` }"
     }
     
+    /**
+     * Apple ID / 2FA / registration failed. `reason` carries the upstream
+     * (GS/IDS) error text — surface it verbatim like the Dart wizard did.
+     */
+    class LoginFailed(
+        
+        val `reason`: kotlin.String
+        ) : UException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    /**
+     * The session is in the wrong state for this call (not connected, no
+     * account, not awaiting a code, ...).
+     */
+    class NotReady(
+        
+        val `reason`: kotlin.String
+        ) : UException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    /**
+     * A post-login lookup on the live state failed.
+     */
+    class Failed(
+        
+        val `reason`: kotlin.String
+        ) : UException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<UException> {
         override fun lift(error_buf: RustBuffer.ByValue): UException = FfiConverterTypeUError.lift(error_buf)
@@ -6311,6 +8225,15 @@ public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
             2 -> UException.InvalidArgument(
                 FfiConverterString.read(buf),
                 )
+            3 -> UException.LoginFailed(
+                FfiConverterString.read(buf),
+                )
+            4 -> UException.NotReady(
+                FfiConverterString.read(buf),
+                )
+            5 -> UException.Failed(
+                FfiConverterString.read(buf),
+                )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
     }
@@ -6323,6 +8246,21 @@ public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
                 + FfiConverterString.allocationSize(value.`reason`)
             )
             is UException.InvalidArgument -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is UException.LoginFailed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is UException.NotReady -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is UException.Failed -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.`reason`)
@@ -6342,10 +8280,238 @@ public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
                 FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
+            is UException.LoginFailed -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is UException.NotReady -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is UException.Failed -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
 }
+
+
+
+/**
+ * Coarse progress signal fired through `ULoginDelegate::on_stage`.
+ */
+
+enum class ULoginStage {
+    
+    /**
+     * Establishing the APS connection + anisette (`setup_push`).
+     */
+    CONNECTING,
+    /**
+     * Verifying Apple ID + password (`try_auth`).
+     */
+    AUTHENTICATING,
+    /**
+     * Circle session started; waiting on the trusted device.
+     */
+    AWAITING_DEVICE2_FA,
+    FETCHING_SMS_OPTIONS,
+    SENDING_SMS_CODE,
+    VERIFYING_CODE,
+    REGISTERING_IDS,
+    FINISHED;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeULoginStage: FfiConverterRustBuffer<ULoginStage> {
+    override fun read(buf: ByteBuffer) = try {
+        ULoginStage.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: ULoginStage) = 4UL
+
+    override fun write(value: ULoginStage, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Mirror of rustpush `LoginState`. The SMS `VerifyBody` stays inside the
+ * session (its fields are private upstream); `phone_id`/`mode` are extracted
+ * for display only.
+ */
+sealed class ULoginState {
+    
+    object LoggedIn : ULoginState()
+    
+    
+    /**
+     * A trusted device should be showing the code prompt.
+     */
+    object NeedsDevice2Fa : ULoginState()
+    
+    
+    /**
+     * Device 2FA is armed; submit the code shown on the trusted device.
+     */
+    object Needs2FaVerification : ULoginState()
+    
+    
+    /**
+     * A trusted phone must be chosen (see `get_sms_phone_options`).
+     */
+    object NeedsSms2Fa : ULoginState()
+    
+    
+    /**
+     * SMS 2FA was sent to `phone_id`; submit the received code.
+     */
+    data class NeedsSms2FaVerification(
+        val `phoneId`: kotlin.UInt, 
+        val `mode`: kotlin.String) : ULoginState() {
+        companion object
+    }
+    
+    /**
+     * Apple wants extra account steps (terms); see
+     * `get_update_account_page` / `complete_update_account`.
+     */
+    data class NeedsExtraStep(
+        val `detail`: kotlin.String) : ULoginState() {
+        companion object
+    }
+    
+    object NeedsLogin : ULoginState()
+    
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeULoginState : FfiConverterRustBuffer<ULoginState>{
+    override fun read(buf: ByteBuffer): ULoginState {
+        return when(buf.getInt()) {
+            1 -> ULoginState.LoggedIn
+            2 -> ULoginState.NeedsDevice2Fa
+            3 -> ULoginState.Needs2FaVerification
+            4 -> ULoginState.NeedsSms2Fa
+            5 -> ULoginState.NeedsSms2FaVerification(
+                FfiConverterUInt.read(buf),
+                FfiConverterString.read(buf),
+                )
+            6 -> ULoginState.NeedsExtraStep(
+                FfiConverterString.read(buf),
+                )
+            7 -> ULoginState.NeedsLogin
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: ULoginState) = when(value) {
+        is ULoginState.LoggedIn -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is ULoginState.NeedsDevice2Fa -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is ULoginState.Needs2FaVerification -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is ULoginState.NeedsSms2Fa -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is ULoginState.NeedsSms2FaVerification -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`phoneId`)
+                + FfiConverterString.allocationSize(value.`mode`)
+            )
+        }
+        is ULoginState.NeedsExtraStep -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`detail`)
+            )
+        }
+        is ULoginState.NeedsLogin -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: ULoginState, buf: ByteBuffer) {
+        when(value) {
+            is ULoginState.LoggedIn -> {
+                buf.putInt(1)
+                Unit
+            }
+            is ULoginState.NeedsDevice2Fa -> {
+                buf.putInt(2)
+                Unit
+            }
+            is ULoginState.Needs2FaVerification -> {
+                buf.putInt(3)
+                Unit
+            }
+            is ULoginState.NeedsSms2Fa -> {
+                buf.putInt(4)
+                Unit
+            }
+            is ULoginState.NeedsSms2FaVerification -> {
+                buf.putInt(5)
+                FfiConverterUInt.write(value.`phoneId`, buf)
+                FfiConverterString.write(value.`mode`, buf)
+                Unit
+            }
+            is ULoginState.NeedsExtraStep -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.`detail`, buf)
+                Unit
+            }
+            is ULoginState.NeedsLogin -> {
+                buf.putInt(7)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
 
 
 
@@ -7297,6 +9463,183 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
 
 
 
+/**
+ * Mirror of api.rs `RegisterState` (IDS registration health of the live
+ * client — `NativePushState::get_regstate`).
+ */
+sealed class URegisterState {
+    
+    data class Registered(
+        val `nextS`: kotlin.Long) : URegisterState() {
+        companion object
+    }
+    
+    object Registering : URegisterState()
+    
+    
+    data class Failed(
+        val `retryWait`: kotlin.ULong?, 
+        val `error`: kotlin.String) : URegisterState() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeURegisterState : FfiConverterRustBuffer<URegisterState>{
+    override fun read(buf: ByteBuffer): URegisterState {
+        return when(buf.getInt()) {
+            1 -> URegisterState.Registered(
+                FfiConverterLong.read(buf),
+                )
+            2 -> URegisterState.Registering
+            3 -> URegisterState.Failed(
+                FfiConverterOptionalULong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: URegisterState) = when(value) {
+        is URegisterState.Registered -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`nextS`)
+            )
+        }
+        is URegisterState.Registering -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is URegisterState.Failed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterOptionalULong.allocationSize(value.`retryWait`)
+                + FfiConverterString.allocationSize(value.`error`)
+            )
+        }
+    }
+
+    override fun write(value: URegisterState, buf: ByteBuffer) {
+        when(value) {
+            is URegisterState.Registered -> {
+                buf.putInt(1)
+                FfiConverterLong.write(value.`nextS`, buf)
+                Unit
+            }
+            is URegisterState.Registering -> {
+                buf.putInt(2)
+                Unit
+            }
+            is URegisterState.Failed -> {
+                buf.putInt(3)
+                FfiConverterOptionalULong.write(value.`retryWait`, buf)
+                FfiConverterString.write(value.`error`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * Result of `ULoginSession::register`.
+ */
+sealed class URegistrationResult {
+    
+    /**
+     * `id.plist` was written. Rebuild the live state with `init_native`.
+     */
+    object Registered : URegistrationResult()
+    
+    
+    /**
+     * Apple refused registration and wants the user to read this first.
+     */
+    data class AppleBlocked(
+        val `title`: kotlin.String, 
+        val `body`: kotlin.String, 
+        val `actionUrl`: kotlin.String?, 
+        val `actionLabel`: kotlin.String?) : URegistrationResult() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeURegistrationResult : FfiConverterRustBuffer<URegistrationResult>{
+    override fun read(buf: ByteBuffer): URegistrationResult {
+        return when(buf.getInt()) {
+            1 -> URegistrationResult.Registered
+            2 -> URegistrationResult.AppleBlocked(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: URegistrationResult) = when(value) {
+        is URegistrationResult.Registered -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is URegistrationResult.AppleBlocked -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`title`)
+                + FfiConverterString.allocationSize(value.`body`)
+                + FfiConverterOptionalString.allocationSize(value.`actionUrl`)
+                + FfiConverterOptionalString.allocationSize(value.`actionLabel`)
+            )
+        }
+    }
+
+    override fun write(value: URegistrationResult, buf: ByteBuffer) {
+        when(value) {
+            is URegistrationResult.Registered -> {
+                buf.putInt(1)
+                Unit
+            }
+            is URegistrationResult.AppleBlocked -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`title`, buf)
+                FfiConverterString.write(value.`body`, buf)
+                FfiConverterOptionalString.write(value.`actionUrl`, buf)
+                FfiConverterOptionalString.write(value.`actionLabel`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -7733,6 +10076,62 @@ public object FfiConverterSequenceTypeUIndexedPart: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeUPhoneUser: FfiConverterRustBuffer<List<UPhoneUser>> {
+    override fun read(buf: ByteBuffer): List<UPhoneUser> {
+        val len = buf.getInt()
+        return List<UPhoneUser>(len) {
+            FfiConverterTypeUPhoneUser.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UPhoneUser>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUPhoneUser.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UPhoneUser>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUPhoneUser.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUTrustedPhone: FfiConverterRustBuffer<List<UTrustedPhone>> {
+    override fun read(buf: ByteBuffer): List<UTrustedPhone> {
+        val len = buf.getInt()
+        return List<UTrustedPhone>(len) {
+            FfiConverterTypeUTrustedPhone.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UTrustedPhone>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUTrustedPhone.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UTrustedPhone>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUTrustedPhone.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeEncryptMode: FfiConverterRustBuffer<List<EncryptMode>> {
     override fun read(buf: ByteBuffer): List<EncryptMode> {
         val len = buf.getInt()
@@ -7856,6 +10255,21 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     
     
+
+        /**
+         * Create a login session from a provisioned hardware config
+         * (`hw_info.plist`, written by the hardware-provisioning flow).
+         * Fails with `UError::NotReady` when no config exists yet.
+         */
+    @Throws(UException::class) fun `createLoginSession`(`path`: kotlin.String, `delegate`: ULoginDelegate): ULoginSession {
+            return FfiConverterTypeULoginSession.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_create_login_session(
+        FfiConverterString.lower(`path`),FfiConverterTypeULoginDelegate.lower(`delegate`),_status)
+}
+    )
+    }
+    
  fun `doLock`()
         = 
     uniffiRustCall() { _status ->
@@ -7879,6 +10293,19 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         FfiConverterTypeCarrierHandler.lower(`handler`),FfiConverterString.lower(`mccmnc`),_status)
 }
     
+    
+
+        /**
+         * Whether `id.plist` holds registered IDS users (i.e. setup previously
+         * completed far enough to register).
+         */ fun `hasSavedUsers`(`path`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_has_saved_users(
+        FfiConverterString.lower(`path`),_status)
+}
+    )
+    }
     
  fun `initNative`(`dir`: kotlin.String, `handle`: kotlin.String?, `handler`: MsgReceiver)
         = 
@@ -7930,6 +10357,18 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         _status)
 }
     
+    
+
+        /**
+         * Username persisted in `gsa.plist`, if a previous login saved credentials.
+         */ fun `savedLoginUsername`(`path`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(
+        FfiConverterString.lower(`path`),_status)
+}
+    )
+    }
     
  fun `setupKeystore`(`dir`: kotlin.String, `keystore`: NativeKeystore)
         = 
