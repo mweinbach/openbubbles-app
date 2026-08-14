@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +26,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -36,8 +43,10 @@ import androidx.compose.ui.unit.sp
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
+import kotlinx.coroutines.delay
 
 private val BubbleMaxWidth = 300.dp
 
@@ -115,24 +124,28 @@ fun MessageBubble(
             }
             if (message.text.isNotEmpty()) {
                 Box {
-                    Surface(
-                        shape = bubbleShape(message.isFromMe),
-                        color = if (message.isFromMe) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                    ) {
-                        Text(
-                            text = message.text,
-                            style = MaterialTheme.typography.bodyLarge,
+                    if (isInvisibleInk(message.expressiveSendStyleId)) {
+                        InvisibleInkBubble(message = message)
+                    } else {
+                        Surface(
+                            shape = bubbleShape(message.isFromMe),
                             color = if (message.isFromMe) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
+                                MaterialTheme.colorScheme.primaryContainer
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MaterialTheme.colorScheme.surfaceVariant
                             },
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        )
+                        ) {
+                            Text(
+                                text = message.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (message.isFromMe) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            )
+                        }
                     }
                     if (message.attachmentMeta == null) {
                         message.reactionEmoji?.let { emoji ->
@@ -159,6 +172,47 @@ fun MessageBubble(
                 MessageStatusRow(status = message.status)
             }
         }
+    }
+}
+
+/**
+ * Invisible-ink bubble (com.apple.MobileSMS.expressivesend.invisibleink): the
+ * text renders blurred until tapped, then reveals for 3s and re-hides.
+ */
+@Composable
+private fun InvisibleInkBubble(message: MessageItem, modifier: Modifier = Modifier) {
+    var revealed by remember(message.id) { mutableStateOf(false) }
+    LaunchedEffect(revealed, message.id) {
+        if (revealed) {
+            delay(3_000)
+            revealed = false
+        }
+    }
+    Surface(
+        shape = bubbleShape(message.isFromMe),
+        color = if (message.isFromMe) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        modifier = modifier,
+    ) {
+        Text(
+            text = message.text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (message.isFromMe) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier
+                .clickable { revealed = !revealed }
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .then(
+                    // RenderEffect blur is a no-op below Android 12.
+                    if (!revealed) Modifier.blur(12.dp) else Modifier,
+                ),
+        )
     }
 }
 
@@ -323,6 +377,13 @@ private fun MessageBubblePreview() {
                 message = previewMessage("yes! 8am trailhead, i'll drive", isFromMe = true, status = MessageStatus.READ)
                     .copy(edited = true),
                 showStatus = true,
+            )
+            MessageBubble(
+                message = previewMessage("surprise party at 8 — shhh!", isFromMe = false)
+                    .copy(
+                        expressiveSendStyleId = "com.apple.MobileSMS.expressivesend.invisibleink",
+                    ),
+                showStatus = false,
             )
             GroupEventRow("Mom added Dad")
             UnsentRow("You unsent a message")

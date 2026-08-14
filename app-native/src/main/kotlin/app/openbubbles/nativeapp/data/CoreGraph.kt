@@ -356,6 +356,7 @@ private fun enrichWithEntityDetails(
                 edited = edited,
                 unsent = unsent,
                 uploadProgress = attachment?.guid?.let { UploadProgressBoard.current[it] },
+                expressiveSendStyleId = entity.expressiveSendStyleId,
             )
         }
     }.getOrDefault(items)
@@ -522,7 +523,9 @@ private class CoreChatInfoRepository(
  * receipts flow through the normal intake path.
  */
 private object CoreSender : Sender {
-    override suspend fun send(chatId: Long, text: String) {
+    override suspend fun send(chatId: Long, text: String) = sendWithEffect(chatId, text, null)
+
+    override suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
         val repo = graph.messages as? CoreMessageListRepository
@@ -538,7 +541,14 @@ private object CoreSender : Sender {
             ?: "unknown-sender"
 
         val tempGuid = MessageIngestor.tempGuid()
-        graphMessageStage(store, chat.guid, myHandle, text, tempGuid)
+        graphMessageStage(store, chat.guid, myHandle, text, tempGuid).let { staged ->
+            if (effectId != null) {
+                // Persist the effect on the staged row so the bubble (and the
+                // screen-effect trigger) sees it before the echo lands.
+                staged.expressiveSendStyleId = effectId
+                messageBox.put(staged)
+            }
+        }
 
         val pushState = PushStateHolder.state
         if (pushState == null) {
@@ -558,7 +568,8 @@ private object CoreSender : Sender {
                     ),
                     myHandle,
                     text,
-                    null, null, null, null,
+                    // replyGuid, replyPart, effect, subject
+                    null, null, effectId, null,
                 )
             }
             // Promote the staged row to the Rust staging guid so the echo and
@@ -570,6 +581,7 @@ private object CoreSender : Sender {
                 staged?.apply {
                     guid = inst.id
                     stagingGuid = inst.id
+                    if (effectId != null) expressiveSendStyleId = effectId
                     messageBox.put(this)
                 }
             }

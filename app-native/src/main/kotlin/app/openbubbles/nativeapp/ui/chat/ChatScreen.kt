@@ -15,6 +15,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,14 +53,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
@@ -78,9 +83,15 @@ import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.effects.PendingEffectChip
+import app.openbubbles.nativeapp.ui.effects.SendEffectCatalog
+import app.openbubbles.nativeapp.ui.effects.SendEffectOverlay
+import app.openbubbles.nativeapp.ui.effects.SendEffectOption
+import app.openbubbles.nativeapp.ui.effects.SendEffectPickerSheet
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import java.time.ZoneId
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** List model for the conversation LazyColumn. */
@@ -149,6 +160,28 @@ fun ChatScreen(
     val entries = remember(uiState.messages) { buildConversationEntries(uiState.messages) }
     val isTyping = uiState.typingSenders.isNotEmpty()
 
+    // ---- Send screen effects -------------------------------------------------
+    // The ViewModel flags the newest unplayed effect; the overlay plays ~700ms
+    // after the message renders (matches the Dart send-animation delay).
+    var activeEffect by remember { mutableStateOf<ScreenEffectTrigger?>(null) }
+    LaunchedEffect(uiState.screenEffect) {
+        activeEffect = null
+        val trigger = uiState.screenEffect ?: return@LaunchedEffect
+        delay(700)
+        activeEffect = trigger
+    }
+
+    // Pending effect staged from the picker for the next send (id only, so it
+    // survives recomposition via rememberSaveable).
+    var pendingEffectId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingOption: SendEffectOption? = pendingEffectId?.let(SendEffectCatalog::byId)
+    var showEffectPicker by remember { mutableStateOf(false) }
+
+    fun stagePendingEffect(option: SendEffectOption?) {
+        pendingEffectId = option?.id
+        PendingSendEffect.effectId = option?.id
+    }
+
     fun dispatchAttachment(uri: Uri?) {
         if (uri == null) return
         scope.launch {
@@ -191,95 +224,121 @@ fun ChatScreen(
         if (nearTop) onLoadOlder()
     }
 
-    Scaffold(
-        modifier = modifier,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                title = {
-                    ChatHeader(
-                        chat = uiState.chat,
-                        modifier = Modifier.clickable(onClick = onOpenChatInfo),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            MessageInputBar(
-                value = uiState.input,
-                onValueChange = onInputChange,
-                onSend = {
-                    onSend()
-                    scope.launch { listState.animateScrollToItem(0) }
-                },
-                onAttachClick = {
-                    pickMedia.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
-                    )
-                },
-                onAttachLongClick = { pickFile.launch("*/*") },
-            )
-        },
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            when {
-                uiState.initialLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                uiState.messages.isEmpty() && !isTyping ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "No messages yet — say hi!",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Box(modifier = modifier) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        ChatHeader(
+                            chat = uiState.chat,
+                            modifier = Modifier.clickable(onClick = onOpenChatInfo),
                         )
-                    }
-                else -> LazyColumn(
-                    state = listState,
-                    reverseLayout = true,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                ) {
-                    if (isTyping) {
-                        item(key = "typing-indicator") {
-                            TypingIndicatorRow(senderAddress = uiState.typingSenders.first())
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
+                    },
+                )
+            },
+            bottomBar = {
+                MessageInputBar(
+                    value = uiState.input,
+                    onValueChange = onInputChange,
+                    onSend = {
+                        onSend()
+                        stagePendingEffect(null)
+                        scope.launch { listState.animateScrollToItem(0) }
+                    },
+                    onAttachClick = {
+                        pickMedia.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                        )
+                    },
+                    onAttachLongClick = { pickFile.launch("*/*") },
+                    pendingEffect = pendingOption,
+                    onClearPendingEffect = { stagePendingEffect(null) },
+                    onSendLongClick = { showEffectPicker = true },
+                )
+            },
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                when {
+                    uiState.initialLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
                     }
-                    items(entries, key = { it.key }) { entry ->
-                        when (entry) {
-                            is ConversationEntry.Message -> MessageBubble(
-                                message = entry.message,
-                                showStatus = entry.showStatus,
-                                attachmentFile = attachmentFile,
-                                onOpenAttachment = onOpenAttachment,
-                                onDownloadAttachment = onDownloadAttachment,
-                                senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
+                    uiState.messages.isEmpty() && !isTyping ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "No messages yet — say hi!",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            is ConversationEntry.DaySeparator ->
-                                DaySeparatorRow(label = formatConversationDay(entry.epochMillis))
                         }
-                    }
-                    if (uiState.loadingOlder) {
-                        item(key = "loading-older") {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.padding(8.dp).size(22.dp),
-                                    strokeWidth = 2.dp,
+                    else -> LazyColumn(
+                        state = listState,
+                        reverseLayout = true,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        if (isTyping) {
+                            item(key = "typing-indicator") {
+                                TypingIndicatorRow(senderAddress = uiState.typingSenders.first())
+                            }
+                        }
+                        items(entries, key = { it.key }) { entry ->
+                            when (entry) {
+                                is ConversationEntry.Message -> MessageBubble(
+                                    message = entry.message,
+                                    showStatus = entry.showStatus,
+                                    attachmentFile = attachmentFile,
+                                    onOpenAttachment = onOpenAttachment,
+                                    onDownloadAttachment = onDownloadAttachment,
+                                    senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
                                 )
+                                is ConversationEntry.DaySeparator ->
+                                    DaySeparatorRow(label = formatConversationDay(entry.epochMillis))
+                            }
+                        }
+                        if (uiState.loadingOlder) {
+                            item(key = "loading-older") {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.padding(8.dp).size(22.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
+        // Full-screen send-effect overlay above everything.
+        activeEffect?.let { trigger ->
+            SendEffectOverlay(
+                effectId = trigger.effectId,
+                modifier = Modifier.fillMaxSize(),
+                onFinished = { activeEffect = null },
+            )
+        }
+    }
+
+    // Effect picker sheet (long-press the send button).
+    if (showEffectPicker) {
+        SendEffectPickerSheet(
+            onPick = { option ->
+                stagePendingEffect(option)
+                showEffectPicker = false
+            },
+            onDismiss = { showEffectPicker = false },
+        )
     }
 }
 
@@ -397,48 +456,69 @@ private fun MessageInputBar(
     onAttachClick: () -> Unit,
     onAttachLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    pendingEffect: SendEffectOption? = null,
+    onClearPendingEffect: () -> Unit = {},
+    onSendLongClick: () -> Unit = {},
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .imePadding(),
     ) {
-        Icon(
-            imageVector = Icons.Filled.AttachFile,
-            contentDescription = "Attach photo or video (long-press for any file)",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Pending send-effect chip staged from the picker.
+        pendingEffect?.let { option ->
+            Row(
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PendingEffectChip(option = option, onClear = onClearPendingEffect)
+            }
+        }
+        Row(
             modifier = Modifier
-                .padding(bottom = 12.dp)
-                .size(26.dp)
-                .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
-        )
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text("Message") },
-            maxLines = 5,
-            shape = RoundedCornerShape(24.dp),
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-            ),
-            keyboardOptions = KeyboardOptions(
-                imeAction = ImeAction.Send,
-                capitalization = KeyboardCapitalization.Sentences,
-            ),
-            keyboardActions = KeyboardActions(onSend = { onSend() }),
-        )
-        FilledIconButton(
-            onClick = onSend,
-            enabled = value.isNotBlank(),
-            shape = CircleShape,
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            Icon(
+                imageVector = Icons.Filled.AttachFile,
+                contentDescription = "Attach photo or video (long-press for any file)",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(bottom = 12.dp)
+                    .size(26.dp)
+                    .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
+            )
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Message") },
+                maxLines = 5,
+                shape = RoundedCornerShape(24.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    capitalization = KeyboardCapitalization.Sentences,
+                ),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
+            )
+            // Long-press opens the send-effect picker (iMessage behavior).
+            FilledIconButton(
+                onClick = onSend,
+                enabled = value.isNotBlank(),
+                shape = CircleShape,
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(onLongPress = { onSendLongClick() })
+                },
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            }
         }
     }
 }

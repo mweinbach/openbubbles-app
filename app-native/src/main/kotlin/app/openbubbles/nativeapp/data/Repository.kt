@@ -66,6 +66,12 @@ data class MessageItem(
      * Null for everything else.
      */
     val uploadProgress: Pair<Long, Long>? = null,
+    /**
+     * iMessage expressive-send style id ("com.apple.messages.effect.*" screen
+     * effects or "com.apple.MobileSMS.expressivesend.*" bubble effects);
+     * null when the message has no effect.
+     */
+    val expressiveSendStyleId: String? = null,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -82,6 +88,17 @@ interface MessageListRepository {
 
 interface Sender {
     suspend fun send(chatId: Long, text: String)
+
+    /**
+     * Sends a text with an iMessage expressive-send effect id (e.g.
+     * "com.apple.messages.effect.CKConfettiEffect" or
+     * "com.apple.MobileSMS.expressivesend.invisibleink"). Null effect falls
+     * back to a plain send; senders without effect support inherit this
+     * default so existing implementations keep compiling.
+     */
+    suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
+        send(chatId, text)
+    }
 }
 
 /** A picked outgoing attachment, ready to stage and upload. */

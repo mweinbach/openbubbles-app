@@ -31,8 +31,32 @@ data class ChatUiState(
     val loadingOlder: Boolean = false,
     /** Sender addresses with a live typing indicator in this chat. */
     val typingSenders: List<String> = emptyList(),
+    /**
+     * One-shot trigger to play a full-screen send effect: set when the newest
+     * message carries an expressiveSendStyleId that has not been played yet
+     * (incoming or outgoing). Distinct per message id so the same effect
+     * re-fires for a later message.
+     */
+    val screenEffect: ScreenEffectTrigger? = null,
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
+}
+
+/** Identifies the message whose send effect should play (once). */
+data class ScreenEffectTrigger(
+    val messageId: Long,
+    val effectId: String,
+)
+
+/**
+ * Stages the picker's selection for the next [ChatViewModel.sendMessage] call.
+ * Lives outside the uiState flow because the chat screen binds fixed
+ * callbacks (`onSend: () -> Unit`); the input bar writes it and the send path
+ * reads + clears it on the same (main) thread.
+ */
+object PendingSendEffect {
+    @Volatile
+    var effectId: String? = null
 }
 
 private const val INITIAL_LIMIT = 30
@@ -56,6 +80,11 @@ class ChatViewModel(
     private val loadingOlder = MutableStateFlow(false)
     private var endReached = false
 
+    /** Message ids whose send effect has already been played (once each). */
+    private val playedEffectMessageIds = mutableSetOf<Long>()
+
+    private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
+
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -70,6 +99,20 @@ class ChatViewModel(
             .map { entries -> entries.filter { it.chatId == chatId }.map { it.senderAddress } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    init {
+        // Watch the transcript so a *new* newest message with a send effect
+        // (incoming or outgoing) triggers the full-screen overlay exactly once.
+        viewModelScope.launch {
+            messages.collect { list ->
+                val newest = list.lastOrNull() ?: return@collect
+                val styleId = newest.expressiveSendStyleId ?: return@collect
+                if (playedEffectMessageIds.add(newest.id)) {
+                    screenEffect.value = ScreenEffectTrigger(newest.id, styleId)
+                }
+            }
+        }
+    }
+
     val uiState: StateFlow<ChatUiState> =
         combine(messages, chat, input, loadingOlder, typingSenders) { messages, chat, input, loadingOlder, typing ->
             ChatUiState(
@@ -79,6 +122,8 @@ class ChatViewModel(
                 loadingOlder = loadingOlder,
                 typingSenders = typing,
             )
+        }.combine(screenEffect) { state, effect ->
+            state.copy(screenEffect = effect)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
@@ -88,8 +133,17 @@ class ChatViewModel(
     fun sendMessage() {
         val text = input.value.trim()
         if (text.isEmpty()) return
+        // Consume any effect staged by the picker for this send.
+        val effectId = PendingSendEffect.effectId
+        PendingSendEffect.effectId = null
         input.value = ""
-        viewModelScope.launch { sender.send(chatId, text) }
+        viewModelScope.launch {
+            if (effectId == null) {
+                sender.send(chatId, text)
+            } else {
+                sender.sendWithEffect(chatId, text, effectId)
+            }
+        }
     }
 
     /**
