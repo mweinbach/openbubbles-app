@@ -48,11 +48,76 @@ fun ProvisionScreen(
     var mode by remember { mutableStateOf<ProvisionMode?>(ProvisionMode.Paste) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var scanning by remember { mutableStateOf(false) }
 
     var validationData by remember { mutableStateOf("") }
     var relayCode by remember { mutableStateOf("") }
     var relayHost by remember { mutableStateOf(DEFAULT_RELAY_HOST) }
     var relayToken by remember { mutableStateOf("") }
+
+    fun provisionWithData(data: ByteArray) {
+        busy = true; error = null
+        scope.launch {
+            val result: Result<Unit> = withContext(Dispatchers.IO) {
+                runCatching {
+                    provisionFromValidationData(
+                        dir = confDir,
+                        data = data,
+                        extra = defaultHwExtra(),
+                    )
+                }
+            }
+            busy = false
+            result.fold(
+                onSuccess = { onProvisioned() },
+                onFailure = { failure -> error = failure.message },
+            )
+        }
+    }
+
+    /** QR result: `OABS` binary pairs directly; URLs/relay codes prefill. */
+    fun handleScan(bytes: ByteArray?, text: String?) {
+        val payload = bytes ?: text?.toByteArray(Charsets.UTF_8)
+        if (payload != null && payload.size > 5 && String(payload.copyOfRange(0, 4), Charsets.US_ASCII) == "OABS") {
+            provisionWithData(payload.copyOfRange(5, payload.size))
+            return
+        }
+        val value = text?.trim().orEmpty()
+        if (value.isEmpty()) {
+            error = "Couldn't read the QR code — try again or paste the data."
+            return
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            val url = runCatching { java.net.URI(value) }.getOrNull()
+            val segments = url?.path?.trim('/')?.split('/')?.filter { it.isNotBlank() }.orEmpty()
+            val code = segments.lastOrNull()
+            if (code != null) {
+                relayCode = code
+                url?.let { relayHost = "${it.scheme}://${it.host}${if (it.port != -1) ":${it.port}" else ""}" }
+                mode = ProvisionMode.Relay
+                return
+            }
+        }
+        // Plain text: validation data if it decodes as hex/base64, else a relay code.
+        if (decodeBlob(value) != null) {
+            validationData = value
+            mode = ProvisionMode.Paste
+        } else {
+            relayCode = value
+            mode = ProvisionMode.Relay
+        }
+    }
+
+    if (scanning) {
+        QrScannerSheet(
+            onResult = { bytes, text ->
+                scanning = false
+                handleScan(bytes, text)
+            },
+            onClose = { scanning = false },
+        )
+        return
+    }
 
     Column(
         modifier = modifier
@@ -71,6 +136,11 @@ fun ProvisionScreen(
 
         val selected = mode
         if (selected == ProvisionMode.Paste) {
+            Button(
+                enabled = !busy,
+                onClick = { scanning = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Scan pairing QR code") }
             OutlinedTextField(
                 value = validationData,
                 onValueChange = { validationData = it },
@@ -151,6 +221,7 @@ fun ProvisionScreen(
                     }
                 },
             ) { Text("Connect relay") }
+            TextButton(onClick = { scanning = true }) { Text("Scan relay QR / URL instead") }
             TextButton(onClick = { mode = ProvisionMode.Paste }) { Text("Paste validation data instead") }
         }
 
