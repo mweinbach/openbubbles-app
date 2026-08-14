@@ -2321,6 +2321,16 @@ pub fn provision_from_validation_data(
     provision(config, dir)
 }
 
+/// Provision from an encoded HwInfo blob — the QR pairing payload after
+/// the `OABS` magic + sharing flag ("Share Mac" on a real Mac). Carries the
+/// full config incl. version strings, so no HwExtra needed.
+#[uniffi::export]
+pub fn provision_from_encoded(dir: String, encoded: Vec<u8>) -> Result<(), UError> {
+    let config = api::config_from_encoded(encoded)
+        .map_err(|e| UError::InvalidArgument { reason: e.to_string() })?;
+    provision(config, dir)
+}
+
 /// Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
 #[uniffi::export]
 pub fn provision_from_relay(
