@@ -228,6 +228,55 @@ fun SettingsScreen(
                 }
             }
 
+            SectionCard(title = "iCloud Sync") {
+                val syncManager = app.openbubbles.nativeapp.data.CloudSyncWiring.manager
+                val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
+                    ?: remember { androidx.compose.runtime.mutableStateOf(null) }
+                var syncing by remember { androidx.compose.runtime.mutableStateOf(false) }
+                var syncResult by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+
+                if (syncManager == null) {
+                    SettingRow(
+                        title = "History sync",
+                        supporting = "Connect to enable syncing messages from iCloud",
+                    )
+                } else {
+                    val progress = syncProgress
+                    SettingRow(
+                        title = "History sync",
+                        supporting = when {
+                            progress != null && syncing ->
+                                "${progress.phase}: ${progress.chatsDone} chats, ${progress.messagesDone} messages"
+                            syncResult != null -> syncResult!!
+                            else -> "Chats back up to iCloud; new devices sync history on sign-in"
+                        },
+                    )
+                    if (syncing) {
+                        TextButton(onClick = { syncManager.cancel() }) { Text("Stop") }
+                    } else {
+                        TextButton(
+                            onClick = {
+                                syncing = true
+                                syncResult = null
+                                scope.launch {
+                                    val summary = syncManager.sync(
+                                        app.openbubbles.core.sync.SyncMode.FULL,
+                                    )
+                                    syncing = false
+                                    syncResult = if (summary.error != null) {
+                                        "Sync failed: ${summary.error}"
+                                    } else {
+                                        "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages " +
+                                            "(${summary.chatTombstones + summary.messageTombstones} removed) " +
+                                            "in ${summary.durationMs / 1000}s"
+                                    }
+                                }
+                            },
+                        ) { Text("Sync all history now") }
+                    }
+                }
+            }
+
             SectionCard(title = "Appearance") {
                 SettingRow(
                     title = "Theme",

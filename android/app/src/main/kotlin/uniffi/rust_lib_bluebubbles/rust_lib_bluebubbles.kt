@@ -747,6 +747,12 @@ internal interface UniffiCallbackInterfaceULoginDelegateMethod3 : com.sun.jna.Ca
 internal interface UniffiCallbackInterfaceUProgressCallbackMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`done`: Long,`total`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfaceUSyncPageCallbackMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`records`: RustBuffer.ByValue,`chatsDone`: Long,`messagesDone`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceUSyncPageCallbackMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: ByteByReference,uniffiCallStatus: UniffiRustCallStatus,)
+}
 @Structure.FieldOrder("groups", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceAvailableGroupsCallback(
     @JvmField internal var `groups`: UniffiCallbackInterfaceAvailableGroupsCallbackMethod0? = null,
@@ -996,6 +1002,46 @@ internal open class UniffiVTableCallbackInterfaceUProgressCallback(
     }
 
 }
+@Structure.FieldOrder("onPage", "keepGoing", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
+    @JvmField internal var `onPage`: UniffiCallbackInterfaceUSyncPageCallbackMethod0? = null,
+    @JvmField internal var `keepGoing`: UniffiCallbackInterfaceUSyncPageCallbackMethod1? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `onPage`: UniffiCallbackInterfaceUSyncPageCallbackMethod0? = null,
+        `keepGoing`: UniffiCallbackInterfaceUSyncPageCallbackMethod1? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceUSyncPageCallback(`onPage`,`keepGoing`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceUSyncPageCallback) {
+        `onPage` = other.`onPage`
+        `keepGoing` = other.`keepGoing`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1397,7 +1443,13 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth(
 ): Short
@@ -1420,6 +1472,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_regstate(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_site_config(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey_insert(
 ): Short
@@ -1446,6 +1500,12 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown(
 ): Short
@@ -1523,6 +1583,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_submit_2fa_code(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_uprogresscallback_on_progress(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_on_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_keep_going(
+): Short
 fun ffi_rust_lib_bluebubbles_uniffi_contract_version(
 ): Int
 
@@ -1573,6 +1637,7 @@ internal interface UniffiLib : Library {
             uniffiCallbackInterfaceUEapAkaHandler.register(lib)
             uniffiCallbackInterfaceULoginDelegate.register(lib)
             uniffiCallbackInterfaceUProgressCallback.register(lib)
+            uniffiCallbackInterfaceUSyncPageCallback.register(lib)
             // Loading of library with integrity check done.
             lib
         }
@@ -1678,7 +1743,13 @@ fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_ou
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1702,6 +1773,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(`ptr`:
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`recordId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`tag`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1728,6 +1801,12 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1842,6 +1921,16 @@ fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_uprogresscallback(`vtabl
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(`ptr`: Pointer,`done`: Long,`total`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_clone_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_usyncpagecallback(`vtable`: UniffiVTableCallbackInterfaceUSyncPageCallback,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(`ptr`: Pointer,`records`: RustBuffer.ByValue,`chatsDone`: Long,`messagesDone`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_keep_going(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2121,7 +2210,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants() != 36972.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state() != 28004.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote() != 16821.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote() != 56044.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth() != 60368.toShort()) {
@@ -2155,6 +2253,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state() != 53880.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique() != 14793.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey_insert() != 43580.toShort()) {
@@ -2194,6 +2295,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page() != 48692.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history() != 36224.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 46083.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown() != 6604.toShort()) {
@@ -2308,6 +2418,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uprogresscallback_on_progress() != 42875.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_on_page() != 29329.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_usyncpagecallback_keep_going() != 44031.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -2430,6 +2546,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
     }
 }
 
@@ -5215,7 +5354,24 @@ public interface NativePushStateInterface {
      */
     fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst
     
+    /**
+     * Whether CloudKit message-history sync can run on this state.
+     */
+    fun `cloudSyncState`(): USyncState
+    
     fun `declineFacetime`(`guid`: kotlin.String)
+    
+    /**
+     * Push local deletions to iCloud BEFORE pulling (`delete_chats`);
+     * otherwise the pull resurrects rows the user removed. Flushes the
+     * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
+     */
+    fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
+    
+    /**
+     * Push local message deletions to iCloud (`delete_messages`).
+     */
+    fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
     
     fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
     
@@ -5267,6 +5423,12 @@ public interface NativePushStateInterface {
     fun `getSiteConfig`(`site`: kotlin.String, `callback`: RetrieveKeysCallback)
     
     fun `getState`(): kotlin.ULong
+    
+    /**
+     * Circle membership check — the Dart sync loop skipped (and disabled
+     * cloud syncing) when the device fell out of the iCloud clique.
+     */
+    fun `isInClique`(): kotlin.Boolean
     
     fun `keychainPasskeyInsert`(`site`: kotlin.String, `recordId`: kotlin.String, `id`: kotlin.ByteArray, `tag`: kotlin.ByteArray, `key`: kotlin.ByteArray, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
     
@@ -5325,6 +5487,33 @@ public interface NativePushStateInterface {
     fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
     
     fun `startLoop`(`handler`: MsgReceiver)
+    
+    /**
+     * Pull one page of chat changes (`sync_chats`). Pass the previous
+     * page's `next_cursor` (none for the first page); persist the returned
+     * cursor after applying the records. `more == false` ends the zone.
+     */
+    fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage
+    
+    /**
+     * Coarse driver: pull both zones (chats, then messages) to completion,
+     * streaming every page's records + running counts through `on_page`.
+     * `mode` picks the start cursors — `Full` ignores the passed cursors,
+     * `Incremental` resumes from them. Runs entirely on the calling thread
+     * (`RUNTIME.block_on` per page); cooperative cancellation is checked
+     * between pages via `keep_going`. Returns the summary and the cursors
+     * reached — persist them either way, treating an EMPTY cursor as
+     * "zone never pulled a page" (i.e. keep the previously stored one).
+     * Per-record failures are the callback's concern — the Rust loop only
+     * aborts on transport errors.
+     */
+    fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome
+    
+    /**
+     * Pull one page of message changes (`sync_messages`). Same cursor
+     * contract as `sync_chats_page`.
+     */
+    fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
     
     /**
      * Tear down the push connection and (with `logout`) deregister from
@@ -5455,12 +5644,59 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     
 
+    
+    /**
+     * Whether CloudKit message-history sync can run on this state.
+     */override fun `cloudSyncState`(): USyncState {
+            return FfiConverterTypeUSyncState.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
     override fun `declineFacetime`(`guid`: kotlin.String)
         = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(
         it, FfiConverterString.lower(`guid`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Push local deletions to iCloud BEFORE pulling (`delete_chats`);
+     * otherwise the pull resurrects rows the user removed. Flushes the
+     * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
+     */
+    @Throws(UException::class)override fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(
+        it, FfiConverterSequenceString.lower(`recordIds`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Push local message deletions to iCloud (`delete_messages`).
+     */
+    @Throws(UException::class)override fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(
+        it, FfiConverterSequenceString.lower(`recordIds`),_status)
 }
     }
     
@@ -5621,6 +5857,23 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Circle membership check — the Dart sync loop skipped (and disabled
+     * cloud syncing) when the device fell out of the iCloud clique.
+     */
+    @Throws(UException::class)override fun `isInClique`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(
         it, _status)
 }
     }
@@ -5816,6 +6069,66 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Pull one page of chat changes (`sync_chats`). Pass the previous
+     * page's `next_cursor` (none for the first page); persist the returned
+     * cursor after applying the records. `more == false` ends the zone.
+     */
+    @Throws(UException::class)override fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage {
+            return FfiConverterTypeUChatSyncPage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(
+        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Coarse driver: pull both zones (chats, then messages) to completion,
+     * streaming every page's records + running counts through `on_page`.
+     * `mode` picks the start cursors — `Full` ignores the passed cursors,
+     * `Incremental` resumes from them. Runs entirely on the calling thread
+     * (`RUNTIME.block_on` per page); cooperative cancellation is checked
+     * between pages via `keep_going`. Returns the summary and the cursors
+     * reached — persist them either way, treating an EMPTY cursor as
+     * "zone never pulled a page" (i.e. keep the previously stored one).
+     * Per-record failures are the callback's concern — the Rust loop only
+     * aborts on transport errors.
+     */
+    @Throws(UException::class)override fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome {
+            return FfiConverterTypeUSyncOutcome.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(
+        it, FfiConverterOptionalByteArray.lower(`chatCursor`),FfiConverterOptionalByteArray.lower(`messageCursor`),FfiConverterTypeUSyncMode.lower(`mode`),FfiConverterTypeUSyncPageCallback.lower(`onPage`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Pull one page of message changes (`sync_messages`). Same cursor
+     * contract as `sync_chats_page`.
+     */
+    @Throws(UException::class)override fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage {
+            return FfiConverterTypeUMessageSyncPage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(
+        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -8453,6 +8766,332 @@ public object FfiConverterTypeUProgressCallback: FfiConverter<UProgressCallback,
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Page callback for the coarse `sync_history` driver. Methods run
+ * synchronously on the thread that called `sync_history`, between pages —
+ * persist/emit there, but never re-enter Rust from inside them.
+ */
+public interface USyncPageCallback {
+    
+    /**
+     * One page of changes with running totals. Chat pages arrive first
+     * (records contain only `USyncRecord::Chat`), then message pages.
+     */
+    fun `onPage`(`records`: List<USyncRecord>, `chatsDone`: kotlin.ULong, `messagesDone`: kotlin.ULong)
+    
+    /**
+     * Cooperative cancellation — checked before every page. Return false
+     * to stop the run (already-received pages stay applied; the outcome
+     * carries the cursors reached).
+     */
+    fun `keepGoing`(): kotlin.Boolean
+    
+    companion object
+}
+
+/**
+ * Page callback for the coarse `sync_history` driver. Methods run
+ * synchronously on the thread that called `sync_history`, between pages —
+ * persist/emit there, but never re-enter Rust from inside them.
+ */
+open class USyncPageCallbackImpl: Disposable, AutoCloseable, USyncPageCallback
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_usyncpagecallback(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_usyncpagecallback(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * One page of changes with running totals. Chat pages arrive first
+     * (records contain only `USyncRecord::Chat`), then message pages.
+     */override fun `onPage`(`records`: List<USyncRecord>, `chatsDone`: kotlin.ULong, `messagesDone`: kotlin.ULong)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(
+        it, FfiConverterSequenceTypeUSyncRecord.lower(`records`),FfiConverterULong.lower(`chatsDone`),FfiConverterULong.lower(`messagesDone`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Cooperative cancellation — checked before every page. Return false
+     * to stop the run (already-received pages stay applied; the outcome
+     * carries the cursors reached).
+     */override fun `keepGoing`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_keep_going(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceUSyncPageCallback {
+    internal object `onPage`: UniffiCallbackInterfaceUSyncPageCallbackMethod0 {
+        override fun callback(`uniffiHandle`: Long,`records`: RustBuffer.ByValue,`chatsDone`: Long,`messagesDone`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeUSyncPageCallback.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onPage`(
+                    FfiConverterSequenceTypeUSyncRecord.lift(`records`),
+                    FfiConverterULong.lift(`chatsDone`),
+                    FfiConverterULong.lift(`messagesDone`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `keepGoing`: UniffiCallbackInterfaceUSyncPageCallbackMethod1 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: ByteByReference,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeUSyncPageCallback.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`keepGoing`(
+                )
+            }
+            val writeReturn = { value: kotlin.Boolean -> uniffiOutReturn.setValue(FfiConverterBoolean.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeUSyncPageCallback.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceUSyncPageCallback.UniffiByValue(
+        `onPage`,
+        `keepGoing`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_usyncpagecallback(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncPageCallback: FfiConverter<USyncPageCallback, Pointer> {
+    internal val handleMap = UniffiHandleMap<USyncPageCallback>()
+
+    override fun lower(value: USyncPageCallback): Pointer {
+        return Pointer(handleMap.insert(value))
+    }
+
+    override fun lift(value: Pointer): USyncPageCallback {
+        return USyncPageCallbackImpl(value)
+    }
+
+    override fun read(buf: ByteBuffer): USyncPageCallback {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: USyncPageCallback) = 8UL
+
+    override fun write(value: USyncPageCallback, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 data class FileInfo (
     var `duration`: kotlin.Double?, 
@@ -8638,6 +9277,363 @@ public object FfiConverterTypeSavedPassword: FfiConverterRustBuffer<SavedPasswor
 
 
 
+/**
+ * One chat-zone change: `chat == None` is a tombstone.
+ */
+data class UChatChange (
+    var `recordId`: kotlin.String, 
+    var `chat`: UCloudChat?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUChatChange: FfiConverterRustBuffer<UChatChange> {
+    override fun read(buf: ByteBuffer): UChatChange {
+        return UChatChange(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeUCloudChat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UChatChange) = (
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterOptionalTypeUCloudChat.allocationSize(value.`chat`)
+    )
+
+    override fun write(value: UChatChange, buf: ByteBuffer) {
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterOptionalTypeUCloudChat.write(value.`chat`, buf)
+    }
+}
+
+
+
+/**
+ * A page from the chat zone (`sync_chats`).
+ */
+data class UChatSyncPage (
+    var `records`: List<UChatChange>, 
+    /**
+     * Continuation token for the next page — persist after applying.
+     */
+    var `nextCursor`: kotlin.ByteArray, 
+    /**
+     * CloudKit zone status reached 3 (no more changes pending).
+     */
+    var `more`: kotlin.Boolean, 
+    var `status`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUChatSyncPage: FfiConverterRustBuffer<UChatSyncPage> {
+    override fun read(buf: ByteBuffer): UChatSyncPage {
+        return UChatSyncPage(
+            FfiConverterSequenceTypeUChatChange.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UChatSyncPage) = (
+            FfiConverterSequenceTypeUChatChange.allocationSize(value.`records`) +
+            FfiConverterByteArray.allocationSize(value.`nextCursor`) +
+            FfiConverterBoolean.allocationSize(value.`more`) +
+            FfiConverterInt.allocationSize(value.`status`)
+    )
+
+    override fun write(value: UChatSyncPage, buf: ByteBuffer) {
+            FfiConverterSequenceTypeUChatChange.write(value.`records`, buf)
+            FfiConverterByteArray.write(value.`nextCursor`, buf)
+            FfiConverterBoolean.write(value.`more`, buf)
+            FfiConverterInt.write(value.`status`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of the `chatEncryptedv2` CloudKit record — only the fields the
+ * persistence layer maps onto the Chat entity.
+ */
+data class UCloudChat (
+    /**
+     * Chat guid (`iMessage;+/-;chatIdentifier`).
+     */
+    var `guid`: kotlin.String, 
+    /**
+     * 43 = group chat, 45 = normal.
+     */
+    var `style`: kotlin.Long, 
+    var `chatIdentifier`: kotlin.String, 
+    /**
+     * Cloud-side chat guid (`Chat.cloudGuid`).
+     */
+    var `groupId`: kotlin.String, 
+    /**
+     * "iMessage" for real chats; the Dart loop skipped everything else.
+     */
+    var `serviceName`: kotlin.String, 
+    /**
+     * Participant uris (`tel:`/`mailto:` prefixed), including mine.
+     */
+    var `participants`: List<kotlin.String>, 
+    /**
+     * The account handle that last addressed the chat.
+     */
+    var `lastAddressedHandle`: kotlin.String, 
+    var `displayName`: kotlin.String?, 
+    /**
+     * `CloudProp.pv` — group version; only apply changes when the cloud
+     * version is newer than the local one.
+     */
+    var `groupVersion`: kotlin.UInt?, 
+    /**
+     * `CloudProp.lastSeenMessageGuid` → `Chat.lastReadMessageGuid`.
+     */
+    var `lastSeenMessageGuid`: kotlin.String?, 
+    /**
+     * ns since the Apple epoch (2001-01-01) → `Chat.dbOnlyLatestMessageDate`.
+     */
+    var `lastReadMessageTimestamp`: kotlin.Long, 
+    /**
+     * A group-photo asset rides on the record (the image itself downloads
+     * through the attachment batch).
+     */
+    var `hasGroupPhoto`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
+    override fun read(buf: ByteBuffer): UCloudChat {
+        return UCloudChat(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCloudChat) = (
+            FfiConverterString.allocationSize(value.`guid`) +
+            FfiConverterLong.allocationSize(value.`style`) +
+            FfiConverterString.allocationSize(value.`chatIdentifier`) +
+            FfiConverterString.allocationSize(value.`groupId`) +
+            FfiConverterString.allocationSize(value.`serviceName`) +
+            FfiConverterSequenceString.allocationSize(value.`participants`) +
+            FfiConverterString.allocationSize(value.`lastAddressedHandle`) +
+            FfiConverterOptionalString.allocationSize(value.`displayName`) +
+            FfiConverterOptionalUInt.allocationSize(value.`groupVersion`) +
+            FfiConverterOptionalString.allocationSize(value.`lastSeenMessageGuid`) +
+            FfiConverterLong.allocationSize(value.`lastReadMessageTimestamp`) +
+            FfiConverterBoolean.allocationSize(value.`hasGroupPhoto`)
+    )
+
+    override fun write(value: UCloudChat, buf: ByteBuffer) {
+            FfiConverterString.write(value.`guid`, buf)
+            FfiConverterLong.write(value.`style`, buf)
+            FfiConverterString.write(value.`chatIdentifier`, buf)
+            FfiConverterString.write(value.`groupId`, buf)
+            FfiConverterString.write(value.`serviceName`, buf)
+            FfiConverterSequenceString.write(value.`participants`, buf)
+            FfiConverterString.write(value.`lastAddressedHandle`, buf)
+            FfiConverterOptionalString.write(value.`displayName`, buf)
+            FfiConverterOptionalUInt.write(value.`groupVersion`, buf)
+            FfiConverterOptionalString.write(value.`lastSeenMessageGuid`, buf)
+            FfiConverterLong.write(value.`lastReadMessageTimestamp`, buf)
+            FfiConverterBoolean.write(value.`hasGroupPhoto`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of the `MessageEncryptedv3` CloudKit record with the gzipped
+ * `msgProto` already decoded: flattened text (plain field or attributed
+ * body), attachment guids (converted to the local `<msgGuid>_<part>` form),
+ * thread/association/receipt fields.
+ */
+data class UCloudMessage (
+    var `guid`: kotlin.String, 
+    /**
+     * Chat reference: `iMessage;+/-;chatIdentifier` (contains `;`) or the
+     * chat's cloud guid / rust guid.
+     */
+    var `chatId`: kotlin.String, 
+    /**
+     * Sender (`tel:`/`mailto:` handle) — empty for some system messages.
+     */
+    var `sender`: kotlin.String, 
+    /**
+     * ns since the Apple epoch.
+     */
+    var `time`: kotlin.Long, 
+    var `msgType`: kotlin.Long, 
+    var `error`: kotlin.Long, 
+    var `service`: kotlin.String, 
+    /**
+     * Raw `MessageFlags` bits (bit 2 = IS_FROM_ME).
+     */
+    var `flagsBits`: kotlin.Long, 
+    /**
+     * Flattened text: the plain `text` field, else the attributed-body
+     * string.
+     */
+    var `text`: kotlin.String?, 
+    var `subject`: kotlin.String?, 
+    /**
+     * Attributed body contains file-transfer runs.
+     */
+    var `hasAttachments`: kotlin.Boolean, 
+    /**
+     * Local-form attachment guids (`at_X_Y` cloud form converted).
+     */
+    var `attachmentGuids`: List<kotlin.String>, 
+    var `balloonBundleId`: kotlin.String?, 
+    /**
+     * An app balloon payload is attached (raw payload decode is a later
+     * batch; the flag preserves `hasApplePayloadData`).
+     */
+    var `hasPayloadData`: kotlin.Boolean, 
+    /**
+     * `msgProto.messageSummaryInfo` (edits/retractions) serialized to JSON.
+     */
+    var `summaryInfoJson`: kotlin.String?, 
+    var `effect`: kotlin.String?, 
+    /**
+     * ns since the Apple epoch, 0 mapped to none.
+     */
+    var `dateReadNs`: kotlin.Long?, 
+    var `dateDeliveredNs`: kotlin.Long?, 
+    /**
+     * Raw associated-message type code (2 sticker, 2000+ tapback,
+     * 3000+ tapback-removed) — the caller maps to the REACTION_* strings.
+     */
+    var `associatedMessageType`: kotlin.Long?, 
+    var `associatedMessageGuid`: kotlin.String?, 
+    /**
+     * Parsed from `msgProto2.reply` (`r:<part>:<guid>`).
+     */
+    var `threadOriginatorGuid`: kotlin.String?, 
+    var `threadOriginatorPart`: kotlin.String?, 
+    /**
+     * From `msgProto4`.
+     */
+    var `associatedMessageEmoji`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessage> {
+    override fun read(buf: ByteBuffer): UCloudMessage {
+        return UCloudMessage(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCloudMessage) = (
+            FfiConverterString.allocationSize(value.`guid`) +
+            FfiConverterString.allocationSize(value.`chatId`) +
+            FfiConverterString.allocationSize(value.`sender`) +
+            FfiConverterLong.allocationSize(value.`time`) +
+            FfiConverterLong.allocationSize(value.`msgType`) +
+            FfiConverterLong.allocationSize(value.`error`) +
+            FfiConverterString.allocationSize(value.`service`) +
+            FfiConverterLong.allocationSize(value.`flagsBits`) +
+            FfiConverterOptionalString.allocationSize(value.`text`) +
+            FfiConverterOptionalString.allocationSize(value.`subject`) +
+            FfiConverterBoolean.allocationSize(value.`hasAttachments`) +
+            FfiConverterSequenceString.allocationSize(value.`attachmentGuids`) +
+            FfiConverterOptionalString.allocationSize(value.`balloonBundleId`) +
+            FfiConverterBoolean.allocationSize(value.`hasPayloadData`) +
+            FfiConverterOptionalString.allocationSize(value.`summaryInfoJson`) +
+            FfiConverterOptionalString.allocationSize(value.`effect`) +
+            FfiConverterOptionalLong.allocationSize(value.`dateReadNs`) +
+            FfiConverterOptionalLong.allocationSize(value.`dateDeliveredNs`) +
+            FfiConverterOptionalLong.allocationSize(value.`associatedMessageType`) +
+            FfiConverterOptionalString.allocationSize(value.`associatedMessageGuid`) +
+            FfiConverterOptionalString.allocationSize(value.`threadOriginatorGuid`) +
+            FfiConverterOptionalString.allocationSize(value.`threadOriginatorPart`) +
+            FfiConverterOptionalString.allocationSize(value.`associatedMessageEmoji`)
+    )
+
+    override fun write(value: UCloudMessage, buf: ByteBuffer) {
+            FfiConverterString.write(value.`guid`, buf)
+            FfiConverterString.write(value.`chatId`, buf)
+            FfiConverterString.write(value.`sender`, buf)
+            FfiConverterLong.write(value.`time`, buf)
+            FfiConverterLong.write(value.`msgType`, buf)
+            FfiConverterLong.write(value.`error`, buf)
+            FfiConverterString.write(value.`service`, buf)
+            FfiConverterLong.write(value.`flagsBits`, buf)
+            FfiConverterOptionalString.write(value.`text`, buf)
+            FfiConverterOptionalString.write(value.`subject`, buf)
+            FfiConverterBoolean.write(value.`hasAttachments`, buf)
+            FfiConverterSequenceString.write(value.`attachmentGuids`, buf)
+            FfiConverterOptionalString.write(value.`balloonBundleId`, buf)
+            FfiConverterBoolean.write(value.`hasPayloadData`, buf)
+            FfiConverterOptionalString.write(value.`summaryInfoJson`, buf)
+            FfiConverterOptionalString.write(value.`effect`, buf)
+            FfiConverterOptionalLong.write(value.`dateReadNs`, buf)
+            FfiConverterOptionalLong.write(value.`dateDeliveredNs`, buf)
+            FfiConverterOptionalLong.write(value.`associatedMessageType`, buf)
+            FfiConverterOptionalString.write(value.`associatedMessageGuid`, buf)
+            FfiConverterOptionalString.write(value.`threadOriginatorGuid`, buf)
+            FfiConverterOptionalString.write(value.`threadOriginatorPart`, buf)
+            FfiConverterOptionalString.write(value.`associatedMessageEmoji`, buf)
+    }
+}
+
+
+
 data class UConversation (
     var `participants`: List<kotlin.String>, 
     var `cvName`: kotlin.String?, 
@@ -8749,6 +9745,41 @@ public object FfiConverterTypeUIndexedPart: FfiConverterRustBuffer<UIndexedPart>
 
 
 
+/**
+ * One message-zone change: `message == None` is a tombstone.
+ */
+data class UMessageChange (
+    var `recordId`: kotlin.String, 
+    var `message`: UCloudMessage?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUMessageChange: FfiConverterRustBuffer<UMessageChange> {
+    override fun read(buf: ByteBuffer): UMessageChange {
+        return UMessageChange(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeUCloudMessage.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UMessageChange) = (
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterOptionalTypeUCloudMessage.allocationSize(value.`message`)
+    )
+
+    override fun write(value: UMessageChange, buf: ByteBuffer) {
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterOptionalTypeUCloudMessage.write(value.`message`, buf)
+    }
+}
+
+
+
 data class UMessageInst (
     /**
      * Staging GUID; matches `Message.stagingGuid` on the persistence side.
@@ -8799,6 +9830,49 @@ public object FfiConverterTypeUMessageInst: FfiConverterRustBuffer<UMessageInst>
             FfiConverterULong.write(value.`sentTimestamp`, buf)
             FfiConverterBoolean.write(value.`sendDelivered`, buf)
             FfiConverterBoolean.write(value.`verificationFailed`, buf)
+    }
+}
+
+
+
+/**
+ * A page from the message zone (`sync_messages`).
+ */
+data class UMessageSyncPage (
+    var `records`: List<UMessageChange>, 
+    var `nextCursor`: kotlin.ByteArray, 
+    var `more`: kotlin.Boolean, 
+    var `status`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUMessageSyncPage: FfiConverterRustBuffer<UMessageSyncPage> {
+    override fun read(buf: ByteBuffer): UMessageSyncPage {
+        return UMessageSyncPage(
+            FfiConverterSequenceTypeUMessageChange.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UMessageSyncPage) = (
+            FfiConverterSequenceTypeUMessageChange.allocationSize(value.`records`) +
+            FfiConverterByteArray.allocationSize(value.`nextCursor`) +
+            FfiConverterBoolean.allocationSize(value.`more`) +
+            FfiConverterInt.allocationSize(value.`status`)
+    )
+
+    override fun write(value: UMessageSyncPage, buf: ByteBuffer) {
+            FfiConverterSequenceTypeUMessageChange.write(value.`records`, buf)
+            FfiConverterByteArray.write(value.`nextCursor`, buf)
+            FfiConverterBoolean.write(value.`more`, buf)
+            FfiConverterInt.write(value.`status`, buf)
     }
 }
 
@@ -8871,6 +9945,100 @@ public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJour
             FfiConverterULong.write(value.`id`, buf)
             FfiConverterUByte.write(value.`attempts`, buf)
             FfiConverterTypeUPushMessage.write(value.`message`, buf)
+    }
+}
+
+
+
+/**
+ * `sync_history` result: summary plus the (possibly mid-run) cursors to
+ * persist so an interrupted run resumes where it stopped.
+ */
+data class USyncOutcome (
+    var `summary`: USyncSummary, 
+    var `chatCursor`: kotlin.ByteArray, 
+    var `messageCursor`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncOutcome: FfiConverterRustBuffer<USyncOutcome> {
+    override fun read(buf: ByteBuffer): USyncOutcome {
+        return USyncOutcome(
+            FfiConverterTypeUSyncSummary.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USyncOutcome) = (
+            FfiConverterTypeUSyncSummary.allocationSize(value.`summary`) +
+            FfiConverterByteArray.allocationSize(value.`chatCursor`) +
+            FfiConverterByteArray.allocationSize(value.`messageCursor`)
+    )
+
+    override fun write(value: USyncOutcome, buf: ByteBuffer) {
+            FfiConverterTypeUSyncSummary.write(value.`summary`, buf)
+            FfiConverterByteArray.write(value.`chatCursor`, buf)
+            FfiConverterByteArray.write(value.`messageCursor`, buf)
+    }
+}
+
+
+
+/**
+ * Totals for one `sync_history` run.
+ */
+data class USyncSummary (
+    var `chatsDone`: kotlin.ULong, 
+    var `chatTombstones`: kotlin.ULong, 
+    var `messagesDone`: kotlin.ULong, 
+    var `messageTombstones`: kotlin.ULong, 
+    var `durationMs`: kotlin.ULong, 
+    /**
+     * Stopped early because `keep_going` returned false.
+     */
+    var `cancelled`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncSummary: FfiConverterRustBuffer<USyncSummary> {
+    override fun read(buf: ByteBuffer): USyncSummary {
+        return USyncSummary(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USyncSummary) = (
+            FfiConverterULong.allocationSize(value.`chatsDone`) +
+            FfiConverterULong.allocationSize(value.`chatTombstones`) +
+            FfiConverterULong.allocationSize(value.`messagesDone`) +
+            FfiConverterULong.allocationSize(value.`messageTombstones`) +
+            FfiConverterULong.allocationSize(value.`durationMs`) +
+            FfiConverterBoolean.allocationSize(value.`cancelled`)
+    )
+
+    override fun write(value: USyncSummary, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`chatsDone`, buf)
+            FfiConverterULong.write(value.`chatTombstones`, buf)
+            FfiConverterULong.write(value.`messagesDone`, buf)
+            FfiConverterULong.write(value.`messageTombstones`, buf)
+            FfiConverterULong.write(value.`durationMs`, buf)
+            FfiConverterBoolean.write(value.`cancelled`, buf)
     }
 }
 
@@ -10858,6 +12026,170 @@ public object FfiConverterTypeURegistrationResult : FfiConverterRustBuffer<URegi
 
 
 
+/**
+ * Which cursors `sync_history` starts from.
+ */
+
+enum class USyncMode {
+    
+    /**
+     * Backfill: ignore stored cursors, start both zones from scratch.
+     */
+    FULL,
+    /**
+     * Resume from the cursors passed in (periodic / on-demand refresh).
+     */
+    INCREMENTAL;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncMode: FfiConverterRustBuffer<USyncMode> {
+    override fun read(buf: ByteBuffer) = try {
+        USyncMode.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: USyncMode) = 4UL
+
+    override fun write(value: USyncMode, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * A single changed record inside a `sync_history` page.
+ */
+sealed class USyncRecord {
+    
+    data class Chat(
+        val `recordId`: kotlin.String, 
+        val `chat`: UCloudChat?) : USyncRecord() {
+        companion object
+    }
+    
+    data class Message(
+        val `recordId`: kotlin.String, 
+        val `message`: UCloudMessage?) : USyncRecord() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
+    override fun read(buf: ByteBuffer): USyncRecord {
+        return when(buf.getInt()) {
+            1 -> USyncRecord.Chat(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalTypeUCloudChat.read(buf),
+                )
+            2 -> USyncRecord.Message(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalTypeUCloudMessage.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: USyncRecord) = when(value) {
+        is USyncRecord.Chat -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`recordId`)
+                + FfiConverterOptionalTypeUCloudChat.allocationSize(value.`chat`)
+            )
+        }
+        is USyncRecord.Message -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`recordId`)
+                + FfiConverterOptionalTypeUCloudMessage.allocationSize(value.`message`)
+            )
+        }
+    }
+
+    override fun write(value: USyncRecord, buf: ByteBuffer) {
+        when(value) {
+            is USyncRecord.Chat -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`recordId`, buf)
+                FfiConverterOptionalTypeUCloudChat.write(value.`chat`, buf)
+                Unit
+            }
+            is USyncRecord.Message -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`recordId`, buf)
+                FfiConverterOptionalTypeUCloudMessage.write(value.`message`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * Availability of CloudKit message-history sync on the live state.
+ */
+
+enum class USyncState {
+    
+    /**
+     * iCloud services + the cloud-messages client are live; sync can run.
+     */
+    AVAILABLE,
+    /**
+     * No Apple/iCloud account on this state (finish login first).
+     */
+    NEEDS_LOGIN,
+    /**
+     * Account exists but the CloudKit messages stack is unavailable (no
+     * keychain — chat/message records could not be decrypted).
+     */
+    NOT_ENABLED;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSyncState: FfiConverterRustBuffer<USyncState> {
+    override fun read(buf: ByteBuffer) = try {
+        USyncState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: USyncState) = 4UL
+
+    override fun write(value: USyncState, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -10916,6 +12248,38 @@ public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
         } else {
             buf.put(1)
             FfiConverterULong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
         }
     }
 }
@@ -11076,6 +12440,70 @@ public object FfiConverterOptionalTypeUProgressCallback: FfiConverterRustBuffer<
         } else {
             buf.put(1)
             FfiConverterTypeUProgressCallback.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUCloudChat: FfiConverterRustBuffer<UCloudChat?> {
+    override fun read(buf: ByteBuffer): UCloudChat? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUCloudChat.read(buf)
+    }
+
+    override fun allocationSize(value: UCloudChat?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUCloudChat.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UCloudChat?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUCloudChat.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessage?> {
+    override fun read(buf: ByteBuffer): UCloudMessage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUCloudMessage.read(buf)
+    }
+
+    override fun allocationSize(value: UCloudMessage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUCloudMessage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UCloudMessage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUCloudMessage.write(value, buf)
         }
     }
 }
@@ -11298,6 +12726,34 @@ public object FfiConverterSequenceTypeSavedPassword: FfiConverterRustBuffer<List
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeUChatChange: FfiConverterRustBuffer<List<UChatChange>> {
+    override fun read(buf: ByteBuffer): List<UChatChange> {
+        val len = buf.getInt()
+        return List<UChatChange>(len) {
+            FfiConverterTypeUChatChange.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UChatChange>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUChatChange.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UChatChange>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUChatChange.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeUIndexedPart: FfiConverterRustBuffer<List<UIndexedPart>> {
     override fun read(buf: ByteBuffer): List<UIndexedPart> {
         val len = buf.getInt()
@@ -11316,6 +12772,34 @@ public object FfiConverterSequenceTypeUIndexedPart: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUIndexedPart.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUMessageChange: FfiConverterRustBuffer<List<UMessageChange>> {
+    override fun read(buf: ByteBuffer): List<UMessageChange> {
+        val len = buf.getInt()
+        return List<UMessageChange>(len) {
+            FfiConverterTypeUMessageChange.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UMessageChange>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUMessageChange.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UMessageChange>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUMessageChange.write(it, buf)
         }
     }
 }
@@ -11456,6 +12940,34 @@ public object FfiConverterSequenceTypeKeystorePadding: FfiConverterRustBuffer<Li
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeKeystorePadding.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUSyncRecord: FfiConverterRustBuffer<List<USyncRecord>> {
+    override fun read(buf: ByteBuffer): List<USyncRecord> {
+        val len = buf.getInt()
+        return List<USyncRecord>(len) {
+            FfiConverterTypeUSyncRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<USyncRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUSyncRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<USyncRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUSyncRecord.write(it, buf)
         }
     }
 }

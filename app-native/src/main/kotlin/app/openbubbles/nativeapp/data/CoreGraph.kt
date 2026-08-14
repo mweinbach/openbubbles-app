@@ -345,11 +345,13 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         CoreGraph.startQueueDrainer()
+        NativeMainActivity.appContext?.let { CloudSyncWiring.onStateInstalled(it, state) }
     }
 
     fun clear() {
         _state.value = null
         _myHandles.value = emptySet()
+        CloudSyncWiring.clear()
     }
 }
 

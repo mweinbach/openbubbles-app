@@ -15,6 +15,10 @@
 //! with plist-XML persistence for transfer state across restarts),
 //! edit/unsend, and group operations (rename, participants, leave, icon).
 //!
+//! Batch 4 (M0.5): CloudKit message-history sync — paged chat/message
+//! pulls with caller-owned continuation cursors, remote tombstone deletes,
+//! and a coarse `sync_history` driver with progress + cooperative cancel.
+//!
 //! Design notes:
 //! - rustpush's protocol types can't derive UniFFI traits (they live in the
 //!   upstream crate), so every type crossing the FFI boundary is mirrored
@@ -1715,5 +1719,533 @@ impl NativePushState {
         let msg = Message::IconChange(IconChangeMessage { file: None, group_version });
         let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
         send_inst(self.shared(), inst)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 4: CloudKit message-history sync
+// ---------------------------------------------------------------------------
+//
+// Mirrors the download half of the Dart `doCloudKitSyncPrivate` loop
+// (lib/services/rustpush/rustpush_service.dart) over the FRB surface in
+// api.rs (`sync_chats` / `sync_messages` / `delete_chats` / `delete_messages`):
+//
+// - CloudKit zones page with an opaque continuation token (bytes). The
+//   caller OWNS the token: pass the previous page's `next_cursor` back in
+//   and persist it only after the page was applied (the Dart app kept them
+//   as base64 prefs: chatSyncToken / messageSyncToken). A page ends when the
+//   zone status reaches 3 (`more == false`).
+// - Records arrive as `record_id -> Option<T>` maps: `None` is a tombstone
+//   (the record was deleted in iCloud — delete the local row matched by
+//   ckRecordId).
+// - Deletions the app performed locally must be pushed BEFORE pulling, or
+//   the pull resurrects them (Dart flushed its `*DeletionIds-1` pref queues
+//   first) — hence `delete_chats_remote` / `delete_messages_remote`.
+// - Two drive styles: pull pages yourself through `sync_chats_page` /
+//   `sync_messages_page` (what core's CloudSyncManager does, so cursors and
+//   progress live in Kotlin), or use the coarse `sync_history` driver that
+//   runs both zones in Rust and streams records + running counts through
+//   `USyncPageCallback` (cooperatively cancellable between pages).
+//
+// The up/upload half (save_chats / save_messages, the Dart `uploadMessages`
+// flow) is deliberately NOT part of batch 4 — this surface only backfills /
+// incrementally updates local history from iCloud.
+
+use rustpush::cloud_messages::{CloudChat, CloudMessage, CloudMessagesClient, MessageSummaryInfo};
+use rustpush::{coder_decode_flattened, NSAttributedString, NSString};
+
+/// Availability of CloudKit message-history sync on the live state.
+#[derive(uniffi::Enum)]
+pub enum USyncState {
+    /// iCloud services + the cloud-messages client are live; sync can run.
+    Available,
+    /// No Apple/iCloud account on this state (finish login first).
+    NeedsLogin,
+    /// Account exists but the CloudKit messages stack is unavailable (no
+    /// keychain — chat/message records could not be decrypted).
+    NotEnabled,
+}
+
+/// Which cursors `sync_history` starts from.
+#[derive(uniffi::Enum)]
+pub enum USyncMode {
+    /// Backfill: ignore stored cursors, start both zones from scratch.
+    Full,
+    /// Resume from the cursors passed in (periodic / on-demand refresh).
+    Incremental,
+}
+
+/// Mirror of the `chatEncryptedv2` CloudKit record — only the fields the
+/// persistence layer maps onto the Chat entity.
+#[derive(uniffi::Record)]
+pub struct UCloudChat {
+    /// Chat guid (`iMessage;+/-;chatIdentifier`).
+    pub guid: String,
+    /// 43 = group chat, 45 = normal.
+    pub style: i64,
+    pub chat_identifier: String,
+    /// Cloud-side chat guid (`Chat.cloudGuid`).
+    pub group_id: String,
+    /// "iMessage" for real chats; the Dart loop skipped everything else.
+    pub service_name: String,
+    /// Participant uris (`tel:`/`mailto:` prefixed), including mine.
+    pub participants: Vec<String>,
+    /// The account handle that last addressed the chat.
+    pub last_addressed_handle: String,
+    pub display_name: Option<String>,
+    /// `CloudProp.pv` — group version; only apply changes when the cloud
+    /// version is newer than the local one.
+    pub group_version: Option<u32>,
+    /// `CloudProp.lastSeenMessageGuid` → `Chat.lastReadMessageGuid`.
+    pub last_seen_message_guid: Option<String>,
+    /// ns since the Apple epoch (2001-01-01) → `Chat.dbOnlyLatestMessageDate`.
+    pub last_read_message_timestamp: i64,
+    /// A group-photo asset rides on the record (the image itself downloads
+    /// through the attachment batch).
+    pub has_group_photo: bool,
+}
+
+/// Mirror of the `MessageEncryptedv3` CloudKit record with the gzipped
+/// `msgProto` already decoded: flattened text (plain field or attributed
+/// body), attachment guids (converted to the local `<msgGuid>_<part>` form),
+/// thread/association/receipt fields.
+#[derive(uniffi::Record)]
+pub struct UCloudMessage {
+    pub guid: String,
+    /// Chat reference: `iMessage;+/-;chatIdentifier` (contains `;`) or the
+    /// chat's cloud guid / rust guid.
+    pub chat_id: String,
+    /// Sender (`tel:`/`mailto:` handle) — empty for some system messages.
+    pub sender: String,
+    /// ns since the Apple epoch.
+    pub time: i64,
+    pub msg_type: i64,
+    pub error: i64,
+    pub service: String,
+    /// Raw `MessageFlags` bits (bit 2 = IS_FROM_ME).
+    pub flags_bits: i64,
+    /// Flattened text: the plain `text` field, else the attributed-body
+    /// string.
+    pub text: Option<String>,
+    pub subject: Option<String>,
+    /// Attributed body contains file-transfer runs.
+    pub has_attachments: bool,
+    /// Local-form attachment guids (`at_X_Y` cloud form converted).
+    pub attachment_guids: Vec<String>,
+    pub balloon_bundle_id: Option<String>,
+    /// An app balloon payload is attached (raw payload decode is a later
+    /// batch; the flag preserves `hasApplePayloadData`).
+    pub has_payload_data: bool,
+    /// `msgProto.messageSummaryInfo` (edits/retractions) serialized to JSON.
+    pub summary_info_json: Option<String>,
+    pub effect: Option<String>,
+    /// ns since the Apple epoch, 0 mapped to none.
+    pub date_read_ns: Option<i64>,
+    pub date_delivered_ns: Option<i64>,
+    /// Raw associated-message type code (2 sticker, 2000+ tapback,
+    /// 3000+ tapback-removed) — the caller maps to the REACTION_* strings.
+    pub associated_message_type: Option<i64>,
+    pub associated_message_guid: Option<String>,
+    /// Parsed from `msgProto2.reply` (`r:<part>:<guid>`).
+    pub thread_originator_guid: Option<String>,
+    pub thread_originator_part: Option<String>,
+    /// From `msgProto4`.
+    pub associated_message_emoji: Option<String>,
+}
+
+/// One chat-zone change: `chat == None` is a tombstone.
+#[derive(uniffi::Record)]
+pub struct UChatChange {
+    pub record_id: String,
+    pub chat: Option<UCloudChat>,
+}
+
+/// One message-zone change: `message == None` is a tombstone.
+#[derive(uniffi::Record)]
+pub struct UMessageChange {
+    pub record_id: String,
+    pub message: Option<UCloudMessage>,
+}
+
+/// A page from the chat zone (`sync_chats`).
+#[derive(uniffi::Record)]
+pub struct UChatSyncPage {
+    pub records: Vec<UChatChange>,
+    /// Continuation token for the next page — persist after applying.
+    pub next_cursor: Vec<u8>,
+    /// CloudKit zone status reached 3 (no more changes pending).
+    pub more: bool,
+    pub status: i32,
+}
+
+/// A page from the message zone (`sync_messages`).
+#[derive(uniffi::Record)]
+pub struct UMessageSyncPage {
+    pub records: Vec<UMessageChange>,
+    pub next_cursor: Vec<u8>,
+    pub more: bool,
+    pub status: i32,
+}
+
+/// Totals for one `sync_history` run.
+#[derive(uniffi::Record)]
+pub struct USyncSummary {
+    pub chats_done: u64,
+    pub chat_tombstones: u64,
+    pub messages_done: u64,
+    pub message_tombstones: u64,
+    pub duration_ms: u64,
+    /// Stopped early because `keep_going` returned false.
+    pub cancelled: bool,
+}
+
+/// `sync_history` result: summary plus the (possibly mid-run) cursors to
+/// persist so an interrupted run resumes where it stopped.
+#[derive(uniffi::Record)]
+pub struct USyncOutcome {
+    pub summary: USyncSummary,
+    pub chat_cursor: Vec<u8>,
+    pub message_cursor: Vec<u8>,
+}
+
+/// Page callback for the coarse `sync_history` driver. Methods run
+/// synchronously on the thread that called `sync_history`, between pages —
+/// persist/emit there, but never re-enter Rust from inside them.
+#[uniffi::export(with_foreign)]
+pub trait USyncPageCallback: Send + Sync + Debug {
+    /// One page of changes with running totals. Chat pages arrive first
+    /// (records contain only `USyncRecord::Chat`), then message pages.
+    fn on_page(&self, records: Vec<USyncRecord>, chats_done: u64, messages_done: u64);
+    /// Cooperative cancellation — checked before every page. Return false
+    /// to stop the run (already-received pages stay applied; the outcome
+    /// carries the cursors reached).
+    fn keep_going(&self) -> bool;
+}
+
+/// A single changed record inside a `sync_history` page.
+#[derive(uniffi::Enum)]
+pub enum USyncRecord {
+    Chat { record_id: String, chat: Option<UCloudChat> },
+    Message { record_id: String, message: Option<UCloudMessage> },
+}
+
+fn cloud_messages_client(state: &SharedPushState) -> Result<Arc<CloudMessagesClient<DefaultAnisetteProvider>>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|s| s.cloud_messages_client.clone())
+        .ok_or_else(|| {
+            UError::NotReady { reason: "iCloud message sync unavailable: no iCloud account or keychain".to_string() }
+        })
+}
+
+fn conv_chat(c: &CloudChat) -> UCloudChat {
+    UCloudChat {
+        guid: c.guid.clone(),
+        style: c.style,
+        chat_identifier: c.chat_identifier.clone(),
+        group_id: c.group_id.clone(),
+        service_name: c.service_name.clone(),
+        participants: c.participants.iter().map(|p| p.uri.clone()).collect(),
+        last_addressed_handle: c.last_addressed_handle.clone(),
+        display_name: c.display_name.clone(),
+        group_version: c.properties.as_ref().and_then(|p| p.pv),
+        last_seen_message_guid: c.properties.as_ref().and_then(|p| p.last_seen_message_guid.clone()),
+        last_read_message_timestamp: c.last_read_message_timestamp,
+        has_group_photo: c.group_photo.is_some(),
+    }
+}
+
+/// Dart `convertAttachmentGuid`: cloud `at_<msgGuid>_<part>` -> local
+/// `<msgGuid>_<part>`.
+fn convert_attachment_guid(guid: &str) -> String {
+    if guid.starts_with("at") {
+        let items: Vec<&str> = guid.split('_').collect();
+        if items.len() >= 3 {
+            return format!("{}_{}", items[2], items[1]);
+        }
+    }
+    guid.to_string()
+}
+
+/// Decode a streamtyped attributed body into (text, attachment guids).
+/// Decoder panics on malformed input — caught per value, matching the Dart
+/// side's tolerance for odd payloads.
+fn decode_attributed(data: &[u8]) -> Option<(String, Vec<String>)> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut text = String::new();
+        let mut attachments: Vec<String> = Vec::new();
+        for value in coder_decode_flattened(data) {
+            let decoded = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                NSAttributedString::decode(&value)
+            })) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            if text.is_empty() {
+                text = decoded.text.clone();
+            }
+            for (_len, dict) in &decoded.ranges {
+                if let Some(guid_value) = dict.0.get("__kIMFileTransferGUIDAttributeName") {
+                    if let Ok(ns) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        NSString::decode(guid_value)
+                    })) {
+                        attachments.push(convert_attachment_guid(&ns.0));
+                    }
+                }
+            }
+        }
+        (text, attachments)
+    }))
+    .ok()
+}
+
+/// Dart `applyFromCloud` thread parsing: `msgProto2.reply` holds
+/// `r:<part>:<originatorGuid>` -> (guid, part).
+fn thread_originators(p2: Option<&rustpush::cloud_messages::GZipWrapper<rustpush::cloud_messages::cloudmessagesp::MessageProto2>>) -> Option<(String, String)> {
+    let reply = p2?.0.reply.as_ref()?;
+    if !reply.starts_with("r:") {
+        return None;
+    }
+    let parts: Vec<&str> = reply.split(':').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    Some((parts[parts.len() - 1].to_string(), parts[1..parts.len() - 1].join(":")))
+}
+
+fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
+    let proto = &c.msg_proto.0;
+
+    // Flattened text: the plain field wins, else the attributed-body string
+    // (most messages only carry the attributed body).
+    let mut text = proto.text.clone();
+    let mut attachment_guids: Vec<String> = Vec::new();
+    if let Some(body) = &proto.attributed_body {
+        if let Some((body_text, guids)) = decode_attributed(body) {
+            if text.as_deref().unwrap_or("").is_empty() {
+                text = Some(body_text);
+            }
+            attachment_guids = guids;
+        }
+    }
+
+    let (thread_guid, thread_part) = match thread_originators(c.msg_proto_2.as_ref()) {
+        Some((guid, part)) => (Some(guid), Some(part)),
+        None => (None, None),
+    };
+
+    // Edits/retractions: plist-encoded MessageSummaryInfo -> JSON for the
+    // entity's dbMessageSummaryInfo.
+    let summary_info_json = proto.message_summary_info.as_ref().and_then(|bytes| {
+        plist::from_bytes::<MessageSummaryInfo>(bytes)
+            .ok()
+            .and_then(|s| serde_json::to_string(&s).ok())
+    });
+
+    UCloudMessage {
+        guid: c.guid.clone(),
+        chat_id: c.chat_id.clone(),
+        sender: c.sender.clone(),
+        time: c.time,
+        msg_type: c.r#type,
+        error: c.error,
+        service: c.service.clone(),
+        flags_bits: c.flags.bits(),
+        text,
+        subject: proto.subject.clone(),
+        has_attachments: !attachment_guids.is_empty(),
+        attachment_guids,
+        balloon_bundle_id: proto.balloon_bundle_id.clone(),
+        has_payload_data: proto.payload_data.is_some(),
+        summary_info_json,
+        effect: proto.effect.clone(),
+        date_read_ns: proto.date_read.filter(|t| *t != 0).map(|t| t as i64),
+        date_delivered_ns: proto.date_delivered.filter(|t| *t != 0).map(|t| t as i64),
+        associated_message_type: proto.associated_message_type.map(|t| t as i64),
+        associated_message_guid: proto.associated_message_guid.clone(),
+        thread_originator_guid: thread_guid,
+        thread_originator_part: thread_part,
+        associated_message_emoji: c.msg_proto_4.as_ref().and_then(|p4| p4.0.associated_message_emoji.clone()),
+    }
+}
+
+fn sync_err(e: impl std::fmt::Display) -> UError {
+    UError::Failed { reason: format!("cloudkit sync failed: {e}") }
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// Whether CloudKit message-history sync can run on this state.
+    pub fn cloud_sync_state(&self) -> USyncState {
+        match &self.shared().icloud_services {
+            None => USyncState::NeedsLogin,
+            Some(services) => {
+                if services.cloud_messages_client.is_some() && services.keychain.is_some() {
+                    USyncState::Available
+                } else {
+                    USyncState::NotEnabled
+                }
+            }
+        }
+    }
+
+    /// Circle membership check — the Dart sync loop skipped (and disabled
+    /// cloud syncing) when the device fell out of the iCloud clique.
+    pub fn is_in_clique(&self) -> Result<bool, UError> {
+        let keychain = self
+            .shared()
+            .icloud_services
+            .as_ref()
+            .and_then(|s| s.keychain.clone())
+            .ok_or_else(|| UError::NotReady { reason: "no keychain on this state".to_string() })?;
+        Ok(RUNTIME.block_on(api::is_in_clique(&keychain)))
+    }
+
+    /// Pull one page of chat changes (`sync_chats`). Pass the previous
+    /// page's `next_cursor` (none for the first page); persist the returned
+    /// cursor after applying the records. `more == false` ends the zone.
+    pub fn sync_chats_page(&self, cursor: Option<Vec<u8>>) -> Result<UChatSyncPage, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let (next, items, status) =
+            RUNTIME.block_on(api::sync_chats(&client, cursor)).map_err(sync_err)?;
+        Ok(UChatSyncPage {
+            records: items
+                .into_iter()
+                .map(|(record_id, chat)| UChatChange { record_id, chat: chat.as_ref().map(conv_chat) })
+                .collect(),
+            next_cursor: next,
+            more: status != 3,
+            status,
+        })
+    }
+
+    /// Pull one page of message changes (`sync_messages`). Same cursor
+    /// contract as `sync_chats_page`.
+    pub fn sync_messages_page(&self, cursor: Option<Vec<u8>>) -> Result<UMessageSyncPage, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let (next, items, status) =
+            RUNTIME.block_on(api::sync_messages(&client, cursor)).map_err(sync_err)?;
+        Ok(UMessageSyncPage {
+            records: items
+                .into_iter()
+                .map(|(record_id, message)| UMessageChange {
+                    record_id,
+                    message: message.as_ref().map(conv_cloud_message),
+                })
+                .collect(),
+            next_cursor: next,
+            more: status != 3,
+            status,
+        })
+    }
+
+    /// Push local deletions to iCloud BEFORE pulling (`delete_chats`);
+    /// otherwise the pull resurrects rows the user removed. Flushes the
+    /// caller's pending-delete queues like Dart's `chatDeletionIds-1`.
+    pub fn delete_chats_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+        let client = cloud_messages_client(self.shared())?;
+        RUNTIME.block_on(api::delete_chats(&client, &record_ids)).map_err(sync_err)
+    }
+
+    /// Push local message deletions to iCloud (`delete_messages`).
+    pub fn delete_messages_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+        let client = cloud_messages_client(self.shared())?;
+        RUNTIME.block_on(api::delete_messages(&client, &record_ids)).map_err(sync_err)
+    }
+
+    /// Coarse driver: pull both zones (chats, then messages) to completion,
+    /// streaming every page's records + running counts through `on_page`.
+    /// `mode` picks the start cursors — `Full` ignores the passed cursors,
+    /// `Incremental` resumes from them. Runs entirely on the calling thread
+    /// (`RUNTIME.block_on` per page); cooperative cancellation is checked
+    /// between pages via `keep_going`. Returns the summary and the cursors
+    /// reached — persist them either way, treating an EMPTY cursor as
+    /// "zone never pulled a page" (i.e. keep the previously stored one).
+    /// Per-record failures are the callback's concern — the Rust loop only
+    /// aborts on transport errors.
+    pub fn sync_history(
+        &self,
+        chat_cursor: Option<Vec<u8>>,
+        message_cursor: Option<Vec<u8>>,
+        mode: USyncMode,
+        on_page: Arc<dyn USyncPageCallback>,
+    ) -> Result<USyncOutcome, UError> {
+        let started = std::time::Instant::now();
+        let client = cloud_messages_client(self.shared())?;
+        let mut summary = USyncSummary {
+            chats_done: 0,
+            chat_tombstones: 0,
+            messages_done: 0,
+            message_tombstones: 0,
+            duration_ms: 0,
+            cancelled: false,
+        };
+
+        let mut chat_cursor = if matches!(mode, USyncMode::Full) { None } else { chat_cursor };
+        'chats: loop {
+            if !on_page.keep_going() {
+                summary.cancelled = true;
+                break 'chats;
+            }
+            let (next, items, status) =
+                RUNTIME.block_on(api::sync_chats(&client, chat_cursor.clone())).map_err(sync_err)?;
+            chat_cursor = Some(next);
+            let mut records = Vec::with_capacity(items.len());
+            for (record_id, chat) in items {
+                match chat {
+                    Some(c) => {
+                        summary.chats_done += 1;
+                        records.push(USyncRecord::Chat { record_id, chat: Some(conv_chat(&c)) });
+                    }
+                    None => {
+                        summary.chat_tombstones += 1;
+                        records.push(USyncRecord::Chat { record_id, chat: None });
+                    }
+                }
+            }
+            on_page.on_page(records, summary.chats_done, summary.messages_done);
+            if status == 3 {
+                break 'chats;
+            }
+        }
+
+        let mut message_cursor = if matches!(mode, USyncMode::Full) { None } else { message_cursor };
+        if !summary.cancelled {
+            'messages: loop {
+                if !on_page.keep_going() {
+                    summary.cancelled = true;
+                    break 'messages;
+                }
+                let (next, items, status) = RUNTIME
+                    .block_on(api::sync_messages(&client, message_cursor.clone()))
+                    .map_err(sync_err)?;
+                message_cursor = Some(next);
+                let mut records = Vec::with_capacity(items.len());
+                for (record_id, message) in items {
+                    match message {
+                        Some(m) => {
+                            summary.messages_done += 1;
+                            records.push(USyncRecord::Message { record_id, message: Some(conv_cloud_message(&m)) });
+                        }
+                        None => {
+                            summary.message_tombstones += 1;
+                            records.push(USyncRecord::Message { record_id, message: None });
+                        }
+                    }
+                }
+                on_page.on_page(records, summary.chats_done, summary.messages_done);
+                if status == 3 {
+                    break 'messages;
+                }
+            }
+        }
+
+        summary.duration_ms = started.elapsed().as_millis() as u64;
+        Ok(USyncOutcome {
+            summary,
+            chat_cursor: chat_cursor.unwrap_or_default(),
+            message_cursor: message_cursor.unwrap_or_default(),
+        })
     }
 }
