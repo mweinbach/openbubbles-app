@@ -11,15 +11,23 @@
 //! inside the `ULoginSession` object; Kotlin only drives the coarse flow and
 //! reacts to `ULoginDelegate` callbacks.
 //!
+//! Batch 3 (M0.4): attachments (incoming download / outgoing upload+send,
+//! with plist-XML persistence for transfer state across restarts),
+//! edit/unsend, and group operations (rename, participants, leave, icon).
+//!
 //! Design notes:
 //! - rustpush's protocol types can't derive UniFFI traits (they live in the
 //!   upstream crate), so every type crossing the FFI boundary is mirrored
 //!   into a `U*` record/enum here. Core iMessage semantics are mapped
 //!   field-by-field; exotic variants carry `serde_json` strings under
 //!   `*_json` fields so nothing is lost while Kotlin stays typed for MVP.
-//! - Attachment transport details (`AttachmentType::MMCS`/`Inline`) stay in
-//!   Rust; Kotlin gets mime/uti/name and drives transfer through the
-//!   dedicated attachment APIs (batch 2).
+//! - Raw attachment transport data (`AttachmentType::MMCS`/`Inline`) stays
+//!   in Rust: `UPart::Attachment.xml` carries the plist-XML blob the Dart
+//!   app persisted under `metadata["rustpush"]`, `restore_attachment`
+//!   turns it back into an opaque `UAttachment`, and the transfer methods
+//!   on `NativePushState` drive the bytes.
+//! - Transfer progress uses the plain `UProgressCallback` trait (the UniFFI
+//!   equivalent of FRB's StreamSink progress events).
 //! - Exports are synchronous and drive the global RUNTIME via `block_on`.
 //!   Kotlin callers should stay off the main thread (they already run on
 //!   Dispatchers.IO in the service layer).
@@ -83,7 +91,10 @@ pub struct UConversation {
 #[derive(uniffi::Enum)]
 pub enum UPart {
     Text { text: String, format_json: String },
-    Attachment { part: u64, uti: String, mime: String, name: String, iris: bool },
+    /// `xml` is the serialized rustpush `Attachment` (plist XML) — persist it
+    /// (the Dart app stored it as `attachment.metadata["rustpush"]`) and feed
+    /// it back through `restore_attachment` to download later.
+    Attachment { part: u64, uti: String, mime: String, name: String, iris: bool, xml: String },
     Mention { mention: String, text: String },
     Object { json: String },
 }
@@ -120,7 +131,10 @@ pub enum UMessage {
     Typing { typing: bool },
     Unsend { tuuid: String, edit_part: u64 },
     Edit { tuuid: String, edit_part: u64, parts: Vec<UIndexedPart> },
-    IconChange { json: String },
+    /// `icon_xml` is the serialized `MMCSFile` (plist XML) when a new group
+    /// photo was attached — pass it to `NativePushState.download_mmcs` to
+    /// fetch the image.
+    IconChange { json: String, icon_xml: Option<String> },
     SmsConfirmSent { status: bool },
     EnableSmsActivation { enable: bool },
     MessageReadOnDevice,
@@ -198,6 +212,7 @@ fn conv_part(p: &MessagePart) -> UPart {
             mime: a.mime.clone(),
             name: a.name.clone(),
             iris: a.iris,
+            xml: to_plist_xml(a).unwrap_or_default(),
         },
         MessagePart::Mention(m, t) => UPart::Mention { mention: m.clone(), text: t.clone() },
         MessagePart::Object(o) => UPart::Object { json: o.clone() },
@@ -250,7 +265,10 @@ fn conv_message(m: &Message) -> UMessage {
             edit_part: *edit_part,
             parts: conv_parts(new_parts),
         },
-        Message::IconChange(IconChangeMessage { .. }) => UMessage::IconChange { json: j(m) },
+        Message::IconChange(IconChangeMessage { file, .. }) => UMessage::IconChange {
+            json: j(m),
+            icon_xml: file.as_ref().and_then(|f| to_plist_xml(f).ok()),
+        },
         Message::EnableSmsActivation(e) => UMessage::EnableSmsActivation { enable: *e },
         Message::MessageReadOnDevice => UMessage::MessageReadOnDevice,
         Message::SmsConfirmSent(status) => UMessage::SmsConfirmSent { status: *status },
@@ -1242,5 +1260,439 @@ impl NativePushState {
             .block_on(api::get_regstate(&self.shared().client))
             .map(conv_regstate)
             .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batch 3: attachments, edit/unsend, group operations
+// ---------------------------------------------------------------------------
+//
+// Mirrors the Dart surfaces in lib/services/rustpush/rustpush_service.dart:
+// - incoming download: `downloadAttachment` (writes to `path`, progress) —
+//   Kotlin passes the plist-XML blob persisted alongside the attachment.
+// - outgoing upload: `uploadAttachment` -> `Attachment::new_mmcs`, then a
+//   NormalMessage carrying the Attachment part (`sendAttachment` here does
+//   both in one call; `upload_attachment` exposes the upload alone so the
+//   XML can be persisted before the message is sent, like Dart did).
+// - edit/unsend: EditMessage/UnsendMessage via `new_msg` (same shape the
+//   Dart `edit`/`unsend` overrides build).
+// - group ops: RenameMessage / ChangeParticipantMessage (Dart
+//   `renameChat`/`chatParticipant`/`leaveChat`) and IconChangeMessage fed by
+//   an `uploadMmcs` upload (Dart `setChatIcon`/`deleteChatIcon`).
+//
+// `group_version` is tracked by Kotlin (bump it by one on every group
+// mutation, starting from the version of the last incoming
+// ChangeParticipants/IconChange message — mirrors Dart's
+// `chat.groupVersion = (chat.groupVersion ?? -1) + 1`).
+
+use std::io::{Cursor, Seek, Write};
+use std::path::Path;
+
+use rustpush::{Attachment, AttachmentType, MMCSFile, TextFormat};
+
+/// Byte-level progress for attachment transfers. Mirrors FRB's
+/// `TransferProgress` stream events. `total` may be 0 when the size is not
+/// (yet) known. Callbacks fire synchronously from inside the transfer —
+/// treat the thread as unspecified and never re-enter Rust from one.
+#[uniffi::export(with_foreign)]
+pub trait UProgressCallback: Send + Sync + Debug {
+    fn on_progress(&self, done: u64, total: u64);
+}
+
+fn progress_cb(progress: Option<Arc<dyn UProgressCallback>>) -> impl FnMut(usize, usize) + Send + Sync + 'static {
+    move |done, total| {
+        if let Some(cb) = progress.as_ref() {
+            cb.on_progress(done as u64, total as u64);
+        }
+    }
+}
+
+fn attachment_from_xml(xml: &str) -> Result<Attachment, UError> {
+    plist::from_reader_xml(Cursor::new(xml))
+        .map_err(|e| UError::InvalidArgument { reason: format!("invalid attachment data: {e}") })
+}
+
+fn mmcs_from_xml(xml: &str) -> Result<MMCSFile, UError> {
+    plist::from_reader_xml(Cursor::new(xml))
+        .map_err(|e| UError::InvalidArgument { reason: format!("invalid mmcs file data: {e}") })
+}
+
+fn to_plist_xml<T: Serialize>(value: &T) -> Result<String, UError> {
+    let mut buf = Vec::new();
+    plist::to_writer_xml(Cursor::new(&mut buf), value)
+        .map_err(|e| UError::Failed { reason: format!("failed to serialize plist: {e}") })?;
+    String::from_utf8(buf).map_err(|e| UError::Failed { reason: format!("plist was not utf-8: {e}") })
+}
+
+fn create_dest(dest_path: &str) -> Result<std::fs::File, UError> {
+    let path = Path::new(dest_path);
+    if let Some(prefix) = path.parent() {
+        if !prefix.as_os_str().is_empty() {
+            std::fs::create_dir_all(prefix)
+                .map_err(|e| UError::Failed { reason: format!("failed to create directory {}: {e}", prefix.display()) })?;
+        }
+    }
+    std::fs::File::create(path)
+        .map_err(|e| UError::Failed { reason: format!("failed to create {dest_path}: {e}") })
+}
+
+/// Upload a local file to MMCS as an iMessage attachment (the
+/// `Attachment::new_mmcs` path from api.rs `upload_attachment`). Returns the
+/// opaque attachment; persist it with `UAttachment::save_attachment` so the
+/// transfer survives restarts, or send it right away with `send_attachment`.
+fn upload_attachment_inner(
+    conn: &rustpush::APSConnection,
+    file_path: String,
+    mime: String,
+    uti: String,
+    name: Option<String>,
+    progress: Option<Arc<dyn UProgressCallback>>,
+) -> Result<Attachment, UError> {
+    let path = Path::new(&file_path);
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| UError::InvalidArgument { reason: format!("cannot open {}: {e}", path.display()) })?;
+    let prepared = RUNTIME
+        .block_on(MMCSFile::prepare_put(&mut file))
+        .map_err(|e| UError::Failed { reason: format!("failed to prepare attachment: {e}") })?;
+    file.rewind()
+        .map_err(|e| UError::Failed { reason: format!("failed to rewind {}: {e}", path.display()) })?;
+    let name = name.unwrap_or_else(|| {
+        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "attachment".to_string())
+    });
+    RUNTIME
+        .block_on(Attachment::new_mmcs(conn, &prepared, file, &mime, &uti, &name, progress_cb(progress)))
+        .map_err(|e| UError::Failed { reason: format!("attachment upload failed: {e}") })
+}
+
+/// UPart -> MessagePart (needed for edit-message parts coming from Kotlin).
+fn back_part(p: UPart) -> Result<MessagePart, UError> {
+    match p {
+        UPart::Text { text, format_json } => {
+            let format = if format_json.is_empty() {
+                TextFormat::default()
+            } else {
+                serde_json::from_str(&format_json)
+                    .map_err(|e| UError::InvalidArgument { reason: format!("bad format json: {e}") })?
+            };
+            Ok(MessagePart::Text(text, format))
+        }
+        UPart::Attachment { xml, .. } => Ok(MessagePart::Attachment(attachment_from_xml(&xml)?)),
+        UPart::Mention { mention, text } => Ok(MessagePart::Mention(mention, text)),
+        UPart::Object { json } => Ok(MessagePart::Object(json)),
+    }
+}
+
+fn back_parts(parts: Vec<UIndexedPart>) -> Result<MessageParts, UError> {
+    let mut out = Vec::with_capacity(parts.len());
+    for ip in parts {
+        let part = back_part(ip.part)?;
+        out.push(IndexedMessagePart {
+            part,
+            idx: ip.idx.map(|i| i as usize),
+            ext: None,
+        });
+    }
+    Ok(MessageParts(out))
+}
+
+/// Opaque handle to a rustpush attachment (restored incoming metadata or a
+/// fresh `upload_attachment` result). Persist across restarts via the
+/// plist-XML round trip `save_attachment` / `restore_attachment` — the same
+/// blob the Dart app kept under `attachment.metadata["rustpush"]`.
+#[derive(uniffi::Object)]
+pub struct UAttachment {
+    inner: Attachment,
+}
+
+/// Parse a persisted attachment (plist XML from `UPart::Attachment.xml` or
+/// `UAttachment::save_attachment`). Mirrors api.rs `restore_attachment`.
+#[uniffi::export]
+pub fn restore_attachment(xml: String) -> Result<Arc<UAttachment>, UError> {
+    Ok(Arc::new(UAttachment { inner: attachment_from_xml(&xml)? }))
+}
+
+#[uniffi::export]
+impl UAttachment {
+    pub fn uti(&self) -> String {
+        self.inner.uti_type.clone()
+    }
+
+    pub fn mime(&self) -> String {
+        self.inner.mime.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    /// Part index this attachment occupies in its message.
+    pub fn part_index(&self) -> u64 {
+        self.inner.part
+    }
+
+    /// Live-photo / iris flag.
+    pub fn iris(&self) -> bool {
+        self.inner.iris
+    }
+
+    /// Whether the attachment payload is embedded inline (already have the
+    /// bytes — no MMCS transfer needed; `total_size` is the payload length).
+    pub fn is_inline(&self) -> bool {
+        matches!(self.inner.a_type, AttachmentType::Inline(_))
+    }
+
+    /// Transfer size in bytes (inline payload length or MMCS file size).
+    pub fn total_size(&self) -> u64 {
+        self.inner.get_size() as u64
+    }
+
+    /// Serialize for persistence (mirrors api.rs `save_attachment`).
+    pub fn save_attachment(&self) -> Result<String, UError> {
+        to_plist_xml(&self.inner)
+    }
+}
+
+#[uniffi::export]
+impl NativePushState {
+    /// Download an incoming attachment to `dest_path` (Kotlin chose the
+    /// path; parent directories are created). Mirrors the api.rs
+    /// `download_attachment` sink loop, including inline attachments (bytes
+    /// written straight to the file).
+    pub fn download_attachment(
+        &self,
+        attachment: Arc<UAttachment>,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        let mut file = create_dest(&dest_path)?;
+        RUNTIME
+            .block_on(attachment.inner.get_attachment(&self.shared().conn, &mut file, progress_cb(progress)))
+            .map_err(|e| UError::Failed { reason: format!("attachment download failed: {e}") })?;
+        file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
+        Ok(())
+    }
+
+    /// Download a bare MMCS file (e.g. a group icon from
+    /// `UMessage.IconChange.icon_xml`) to `dest_path`.
+    pub fn download_mmcs(
+        &self,
+        mmcs_xml: String,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        let mmcs = mmcs_from_xml(&mmcs_xml)?;
+        let mut file = create_dest(&dest_path)?;
+        RUNTIME
+            .block_on(mmcs.get_attachment(&self.shared().conn, &mut file, progress_cb(progress)))
+            .map_err(|e| UError::Failed { reason: format!("mmcs download failed: {e}") })?;
+        file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
+        Ok(())
+    }
+
+    /// Upload a local file to MMCS without sending a message (api.rs
+    /// `upload_attachment`). Persist the result XML before sending if the
+    /// send may be retried after a restart.
+    pub fn upload_attachment(
+        &self,
+        file_path: String,
+        mime: String,
+        uti: String,
+        name: Option<String>,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<Arc<UAttachment>, UError> {
+        Ok(Arc::new(UAttachment {
+            inner: upload_attachment_inner(&self.shared().conn, file_path, mime, uti, name, progress)?,
+        }))
+    }
+
+    /// Upload a local file and send it as an attachment message in one call
+    /// (the Dart `sendAttachment` flow). `text` is an optional caption part
+    /// sent before the attachment. Returns the staged MessageInst; `id` is
+    /// the staging GUID to persist.
+    pub fn send_attachment(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        file_path: String,
+        text: Option<String>,
+        mime: String,
+        uti: String,
+        name: Option<String>,
+        reply_guid: Option<String>,
+        reply_part: Option<String>,
+        effect: Option<String>,
+        subject: Option<String>,
+        voice: bool,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<UMessageInst, UError> {
+        let attachment =
+            upload_attachment_inner(&self.shared().conn, file_path, mime, uti, name, progress)?;
+        let mut parts: Vec<IndexedMessagePart> = Vec::new();
+        if let Some(text) = text.filter(|t| !t.is_empty()) {
+            parts.push(IndexedMessagePart {
+                part: MessagePart::Text(text, TextFormat::default()),
+                idx: None,
+                ext: None,
+            });
+        }
+        parts.push(IndexedMessagePart {
+            part: MessagePart::Attachment(attachment),
+            idx: None,
+            ext: None,
+        });
+        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+        normal.parts = MessageParts(parts);
+        normal.reply_guid = reply_guid;
+        normal.reply_part = reply_part;
+        normal.effect = effect;
+        normal.subject = subject;
+        normal.voice = voice;
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::Message(normal),
+        ));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
+    /// original message GUID, `edit_part` the part index being replaced,
+    /// `new_parts` the full replacement part list (text/mention parts with
+    /// optional formatting; attachment parts reference an already-uploaded
+    /// attachment via their `xml`). No progress callback: nothing is
+    /// transferred.
+    pub fn edit_message(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        to_uuid: String,
+        edit_part: u64,
+        new_parts: Vec<UIndexedPart>,
+    ) -> Result<UMessageInst, UError> {
+        let msg = Message::Edit(EditMessage {
+            tuuid: to_uuid,
+            edit_part,
+            new_parts: back_parts(new_parts)?,
+        });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Unsend (remove for everyone) a previously-sent message part
+    /// (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
+    /// the part index to retract.
+    pub fn unsend_message(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        to_uuid: String,
+        edit_part: u64,
+    ) -> Result<UMessageInst, UError> {
+        let msg = Message::Unsend(UnsendMessage { tuuid: to_uuid, edit_part });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Rename a group chat (Dart `renameChat`).
+    pub fn rename_chat(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        new_name: String,
+    ) -> Result<UMessageInst, UError> {
+        let msg = Message::RenameMessage(RenameMessage { new_name });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Set the full participant list of a group (add/remove inferred by
+    /// comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
+    /// participant including `sender`, formatted+prefixed
+    /// (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
+    pub fn change_participants(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        new_participants: Vec<String>,
+        group_version: u64,
+    ) -> Result<UMessageInst, UError> {
+        let msg = Message::ChangeParticipants(ChangeParticipantMessage {
+            new_participants,
+            group_version,
+        });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Leave a group chat: sends ChangeParticipants with `sender` removed
+    /// (Dart `leaveChat`). The removal matches the sender with or without
+    /// its `tel:`/`mailto:` prefix.
+    pub fn leave_chat(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        group_version: u64,
+    ) -> Result<UMessageInst, UError> {
+        let stripped = sender.trim_start_matches("tel:").trim_start_matches("mailto:");
+        let new_participants: Vec<String> = conversation
+            .participants
+            .iter()
+            .filter(|p| {
+                let ps = p.trim_start_matches("tel:").trim_start_matches("mailto:");
+                ps != stripped
+            })
+            .cloned()
+            .collect();
+        if new_participants.len() == conversation.participants.len() {
+            return Err(UError::InvalidArgument {
+                reason: format!("cannot leave chat: sender {sender} is not a participant"),
+            });
+        }
+        let msg = Message::ChangeParticipants(ChangeParticipantMessage {
+            new_participants,
+            group_version,
+        });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Set the group photo: uploads the local image to MMCS (Dart
+    /// `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
+    /// message. The file should be a 570x570 PNG.
+    pub fn set_group_icon(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        file_path: String,
+        group_version: u64,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<UMessageInst, UError> {
+        let path = Path::new(&file_path);
+        let mut file = std::fs::File::open(path)
+            .map_err(|e| UError::InvalidArgument { reason: format!("cannot open {}: {e}", path.display()) })?;
+        let prepared = RUNTIME
+            .block_on(MMCSFile::prepare_put(&mut file))
+            .map_err(|e| UError::Failed { reason: format!("failed to prepare group icon: {e}") })?;
+        file.rewind()
+            .map_err(|e| UError::Failed { reason: format!("failed to rewind {}: {e}", path.display()) })?;
+        let mmcs = RUNTIME
+            .block_on(MMCSFile::new(&self.shared().conn, &prepared, file, progress_cb(progress)))
+            .map_err(|e| UError::Failed { reason: format!("group icon upload failed: {e}") })?;
+        let msg = Message::IconChange(IconChangeMessage { file: Some(mmcs), group_version });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Remove the group photo (Dart `deleteChatIcon`): IconChange with no
+    /// attached file.
+    pub fn remove_group_icon(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        group_version: u64,
+    ) -> Result<UMessageInst, UError> {
+        let msg = Message::IconChange(IconChangeMessage { file: None, group_version });
+        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
+        send_inst(self.shared(), inst)
     }
 }

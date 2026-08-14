@@ -744,6 +744,9 @@ internal interface UniffiCallbackInterfaceULoginDelegateMethod2 : com.sun.jna.Ca
 internal interface UniffiCallbackInterfaceULoginDelegateMethod3 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`reason`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
+internal interface UniffiCallbackInterfaceUProgressCallbackMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`done`: Long,`total`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 @Structure.FieldOrder("groups", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceAvailableGroupsCallback(
     @JvmField internal var `groups`: UniffiCallbackInterfaceAvailableGroupsCallbackMethod0? = null,
@@ -977,6 +980,69 @@ internal open class UniffiVTableCallbackInterfaceULoginDelegate(
     }
 
 }
+@Structure.FieldOrder("onProgress", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceUProgressCallback(
+    @JvmField internal var `onProgress`: UniffiCallbackInterfaceUProgressCallbackMethod0? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `onProgress`: UniffiCallbackInterfaceUProgressCallbackMethod0? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceUProgressCallback(`onProgress`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceUProgressCallback) {
+        `onProgress` = other.`onProgress`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1273,6 +1339,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_setup_keystore(
@@ -1325,9 +1393,17 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_encrypt(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code(
 ): Short
@@ -1347,7 +1423,15 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_password_insert(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
 ): Short
@@ -1357,13 +1441,35 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachment(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_specialappleauthcallback_got_verification(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_iris(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_is_inline(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_mime(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_name(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_part_index(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_save_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_total_size(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uattachment_uti(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge(
 ): Short
@@ -1410,6 +1516,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_sms_less_auth(
 fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_state(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_submit_2fa_code(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_uprogresscallback_on_progress(
 ): Short
 fun ffi_rust_lib_bluebubbles_uniffi_contract_version(
 ): Int
@@ -1460,6 +1568,7 @@ internal interface UniffiLib : Library {
             uniffiCallbackInterfaceSpecialAppleAuthCallback.register(lib)
             uniffiCallbackInterfaceUEapAkaHandler.register(lib)
             uniffiCallbackInterfaceULoginDelegate.register(lib)
+            uniffiCallbackInterfaceUProgressCallback.register(lib)
             // Loading of library with integrity check done.
             lib
         }
@@ -1563,10 +1672,18 @@ fun uniffi_rust_lib_bluebubbles_fn_clone_nativepushstate(`ptr`: Pointer,uniffi_o
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Int
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1585,8 +1702,16 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_inser
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1595,10 +1720,16 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Point
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1615,6 +1746,26 @@ fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_specialappleauthcallback
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(`ptr`: Pointer,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_clone_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_iris(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_is_inline(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_mime(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_name(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_part_index(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_save_attachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_total_size(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_uti(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1677,6 +1828,14 @@ fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_state(`ptr`: Pointer,uni
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_submit_2fa_code(`ptr`: Pointer,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_clone_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
+fun uniffi_rust_lib_bluebubbles_fn_free_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_uprogresscallback(`vtable`: UniffiVTableCallbackInterfaceUProgressCallback,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(`ptr`: Pointer,`done`: Long,`total`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1701,6 +1860,8 @@ fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: Unif
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(`xml`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(`dir`: RustBuffer.ByValue,`keystore`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1870,6 +2031,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain() != 40899.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment() != 16887.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_saved_login_username() != 45470.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1948,10 +2112,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt() != 31689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants() != 36972.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth() != 60368.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment() != 5180.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 22742.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 40142.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code() != 63817.toShort()) {
@@ -1981,7 +2157,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_password_insert() != 58841.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat() != 52951.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon() != 56013.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 37145.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 10762.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 36838.toShort()) {
@@ -1996,16 +2184,49 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing() != 31465.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon() != 2313.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa() != 59540.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message() != 47632.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_attachment() != 62416.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys() != 62637.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_specialappleauthcallback_got_verification() != 5368.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_iris() != 55729.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_is_inline() != 23438.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_mime() != 11188.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_name() != 33654.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_part_index() != 41724.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_save_attachment() != 11513.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_total_size() != 11457.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uattachment_uti() != 33589.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_ueapakahandler_process_challenge() != 63002.toShort()) {
@@ -2075,6 +2296,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uloginsession_submit_2fa_code() != 50978.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_uprogresscallback_on_progress() != 42875.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -4974,9 +5198,41 @@ public object FfiConverterTypeNativeKeystore: FfiConverter<NativeKeystore, Point
 
 public interface NativePushStateInterface {
     
+    /**
+     * Set the full participant list of a group (add/remove inferred by
+     * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
+     * participant including `sender`, formatted+prefixed
+     * (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
+     */
+    fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst
+    
     fun `declineFacetime`(`guid`: kotlin.String)
     
     fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
+    
+    /**
+     * Download an incoming attachment to `dest_path` (Kotlin chose the
+     * path; parent directories are created). Mirrors the api.rs
+     * `download_attachment` sink loop, including inline attachments (bytes
+     * written straight to the file).
+     */
+    fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+    
+    /**
+     * Download a bare MMCS file (e.g. a group icon from
+     * `UMessage.IconChange.icon_xml`) to `dest_path`.
+     */
+    fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+    
+    /**
+     * Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
+     * original message GUID, `edit_part` the part index being replaced,
+     * `new_parts` the full replacement part list (text/mention parts with
+     * optional formatting; attachment parts reference an already-uploaded
+     * attachment via their `xml`). No progress callback: nothing is
+     * transferred.
+     */
+    fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
     
     fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt
     
@@ -5007,7 +5263,33 @@ public interface NativePushStateInterface {
     
     fun `keychainPasswordInsert`(`site`: kotlin.String, `user`: kotlin.String, `password`: kotlin.String, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
     
+    /**
+     * Leave a group chat: sends ChangeParticipants with `sender` removed
+     * (Dart `leaveChat`). The removal matches the sender with or without
+     * its `tel:`/`mailto:` prefix.
+     */
+    fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
+    
     fun `publishStatus`(`guid`: kotlin.String?)
+    
+    /**
+     * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
+     * attached file.
+     */
+    fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
+    
+    /**
+     * Rename a group chat (Dart `renameChat`).
+     */
+    fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
+    
+    /**
+     * Upload a local file and send it as an attachment message in one call
+     * (the Dart `sendAttachment` flow). `text` is an optional caption part
+     * sent before the attachment. Returns the staged MessageInst; `id` is
+     * the staging GUID to persist.
+     */
+    fun `sendAttachment`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `text`: kotlin.String?, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
     
     /**
      * Send (or remove, with `enable: false`) a tapback.
@@ -5026,9 +5308,30 @@ public interface NativePushStateInterface {
     
     fun `sendTyping`(`conversation`: UConversation, `sender`: kotlin.String, `typing`: kotlin.Boolean)
     
+    /**
+     * Set the group photo: uploads the local image to MMCS (Dart
+     * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
+     * message. The file should be a 570x570 PNG.
+     */
+    fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
+    
     fun `startLoop`(`handler`: MsgReceiver)
     
     fun `teardown2fa`(`action`: kotlin.String, `txnid`: kotlin.String)
+    
+    /**
+     * Unsend (remove for everyone) a previously-sent message part
+     * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
+     * the part index to retract.
+     */
+    fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst
+    
+    /**
+     * Upload a local file to MMCS without sending a message (api.rs
+     * `upload_attachment`). Persist the result XML before sending if the
+     * send may be retried after a restart.
+     */
+    fun `uploadAttachment`(`filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `progress`: UProgressCallback?): UAttachment
     
     companion object
 }
@@ -5115,6 +5418,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         }
     }
 
+    
+    /**
+     * Set the full participant list of a group (add/remove inferred by
+     * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
+     * participant including `sender`, formatted+prefixed
+     * (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
+     */
+    @Throws(UException::class)override fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`newParticipants`),FfiConverterULong.lower(`groupVersion`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `declineFacetime`(`guid`: kotlin.String)
         = 
     callWithPointer {
@@ -5135,6 +5457,61 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Download an incoming attachment to `dest_path` (Kotlin chose the
+     * path; parent directories are created). Mirrors the api.rs
+     * `download_attachment` sink loop, including inline attachments (bytes
+     * written straight to the file).
+     */
+    @Throws(UException::class)override fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(
+        it, FfiConverterTypeUAttachment.lower(`attachment`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Download a bare MMCS file (e.g. a group icon from
+     * `UMessage.IconChange.icon_xml`) to `dest_path`.
+     */
+    @Throws(UException::class)override fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(
+        it, FfiConverterString.lower(`mmcsXml`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
+     * original message GUID, `edit_part` the part index being replaced,
+     * `new_parts` the full replacement part list (text/mention parts with
+     * optional formatting; attachment parts reference an already-uploaded
+     * attachment via their `xml`). No progress callback: nothing is
+     * transferred.
+     */
+    @Throws(UException::class)override fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),FfiConverterSequenceTypeUIndexedPart.lower(`newParts`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt {
@@ -5255,6 +5632,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     
     
 
+    
+    /**
+     * Leave a group chat: sends ChangeParticipants with `sender` removed
+     * (Dart `leaveChat`). The removal matches the sender with or without
+     * its `tel:`/`mailto:` prefix.
+     */
+    @Throws(UException::class)override fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `publishStatus`(`guid`: kotlin.String?)
         = 
     callWithPointer {
@@ -5264,6 +5659,58 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
+     * attached file.
+     */
+    @Throws(UException::class)override fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Rename a group chat (Dart `renameChat`).
+     */
+    @Throws(UException::class)override fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`newName`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Upload a local file and send it as an attachment message in one call
+     * (the Dart `sendAttachment` flow). `text` is an optional caption part
+     * sent before the attachment. Returns the staged MessageInst; `id` is
+     * the staging GUID to persist.
+     */
+    @Throws(UException::class)override fun `sendAttachment`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `text`: kotlin.String?, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterOptionalString.lower(`text`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterBoolean.lower(`voice`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -5324,6 +5771,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     
     
 
+    
+    /**
+     * Set the group photo: uploads the local image to MMCS (Dart
+     * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
+     * message. The file should be a 570x570 PNG.
+     */
+    @Throws(UException::class)override fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterULong.lower(`groupVersion`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `startLoop`(`handler`: MsgReceiver)
         = 
     callWithPointer {
@@ -5344,6 +5809,42 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
     
+    
+
+    
+    /**
+     * Unsend (remove for everyone) a previously-sent message part
+     * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
+     * the part index to retract.
+     */
+    @Throws(UException::class)override fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Upload a local file to MMCS without sending a message (api.rs
+     * `upload_attachment`). Persist the result XML before sending if the
+     * send may be retried after a restart.
+     */
+    @Throws(UException::class)override fun `uploadAttachment`(`filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `progress`: UProgressCallback?): UAttachment {
+            return FfiConverterTypeUAttachment.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(
+        it, FfiConverterString.lower(`filePath`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -5918,6 +6419,385 @@ public object FfiConverterTypeSpecialAppleAuthCallback: FfiConverter<SpecialAppl
     override fun allocationSize(value: SpecialAppleAuthCallback) = 8UL
 
     override fun write(value: SpecialAppleAuthCallback, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Opaque handle to a rustpush attachment (restored incoming metadata or a
+ * fresh `upload_attachment` result). Persist across restarts via the
+ * plist-XML round trip `save_attachment` / `restore_attachment` — the same
+ * blob the Dart app kept under `attachment.metadata["rustpush"]`.
+ */
+public interface UAttachmentInterface {
+    
+    /**
+     * Live-photo / iris flag.
+     */
+    fun `iris`(): kotlin.Boolean
+    
+    /**
+     * Whether the attachment payload is embedded inline (already have the
+     * bytes — no MMCS transfer needed; `total_size` is the payload length).
+     */
+    fun `isInline`(): kotlin.Boolean
+    
+    fun `mime`(): kotlin.String
+    
+    fun `name`(): kotlin.String
+    
+    /**
+     * Part index this attachment occupies in its message.
+     */
+    fun `partIndex`(): kotlin.ULong
+    
+    /**
+     * Serialize for persistence (mirrors api.rs `save_attachment`).
+     */
+    fun `saveAttachment`(): kotlin.String
+    
+    /**
+     * Transfer size in bytes (inline payload length or MMCS file size).
+     */
+    fun `totalSize`(): kotlin.ULong
+    
+    fun `uti`(): kotlin.String
+    
+    companion object
+}
+
+/**
+ * Opaque handle to a rustpush attachment (restored incoming metadata or a
+ * fresh `upload_attachment` result). Persist across restarts via the
+ * plist-XML round trip `save_attachment` / `restore_attachment` — the same
+ * blob the Dart app kept under `attachment.metadata["rustpush"]`.
+ */
+open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_uattachment(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_uattachment(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Live-photo / iris flag.
+     */override fun `iris`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_iris(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Whether the attachment payload is embedded inline (already have the
+     * bytes — no MMCS transfer needed; `total_size` is the payload length).
+     */override fun `isInline`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_is_inline(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `mime`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_mime(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `name`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_name(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Part index this attachment occupies in its message.
+     */override fun `partIndex`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_part_index(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Serialize for persistence (mirrors api.rs `save_attachment`).
+     */
+    @Throws(UException::class)override fun `saveAttachment`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_save_attachment(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Transfer size in bytes (inline payload length or MMCS file size).
+     */override fun `totalSize`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_total_size(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `uti`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uattachment_uti(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUAttachment: FfiConverter<UAttachment, Pointer> {
+
+    override fun lower(value: UAttachment): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): UAttachment {
+        return UAttachment(value)
+    }
+
+    override fun read(buf: ByteBuffer): UAttachment {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: UAttachment) = 8UL
+
+    override fun write(value: UAttachment, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -7253,6 +8133,289 @@ public object FfiConverterTypeULoginSession: FfiConverter<ULoginSession, Pointer
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Byte-level progress for attachment transfers. Mirrors FRB's
+ * `TransferProgress` stream events. `total` may be 0 when the size is not
+ * (yet) known. Callbacks fire synchronously from inside the transfer —
+ * treat the thread as unspecified and never re-enter Rust from one.
+ */
+public interface UProgressCallback {
+    
+    fun `onProgress`(`done`: kotlin.ULong, `total`: kotlin.ULong)
+    
+    companion object
+}
+
+/**
+ * Byte-level progress for attachment transfers. Mirrors FRB's
+ * `TransferProgress` stream events. `total` may be 0 when the size is not
+ * (yet) known. Callbacks fire synchronously from inside the transfer —
+ * treat the thread as unspecified and never re-enter Rust from one.
+ */
+open class UProgressCallbackImpl: Disposable, AutoCloseable, UProgressCallback
+{
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_free_uprogresscallback(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_clone_uprogresscallback(pointer!!, status)
+        }
+    }
+
+    override fun `onProgress`(`done`: kotlin.ULong, `total`: kotlin.ULong)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(
+        it, FfiConverterULong.lower(`done`),FfiConverterULong.lower(`total`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceUProgressCallback {
+    internal object `onProgress`: UniffiCallbackInterfaceUProgressCallbackMethod0 {
+        override fun callback(`uniffiHandle`: Long,`done`: Long,`total`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeUProgressCallback.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onProgress`(
+                    FfiConverterULong.lift(`done`),
+                    FfiConverterULong.lift(`total`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeUProgressCallback.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceUProgressCallback.UniffiByValue(
+        `onProgress`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_uprogresscallback(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUProgressCallback: FfiConverter<UProgressCallback, Pointer> {
+    internal val handleMap = UniffiHandleMap<UProgressCallback>()
+
+    override fun lower(value: UProgressCallback): Pointer {
+        return Pointer(handleMap.insert(value))
+    }
+
+    override fun lift(value: Pointer): UProgressCallback {
+        return UProgressCallbackImpl(value)
+    }
+
+    override fun read(buf: ByteBuffer): UProgressCallback {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: UProgressCallback) = 8UL
+
+    override fun write(value: UProgressCallback, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 data class FileInfo (
     var `duration`: kotlin.Double?, 
@@ -8573,8 +9736,14 @@ sealed class UMessage {
         companion object
     }
     
+    /**
+     * `icon_xml` is the serialized `MMCSFile` (plist XML) when a new group
+     * photo was attached — pass it to `NativePushState.download_mmcs` to
+     * fetch the image.
+     */
     data class IconChange(
-        val `json`: kotlin.String) : UMessage() {
+        val `json`: kotlin.String, 
+        val `iconXml`: kotlin.String?) : UMessage() {
         companion object
     }
     
@@ -8701,6 +9870,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 )
             10 -> UMessage.IconChange(
                 FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
                 )
             11 -> UMessage.SmsConfirmSent(
                 FfiConverterBoolean.read(buf),
@@ -8828,6 +9998,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
             (
                 4UL
                 + FfiConverterString.allocationSize(value.`json`)
+                + FfiConverterOptionalString.allocationSize(value.`iconXml`)
             )
         }
         is UMessage.SmsConfirmSent -> {
@@ -9004,6 +10175,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
             is UMessage.IconChange -> {
                 buf.putInt(10)
                 FfiConverterString.write(value.`json`, buf)
+                FfiConverterOptionalString.write(value.`iconXml`, buf)
                 Unit
             }
             is UMessage.SmsConfirmSent -> {
@@ -9099,12 +10271,18 @@ sealed class UPart {
         companion object
     }
     
+    /**
+     * `xml` is the serialized rustpush `Attachment` (plist XML) — persist it
+     * (the Dart app stored it as `attachment.metadata["rustpush"]`) and feed
+     * it back through `restore_attachment` to download later.
+     */
     data class Attachment(
         val `part`: kotlin.ULong, 
         val `uti`: kotlin.String, 
         val `mime`: kotlin.String, 
         val `name`: kotlin.String, 
-        val `iris`: kotlin.Boolean) : UPart() {
+        val `iris`: kotlin.Boolean, 
+        val `xml`: kotlin.String) : UPart() {
         companion object
     }
     
@@ -9140,6 +10318,7 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
+                FfiConverterString.read(buf),
                 )
             3 -> UPart.Mention(
                 FfiConverterString.read(buf),
@@ -9170,6 +10349,7 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
                 + FfiConverterString.allocationSize(value.`mime`)
                 + FfiConverterString.allocationSize(value.`name`)
                 + FfiConverterBoolean.allocationSize(value.`iris`)
+                + FfiConverterString.allocationSize(value.`xml`)
             )
         }
         is UPart.Mention -> {
@@ -9204,6 +10384,7 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
                 FfiConverterString.write(value.`mime`, buf)
                 FfiConverterString.write(value.`name`, buf)
                 FfiConverterBoolean.write(value.`iris`, buf)
+                FfiConverterString.write(value.`xml`, buf)
                 Unit
             }
             is UPart.Mention -> {
@@ -9836,6 +11017,38 @@ public object FfiConverterOptionalTypeNativePushState: FfiConverterRustBuffer<Na
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeUProgressCallback: FfiConverterRustBuffer<UProgressCallback?> {
+    override fun read(buf: ByteBuffer): UProgressCallback? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUProgressCallback.read(buf)
+    }
+
+    override fun allocationSize(value: UProgressCallback?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUProgressCallback.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UProgressCallback?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUProgressCallback.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeUConversation: FfiConverterRustBuffer<UConversation?> {
     override fun read(buf: ByteBuffer): UConversation? {
         if (buf.get().toInt() == 0) {
@@ -10357,6 +11570,20 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         _status)
 }
     
+    
+
+        /**
+         * Parse a persisted attachment (plist XML from `UPart::Attachment.xml` or
+         * `UAttachment::save_attachment`). Mirrors api.rs `restore_attachment`.
+         */
+    @Throws(UException::class) fun `restoreAttachment`(`xml`: kotlin.String): UAttachment {
+            return FfiConverterTypeUAttachment.lift(
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(
+        FfiConverterString.lower(`xml`),_status)
+}
+    )
+    }
     
 
         /**
