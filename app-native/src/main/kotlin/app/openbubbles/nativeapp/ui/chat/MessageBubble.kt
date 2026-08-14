@@ -26,13 +26,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import java.io.File
 
 private val BubbleMaxWidth = 300.dp
 
@@ -45,18 +48,34 @@ private fun bubbleShape(isFromMe: Boolean): RoundedCornerShape = if (isFromMe) {
 
 /**
  * A single conversation row: message bubble (mine right / theirs left),
- * centered caption for group events, reaction chip overlapping the corner,
- * and an optional delivery-status row under my latest outgoing message.
+ * centered caption for group events, an italic row for unsent messages,
+ * attachment bubbles (image / video / file) above the text, an "Edited"
+ * label, reaction chip overlapping the corner, and an optional delivery
+ * status row under my latest outgoing message.
  */
 @Composable
 fun MessageBubble(
     message: MessageItem,
     showStatus: Boolean,
     modifier: Modifier = Modifier,
+    attachmentFile: (String) -> File? = { null },
+    onOpenAttachment: (String) -> Unit = {},
+    onDownloadAttachment: (AttachmentMeta) -> Unit = {},
+    senderDisplayName: String? = null,
 ) {
-    if (message.isGroupEvent) {
-        GroupEventRow(text = message.text, modifier = modifier)
-        return
+    when {
+        message.isGroupEvent -> {
+            GroupEventRow(text = message.text, modifier = modifier)
+            return
+        }
+        message.unsent -> {
+            UnsentRow(
+                text = if (message.isFromMe) "You unsent a message"
+                else "${senderDisplayName ?: message.senderAddress ?: "Someone"} unsent a message",
+                modifier = modifier,
+            )
+            return
+        }
     }
     Box(
         modifier = modifier
@@ -65,39 +84,71 @@ fun MessageBubble(
     ) {
         Column(
             horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier
                 .widthIn(max = BubbleMaxWidth)
                 .align(if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart),
         ) {
-            Box {
-                Surface(
-                    shape = bubbleShape(message.isFromMe),
-                    color = if (message.isFromMe) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                ) {
-                    Text(
-                        text = message.text,
-                        style = MaterialTheme.typography.bodyLarge,
+            message.attachmentMeta?.let { attachment ->
+                Box {
+                    AttachmentContent(
+                        attachment = attachment,
+                        attachmentFile = attachmentFile,
+                        onOpenAttachment = onOpenAttachment,
+                        onDownloadAttachment = onDownloadAttachment,
+                    )
+                    message.reactionEmoji?.let { emoji ->
+                        ReactionChip(
+                            emoji = emoji,
+                            isFromMe = message.isFromMe,
+                            modifier = Modifier.align(
+                                if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                            ),
+                        )
+                    }
+                }
+            }
+            if (message.text.isNotEmpty()) {
+                Box {
+                    Surface(
+                        shape = bubbleShape(message.isFromMe),
                         color = if (message.isFromMe) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
+                            MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.surfaceVariant
                         },
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    )
+                    ) {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (message.isFromMe) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        )
+                    }
+                    if (message.attachmentMeta == null) {
+                        message.reactionEmoji?.let { emoji ->
+                            ReactionChip(
+                                emoji = emoji,
+                                isFromMe = message.isFromMe,
+                                modifier = Modifier.align(
+                                    if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                ),
+                            )
+                        }
+                    }
                 }
-                message.reactionEmoji?.let { emoji ->
-                    ReactionChip(
-                        emoji = emoji,
-                        isFromMe = message.isFromMe,
-                        modifier = Modifier.align(
-                            if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
-                        ),
-                    )
-                }
+            }
+            if (message.edited) {
+                Text(
+                    text = "Edited",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
             }
             if (showStatus && message.isFromMe) {
                 MessageStatusRow(status = message.status)
@@ -164,6 +215,25 @@ fun GroupEventRow(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** Centered italic gray row for retracted messages. */
+@Composable
+fun UnsentRow(text: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 48.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
 /** Day divider shown whenever the conversation crosses a calendar day. */
 @Composable
 fun DaySeparatorRow(label: String, modifier: Modifier = Modifier) {
@@ -215,11 +285,43 @@ private fun MessageBubblePreview() {
                 showStatus = false,
             )
             MessageBubble(
-                message = previewMessage("yes! 8am trailhead, i'll drive", isFromMe = true, status = MessageStatus.READ),
+                message = previewMessage("yes! 8am trailhead, i'll drive", isFromMe = true, status = MessageStatus.READ)
+                    .copy(edited = true),
                 showStatus = true,
             )
             GroupEventRow("Mom added Dad")
+            UnsentRow("You unsent a message")
+            UnsentRow("Emma unsent a message")
             DaySeparatorRow("Today")
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun MessageAttachmentPreview() {
+    OpenBubblesTheme {
+        Column {
+            MessageBubble(
+                message = previewMessage("", isFromMe = false).copy(
+                    attachmentMeta = AttachmentMeta(
+                        guid = "p1", mime = "image/jpeg", name = "trailhead.jpg",
+                        sizeBytes = 2_411_520L, isImage = true, downloaded = false,
+                    ),
+                    senderAddress = "alex@icloud.com",
+                ),
+                showStatus = false,
+                senderDisplayName = "Alex Chen",
+            )
+            MessageBubble(
+                message = previewMessage("found the itinerary too", isFromMe = false).copy(
+                    attachmentMeta = AttachmentMeta(
+                        guid = "p2", mime = "application/pdf", name = "Grand Canyon itinerary.pdf",
+                        sizeBytes = 412_676L, isImage = false, downloaded = true,
+                    ),
+                ),
+                showStatus = false,
+            )
         }
     }
 }

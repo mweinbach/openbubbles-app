@@ -24,9 +24,9 @@ import kotlin.text.Regex
  * - Attributed body runs are not materialized; only the flattened `text` is
  *   kept (plus `dbPayloadData` for app balloons and `dbMetadata` for link
  *   metadata JSON).
- * - The rustpush attachment blob (`api.saveAttachment`) cannot be produced
- *   here (it needs the rust runtime); attachment rows carry
- *   mime/uti/name/guid only.
+ * - The serialized rustpush Attachment XML (UPart.Attachment.xml) is stored
+ *   in the attachment row's flex `metadata["rustpush"]`; the transfer layer
+ *   restores it via `restoreAttachment` for downloads.
  * - Sticker/extension reaction bodies are not expanded into attachments.
  */
 object MessageMapper {
@@ -92,6 +92,12 @@ object MessageMapper {
                         this.isOutgoing = isOutgoing
                         transferName = part.name.replace("/", "_").replace("\\", "_")
                         isDownloaded = isOutgoing
+                        // Persist the serialized rustpush Attachment so the
+                        // transfer layer can restore + download it later
+                        // (Dart stored this as metadata["rustpush"]).
+                        if (part.xml.isNotEmpty()) {
+                            metadata = mapOf("rustpush" to part.xml)
+                        }
                     }
                     text.append(' ')
                 }

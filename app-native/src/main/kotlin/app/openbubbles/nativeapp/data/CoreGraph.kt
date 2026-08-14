@@ -1,11 +1,17 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import app.openbubbles.core.attachment.AttachmentDownloader
+import app.openbubbles.core.attachment.AttachmentManager
+import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.db.Attachment
+import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Db
+import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.NativeMainActivity
@@ -18,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -28,6 +35,7 @@ import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.readQueuedJournal
 import uniffi.rust_lib_bluebubbles.markJournalAttempt
+import java.io.File
 import java.util.UUID
 import kotlin.math.abs
 
@@ -51,14 +59,104 @@ object CoreGraph {
     private val messageRepo: MessageRepo? by lazy { store?.let { MessageRepo(it) } }
     val ingestor: MessageIngestor? by lazy { store?.let { MessageIngestor(it, scope) } }
 
+    /**
+     * Attachment payload resolver. Downloads go through the live push state:
+     * the attachment row's metadata["rustpush"] XML restores to a UAttachment
+     * which Rust transfers to the manager-chosen destination path.
+     */
+    val attachmentManager: AttachmentManager? by lazy {
+        val st = store ?: return@lazy null
+        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
+            ?: NativeMainActivity.appContext?.filesDir
+            ?: return@lazy null
+        runCatching {
+            AttachmentManager(
+                store = st,
+                rootDir = root,
+                downloader = AttachmentDownloader { attachmentGuid, destPath, onProgress ->
+                    val pushState = PushStateHolder.state
+                        ?: return@AttachmentDownloader Result.failure(IllegalStateException("not connected"))
+                    val attachmentBox = st.boxFor(app.openbubbles.db.Attachment::class.java)
+                    val xml = attachmentBox.query()
+                        .equal(
+                            app.openbubbles.db.Attachment_.guid,
+                            attachmentGuid,
+                            io.objectbox.query.QueryBuilder.StringOrder.CASE_SENSITIVE,
+                        )
+                        .build().use { it.findFirst() }
+                        ?.metadata?.get("rustpush") as? String
+                        ?: return@AttachmentDownloader Result.failure(
+                            IllegalStateException("no rustpush metadata for $attachmentGuid"))
+                    runCatching {
+                        val uatt = uniffi.rust_lib_bluebubbles.restoreAttachment(xml)
+                        pushState.downloadAttachment(
+                            uatt,
+                            destPath,
+                            object : uniffi.rust_lib_bluebubbles.UProgressCallback {
+                                override fun onProgress(done: kotlin.ULong, total: kotlin.ULong) {
+                                    onProgress(done.toLong(), total.toLong())
+                                }
+                            },
+                        )
+                        Result.success(Unit)
+                    }
+                },
+            )
+        }.getOrNull()
+    }
+
+    /** UI-facing file seam; replaceable for tests / future managers. */
+    @Volatile
+    var attachmentFiles: AttachmentFileManager? = null
+
+    init {
+        // Contact-name hook for the UI (unsent rows, participants, chat titles).
+        UiContacts.contactNames = { address -> CoreContacts.displayInfo(address) }
+        attachmentFiles = attachmentManager?.let { manager ->
+            AttachmentFileManager { attachment -> manager.localFile(attachment) }
+        }
+    }
+
     val chats: ChatListRepository by lazy {
-        chatRepo?.let { repo -> CoreChatListRepository(repo) } ?: FakeChatListRepository()
+        chatRepo?.let { repo -> CoreChatListRepository(repo, store) } ?: FakeChatListRepository()
     }
     val messages: MessageListRepository by lazy {
-        messageRepo?.let { repo -> CoreMessageListRepository(repo) } ?: FakeMessageListRepository()
+        messageRepo?.let { repo -> CoreMessageListRepository(repo, store) } ?: FakeMessageListRepository()
     }
     val sender: Sender by lazy {
         if (store != null) CoreSender else FakeSender
+    }
+    val attachments: AttachmentProvider by lazy {
+        store?.let { st -> CoreAttachmentProvider(st, { attachmentFiles }) } ?: FakeAttachmentProvider
+    }
+    /** Leave a group chat via the Rust group ops. */
+    fun leaveChat(chatId: Long): Result<Unit> = CoreGroupOps.leaveChat(chatId)
+
+    /** Upsert device contacts + invalidate the handle→contact index. */
+    fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
+        CoreContacts.syncFromDevice(raw)
+
+    val chatInfo: ChatInfoRepository by lazy {
+        store?.let { st -> CoreChatInfoRepository(st) } ?: FakeChatInfoRepository
+    }
+
+    /**
+     * Fire-and-forget download for the bubble's download chip. Progress
+     * surfacing lands with the rust transfer binding; completion persists
+     * `isDownloaded`, which re-emits the message flow and flips the bubble.
+     */
+    fun requestAttachmentDownload(guid: String) {
+        val manager = attachmentManager ?: return
+        val st = store ?: return
+        scope.launch(Dispatchers.IO) {
+            val attachment = runCatching {
+                st.boxFor(Attachment::class.java)
+                    .query()
+                    .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+            }.getOrNull() ?: return@launch
+            runCatching { manager.download(attachment).collect { /* terminal is enough here */ } }
+        }
     }
 
     fun startQueueDrainer() {
@@ -140,19 +238,171 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     isGroupEvent = item.kind == app.openbubbles.core.model.MessageKind.GROUP_EVENT,
     reactionEmoji = item.reactionEmoji
         ?: item.reactionType?.removePrefix("-")?.let { TAPBACK_EMOJI[it] },
+    senderAddress = item.senderAddress,
 )
+
+/** True when the mime/uti pair clearly describes an image. */
+internal fun isImageAttachment(mime: String?, uti: String?): Boolean {
+    if (mime != null && mime.startsWith("image/", ignoreCase = true)) return true
+    if (uti == null) return false
+    return uti.equals("public.image", ignoreCase = true) ||
+        uti.startsWith("public.image.", ignoreCase = true) ||
+        uti.endsWith(".heic", ignoreCase = true) ||
+        uti.endsWith(".heif", ignoreCase = true)
+}
+
+internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
+    guid = attachment.guid,
+    mime = attachment.mimeType,
+    name = attachment.transferName,
+    sizeBytes = attachment.totalBytes,
+    isImage = isImageAttachment(attachment.mimeType, attachment.uti),
+    downloaded = attachment.isDownloaded,
+)
+
+/** Non-empty retracted-part array inside a dbMessageSummaryInfo JSON blob. */
+private val RETRACTED_PARTS = Regex(
+    "\"(?:retractedParts|rp)\"\\s*:\\s*\\[\\s*\\d",
+)
+
+/**
+ * (edited, unsent) for a db message. Unsent requires an edit summary with
+ * retracted parts and no remaining text (fully retracted message — same
+ * visible result as the Flutter `isFullyUnsent` heuristic).
+ */
+private fun editedFlags(entity: Message): Pair<Boolean, Boolean> {
+    if (entity.dateEdited == null) return false to false
+    val summary = entity.dbMessageSummaryInfo ?: return true to false
+    val hasRetracted = RETRACTED_PARTS.containsMatchIn(summary)
+    if (!hasRetracted) return true to false
+    return if (entity.text.isNullOrBlank()) false to true else true to false
+}
+
+/**
+ * Fills the M2 display fields (attachment metadata, edited/unsent flags) the
+ * core MessageItem does not carry yet, using one batched entity read.
+ */
+private fun enrichWithEntityDetails(
+    items: List<MessageItem>,
+    store: BoxStore?,
+): List<MessageItem> {
+    if (store == null || items.isEmpty()) return items
+    return runCatching {
+        val entities = store.boxFor(Message::class.java).get(items.map { it.id })
+        val byId = HashMap<Long, Message>(entities.size)
+        entities.forEach { byId[it.id] = it }
+        items.map { item ->
+            val entity = byId[item.id] ?: return@map item
+            val (edited, unsent) = editedFlags(entity)
+            val attachment = runCatching { entity.dbAttachments.firstOrNull() }.getOrNull()
+            item.copy(
+                attachmentMeta = attachment?.let(::attachmentToMeta),
+                edited = edited,
+                unsent = unsent,
+            )
+        }
+    }.getOrDefault(items)
+}
+
+/**
+ * Bridge from raw handle addresses (what the UI contracts carry) to core's
+ * [ContactSync.displayInfoFor], with an in-memory handle index (rebuilt at
+ * most every 30s after a miss so newly synced handles resolve too).
+ */
+private object CoreContacts {
+    private val sync: ContactSync? by lazy { CoreGraph.store?.let(::ContactSync) }
+
+    /** Upsert device contacts (called after READ_CONTACTS is granted). */
+    fun syncFromDevice(raw: List<app.openbubbles.core.contacts.RawContact>) {
+        runCatching { sync?.upsertContacts(raw) }
+        handleIndex = null // force rebuild so fresh linkages resolve
+    }
+
+    @Volatile
+    private var handleIndex: Map<String, Handle>? = null
+
+    @Volatile
+    private var indexBuiltAt: Long = 0L
+
+    @Synchronized
+    private fun rebuildIndex(store: BoxStore): Map<String, Handle> {
+        val index = runCatching {
+            val map = HashMap<String, Handle>()
+            store.boxFor(Handle::class.java).all.forEach { handle ->
+                listOfNotNull(handle.address, handle.formattedAddress).forEach { address ->
+                    if (address.contains('@')) {
+                        map.putIfAbsent(ContactSync.normalizeEmail(address), handle)
+                    } else {
+                        ContactSync.phoneNumberVariants(address).forEach { map.putIfAbsent(it, handle) }
+                    }
+                }
+            }
+            map
+        }.getOrDefault(emptyMap())
+        handleIndex = index
+        indexBuiltAt = System.currentTimeMillis()
+        return index
+    }
+
+    private fun handleFor(address: String): Handle? {
+        val store = CoreGraph.store ?: return null
+        val key = if (address.contains('@')) {
+            ContactSync.normalizeEmail(address)
+        } else {
+            ContactSync.normalizePhoneNumber(address)
+        }
+        handleIndex?.get(key)?.let { return it }
+        // Miss: maybe a fresh handle. Rebuild at most every 30 seconds.
+        if (handleIndex == null || System.currentTimeMillis() - indexBuiltAt > 30_000L) {
+            return rebuildIndex(store)[key]
+        }
+        return null
+    }
+
+    /** (name, avatarPath) for a handle address, or null when unknown. */
+    fun displayInfo(address: String): Pair<String?, String?>? {
+        val contactSync = sync ?: return null
+        val handle = handleFor(address) ?: return null
+        return runCatching {
+            val info = contactSync.displayInfoFor(handle)
+            info.name to info.avatar
+        }.getOrNull()
+    }
+
+    /** Chat-list title for DMs whose single participant has a contact. */
+    fun chatTitle(item: ChatListItem, store: BoxStore): ChatListItem {
+        val contactSync = sync ?: return item
+        val chat = runCatching { store.boxFor(Chat::class.java).get(item.id) }.getOrNull()
+            ?: return item
+        if (chat.displayName != null || chat.handles.size != 1) return item
+        val handle = chat.handles.firstOrNull() ?: return item
+        if (runCatching { handle.contactsV2.isEmpty() }.getOrDefault(true)) return item
+        val name = runCatching { contactSync.displayInfoFor(handle).name }.getOrNull()
+            ?: return item
+        if (name.isBlank() || name == item.title) return item
+        return item.copy(title = name)
+    }
+}
 
 private class CoreChatListRepository(
     private val repo: ChatRepo,
+    private val store: BoxStore?,
 ) : ChatListRepository {
     override fun chats(): Flow<List<ChatListItem>> =
-        repo.observeChats().flowOn(Dispatchers.IO).map { list -> list.map(::coreChatToUi) }
+        repo.observeChats()
+            .map { list ->
+                list.map(::coreChatToUi).map { item ->
+                    if (store == null) item else CoreContacts.chatTitle(item, store)
+                }
+            }
+            .flowOn(Dispatchers.IO)
 
     override fun markRead(id: Long) = repo.markRead(id)
 }
 
 private class CoreMessageListRepository(
     private val repo: MessageRepo,
+    private val store: BoxStore?,
 ) : MessageListRepository {
     // Growable newest-first window so loadMore widens the reactive page,
     // matching the Room-style contract the UI was built against.
@@ -161,14 +411,48 @@ private class CoreMessageListRepository(
     override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
         window.flatMapLatest { size ->
             repo.observeMessages(chatId, size.coerceAtLeast(limit))
+                .map { page ->
+                    enrichWithEntityDetails(page.map(::coreMessageToUi), store)
+                }
                 .flowOn(Dispatchers.IO)
-                .map { page -> page.map(::coreMessageToUi) }
         }
 
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
         window.value = window.value + count
-        return repo.messages(chatId, limit = window.value).map(::coreMessageToUi)
+        return enrichWithEntityDetails(repo.messages(chatId, limit = window.value).map(::coreMessageToUi), store)
     }
+}
+
+/** ObjectBox-backed attachment lookups for the viewer route. */
+private class CoreAttachmentProvider(
+    private val store: BoxStore,
+    private val fileManager: () -> AttachmentFileManager?,
+) : AttachmentProvider {
+
+    private fun attachmentByGuid(guid: String): Attachment? = runCatching {
+        store.boxFor(Attachment::class.java)
+            .query()
+            .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+    }.getOrNull()
+
+    override fun byGuid(guid: String): AttachmentMeta? =
+        attachmentByGuid(guid)?.let(::attachmentToMeta)
+
+    override fun localFile(guid: String): File? {
+        val attachment = attachmentByGuid(guid) ?: return null
+        return runCatching { fileManager()?.localFile(attachment) }.getOrNull()
+    }
+}
+
+/** Participant addresses for the group-info screen. */
+private class CoreChatInfoRepository(
+    private val store: BoxStore,
+) : ChatInfoRepository {
+    override fun participantAddresses(chatId: Long): List<String> = runCatching {
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: return emptyList()
+        chat.handles.map { it.formattedAddress ?: it.address }
+    }.getOrDefault(emptyList())
 }
 
 /**
@@ -266,3 +550,32 @@ private object CoreGraphStageHolder {
 /** Unused today; reserved for the login flow (M1.e) to name new sessions. */
 @Suppress("unused")
 private fun newStagingGuid(): String = UUID.randomUUID().toString().uppercase()
+
+// ---------------------------------------------------------------------------
+// Group operations (leave chat) — wired to the Rust group ops from M2.a
+// ---------------------------------------------------------------------------
+
+internal object CoreGroupOps {
+    fun leaveChat(chatId: Long): Result<Unit> {
+        val st = CoreGraph.store ?: return Result.failure(IllegalStateException("store unavailable"))
+        val pushState = PushStateHolder.state
+            ?: return Result.failure(IllegalStateException("not connected"))
+        val myHandle = PushStateHolder.myHandles.firstOrNull()
+            ?: return Result.failure(IllegalStateException("no handles"))
+        return runCatching {
+            val chat = st.boxFor(Chat::class.java).get(chatId)
+                ?: error("no chat $chatId")
+            val conversation = uniffi.rust_lib_bluebubbles.UConversation(
+                participants = chat.handles.map { it.address }.distinct(),
+                cvName = chat.displayName,
+                senderGuid = null,
+                afterGuid = null,
+            )
+            pushState.leaveChat(
+                conversation,
+                myHandle,
+                ((chat.groupVersion ?: -1L) + 1L).toULong(),
+            )
+        }
+    }
+}

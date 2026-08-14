@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -137,7 +138,16 @@ internal object FakeChatData {
         status: MessageStatus = MessageStatus.READ,
         isGroupEvent: Boolean = false,
         reaction: String? = null,
-    ) = MessageItem(id, text, fromMe, date, status, isGroupEvent, reaction)
+        attachmentMeta: AttachmentMeta? = null,
+        edited: Boolean = false,
+        unsent: Boolean = false,
+        senderAddress: String? = null,
+    ) = MessageItem(
+        id = id, text = text, isFromMe = fromMe, date = date, status = status,
+        isGroupEvent = isGroupEvent, reactionEmoji = reaction,
+        attachmentMeta = attachmentMeta, edited = edited, unsent = unsent,
+        senderAddress = senderAddress,
+    )
 
     private fun seedChats(): List<ChatListItem> {
         fun chat(index: Int, id: Long, title: String, snippet: String?, date: Long, unread: Int, pinned: Boolean) =
@@ -230,7 +240,21 @@ internal object FakeChatData {
         message(112, minutesAgo(40), "Dinner at 7 on Saturday — everyone in?", fromMe = false),
         message(113, minutesAgo(35), "👍", fromMe = false),
         message(114, minutesAgo(30), "count me in", fromMe = true, status = MessageStatus.DELIVERED),
-        message(115, minutesAgo(25), "dessert's on me 🍰", fromMe = false),
+        message(115, minutesAgo(28), "", fromMe = false,
+            attachmentMeta = FakeAttachmentProvider.byGuid("demo-image-1"),
+            senderAddress = "emma@icloud.com"),
+        message(116, minutesAgo(26), "", fromMe = false,
+            attachmentMeta = FakeAttachmentProvider.byGuid("demo-video-1"),
+            senderAddress = "dad@icloud.com"),
+        message(117, minutesAgo(24), "", fromMe = false,
+            attachmentMeta = FakeAttachmentProvider.byGuid("demo-file-1"),
+            senderAddress = "mom@icloud.com"),
+        message(118, minutesAgo(22), "meet at 6:30 instead", fromMe = true,
+            edited = true, status = MessageStatus.DELIVERED),
+        message(119, minutesAgo(20), "", fromMe = true, unsent = true),
+        message(120, minutesAgo(18), "", fromMe = false, unsent = true,
+            senderAddress = "emma@icloud.com"),
+        message(121, minutesAgo(15), "dessert's on me 🍰", fromMe = false),
     )
 
     /** Generic older filler so paging (`loadMore`) has data to serve. */
@@ -290,9 +314,41 @@ object FakeSender : Sender {
     override suspend fun send(chatId: Long, text: String) = FakeChatData.send(chatId, text)
 }
 
+/** Fake [AttachmentProvider]: metadata only, no local files (download chip demo). */
+object FakeAttachmentProvider : AttachmentProvider {
+    private val known = listOf(
+        AttachmentMeta(
+            guid = "demo-image-1", mime = "image/jpeg", name = "trailhead.jpg",
+            sizeBytes = 2_411_520L, isImage = true, downloaded = false,
+        ),
+        AttachmentMeta(
+            guid = "demo-video-1", mime = "video/quicktime", name = "dog.mov",
+            sizeBytes = 18_874_368L, isImage = false, downloaded = false,
+        ),
+        AttachmentMeta(
+            guid = "demo-file-1", mime = "application/pdf", name = "itinerary.pdf",
+            sizeBytes = 412_676L, isImage = false, downloaded = true,
+        ),
+    )
+
+    override fun byGuid(guid: String): AttachmentMeta? = known.firstOrNull { it.guid == guid }
+    override fun localFile(guid: String): File? = null
+}
+
+/** Fake [ChatInfoRepository]: static participants for the seeded group chat. */
+object FakeChatInfoRepository : ChatInfoRepository {
+    override fun participantAddresses(chatId: Long): List<String> =
+        if (chatId == 1L) listOf("mom@icloud.com", "dad@icloud.com", "emma@icloud.com") else emptyList()
+}
+
 /** Composition root. Real core-backed bindings; fakes only as fallback. */
 object AppGraph {
     val chats: ChatListRepository get() = CoreGraph.chats
     val messages: MessageListRepository get() = CoreGraph.messages
     val sender: Sender get() = CoreGraph.sender
+    val attachments: AttachmentProvider get() = CoreGraph.attachments
+    val chatInfo: ChatInfoRepository get() = CoreGraph.chatInfo
+
+    /** Fire-and-forget attachment download (no-op on the fake path). */
+    fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)
 }

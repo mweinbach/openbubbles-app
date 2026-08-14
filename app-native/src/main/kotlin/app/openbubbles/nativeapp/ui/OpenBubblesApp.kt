@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -25,22 +28,34 @@ import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.NativePushService
+import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatViewModel
+import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
+import app.openbubbles.nativeapp.ui.chatinfo.rememberParticipantRows
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object Routes {
     const val CHATS = "chats"
     const val CHAT_PATTERN = "chat/{id}"
     const val LOGIN = "login"
+    const val CHAT_INFO_PATTERN = "chatinfo/{id}"
+    const val ATTACHMENT_PATTERN = "attachment/{guid}"
     const val CHAT_ARG = "id"
+    const val ATTACHMENT_ARG = "guid"
     fun chat(chatId: Long): String = "chat/$chatId"
+    fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
+
+    /** Attachment guids can contain ':'/'/' — encode for the path segment. */
+    fun attachment(guid: String): String = "attachment/${Uri.encode(guid)}"
 }
 
-/** Root scaffold: navigation between the chat list, conversations, and login. */
+/** Root scaffold: navigation between the chat list, conversations, viewer, info, and login. */
 @Composable
 fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
@@ -85,6 +100,43 @@ fun OpenBubblesApp(
                     onInputChange = viewModel::onInputChange,
                     onSend = viewModel::sendMessage,
                     onLoadOlder = viewModel::loadOlder,
+                    onBack = { navController.popBackStack() },
+                    onOpenChatInfo = { navController.navigate(Routes.chatInfo(chatId)) },
+                    onOpenAttachment = { guid -> navController.navigate(Routes.attachment(guid)) },
+                    onDownloadAttachment = { attachment -> AppGraph.requestAttachmentDownload(attachment.guid) },
+                    attachmentFile = AppGraph.attachments::localFile,
+                )
+            }
+            composable(
+                route = Routes.CHAT_INFO_PATTERN,
+                arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.LongType }),
+            ) { backStackEntry ->
+                val chatId = backStackEntry.arguments?.getLong(Routes.CHAT_ARG) ?: 0L
+                val chats by remember(chatId) { AppGraph.chats.chats() }
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
+                val chat = chats.firstOrNull { it.id == chatId }
+                val addresses by produceState<List<String>>(initialValue = emptyList(), chatId) {
+                    value = withContext(Dispatchers.IO) { AppGraph.chatInfo.participantAddresses(chatId) }
+                }
+                val participants = rememberParticipantRows(addresses)
+                ChatInfoScreen(
+                    chat = chat,
+                    participants = participants,
+                    onBack = { navController.popBackStack() },
+                    onLeaveChat = {
+                        app.openbubbles.nativeapp.data.CoreGraph.leaveChat(chatId)
+                        navController.popBackStack()
+                    },
+                )
+            }
+            composable(
+                route = Routes.ATTACHMENT_PATTERN,
+                arguments = listOf(navArgument(Routes.ATTACHMENT_ARG) { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val guid = backStackEntry.arguments?.getString(Routes.ATTACHMENT_ARG).orEmpty()
+                AttachmentViewerScreen(
+                    guid = guid,
+                    provider = AppGraph.attachments,
                     onBack = { navController.popBackStack() },
                 )
             }

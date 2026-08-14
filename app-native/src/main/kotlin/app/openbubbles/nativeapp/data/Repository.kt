@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,6 +23,22 @@ data class ChatListItem(
     val avatarColor: Long,
 )
 
+/**
+ * Display metadata for a single attachment (the first of a message for now).
+ * Mirrors the fields of `app.openbubbles.db.Attachment` the UI needs.
+ */
+data class AttachmentMeta(
+    /** Stable attachment GUID (used for the viewer route and file lookup). */
+    val guid: String,
+    val mime: String?,
+    val name: String?,
+    val sizeBytes: Long?,
+    val isImage: Boolean,
+    val downloaded: Boolean,
+) {
+    val isVideo: Boolean get() = mime?.startsWith("video/", ignoreCase = true) == true
+}
+
 data class MessageItem(
     val id: Long,
     val text: String,
@@ -30,6 +47,14 @@ data class MessageItem(
     val status: MessageStatus,
     val isGroupEvent: Boolean,
     val reactionEmoji: String?,
+    /** First attachment's display metadata, null for pure text messages. */
+    val attachmentMeta: AttachmentMeta? = null,
+    /** True when the sender edited the message after sending. */
+    val edited: Boolean = false,
+    /** True when the message was retracted ("unsent") by its sender. */
+    val unsent: Boolean = false,
+    /** Sender's handle address (null for messages from me). */
+    val senderAddress: String? = null,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -46,4 +71,38 @@ interface MessageListRepository {
 
 interface Sender {
     suspend fun send(chatId: Long, text: String)
+}
+
+/**
+ * Lookups for the attachment viewer: metadata by guid plus the locally
+ * stored file (null while the transfer has not been downloaded).
+ */
+interface AttachmentProvider {
+    fun byGuid(guid: String): AttachmentMeta?
+    fun localFile(guid: String): File?
+}
+
+/**
+ * SAM seam matching `core.attachment.AttachmentManager.localFile` so the UI
+ * contract stays free of core imports; CoreGraph binds the real manager.
+ */
+fun interface AttachmentFileManager {
+    fun localFile(attachment: app.openbubbles.db.Attachment): File?
+}
+
+/**
+ * Optional contact-name injection point. CoreGraph sets [contactNames] once
+ * `core.contacts.ContactSync` lands (or to a local ObjectBox-backed lookup);
+ * callers must treat null and null results as "no contact known".
+ */
+object UiContacts {
+    /** Returns (display name, avatar path) for a handle address, or null. */
+    @Volatile
+    var contactNames: (suspend (handleAddress: String) -> Pair<String?, String?>?)? = null
+}
+
+/** Read-only chat details for the group-info screen. */
+interface ChatInfoRepository {
+    /** Participant handle addresses of the conversation (excluding me). */
+    fun participantAddresses(chatId: Long): List<String>
 }

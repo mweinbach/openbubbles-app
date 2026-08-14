@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
@@ -46,12 +48,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
+import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
+import java.io.File
 import java.time.ZoneId
 import kotlinx.coroutines.launch
 
@@ -94,8 +99,9 @@ fun buildConversationEntries(
 
 /**
  * Conversation view: reversed LazyColumn (newest at the bottom, stays pinned
- * while sending), day separators, bubbles with reactions and delivery status,
- * older-history paging when scrolled to the top, and an IME-aware input bar.
+ * while sending), day separators, bubbles with attachments, edited/unsent
+ * rendering, reactions and delivery status, older-history paging when
+ * scrolled to the top, and an IME-aware input bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,11 +111,29 @@ fun ChatScreen(
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
+    onOpenChatInfo: () -> Unit = {},
+    onOpenAttachment: (String) -> Unit = {},
+    onDownloadAttachment: (AttachmentMeta) -> Unit = {},
+    attachmentFile: (String) -> File? = { null },
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val entries = remember(uiState.messages) { buildConversationEntries(uiState.messages) }
+
+    // Contact names for "<name> unsent a message" rows (best effort).
+    val senderNames = remember { mutableStateMapOf<String, String>() }
+    LaunchedEffect(uiState.messages) {
+        val resolver = UiContacts.contactNames ?: return@LaunchedEffect
+        val addresses = uiState.messages
+            .filter { it.unsent && !it.isFromMe && it.senderAddress != null }
+            .mapNotNull { it.senderAddress }
+            .distinct()
+        addresses.forEach { address ->
+            val name = resolver(address)?.first ?: return@forEach
+            senderNames[address] = name
+        }
+    }
 
     // Reverse layout: the visual top of the list is the highest index.
     val nearTop by remember(entries.size) {
@@ -127,7 +151,12 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { ChatHeader(chat = uiState.chat) },
+                title = {
+                    ChatHeader(
+                        chat = uiState.chat,
+                        modifier = Modifier.clickable(onClick = onOpenChatInfo),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -166,8 +195,14 @@ fun ChatScreen(
                 ) {
                     items(entries, key = { it.key }) { entry ->
                         when (entry) {
-                            is ConversationEntry.Message ->
-                                MessageBubble(message = entry.message, showStatus = entry.showStatus)
+                            is ConversationEntry.Message -> MessageBubble(
+                                message = entry.message,
+                                showStatus = entry.showStatus,
+                                attachmentFile = attachmentFile,
+                                onOpenAttachment = onOpenAttachment,
+                                onDownloadAttachment = onDownloadAttachment,
+                                senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
+                            )
                             is ConversationEntry.DaySeparator ->
                                 DaySeparatorRow(label = formatConversationDay(entry.epochMillis))
                         }
@@ -192,8 +227,9 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatHeader(chat: ChatListItem?) {
+private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
     Row(
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
