@@ -1,6 +1,8 @@
 package app.openbubbles.core.repo
 
+import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.ChatListItem
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Handle
@@ -59,6 +61,58 @@ class ChatRepo(private val store: BoxStore) {
         chatBox.query()
             .equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
+
+    /**
+     * Get-or-create a chat for an explicit participant set (new-conversation
+     * UI). Mirrors the ingestor's `findByRust` creation path: exact
+     * participant-set match first, then create with a deterministic guid so
+     * an incoming message for the same participants resolves to this row.
+     *
+     * @param addresses rust-style handles (`tel:+1555...` / `mailto:me@...`),
+     *   already normalized, self excluded.
+     */
+    fun findOrCreateByAddresses(addresses: List<String>, service: String): Chat {
+        val isSms = service == "SMS"
+        val participants = addresses.map { MessageMapper.normalizeAddress(it) }.distinct()
+        require(participants.isNotEmpty()) { "chat needs at least one participant" }
+
+        val builder = chatBox.query().equal(Chat_.isRpSms, isSms)
+        builder.link(Chat_.handles).`in`(
+            Handle_.address,
+            participants.toTypedArray(),
+            QueryBuilder.StringOrder.CASE_SENSITIVE,
+        )
+        val candidates = builder.build().use { it.find() }
+        candidates.firstOrNull { chat ->
+            val chatAddresses = chat.handles.map { it.address }
+            chatAddresses.size == participants.size && chatAddresses.containsAll(participants)
+        }?.let { return it }
+
+        val guid = "rp-${if (isSms) "sms" else "imsg"}-${participants.sorted().joinToString(",")}"
+        val participantHandles = participants.map { HandleResolver.resolve(store, it, service) }
+        val chat = Chat().apply {
+            this.guid = guid
+            chatIdentifier = if (participants.size == 1) participants[0] else guid
+            isRpSms = isSms
+            isArchived = false
+            isPinned = false
+            hasUnreadMessage = false
+            senderIsKnown = false
+            isRoutingStub = false
+            lockChatName = false
+            lockChatIcon = false
+            displayName = null
+            guidRefs = ArrayList<String>().apply { add(guid) }
+            handles.addAll(participantHandles)
+        }
+        return try {
+            chatBox.put(chat)
+            chat
+        } catch (_: io.objectbox.exception.UniqueViolationException) {
+            chatBox.query().equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }!!
+        }
+    }
 
     /**
      * Mark a chat read (`Chat.toggleHasUnread(false)` + last-read pointer).

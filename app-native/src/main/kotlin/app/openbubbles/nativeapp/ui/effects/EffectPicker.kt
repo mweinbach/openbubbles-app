@@ -36,9 +36,16 @@ fun SendEffectPickerSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text(
             text = "Send with effect",
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
         )
+        Text(
+            text = "Staged for your next message",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        )
+        Spacer(Modifier.height(12.dp))
         SendEffectCatalog.options.chunked(2).forEach { rowOptions ->
             Row(
                 modifier = Modifier
@@ -72,12 +79,16 @@ private fun EffectOptionCard(
         modifier = modifier.clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(text = option.icon, fontSize = 20.sp)
-            Text(text = option.label, style = MaterialTheme.typography.bodyMedium)
+            Text(text = option.icon, fontSize = 22.sp)
+            Text(
+                text = option.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }

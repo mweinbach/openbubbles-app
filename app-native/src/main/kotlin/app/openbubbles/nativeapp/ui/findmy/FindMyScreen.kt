@@ -122,23 +122,21 @@ private fun FindMyList(uiState: FindMyUiState) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (uiState.refreshErrors.isNotEmpty()) {
             item(key = "errors") {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 5.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         text = "Couldn't refresh — showing last known data\n" +
                             uiState.refreshErrors.joinToString("\n"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     )
                 }
             }
@@ -175,10 +173,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.section(
 ) {
     item(key = "header-$title") {
         Text(
-            text = if (count > 0) "$title ($count)" else title,
+            text = if (count > 0) "$title (${count})".uppercase() else title.uppercase(),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
         )
     }
     if (count > 0) rows()
@@ -289,7 +287,6 @@ private fun FindMyRow(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
             .then(
                 if (clickable && onClick != null) {
                     Modifier.clickable(onClick = onClick)
@@ -356,18 +353,27 @@ private fun EmptyState(title: String, detail: String) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.LocationOn,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(40.dp),
-            )
-            Spacer(modifier = Modifier.padding(6.dp))
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.size(64.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.padding(8.dp))
             Text(text = title, style = MaterialTheme.typography.titleMedium)
             Text(
                 text = detail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
     }

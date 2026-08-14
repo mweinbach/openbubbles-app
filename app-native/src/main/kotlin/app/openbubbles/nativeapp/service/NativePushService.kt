@@ -209,7 +209,7 @@ class NativePushService : Service(), MsgReceiver {
 
     private fun startForegroundCompat() {
         val notification = Notification.Builder(this, CHANNEL_STATUS)
-            .setSmallIcon(android.R.drawable.sym_action_chat)
+            .setSmallIcon(app.openbubbles.nativeapp.R.drawable.ic_stat_message)
             .setContentTitle("OpenBubbles")
             .setContentText("Connected to Apple push")
             .setOngoing(true)
