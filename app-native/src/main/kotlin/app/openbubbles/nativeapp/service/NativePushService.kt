@@ -92,6 +92,10 @@ class NativePushService : Service(), MsgReceiver {
                 val handles = PushStateHolder.myHandles
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
                 if (decoded != null) {
+                    if (FaceTimeDispatch.onPushMessage(this@NativePushService, decoded)) {
+                        runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
+                        return@launch
+                    }
                     val chat = ingestor.ingest(decoded, handles)
                     notifyIncoming(decoded, chat)
                 }
@@ -165,6 +169,9 @@ class NativePushService : Service(), MsgReceiver {
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
         val body = plainText(inst) ?: return
         val target = chat ?: return
+        // Per-chat mute (Flutter parity: muteType set -> no notification).
+        // Time-based auto-unmute (muteArgs) lands with chat settings UI.
+        if (!target.muteType.isNullOrEmpty()) return
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
         ) return

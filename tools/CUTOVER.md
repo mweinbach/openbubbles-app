@@ -65,6 +65,11 @@ Flutter desktop app may have data there.
    copy that file to db/seed first).
    Update: `native/settings.gradle` srcDir aliases, CI workflows
    (build.yml dies; native.yml becomes the only build), README.
+   NOTE (done ahead of cutover): the FaceTime + credentials/autofill
+   subsystems already live in app-native (ported with an APNService shim);
+   the remaining android/-only native pieces at deletion time are the SMS
+   receivers + extension platform views (SMS stays deferred) — audit
+   `git ls-tree android/app/src/main/kotlin` before the deletion commit.
 7. Merge `m4-cutover` -> `main` only after device verification.
 
 ## Post-cutover cleanup backlog

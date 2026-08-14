@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:label="OpenBubbles Native"
@@ -50,6 +55,67 @@
         <receiver
             android:name="app.openbubbles.nativeapp.service.MarkReadReceiver"
             android:exported="false" />
+        <receiver
+            android:name="app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver"
+            android:enabled="true"
+            android:exported="true" />
+
+        <activity
+            android:name="app.openbubbles.nativeapp.facetime.FaceTimeActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:exported="false"
+            android:showOnLockScreen="true"
+            android:supportsPictureInPicture="true"
+            android:taskAffinity=".FaceTime"
+            android:theme="@style/Theme.Call" />
+
+        <service
+            android:name="app.openbubbles.nativeapp.facetime.FaceTimeInCallService"
+            android:exported="false"
+            android:foregroundServiceType="camera|microphone" />
+
+        <activity
+            android:name="app.openbubbles.nativeapp.credentials.CredentialCreateActivity"
+            android:taskAffinity=".CredentialCreate"
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
+
+        <activity
+            android:name="app.openbubbles.nativeapp.credentials.CredentialGetActivity"
+            android:taskAffinity=".CredentialGet"
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
+
+        <activity
+            android:name="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
+            android:taskAffinity=".CredentialSettings"
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
+
+        <service
+            android:name="app.openbubbles.nativeapp.credentials.CredentialService"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="iCloud Keychain"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/provider" />
+        </service>
+
+        <service
+            android:name="app.openbubbles.nativeapp.credentials.OBAutofillService"
+            android:exported="true"
+            android:label="iCloud Keychain"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
     </application>
 
 </manifest>
