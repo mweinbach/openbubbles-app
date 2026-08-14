@@ -1,0 +1,24 @@
+// Kotlin app logic for the native clients: message intake (UPushMessage ->
+// ObjectBox), conversation/message repositories, send orchestration against
+// the UniFFI surface. Plain kotlin-jvm like :db so Android + desktop share it.
+plugins {
+    id "org.jetbrains.kotlin.jvm"
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+dependencies {
+    api project(":db")
+
+    implementation "io.objectbox:objectbox-kotlin:4.3.0"
+    implementation "net.java.dev.jna:jna:5.16.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0"
+
+    testImplementation "org.jetbrains.kotlin:kotlin-test"
+}
+
+// UniFFI bindings (same generated file the apps compile)
+sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+sourceSets.test.java.srcDir "../android/app/src/main/kotlin/uniffi"
