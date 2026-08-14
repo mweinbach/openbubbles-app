@@ -54,8 +54,12 @@ object CoreGraph {
 
     val store: BoxStore? by lazy {
         runCatching {
-            Db.build(NativeMainActivity.appContext!!.getExternalFilesDir(null)
-                ?: NativeMainActivity.appContext!!.filesDir)
+            // Match the Flutter app's store location (path_provider's
+            // getApplicationDocumentsDirectory = /data/data/<pkg>/app_flutter)
+            // so the in-place upgrade at cutover opens the existing store.
+            // See tools/CUTOVER.md before changing this.
+            val ctx = NativeMainActivity.appContext ?: return@lazy null
+            Db.build(File(ctx.dataDir, "app_flutter"))
         }.getOrNull()
     }
 
@@ -70,9 +74,10 @@ object CoreGraph {
      */
     val attachmentManager: AttachmentManager? by lazy {
         val st = store ?: return@lazy null
-        val root = NativeMainActivity.appContext?.getExternalFilesDir(null)
-            ?: NativeMainActivity.appContext?.filesDir
-            ?: return@lazy null
+        val root = File(
+            NativeMainActivity.appContext?.dataDir ?: return@lazy null,
+            "app_flutter",
+        )
         runCatching {
             AttachmentManager(
                 store = st,
@@ -139,6 +144,22 @@ object CoreGraph {
     /** Upsert device contacts + invalidate the handle→contact index. */
     fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
         CoreContacts.syncFromDevice(raw)
+
+    /**
+     * Sign out: deregister from iMessage (best effort), tear down the Rust
+     * state, stop the push service, and clear the holders — the sign-in
+     * banner reappears on the chat list.
+     */
+    fun signOut(context: android.content.Context) {
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { PushStateHolder.state?.teardown(true) }
+        }
+        PushStateHolder.clear()
+        runCatching {
+            context.stopService(
+                android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
+        }
+    }
 
     /** Attachment send path (staging + Rust upload + echo ingest). */
     val attachmentSender: AttachmentSender by lazy {
@@ -252,6 +273,11 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         CoreGraph.startQueueDrainer()
+    }
+
+    fun clear() {
+        _state.value = null
+        _myHandles.value = emptySet()
     }
 }
 

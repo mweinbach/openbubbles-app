@@ -1300,6 +1300,8 @@ internal open class UniffiVTableCallbackInterfaceUProgressCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1444,6 +1446,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa(
 ): Short
@@ -1723,6 +1727,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Poi
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -2188,6 +2194,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown() != 6604.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa() != 59540.toShort()) {
@@ -5317,6 +5326,15 @@ public interface NativePushStateInterface {
     
     fun `startLoop`(`handler`: MsgReceiver)
     
+    /**
+     * Tear down the push connection and (with `logout`) deregister from
+     * iMessage and clear the saved Apple account. Hardware validation
+     * data is kept (`reset_hw = false`) so re-login doesn't need new
+     * validation. After this the state object is dead; the caller
+     * re-inits via `init_native` after a fresh login.
+     */
+    fun `teardown`(`logout`: kotlin.Boolean)
+    
     fun `teardown2fa`(`action`: kotlin.String, `txnid`: kotlin.String)
     
     /**
@@ -5795,6 +5813,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(
         it, FfiConverterTypeMsgReceiver.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Tear down the push connection and (with `logout`) deregister from
+     * iMessage and clear the saved Apple account. Hardware validation
+     * data is kept (`reset_hw = false`) so re-login doesn't need new
+     * validation. After this the state object is dead; the caller
+     * re-inits via `init_native` after a fresh login.
+     */
+    @Throws(UException::class)override fun `teardown`(`logout`: kotlin.Boolean)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(
+        it, FfiConverterBoolean.lower(`logout`),_status)
 }
     }
     

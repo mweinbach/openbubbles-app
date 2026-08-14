@@ -1238,6 +1238,27 @@ fn delegate_stage(delegate: &Arc<dyn ULoginDelegate>, stage: ULoginStage) {
 
 #[uniffi::export]
 impl NativePushState {
+    /// Tear down the push connection and (with `logout`) deregister from
+    /// iMessage and clear the saved Apple account. Hardware validation
+    /// data is kept (`reset_hw = false`) so re-login doesn't need new
+    /// validation. After this the state object is dead; the caller
+    /// re-inits via `init_native` after a fresh login.
+    pub fn teardown(&self, logout: bool) -> Result<(), UError> {
+        let state = self.shared();
+        let account = state.icloud_services.as_ref().map(|s| s.account.clone());
+        RUNTIME
+            .block_on(api::reset_state(
+                &state.cancel_poll,
+                state.conf_dir.clone(),
+                &state.os_config,
+                &state.conn,
+                account,
+                false,
+                logout,
+            ))
+            .map_err(|e| UError::Failed { reason: e.to_string() })
+    }
+
     /// All handles (emails + phone numbers) registered for this account.
     /// The intake layer uses these to decide `isFromMe`.
     pub fn get_handles(&self) -> Result<Vec<String>, UError> {

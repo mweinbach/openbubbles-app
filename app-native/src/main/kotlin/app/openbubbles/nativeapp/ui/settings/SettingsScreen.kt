@@ -134,17 +134,24 @@ fun SettingsScreen(
                         supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
                         multiline = true,
                     )
+                    var signingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
                     TextButton(
-                        // TODO(M3): tear down the Rust state + keystore and
-                        // route back to the login flow.
-                        onClick = {},
+                        enabled = !signingOut,
+                        onClick = {
+                            signingOut = true
+                            scope.launch {
+                                app.openbubbles.nativeapp.data.CoreGraph.signOut(context)
+                                signingOut = false
+                                onBack()
+                            }
+                        },
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = null,
                             modifier = Modifier.padding(end = 8.dp),
                         )
-                        Text("Sign out")
+                        Text(if (signingOut) "Signing out…" else "Sign out")
                     }
                 }
             }
