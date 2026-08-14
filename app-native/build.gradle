@@ -47,6 +47,10 @@ android {
 
 dependencies {
     implementation project(":shared")
+    implementation project(":db")
+
+    // ObjectBox native runtime for Android (entities live in :db)
+    implementation "io.objectbox:objectbox-android:4.3.0"
 
     // Rust core via UniFFI (JNA-based bindings)
     implementation "net.java.dev.jna:jna:5.12.0@aar"

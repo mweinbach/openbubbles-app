@@ -63,6 +63,8 @@ native/local.properties
 native/.gradle/
 .kotlin/
 /build-native/
+/db/build/
+db/objectbox-model.json.bak
 
 # Tool droppings / build artifacts
 codegen_logs

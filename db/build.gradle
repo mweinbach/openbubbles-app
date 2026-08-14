@@ -1,0 +1,46 @@
+// ObjectBox persistence for the native (no-Dart) clients.
+//
+// Plain kotlin("jvm") module on purpose: objectbox-java runs on Android AND
+// desktop JVM, so the Android app and the desktop app consume the same
+// entities. UID parity with the Flutter app's store is maintained by seeding
+// this module's objectbox-model.json from lib/generated/objectbox-model.json
+// (names + types match -> the plugin preserves UIDs -> the same DB files
+// open). Guard: git diff on db/objectbox-model.json after a build.
+plugins {
+    id "org.jetbrains.kotlin.jvm"
+    id "io.objectbox"
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+// Build dirs are redirected to ../build-native, so point the processor at
+// the model file explicitly (also where the Dart-parity seed lives).
+kapt {
+    arguments {
+        arg("objectbox.modelPath", file("objectbox-model.json").absolutePath)
+    }
+}
+
+// Store-compatibility guard: the Kotlin/Java-side model must stay
+// byte-identical to the Flutter app's model, or existing device stores
+// won't open. Run from CI or manually after entity changes.
+tasks.register("checkModelParity") {
+    doLast {
+        def seed = rootProject.file("../lib/generated/objectbox-model.json")
+        def ours = rootProject.file("../db/objectbox-model.json")
+        if (seed.text.trim() != ours.text.trim()) {
+            throw new GradleException(
+                "db/objectbox-model.json drifted from the Flutter model — device stores would not open. " +
+                "Regenerate entities (tools/gen_db_entities.py) and resolve the diff.")
+        }
+        logger.lifecycle("ObjectBox model parity with Flutter app: OK")
+    }
+}
+
+dependencies {
+    implementation "io.objectbox:objectbox-kotlin:4.3.0"
+    testImplementation "org.jetbrains.kotlin:kotlin-test"
+    testImplementation "io.objectbox:objectbox-java:4.3.0"
+}
