@@ -10,8 +10,10 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
 
 /**
@@ -22,12 +24,15 @@ import app.openbubbles.nativeapp.data.NotifPrefs
  *  - one [NotificationChannel] per chat (lazily created, named after the chat)
  *  - one notification per message, grouped under a per-chat GROUP key, with a
  *    group summary posted once more than one message is pending in a chat
+ *  - MessagingStyle with a Person per chat (title + guid as the person key),
+ *    conversation history from the store (last 4 messages, current appended),
+ *    the chat guid as the conversation id (shortcutId) and person/search key
  *  - unique request codes (chatId-hash + timestamp) so every message's
  *    PendingIntents carry their own extras
  *  - tap deep-links into the chat (`chat_guid` extra), swipe-dismiss marks the
  *    chat read, "Mark As Read" / "Reply" actions mirror the Flutter actions
- *  - BigTextStyle content, with a sanitized publicVersion when previews are
- *    hidden ([NotifPrefs.hidePreviews])
+ *  - sanitized content when previews are hidden ([NotifPrefs.hidePreviews]):
+ *    history is dropped entirely so no message body leaks
  *
  * The push service's notifyIncoming() hands off to [postIncoming].
  */
@@ -41,6 +46,15 @@ object Notifications {
     const val EXTRA_CANCEL_NOTIFICATIONS = "cancel_notifications"
     const val EXTRA_IS_SUMMARY = "is_summary"
 
+    /**
+     * Conversation identity: NotificationCompat has no setConversationId /
+     * setSearchTerm, so the chat guid rides the conversation shortcutId
+     * (Android's conversation-space identifier), the MessagingStyle Person
+     * key, and this extras entry for notification-listener search.
+     */
+    const val EXTRA_CONVERSATION_ID = "conversation_id"
+    const val EXTRA_SEARCH_KEY = "search_key"
+
     /** RemoteInput key for the inline-reply action (Flutter parity: "text_reply"). */
     const val KEY_TEXT_REPLY = "text_reply"
 
@@ -48,13 +62,17 @@ object Notifications {
     private const val GROUP_PREFIX = "chat_group_"
     private const val SUMMARY_SUFFIX = ":summary"
 
+    /** Messages of conversation history shown above the new message. */
+    private const val HISTORY_DEPTH = 4
+
     /** Flutter's accent color (0x4A90F6) for parity. */
     private const val ACCENT_COLOR = 4888294
     private const val SMALL_ICON = android.R.drawable.sym_action_chat
 
     /**
      * Posts a notification for one incoming message in [chatId]/[chatGuid].
-     * [title] is the chat title, [isGroup] only shapes the channel description.
+     * [title] is the chat title, [isGroup] shapes the channel description and
+     * the MessagingStyle (group conversation + per-sender history entries).
      */
     fun postIncoming(
         context: Context,
@@ -111,13 +129,28 @@ object Notifications {
         val extras = Bundle().apply {
             putString(EXTRA_CHAT_GUID, chatGuid)
             putLong(EXTRA_CHAT_ID, chatId)
+            putString(EXTRA_CONVERSATION_ID, chatGuid)
+            putString(EXTRA_SEARCH_KEY, chatGuid)
         }
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle(shownTitle)
             .setContentText(shownText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(shownText))
+            .setStyle(
+                messagingStyle(
+                    chatGuid = chatGuid,
+                    chatTitle = shownTitle,
+                    isGroup = isGroup,
+                    nowMs = System.currentTimeMillis(),
+                    // Store history only when previews are shown; the current
+                    // message is always appended as the newest message.
+                    history = if (hide) emptyList() else readHistory(chatId, text),
+                    currentText = shownText,
+                    currentSenderPerson = null, // incoming: the chat person renders it
+                    currentFromMe = false,
+                ),
+            )
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -126,6 +159,9 @@ object Notifications {
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setColor(ACCENT_COLOR)
+            // The chat's conversation identity (Android Conversations API):
+            // shortcutId == the conversation id, mirrored in the extras.
+            .setShortcutId(chatGuid)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 publicVersion(context, channelId, shownTitle, shownText, contentIntent),
@@ -170,7 +206,8 @@ object Notifications {
     /**
      * Re-posts the tapped notification (same id) as the sent-reply
      * confirmation, iMessage-style: shows "You: <reply>" (or a placeholder
-     * when previews are hidden) without re-alerting.
+     * when previews are hidden) without re-alerting, with the conversation's
+     * recent history for context.
      */
     fun postReplySent(
         context: Context,
@@ -210,7 +247,18 @@ object Notifications {
             .setSmallIcon(SMALL_ICON)
             .setContentTitle(shownTitle)
             .setContentText(shownText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(shownText))
+            .setStyle(
+                messagingStyle(
+                    chatGuid = chatGuid,
+                    chatTitle = shownTitle,
+                    isGroup = false,
+                    nowMs = System.currentTimeMillis(),
+                    history = if (hide) emptyList() else readHistory(chatId, replyText),
+                    currentText = shownText,
+                    currentSenderPerson = null,
+                    currentFromMe = true,
+                ),
+            )
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setGroup(GROUP_PREFIX + chatGuid)
@@ -219,6 +267,7 @@ object Notifications {
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setColor(ACCENT_COLOR)
+            .setShortcutId(chatGuid)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 publicVersion(context, channelId, shownTitle, shownText, contentIntent),
@@ -226,6 +275,8 @@ object Notifications {
             .setExtras(Bundle().apply {
                 putString(EXTRA_CHAT_GUID, chatGuid)
                 putLong(EXTRA_CHAT_ID, chatId)
+                putString(EXTRA_CONVERSATION_ID, chatGuid)
+                putString(EXTRA_SEARCH_KEY, chatGuid)
             })
             .build()
         nm.notify(requestCode, notification)
@@ -238,6 +289,120 @@ object Notifications {
         nm.activeNotifications
             .filter { it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId }
             .forEach { nm.cancel(it.id) }
+    }
+
+    // ------------------------------------------------------------------
+    // MessagingStyle assembly
+    // ------------------------------------------------------------------
+
+    /** One store-backed history entry (already display-sanitized). */
+    private data class HistoryEntry(
+        val text: String,
+        val timestampMs: Long,
+        /** Null = sent by the local user ("you"). */
+        val senderPerson: Person?,
+    )
+
+    /**
+     * Builds the MessagingStyle: a Person per chat (title + guid key), the
+     * store's last messages as history, and the current message appended as
+     * the newest entry. Conversation-id semantics ride [chatGuid] via the
+     * caller's shortcutId/extras and the person key.
+     */
+    private fun messagingStyle(
+        chatGuid: String,
+        chatTitle: String,
+        isGroup: Boolean,
+        nowMs: Long,
+        history: List<HistoryEntry>,
+        currentText: String,
+        currentSenderPerson: Person?,
+        currentFromMe: Boolean,
+    ): NotificationCompat.MessagingStyle {
+        // Person per chat: name = chat title, key = chat guid (search/dedupe).
+        val chatPerson = Person.Builder()
+            .setName(chatTitle)
+            .setKey(chatGuid)
+            .setImportant(true)
+            .build()
+        val style = NotificationCompat.MessagingStyle(chatPerson)
+            .setGroupConversation(isGroup)
+        if (isGroup) {
+            // The conversation title is redundant for 1:1 chats (the person
+            // name already renders); groups need it as the thread label.
+            style.setConversationTitle(chatTitle)
+        }
+        history.forEach { entry ->
+            style.addMessage(
+                NotificationCompat.MessagingStyle.Message(
+                    entry.text,
+                    entry.timestampMs,
+                    entry.senderPerson ?: chatPerson,
+                ),
+            )
+        }
+        // Current message: incoming renders as the chat person; own replies
+        // ("You: …") render with the local-user sender (null person).
+        style.addMessage(
+            NotificationCompat.MessagingStyle.Message(
+                currentText,
+                nowMs,
+                if (currentFromMe) null else (currentSenderPerson ?: chatPerson),
+            ),
+        )
+        return style
+    }
+
+    /**
+     * Last [HISTORY_DEPTH] displayable messages of the chat from the store
+     * (read-only), oldest-first, excluding [currentText] when it was just
+     * ingested as the newest row. Returns an empty list when the store is
+     * unavailable — the notification then shows only the current message.
+     */
+    private fun readHistory(chatId: Long, currentText: String?): List<HistoryEntry> {
+        if (chatId <= 0L) return emptyList()
+        val store = CoreGraph.store ?: return emptyList()
+        return runCatching {
+            val box = store.boxFor(app.openbubbles.db.Message::class.java)
+            val rows = box.query()
+                .equal(
+                    app.openbubbles.db.Message_.chatId,
+                    chatId,
+                )
+                .orderDesc(app.openbubbles.db.Message_.dateCreated)
+                .build()
+                .use { query -> query.find(0, (HISTORY_DEPTH + 1).toLong()) }
+                .asReversed() // oldest -> newest
+
+            // The newest row is usually the message being notified (it is
+            // ingested before posting); drop it so the current message is not
+            // duplicated by the appended one.
+            val dropCurrent = currentText != null && rows.firstOrNull()?.text?.trim() == currentText.trim()
+            rows
+                .drop(if (dropCurrent) 1 else 0)
+                .mapNotNull { row -> historyEntry(row) }
+                .takeLast(HISTORY_DEPTH)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun historyEntry(row: app.openbubbles.db.Message): HistoryEntry? {
+        // Skip group events (name/photo changes etc.) and empty rows.
+        if (row.itemType != null && row.itemType != 0L) return null
+        val text = row.text?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (row.hasAttachments) "[Attachment]" else return null
+        val timestamp = row.dateCreated?.time ?: return null
+        val sender = if (row.isFromMe) {
+            null // local user
+        } else {
+            val address = runCatching {
+                row.handleRelation.target?.formattedAddress
+                    ?: row.handleRelation.target?.address
+            }.getOrNull()
+            Person.Builder()
+                .setName(address ?: "Sender")
+                .build()
+        }
+        return HistoryEntry(text = text, timestampMs = timestamp, senderPerson = sender)
     }
 
     // ------------------------------------------------------------------

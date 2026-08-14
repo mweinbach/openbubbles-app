@@ -38,6 +38,8 @@ import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.rememberParticipantRows
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListViewModel
+import app.openbubbles.nativeapp.ui.findmy.FindMyScreen
+import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
@@ -49,6 +51,7 @@ object Routes {
     const val CHAT_PATTERN = "chat/{id}"
     const val LOGIN = "login"
     const val SETTINGS = "settings"
+    const val FIND_MY = "findmy"
     const val CHAT_INFO_PATTERN = "chatinfo/{id}"
     const val ATTACHMENT_PATTERN = "attachment/{guid}"
     const val CHAT_ARG = "id"
@@ -138,7 +141,19 @@ fun OpenBubblesApp(
                 )
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenFindMy = { navController.navigate(Routes.FIND_MY) },
+                )
+            }
+            composable(Routes.FIND_MY) {
+                val viewModel: FindMyViewModel = viewModel(factory = FindMyViewModel.factory())
+                val state by viewModel.uiState.collectAsStateWithLifecycle()
+                FindMyScreen(
+                    uiState = state,
+                    onRefresh = viewModel::refresh,
+                    onBack = { navController.popBackStack() },
+                )
             }
             composable(
                 route = Routes.CHAT_INFO_PATTERN,

@@ -1,12 +1,15 @@
 package app.openbubbles.nativeapp.ui.chatinfo
 
 import android.content.res.Configuration
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,17 +33,28 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /** One participant row model: raw address plus the resolved contact info. */
 data class ParticipantRow(
@@ -78,12 +92,21 @@ fun ChatInfoScreen(
             )
         },
     ) { padding ->
+        // The primary participant's contact poster (db Handle.posterPath),
+        // when a decoded image exists, replaces the initials header.
+        val primaryAddress = participants.firstOrNull()?.address ?: chat?.avatarAddress
+        val posterFile = rememberPosterFile(primaryAddress)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            HeaderSection(chat = chat, participantCount = participants.size)
+            HeaderSection(
+                chat = chat,
+                participantCount = participants.size,
+                posterFile = posterFile,
+            )
             if (participants.isNotEmpty()) {
                 Text(
                     text = "Participants",
@@ -132,7 +155,19 @@ fun ChatInfoScreen(
 }
 
 @Composable
-private fun HeaderSection(chat: ChatListItem?, participantCount: Int) {
+private fun HeaderSection(chat: ChatListItem?, participantCount: Int, posterFile: File?) {
+    // Poster header (contact-poster style): full-bleed image with the name
+    // overlaid on a bottom scrim. Only when the file exists AND decodes.
+    val poster = rememberDecodedImage(posterFile, maxDimensionPx = 1080)
+    if (chat != null && poster != null) {
+        PosterHeaderCard(
+            title = chat.title,
+            image = poster.image,
+            aspectRatio = poster.aspectRatio,
+            participantCount = participantCount,
+        )
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -168,6 +203,106 @@ private fun HeaderSection(chat: ChatListItem?, participantCount: Int) {
         }
     }
 }
+
+/**
+ * Contact-poster style header: the poster image cropped to a portrait card
+ * (clamped around 3:4) with the chat title and participant count overlaid
+ * on a gradient scrim.
+ */
+@Composable
+private fun PosterHeaderCard(
+    title: String,
+    image: androidx.compose.ui.graphics.ImageBitmap,
+    aspectRatio: Float,
+    participantCount: Int,
+) {
+    // Posters are portrait; clamp extreme aspect ratios so a landscape
+    // picture doesn't collapse the card or blow it up.
+    val clamped = aspectRatio.coerceIn(0.6f, 1.4f)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .aspectRatio(clamped)
+            .clip(RoundedCornerShape(28.dp)),
+    ) {
+        Image(
+            bitmap = image,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.55f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.65f),
+                        ),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(20.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (participantCount > 0) {
+                Text(
+                    text = "$participantCount participant" + if (participantCount == 1) "" else "s",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.85f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Resolves the primary participant's poster path from the db (read-only):
+ * the Handle whose address or formattedAddress matches [address], when it
+ * carries a `posterPath` that points at an existing file.
+ */
+@Composable
+private fun rememberPosterFile(address: String?): File? =
+    produceState<File?>(initialValue = null, address) {
+        if (address.isNullOrBlank()) return@produceState
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val box = CoreGraph.store?.boxFor(app.openbubbles.db.Handle::class.java)
+                    ?: return@runCatching null
+                val handle = box.query()
+                    .equal(
+                        app.openbubbles.db.Handle_.address,
+                        address,
+                        QueryBuilder.StringOrder.CASE_SENSITIVE,
+                    )
+                    .or()
+                    .equal(
+                        app.openbubbles.db.Handle_.formattedAddress,
+                        address,
+                        QueryBuilder.StringOrder.CASE_SENSITIVE,
+                    )
+                    .build()
+                    .use { it.findFirst() }
+                    ?: return@runCatching null
+                handle.posterPath
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::File)
+                    ?.takeIf { it.isFile }
+            }.getOrNull()
+        }
+    }.value
 
 @Composable
 private fun ParticipantListRow(participant: ParticipantRow) {
