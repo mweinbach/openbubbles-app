@@ -12,10 +12,22 @@ import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 
 class NativeMainActivity : ComponentActivity() {
 
+    private val notifPermissionLauncher =
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appContext = applicationContext
+
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            registerForActivityResult(notifPermissionLauncher) { }.launch(
+                android.Manifest.permission.POST_NOTIFICATIONS
+            )
+        }
 
         // Smoke test: load librust_lib_bluebubbles.so (built by cargokit from
         // the same Rust crate the Flutter app uses) and call through UniFFI.
