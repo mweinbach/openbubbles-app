@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -91,14 +92,15 @@ interface LoginEvents {
 }
 
 /**
- * Drives [LoginScreen] from a [LoginHandle]. Every handle call runs inside
- * `runInterruptible(Dispatchers.IO)` and is serialized by a mutex; a
+ * Drives [LoginScreen] from a [LoginHandle]. Every handle call runs on the
+ * injected worker dispatcher (IO in production) and is serialized by a mutex; a
  * [Throwable] from the handle surfaces as an error string on the current
  * screen and is re-runnable via [retry].
  */
 class LoginViewModel(
     private val scope: CoroutineScope,
     private val handle: LoginHandle,
+    private val workerDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel(), LoginEvents {
 
     private val mutex = Mutex()
@@ -121,7 +123,7 @@ class LoginViewModel(
             // `withContext(IO)` rather than `runInterruptible`: the handle API
             // is suspend, and runInterruptible's block is not.
             val saved = try {
-                withContext(Dispatchers.IO) { handle.savedUsername() }
+                withContext(workerDispatcher) { handle.savedUsername() }
             } catch (t: Throwable) {
                 null
             }
@@ -202,7 +204,7 @@ class LoginViewModel(
     override fun retry() {
         retryAction?.let { action ->
             scope.launch {
-                mutex.withLock { withContext(Dispatchers.IO) { guarded(action) } }
+                mutex.withLock { withContext(workerDispatcher) { guarded(action) } }
             }
         }
     }
@@ -218,7 +220,7 @@ class LoginViewModel(
     private fun runAction(action: suspend () -> Unit) {
         retryAction = action
         scope.launch {
-            mutex.withLock { withContext(Dispatchers.IO) { guarded(action) } }
+            mutex.withLock { withContext(workerDispatcher) { guarded(action) } }
         }
     }
 

@@ -47,23 +47,29 @@ class NativePushService : Service(), MsgReceiver {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Volatile
+    private var pollMode = false
+
+    private var bootStarted = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createChannels()
         startForegroundCompat()
-        bootRust()
     }
 
-    private var pollMode = false
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == BatterySaver.ACTION_POLL_ONCE) {
-            pollMode = true
-            return START_NOT_STICKY
+        // onCreate runs before Android delivers the start intent. Configure the
+        // service mode first, then boot Rust, so a fast nativeReady callback can
+        // never mistake a one-shot poll for the persistent APNs loop.
+        if (!bootStarted) {
+            pollMode = isPollStart(intent?.action)
+            bootStarted = true
+            bootRust()
         }
-        return START_STICKY
+        return restartModeFor(pollMode)
     }
 
     // -- Rust lifecycle -----------------------------------------------------
@@ -238,6 +244,12 @@ class NativePushService : Service(), MsgReceiver {
         }
     }
 }
+
+internal fun isPollStart(action: String?): Boolean =
+    action == BatterySaver.ACTION_POLL_ONCE
+
+internal fun restartModeFor(pollMode: Boolean): Int =
+    if (pollMode) Service.START_NOT_STICKY else Service.START_STICKY
 
 private class NoopWifiCallback : uniffi.rust_lib_bluebubbles.HandleWifiNetworksCallback {
     override fun handleWifiNetworks(networks: Map<String, String>, userApprove: Boolean) {

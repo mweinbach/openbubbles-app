@@ -104,6 +104,7 @@ dependencies {
     testImplementation "org.jetbrains.kotlin:kotlin-test"
     testImplementation "io.objectbox:objectbox-java:4.3.0"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0"
 }
 
 // UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native
