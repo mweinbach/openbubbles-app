@@ -16,7 +16,7 @@ import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.data.OfficialEngineProbe
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
-import app.openbubbles.shared.Hello
+import app.openbubbles.core.Hello
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

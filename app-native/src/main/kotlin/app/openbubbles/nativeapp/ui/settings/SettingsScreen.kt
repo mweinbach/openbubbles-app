@@ -50,7 +50,11 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
+// material3 1.5.0-alpha26: MenuAnchorType was replaced by
+// ExposedDropdownMenuAnchorType, and ExposedDropdownMenu became an extension
+// function on ExposedDropdownMenuBoxScope, so it needs an explicit import.
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -308,7 +312,10 @@ fun SettingsScreen(
     // Thread-safe stage text: core progress fires on the IO dispatcher, so a
     // StateFlow (not snapshot state) carries the updates into composition.
     val backupStageFlow = remember { MutableStateFlow<String?>(null) }
-    val backupStage by backupStageFlow.asStateFlow().collectAsStateWithLifecycle()
+    // Collected directly: MutableStateFlow already is a StateFlow, and calling
+    // asStateFlow() here built a new wrapper on every recomposition, which
+    // restarted the collector (FlowOperatorInvokedInComposition).
+    val backupStage by backupStageFlow.collectAsStateWithLifecycle()
     var backupError by remember { mutableStateOf<String?>(null) }
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
     var restarting by remember { mutableStateOf(false) }
@@ -752,7 +759,7 @@ fun SettingsScreen(
                                 singleLine = true,
                                 modifier = Modifier
                                     .menuAnchor(
-                                        type = MenuAnchorType.PrimaryNotEditable,
+                                        type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
                                         enabled = !joiningClique,
                                     )
                                     .fillMaxWidth(),

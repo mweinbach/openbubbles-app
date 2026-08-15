@@ -40,7 +40,7 @@ tasks.register("checkModelParity") {
 }
 
 dependencies {
-    implementation "io.objectbox:objectbox-kotlin:4.3.0"
-    testImplementation "org.jetbrains.kotlin:kotlin-test"
-    testImplementation "io.objectbox:objectbox-java:4.3.0"
+    implementation libs.objectbox.kotlin
+    testImplementation libs.kotlin.test
+    testImplementation libs.objectbox.java
 }

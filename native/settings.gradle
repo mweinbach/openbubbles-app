@@ -9,20 +9,23 @@ pluginManagement {
         eachPlugin {
             // ObjectBox publishes no plugin marker; id is plain "io.objectbox"
             if (requested.id.id == "io.objectbox") {
-                useModule("io.objectbox:objectbox-gradle-plugin:4.3.0")
+                useModule("io.objectbox:objectbox-gradle-plugin:5.4.2")
             }
         }
     }
 }
 
+// Versions are duplicated from gradle/libs.versions.toml on purpose: a version
+// catalog cannot be consumed by the settings `plugins` block that declares it.
+// Keep the two in sync when bumping.
 plugins {
-    id "com.android.application" version "8.11.1" apply false
-    id "com.android.library" version "8.11.1" apply false
-    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
-    id "org.jetbrains.kotlin.multiplatform" version "2.1.0" apply false
-    id "org.jetbrains.kotlin.jvm" version "2.1.0" apply false
-    id "org.jetbrains.kotlin.plugin.compose" version "2.1.0" apply false
-    id "org.jetbrains.compose" version "1.8.2" apply false
+    id "com.android.application" version "9.3.1" apply false
+    id "com.android.library" version "9.3.1" apply false
+    id "org.jetbrains.kotlin.android" version "2.4.10" apply false
+    id "org.jetbrains.kotlin.multiplatform" version "2.4.10" apply false
+    id "org.jetbrains.kotlin.jvm" version "2.4.10" apply false
+    id "org.jetbrains.kotlin.plugin.compose" version "2.4.10" apply false
+    id "org.jetbrains.compose" version "1.11.1" apply false
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
 }
 
@@ -33,8 +36,6 @@ if (JavaVersion.current() != JavaVersion.VERSION_21) {
     )
 }
 
-include ":shared"
-project(":shared").projectDir = file("../shared")
 include ":app-native"
 project(":app-native").projectDir = file("../app-native")
 include ":android-smsmms"

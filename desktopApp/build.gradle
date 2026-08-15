@@ -15,7 +15,6 @@ kotlin {
 sourceSets.main.java.srcDir "../core/src/main/kotlin/uniffi"
 
 dependencies {
-    implementation project(":shared")
     implementation project(":db")
     implementation project(":core")
     implementation "io.objectbox:objectbox-kotlin:4.3.0"

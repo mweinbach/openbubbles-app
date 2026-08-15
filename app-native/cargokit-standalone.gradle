@@ -9,8 +9,21 @@
 // Keep the env var names/values in sync with CargoKitBuildTask.build() in
 // rust_builder/cargokit/gradle/plugin.gradle.
 
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+// Gradle 9 removed Project.exec()/javaexec() from task actions. ExecOperations
+// is the replacement and can only arrive by injection, so a tiny injectable
+// holder is created here and captured by the task closures below.
+interface CargokitExecInjection {
+    @Inject
+    ExecOperations getExecOps()
+}
+def injected = project.objects.newInstance(CargokitExecInjection)
+
 def cargokitDir = file("../rust_builder/cargokit")
-def cargoRoot = new File(project.buildDir, "cargokit")
+// Gradle 9 removed Project.buildDir.
+def cargoRoot = project.layout.buildDirectory.dir("cargokit").get().asFile
 
 // Flutter platform names used by cargokit's build_tool
 def ABI_TO_PLATFORM = [
@@ -48,7 +61,7 @@ android.applicationVariants.all { variant ->
             def executableName = org.apache.tools.ant.taskdefs.condition.Os.isFamily(
                     org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS) ? "run_build_tool.cmd" : "run_build_tool.sh"
 
-            exec {
+            injected.execOps.exec {
                 executable new File(cargokitDir, executableName)
                 args "build-gradle"
                 environment "CARGOKIT_ROOT_PROJECT_DIR", project.rootProject.projectDir
@@ -59,7 +72,11 @@ android.applicationVariants.all { variant ->
                 environment "CARGOKIT_OUTPUT_DIR", cargoOutputDir
                 environment "CARGOKIT_NDK_VERSION", android.ndkVersion
                 environment "CARGOKIT_SDK_DIR", android.sdkDirectory
-                environment "CARGOKIT_COMPILE_SDK_VERSION", android.compileSdkVersion.replace("android-", "").toInteger()
+                // From SDK 37 the platform string carries a minor version
+                // ("android-37.0"), which is not parseable as an int. cargokit
+                // only wants the major API level.
+                environment "CARGOKIT_COMPILE_SDK_VERSION",
+                        android.compileSdkVersion.replace("android-", "").tokenize(".").first().toInteger()
                 environment "CARGOKIT_MIN_SDK_VERSION", android.defaultConfig.minSdkVersion.apiLevel as int
                 environment "CARGOKIT_TARGET_PLATFORMS", platforms.join(",")
                 environment "CARGOKIT_JAVA_HOME", System.properties['java.home']
@@ -83,7 +100,7 @@ tasks.register("checkUniffiBindings") {
     doLast {
         def tmp = File.createTempDir()
         tmp.deleteOnExit()
-        exec {
+        injected.execOps.exec {
             workingDir file("../rust")
             executable "cargo"
             args "run", "--bin", "uniffi-bindgen", "generate",

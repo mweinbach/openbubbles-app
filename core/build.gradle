@@ -12,14 +12,14 @@ kotlin {
 dependencies {
     api project(":db")
 
-    implementation "io.objectbox:objectbox-kotlin:4.3.0"
+    implementation libs.objectbox.kotlin
     // Compile-only: consumers provide the platform runtime (Android uses the
     // @aar flavor, desktop the plain jar) to avoid duplicate classes.
-    compileOnly "net.java.dev.jna:jna:5.16.0"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0"
+    compileOnly libs.jna
+    implementation libs.kotlinx.coroutines.core
 
-    testImplementation "org.jetbrains.kotlin:kotlin-test"
-    testImplementation "net.java.dev.jna:jna:5.16.0"
+    testImplementation libs.kotlin.test
+    testImplementation libs.jna
 }
 
 // UniFFI bindings (same generated file the apps compile)
