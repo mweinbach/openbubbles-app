@@ -27,6 +27,7 @@ private const val ICLOUD_CONTACTS_PREFS = "icloud_contacts"
 private const val ICLOUD_CONTACTS_ROOT = "https://contacts.icloud.com/"
 private const val MAX_REDIRECTS = 5
 private const val MULTIGET_BATCH = 64
+private const val AUTO_SYNC_FRESHNESS_MS = 15 * 60 * 1000L
 
 internal data class ParsedVCard(
     val displayName: String?,
@@ -435,9 +436,19 @@ object ICloudContactSync {
         )
     }
 
-    suspend fun sync(context: Context, state: NativePushState): ICloudContactSyncStatus = mutex.withLock {
+    suspend fun sync(
+        context: Context,
+        state: NativePushState,
+        force: Boolean = false,
+    ): ICloudContactSyncStatus = mutex.withLock {
         withContext(Dispatchers.IO) {
             val prefs = context.getSharedPreferences(ICLOUD_CONTACTS_PREFS, Context.MODE_PRIVATE)
+            val previous = status(context)
+            if (!force && previous.lastSuccessMs > 0L &&
+                System.currentTimeMillis() - previous.lastSuccessMs < AUTO_SYNC_FRESHNESS_MS
+            ) {
+                return@withContext previous
+            }
             runCatching {
                 val headers = state.getContactsHeaders()
                 val client = ICloudCardDavClient(headers)
@@ -471,9 +482,9 @@ object ICloudContactSync {
                     val toRemove = (if (result.reset) knownBefore - knownAfter else deletedIds) + noLongerUsable
 
                     CoreGraph.syncContacts(raw)
-                    CoreGraph.removeContacts(toRemove.map(::contactId))
+                    val removedNow = CoreGraph.removeContacts(toRemove.map(::contactId))
                     imported += raw.size
-                    removed += toRemove.size
+                    removed += removedNow
 
                     prefs.edit()
                         .putString(ctagKey(result.book.url), result.book.ctag)

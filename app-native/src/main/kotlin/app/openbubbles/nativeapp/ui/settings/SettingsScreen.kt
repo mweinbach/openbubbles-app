@@ -204,7 +204,7 @@ fun SettingsScreen(
         if (contactSyncing) return
         contactSyncing = true
         scope.launch {
-            contactStatus = ICloudContactSync.sync(context, live)
+            contactStatus = ICloudContactSync.sync(context, live, force = true)
             contactSyncing = false
         }
     }
