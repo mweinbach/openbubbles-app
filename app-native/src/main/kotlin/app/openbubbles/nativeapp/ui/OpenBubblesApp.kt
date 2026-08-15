@@ -255,6 +255,7 @@ fun OpenBubblesApp(
                             navController.popBackStack(Routes.CHATS, inclusive = false)
                         },
                         onBack = { navController.popBackStack() },
+                        onRedoSetup = { provisioned = false },
                     )
                 } else {
                     app.openbubbles.nativeapp.ui.login.ProvisionScreen(

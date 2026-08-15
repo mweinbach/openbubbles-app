@@ -86,6 +86,8 @@ fun LoginScreen(
     onFinished: (username: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Shown on the form step — re-run device provisioning (e.g. switch to a relay code). */
+    onRedoSetup: (() -> Unit)? = null,
 ) {
     val loginViewModel: LoginViewModel = viewModel(factory = LoginViewModel.factory(handle))
     val state by loginViewModel.screen.collectAsStateWithLifecycle()
@@ -95,6 +97,7 @@ fun LoginScreen(
         onBack = onBack,
         onFinished = onFinished,
         modifier = modifier,
+        onRedoSetup = onRedoSetup,
     )
 }
 
@@ -106,6 +109,7 @@ fun LoginScreenBody(
     onBack: () -> Unit,
     onFinished: (username: String) -> Unit,
     modifier: Modifier = Modifier,
+    onRedoSetup: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -139,6 +143,16 @@ fun LoginScreenBody(
                 is LoginScreen.ExtraStep -> ExtraStepScreen(state, events)
                 is LoginScreen.Done -> DoneStep(state, onFinished)
                 is LoginScreen.Blocked -> BlockedStep(state)
+            }
+            if (state is LoginScreen.Form && onRedoSetup != null && !state.isBusy()) {
+                TextButton(
+                    onClick = onRedoSetup,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                ) {
+                    Text("Use a different device setup method")
+                }
             }
         }
     }

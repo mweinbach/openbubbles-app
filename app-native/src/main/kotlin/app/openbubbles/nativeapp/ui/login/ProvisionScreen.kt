@@ -46,7 +46,7 @@ fun ProvisionScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    var mode by remember { mutableStateOf<ProvisionMode?>(ProvisionMode.Paste) }
+    var mode by remember { mutableStateOf<ProvisionMode?>(ProvisionMode.Relay) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
@@ -144,8 +144,11 @@ fun ProvisionScreen(
         Text("Device setup", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Apple requires Mac-derived validation data once, before this " +
-                "device can register with iMessage. Provide it from a real Mac " +
-                "or a relay slot.",
+                "device can register with iMessage. Recommended: a relay " +
+                "activation code (Settings → Share Activation Code in your " +
+                "other OpenBubbles install) — it completes validation " +
+                "server-side. Raw Mac data (paste/QR) can set up but cannot " +
+                "finish sign-in on this build.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

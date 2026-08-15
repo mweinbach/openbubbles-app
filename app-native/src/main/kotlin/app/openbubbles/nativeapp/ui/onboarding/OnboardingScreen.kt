@@ -159,6 +159,7 @@ fun OnboardingScreen(
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        onRedoSetup = { provisioned = false },
                     )
                 }
             }
@@ -182,6 +183,7 @@ private fun ConnectStep(
     onBack: () -> Unit,
     onSignedIn: () -> Unit,
     modifier: Modifier = Modifier,
+    onRedoSetup: () -> Unit = {},
 ) {
     Column(modifier = modifier) {
         OnboardingTopBar(onBack = onBack, activeSegment = 2)
@@ -237,6 +239,7 @@ private fun ConnectStep(
                     onFinished = { _ -> onSignedIn() },
                     onBack = onBack,
                     modifier = Modifier.fillMaxSize(),
+                    onRedoSetup = onRedoSetup,
                 )
             }
         }
