@@ -33,6 +33,11 @@ data class ChatListItem(
     /** Locally cached custom group photo. */
     val avatarPath: String? = null,
     val isGroup: Boolean = false,
+    /** User-selected background stored only on this Android device. */
+    val customBackgroundPath: String? = null,
+    /** Apple-synced transcript background received from another device. */
+    val transcriptBackgroundPath: String? = null,
+    val transcriptBackgroundVersion: Long? = null,
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -44,9 +49,25 @@ data class AttachmentMeta(
     val sizeBytes: Long?,
     val isImage: Boolean,
     val downloaded: Boolean,
+    /** iMessage part index this attachment occupies. */
+    val partIndex: Long = 0L,
 ) {
     val isVideo: Boolean get() = mime?.startsWith("video/", ignoreCase = true) == true
 }
+
+/** One sticker image transformed over its target bubble. */
+data class StickerPlacement(
+    val reactionGuid: String,
+    val attachmentGuid: String,
+    val targetPart: Long,
+    val messageWidth: Double,
+    val normalizedX: Double,
+    val normalizedY: Double,
+    val rotation: Double,
+    val scale: Double,
+    val effectType: Long,
+    val downloaded: Boolean,
+)
 
 data class MessageItem(
     val id: Long,
@@ -82,6 +103,12 @@ data class MessageItem(
     val guid: String = id.toString(),
     /** Root message GUID when this message is part of a reply thread. */
     val replyToGuid: String? = null,
+    /** Part index on the root message used by this thread. */
+    val replyToPart: Long? = null,
+    /** Parent-part summary resolved independently of the progressive page. */
+    val replyPreviewText: String? = null,
+    /** Positional stickers layered over this message. */
+    val stickers: List<StickerPlacement> = emptyList(),
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -100,6 +127,9 @@ interface MessageListRepository {
     fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>>
     fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem>
 
+    /** Root plus replies for one part-aware thread, oldest first. */
+    fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> = emptyList()
+
     /** Releases per-conversation paging state when its ViewModel is cleared. */
     fun release(chatId: Long) = Unit
 }
@@ -108,7 +138,7 @@ interface Sender {
     suspend fun send(chatId: Long, text: String)
 
     /** Sends a text reply rooted at [replyGuid]. */
-    suspend fun sendReply(chatId: Long, text: String, replyGuid: String) {
+    suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
         send(chatId, text)
     }
 
@@ -122,6 +152,27 @@ interface Sender {
     suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
         send(chatId, text)
     }
+}
+
+data class StickerTransform(
+    val messageWidth: Double,
+    val normalizedX: Double,
+    val normalizedY: Double,
+    val rotation: Double,
+    val scale: Double,
+    val effectType: Long = 0L,
+)
+
+/** Uploads an image as a positional sticker reaction. */
+fun interface StickerSender {
+    suspend fun send(
+        chatId: Long,
+        targetGuid: String,
+        targetPart: Long,
+        targetText: String,
+        sticker: OutgoingAttachment,
+        transform: StickerTransform,
+    )
 }
 
 /** Marks a conversation read locally and mirrors the receipt through iMessage. */
@@ -234,4 +285,10 @@ interface ChatInfoActions {
     suspend fun setGroupIcon(chatId: Long, file: File)
     suspend fun removeGroupIcon(chatId: Long)
     suspend fun leave(chatId: Long)
+}
+
+/** Local per-chat background controls. Apple-synced backgrounds arrive through push intake. */
+interface ChatBackgroundActions {
+    suspend fun setLocalBackground(chatId: Long, file: File)
+    suspend fun clearLocalBackground(chatId: Long)
 }

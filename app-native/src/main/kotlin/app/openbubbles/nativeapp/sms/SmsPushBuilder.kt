@@ -124,6 +124,7 @@ object SmsPushBuilder {
                             xml = "",
                         ),
                         idx = index.toULong(),
+                        extJson = null,
                     ),
                 )
             }
@@ -183,7 +184,7 @@ object SmsPushBuilder {
     // Internals
     // ------------------------------------------------------------------
 
-    private fun textPart(text: String) = UIndexedPart(UPart.Text(text, ""), null)
+    private fun textPart(text: String) = UIndexedPart(UPart.Text(text, ""), null, null)
 
     private fun normal(parts: List<UIndexedPart>) = UMessage.Normal(
         parts = parts,

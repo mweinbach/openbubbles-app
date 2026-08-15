@@ -241,6 +241,9 @@ class ChatRepo(private val store: BoxStore) {
             avatarAddress = chat.handles.singleOrNull()?.let { it.formattedAddress ?: it.address },
             avatarPath = chat.customAvatarPath,
             isGroup = chat.isGroupConversation(),
+            customBackgroundPath = chat.customBackgroundPath,
+            transcriptBackgroundPath = chat.transcriptPosterPath,
+            transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
         )
     }
 

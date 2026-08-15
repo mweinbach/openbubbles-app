@@ -3,7 +3,9 @@ package app.openbubbles.core.repo
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.MessageKind
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageStatus
+import app.openbubbles.core.model.StickerPlacement
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Message
@@ -86,6 +88,24 @@ class MessageRepo(
         messageBox.query()
             .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
+
+    /** Root plus every reply attached to the same root part, oldest first. */
+    fun threadMessages(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
+        val root = messageByGuid(rootGuid)?.takeIf { it.chat.targetId == chatId }
+        val replies = messageBox.query()
+            .equal(Message_.chatId, chatId)
+            .equal(Message_.threadOriginatorGuid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .equal(Message_.threadOriginatorPart, part.toString(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .isNull(Message_.associatedMessageGuid)
+            .isNull(Message_.dateDeleted)
+            .order(Message_.dateCreated)
+            .order(Message_.id)
+            .build().use { it.find() }
+        return buildList {
+            if (root != null) add(toItem(root))
+            addAll(replies.map(::toItem))
+        }
+    }
 
     /**
      * Appends a staged outgoing message — the local echo shown while the send
@@ -174,11 +194,14 @@ class MessageRepo(
 
     internal fun toItem(message: Message): MessageItem {
         val kind = kindOf(message)
-        val activeReaction = if (kind == MessageKind.TEXT && message.hasReactions) {
-            activeReactionFor(message.guid)
+        val activeReactions = if (kind == MessageKind.TEXT && message.hasReactions) {
+            activeReactionsFor(message.guid)
         } else {
-            null
+            emptyList()
         }
+        val activeReaction = activeReactions
+            .filterNot { it.associatedMessageType?.removePrefix("-") in STICKER_TYPES }
+            .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
         return MessageItem(
             id = message.id,
             guid = message.guid,
@@ -198,8 +221,10 @@ class MessageRepo(
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
             threadOriginatorGuid = message.threadOriginatorGuid,
+            threadOriginatorPart = message.threadOriginatorPart?.toLongOrNull(),
             associatedMessageGuid = message.associatedMessageGuid,
             expressiveSendStyleId = message.expressiveSendStyleId,
+            stickers = activeReactions.flatMap(::stickerPlacements),
         )
     }
 
@@ -207,7 +232,7 @@ class MessageRepo(
      * Collapses reaction rows onto their target bubble. Each sender owns one
      * active tapback; a later `-type` row removes that sender's matching one.
      */
-    private fun activeReactionFor(messageGuid: String): Message? {
+    private fun activeReactionsFor(messageGuid: String): List<Message> {
         val reactions = messageBox.query()
             .equal(
                 Message_.associatedMessageGuid,
@@ -234,7 +259,34 @@ class MessageRepo(
                 bySender[senderKey] = reaction
             }
         }
-        return bySender.values.maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+        return bySender.values.toList()
+    }
+
+    private fun stickerPlacements(reaction: Message): List<StickerPlacement> {
+        val type = reaction.associatedMessageType?.removePrefix("-") ?: return emptyList()
+        if (type !in STICKER_TYPES) return emptyList()
+        val targetPart = reaction.associatedMessagePart ?: 0L
+        return reaction.dbAttachments.mapNotNull { attachment ->
+            val metadata = attachment.metadata ?: return@mapNotNull null
+            fun number(key: String, fallback: Double): Double = when (val value = metadata[key]) {
+                is Number -> value.toDouble()
+                is String -> value.toDoubleOrNull() ?: fallback
+                else -> fallback
+            }
+            val guid = attachment.guid ?: return@mapNotNull null
+            StickerPlacement(
+                reactionGuid = reaction.guid,
+                attachmentGuid = guid,
+                targetPart = targetPart,
+                messageWidth = number("sticker.msgWidth", 300.0),
+                normalizedX = number("sticker.normalizedX", 0.5).coerceIn(0.0, 1.0),
+                normalizedY = number("sticker.normalizedY", 0.5).coerceIn(0.0, 1.0),
+                rotation = number("sticker.rotation", 0.0),
+                scale = number("sticker.scale", 1.0).coerceIn(0.1, 4.0),
+                effectType = number("sticker.effectType", 0.0).toLong(),
+                downloaded = attachment.isDownloaded,
+            )
+        }
     }
 
     private fun kindOf(message: Message): MessageKind = when {
@@ -248,5 +300,6 @@ class MessageRepo(
     companion object {
         /** Marker written to Message.sendingServiceId while a send is in flight. */
         const val DEFAULT_SENDING_SERVICE_ID = "rustpush"
+        private val STICKER_TYPES = setOf(MessageMapper.REACTION_STICKER, MessageMapper.REACTION_STICKERBACK)
     }
 }

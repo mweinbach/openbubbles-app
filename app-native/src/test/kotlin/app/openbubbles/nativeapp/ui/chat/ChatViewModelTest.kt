@@ -156,11 +156,13 @@ private object StaticMessages : MessageListRepository {
 
 private class RecordingSender : Sender {
     var reply: Triple<Long, String, String>? = null
+    var replyPart: Long? = null
 
     override suspend fun send(chatId: Long, text: String) = Unit
 
-    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String) {
+    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
         reply = Triple(chatId, text, replyGuid)
+        this.replyPart = replyPart
     }
 }
 

@@ -50,11 +50,13 @@ use prost::Message as ProstMessage;
 use rustpush::{
     ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage,
     IndexedMessagePart, Message, MessageInst, MessagePart, MessageParts, MessageType,
-    MoveToRecycleBinMessage, NormalMessage, OperatedChat, PermanentDeleteMessage, ReactMessage,
-    ReactMessageType, Reaction, RenameMessage, ShareProfileMessage, UnsendMessage,
-    UpdateExtensionMessage, UpdateProfileMessage, UpdateProfileSharingMessage,
+    MoveToRecycleBinMessage, NormalMessage, OperatedChat, PartExtension, PermanentDeleteMessage,
+    ReactMessage, ReactMessageType, Reaction, RenameMessage, SetTranscriptBackgroundMessage,
+    ShareProfileMessage, UnsendMessage, UpdateExtensionMessage, UpdateProfileMessage,
+    UpdateProfileSharingMessage,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 fn j<T: Serialize>(t: &T) -> String {
     serde_json::to_string(t).unwrap_or_default()
@@ -114,6 +116,8 @@ pub enum UPart {
 pub struct UIndexedPart {
     pub part: UPart,
     pub idx: Option<u64>,
+    /// Serialized `PartExtension`, including sticker placement metadata.
+    pub ext_json: Option<String>,
 }
 
 #[derive(uniffi::Enum)]
@@ -134,6 +138,8 @@ pub enum UMessage {
         to_part: Option<u64>,
         reaction_json: String,
         to_text: String,
+        /// Attachment/object body for sticker and app-extension reactions.
+        parts: Vec<UIndexedPart>,
     },
     Rename { new_name: String },
     ChangeParticipants { new_participants: Vec<String>, group_version: u64 },
@@ -157,7 +163,14 @@ pub enum UMessage {
     UpdateProfile { json: String },
     UpdateProfileSharing { json: String },
     ShareProfile { json: String },
-    SetTranscriptBackground { json: String },
+    SetTranscriptBackground {
+        json: String,
+        version: u64,
+        chat_id: Option<String>,
+        remove: bool,
+        /// Serialized MMCS descriptor for the poster payload when setting.
+        mmcs_xml: Option<String>,
+    },
     UpdateExtension { json: String },
     Unschedule,
     PeerCacheInvalidate,
@@ -237,8 +250,20 @@ fn conv_parts(parts: &MessageParts) -> Vec<UIndexedPart> {
         .map(|ip: &IndexedMessagePart| UIndexedPart {
             part: conv_part(&ip.part),
             idx: ip.idx.map(|i| i as u64),
+            ext_json: ip.ext.as_ref().map(j),
         })
         .collect()
+}
+
+fn reaction_parts(reaction: &ReactMessageType) -> Vec<UIndexedPart> {
+    match reaction {
+        ReactMessageType::React {
+            reaction: Reaction::Sticker { body, .. },
+            ..
+        }
+        | ReactMessageType::Extension { body, .. } => conv_parts(body),
+        _ => Vec::new(),
+    }
 }
 
 fn conv_message(m: &Message) -> UMessage {
@@ -259,6 +284,7 @@ fn conv_message(m: &Message) -> UMessage {
             to_part: r.to_part,
             reaction_json: j(&r.reaction),
             to_text: r.to_text.clone(),
+            parts: reaction_parts(&r.reaction),
         },
         Message::RenameMessage(RenameMessage { new_name }) => UMessage::Rename { new_name: new_name.clone() },
         Message::ChangeParticipants(ChangeParticipantMessage { new_participants, group_version }) => {
@@ -299,7 +325,28 @@ fn conv_message(m: &Message) -> UMessage {
         Message::ShareProfile(ShareProfileMessage { .. }) => UMessage::ShareProfile { json: j(m) },
         Message::NotifyAnyways => UMessage::NotifyAnyways,
         Message::Unschedule => UMessage::Unschedule,
-        Message::SetTranscriptBackground(_) => UMessage::SetTranscriptBackground { json: j(m) },
+        Message::SetTranscriptBackground(background) => match background {
+            SetTranscriptBackgroundMessage::Remove { bid, chat_id, .. } => {
+                UMessage::SetTranscriptBackground {
+                    json: j(background),
+                    version: *bid,
+                    chat_id: chat_id.clone(),
+                    remove: true,
+                    mmcs_xml: None,
+                }
+            }
+            SetTranscriptBackgroundMessage::Set { bid, chat_id, .. } => {
+                UMessage::SetTranscriptBackground {
+                    json: j(background),
+                    version: *bid,
+                    chat_id: chat_id.clone(),
+                    remove: false,
+                    mmcs_xml: background
+                        .to_mmcs()
+                        .and_then(|file| to_plist_xml(&file).ok()),
+                }
+            }
+        },
     }
 }
 
@@ -474,6 +521,91 @@ impl NativePushState {
             to_uuid,
             to_part,
             reaction: ReactMessageType::React { reaction, enable },
+            to_text,
+            embedded_profile: None,
+        };
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::React(react),
+        ));
+        send_inst(self.shared(), inst)
+    }
+
+    /// Upload an image and attach it as a positional sticker to one message
+    /// part. Coordinates are normalized to the target bubble (0..1), rotation
+    /// is in radians, and scale is relative to the sticker's natural size.
+    pub fn send_sticker(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        to_uuid: String,
+        to_part: Option<u64>,
+        to_text: String,
+        file_path: String,
+        mime: String,
+        uti: String,
+        name: Option<String>,
+        msg_width: f64,
+        normalized_x: f64,
+        normalized_y: f64,
+        rotation: f64,
+        scale: f64,
+        effect_type: i64,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<UMessageInst, UError> {
+        if !msg_width.is_finite() || msg_width <= 0.0 {
+            return Err(UError::InvalidArgument {
+                reason: "sticker message width must be positive".to_string(),
+            });
+        }
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
+            return Err(UError::InvalidArgument {
+                reason: "sticker coordinates must be between 0 and 1".to_string(),
+            });
+        }
+        if !scale.is_finite() || !(0.1..=4.0).contains(&scale) || !rotation.is_finite() {
+            return Err(UError::InvalidArgument {
+                reason: "invalid sticker scale or rotation".to_string(),
+            });
+        }
+
+        let source = std::fs::read(&file_path).map_err(|e| UError::InvalidArgument {
+            reason: format!("cannot read sticker: {e}"),
+        })?;
+        let hash = format!("{:x}", Sha256::digest(&source));
+        let attachment = upload_attachment_inner(
+            &self.shared().conn,
+            file_path,
+            mime,
+            uti,
+            name,
+            progress,
+        )?;
+        let extension = PartExtension::sticker(
+            msg_width,
+            rotation,
+            scale,
+            normalized_x,
+            normalized_y,
+            hash,
+            effect_type,
+            uuid::Uuid::new_v4().to_string(),
+        );
+        let react = ReactMessage {
+            to_uuid,
+            to_part,
+            reaction: ReactMessageType::React {
+                reaction: Reaction::Sticker {
+                    spec: None,
+                    body: MessageParts(vec![IndexedMessagePart {
+                        part: MessagePart::Attachment(attachment),
+                        idx: Some(0),
+                        ext: Some(extension),
+                    }]),
+                },
+                enable: true,
+            },
             to_text,
             embedded_profile: None,
         };
@@ -1454,10 +1586,20 @@ fn back_parts(parts: Vec<UIndexedPart>) -> Result<MessageParts, UError> {
     let mut out = Vec::with_capacity(parts.len());
     for ip in parts {
         let part = back_part(ip.part)?;
+        let ext = ip
+            .ext_json
+            .map(|json| {
+                serde_json::from_str::<PartExtension>(&json).map_err(|e| {
+                    UError::InvalidArgument {
+                        reason: format!("bad part extension json: {e}"),
+                    }
+                })
+            })
+            .transpose()?;
         out.push(IndexedMessagePart {
             part,
             idx: ip.idx.map(|i| i as usize),
-            ext: None,
+            ext,
         });
     }
     Ok(MessageParts(out))

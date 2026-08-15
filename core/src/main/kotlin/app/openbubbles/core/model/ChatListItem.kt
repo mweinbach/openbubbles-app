@@ -41,4 +41,9 @@ data class ChatListItem(
     val avatarPath: String?,
     /** Group semantics, including one-other-participant groups with group style. */
     val isGroup: Boolean,
+    /** User-selected local background. */
+    val customBackgroundPath: String?,
+    /** Apple-synced transcript background decoded to a local image. */
+    val transcriptBackgroundPath: String?,
+    val transcriptBackgroundVersion: Long?,
 )

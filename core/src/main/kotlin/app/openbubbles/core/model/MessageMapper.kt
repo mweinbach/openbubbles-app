@@ -27,7 +27,8 @@ import kotlin.text.Regex
  * - The serialized rustpush Attachment XML (UPart.Attachment.xml) is stored
  *   in the attachment row's flex `metadata["rustpush"]`; the transfer layer
  *   restores it via `restoreAttachment` for downloads.
- * - Sticker/extension reaction bodies are not expanded into attachments.
+ * - Sticker/extension reaction bodies are expanded into ordinary attachment
+ *   rows with positional metadata retained in `Attachment.metadata`.
  */
 object MessageMapper {
 
@@ -96,7 +97,20 @@ object MessageMapper {
                         // transfer layer can restore + download it later
                         // (Dart stored this as metadata["rustpush"]).
                         if (part.xml.isNotEmpty()) {
-                            metadata = mapOf("rustpush" to part.xml)
+                            metadata = linkedMapOf<String, Any>("rustpush" to part.xml).apply {
+                                indexed.extJson?.let { extension ->
+                                    extractJsonNumber(extension, "spw")?.let { put("sticker.msgWidth", it) }
+                                    extractJsonNumber(extension, "sro")?.let { put("sticker.rotation", it) }
+                                    extractJsonNumber(extension, "ssa")?.let { put("sticker.scale", it) }
+                                    extractJsonNumber(extension, "sxs")?.let { put("sticker.normalizedX", it) }
+                                    extractJsonNumber(extension, "sys")?.let { put("sticker.normalizedY", it) }
+                                    extractJsonNumber(extension, "stickerEffectType")?.let {
+                                        put("sticker.effectType", it.toLong())
+                                    }
+                                    extractJsonString(extension, "sid")?.let { put("sticker.id", it) }
+                                    put("sticker.extension", extension)
+                                }
+                            }
                         }
                     }
                     text.append(' ')
@@ -167,6 +181,7 @@ object MessageMapper {
     fun mapReaction(inst: UMessageInst, react: UMessage.React, myHandles: Set<String>): Mapped {
         val sender = requireNotNull(inst.sender) { "Reaction without sender" }
         val (type, emoji) = parseReaction(react.reactionJson)
+        val (_, attachments) = mapParts(react.parts, inst.id, myHandles.contains(sender))
         val message = Message().apply {
             guid = inst.id
             this.isFromMe = myHandles.contains(sender)
@@ -179,7 +194,7 @@ object MessageMapper {
             text = react.toText.takeIf { type == REACTION_STICKER || type == REACTION_STICKERBACK }
             verificationFailed = inst.verificationFailed
         }
-        return Mapped(message, emptyList())
+        return Mapped(message, attachments)
     }
 
     /** Returns (tapback type or null, custom emoji or null). */
@@ -278,6 +293,13 @@ object MessageMapper {
         val match = Regex("\"$key\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(json) ?: return null
         return match.groupValues[1].unescapeJson()
     }
+
+    private fun extractJsonNumber(json: String, key: String): Double? =
+        Regex("\\\"$key\\\"\\s*:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)")
+            .find(json)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toDoubleOrNull()
 
     private fun extractEmojiValue(json: String): String? {
         // {"Emoji":"👍"} — the emoji is the first string value inside the object.

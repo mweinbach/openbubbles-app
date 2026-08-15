@@ -36,6 +36,20 @@ enum class MessageKind {
     GROUP_EVENT,
 }
 
+/** One sticker image positioned over a target message bubble. */
+data class StickerPlacement(
+    val reactionGuid: String,
+    val attachmentGuid: String,
+    val targetPart: Long,
+    val messageWidth: Double,
+    val normalizedX: Double,
+    val normalizedY: Double,
+    val rotation: Double,
+    val scale: Double,
+    val effectType: Long,
+    val downloaded: Boolean,
+)
+
 /**
  * UI projection of a [app.openbubbles.db.Message].
  *
@@ -72,8 +86,12 @@ data class MessageItem(
     val attachmentCount: Int,
     /** Non-null when this message is a reply (thread originator guid). */
     val threadOriginatorGuid: String?,
+    /** Part index on the thread originator that this reply is attached to. */
+    val threadOriginatorPart: Long?,
     /** GUID of the message this reaction is attached to (reactions only). */
     val associatedMessageGuid: String?,
     /** Expressive send style (screen effects), e.g. "com.apple.MobileSMS.expressivesend.gentle". */
     val expressiveSendStyleId: String?,
+    /** Active positional stickers layered over this message. */
+    val stickers: List<StickerPlacement> = emptyList(),
 )

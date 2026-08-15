@@ -1450,6 +1450,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1652,6 +1654,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sticker(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text(
 ): Short
@@ -2034,6 +2038,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: P
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`messageGuid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`msgWidth`: Double,`normalizedX`: Double,`normalizedY`: Double,`rotation`: Double,`scale`: Double,`effectType`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2676,6 +2682,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms() != 26102.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sticker() != 23749.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text() != 53337.toShort()) {
@@ -6071,6 +6080,13 @@ public interface NativePushStateInterface {
     fun `sendSms`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `usingNumber`: kotlin.String?, `fromHandle`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
     
     /**
+     * Upload an image and attach it as a positional sticker to one message
+     * part. Coordinates are normalized to the target bubble (0..1), rotation
+     * is in radians, and scale is relative to the sticker's natural size.
+     */
+    fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst
+    
+    /**
      * Send a plain (optionally formatted-later) text message. Returns the
      * staged MessageInst — `id` is the staging GUID to persist.
      */
@@ -7009,6 +7025,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`text`),FfiConverterOptionalString.lower(`usingNumber`),FfiConverterOptionalString.lower(`fromHandle`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Upload an image and attach it as a positional sticker to one message
+     * part. Coordinates are normalized to the target bubble (0..1), rotation
+     * is in radians, and scale is relative to the sticker's natural size.
+     */
+    @Throws(UException::class)override fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterOptionalULong.lower(`toPart`),FfiConverterString.lower(`toText`),FfiConverterString.lower(`filePath`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterDouble.lower(`msgWidth`),FfiConverterDouble.lower(`normalizedX`),FfiConverterDouble.lower(`normalizedY`),FfiConverterDouble.lower(`rotation`),FfiConverterDouble.lower(`scale`),FfiConverterLong.lower(`effectType`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
 }
     }
     )
@@ -12562,7 +12596,11 @@ public object FfiConverterTypeUHwExtra: FfiConverterRustBuffer<UHwExtra> {
 
 data class UIndexedPart (
     var `part`: UPart, 
-    var `idx`: kotlin.ULong?
+    var `idx`: kotlin.ULong?, 
+    /**
+     * Serialized `PartExtension`, including sticker placement metadata.
+     */
+    var `extJson`: kotlin.String?
 ) {
     
     companion object
@@ -12576,17 +12614,20 @@ public object FfiConverterTypeUIndexedPart: FfiConverterRustBuffer<UIndexedPart>
         return UIndexedPart(
             FfiConverterTypeUPart.read(buf),
             FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: UIndexedPart) = (
             FfiConverterTypeUPart.allocationSize(value.`part`) +
-            FfiConverterOptionalULong.allocationSize(value.`idx`)
+            FfiConverterOptionalULong.allocationSize(value.`idx`) +
+            FfiConverterOptionalString.allocationSize(value.`extJson`)
     )
 
     override fun write(value: UIndexedPart, buf: ByteBuffer) {
             FfiConverterTypeUPart.write(value.`part`, buf)
             FfiConverterOptionalULong.write(value.`idx`, buf)
+            FfiConverterOptionalString.write(value.`extJson`, buf)
     }
 }
 
@@ -14391,7 +14432,11 @@ sealed class UMessage {
         val `toUuid`: kotlin.String, 
         val `toPart`: kotlin.ULong?, 
         val `reactionJson`: kotlin.String, 
-        val `toText`: kotlin.String) : UMessage() {
+        val `toText`: kotlin.String, 
+        /**
+         * Attachment/object body for sticker and app-extension reactions.
+         */
+        val `parts`: List<UIndexedPart>) : UMessage() {
         companion object
     }
     
@@ -14495,7 +14540,14 @@ sealed class UMessage {
     }
     
     data class SetTranscriptBackground(
-        val `json`: kotlin.String) : UMessage() {
+        val `json`: kotlin.String, 
+        val `version`: kotlin.ULong, 
+        val `chatId`: kotlin.String?, 
+        val `remove`: kotlin.Boolean, 
+        /**
+         * Serialized MMCS descriptor for the poster payload when setting.
+         */
+        val `mmcsXml`: kotlin.String?) : UMessage() {
         companion object
     }
     
@@ -14540,6 +14592,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterOptionalULong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
+                FfiConverterSequenceTypeUIndexedPart.read(buf),
                 )
             3 -> UMessage.Rename(
                 FfiConverterString.read(buf),
@@ -14599,6 +14652,10 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 )
             22 -> UMessage.SetTranscriptBackground(
                 FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterOptionalString.read(buf),
                 )
             23 -> UMessage.UpdateExtension(
                 FfiConverterString.read(buf),
@@ -14634,6 +14691,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 + FfiConverterOptionalULong.allocationSize(value.`toPart`)
                 + FfiConverterString.allocationSize(value.`reactionJson`)
                 + FfiConverterString.allocationSize(value.`toText`)
+                + FfiConverterSequenceTypeUIndexedPart.allocationSize(value.`parts`)
             )
         }
         is UMessage.Rename -> {
@@ -14777,6 +14835,10 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
             (
                 4UL
                 + FfiConverterString.allocationSize(value.`json`)
+                + FfiConverterULong.allocationSize(value.`version`)
+                + FfiConverterOptionalString.allocationSize(value.`chatId`)
+                + FfiConverterBoolean.allocationSize(value.`remove`)
+                + FfiConverterOptionalString.allocationSize(value.`mmcsXml`)
             )
         }
         is UMessage.UpdateExtension -> {
@@ -14827,6 +14889,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterOptionalULong.write(value.`toPart`, buf)
                 FfiConverterString.write(value.`reactionJson`, buf)
                 FfiConverterString.write(value.`toText`, buf)
+                FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
                 Unit
             }
             is UMessage.Rename -> {
@@ -14930,6 +14993,10 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
             is UMessage.SetTranscriptBackground -> {
                 buf.putInt(22)
                 FfiConverterString.write(value.`json`, buf)
+                FfiConverterULong.write(value.`version`, buf)
+                FfiConverterOptionalString.write(value.`chatId`, buf)
+                FfiConverterBoolean.write(value.`remove`, buf)
+                FfiConverterOptionalString.write(value.`mmcsXml`, buf)
                 Unit
             }
             is UMessage.UpdateExtension -> {

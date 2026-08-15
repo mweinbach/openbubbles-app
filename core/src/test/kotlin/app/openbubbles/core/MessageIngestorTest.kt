@@ -91,7 +91,7 @@ class MessageIngestorTest {
         sender = sender,
         conversation = conv,
         message = UMessage.Normal(
-            parts = listOf(UIndexedPart(UPart.Text(text, ""), null)),
+            parts = listOf(UIndexedPart(UPart.Text(text, ""), null, null)),
             effect = null,
             replyGuid = null,
             replyPart = null,
@@ -201,10 +201,11 @@ class MessageIngestorTest {
             conversation = conversation(me, friend),
             message = UMessage.Normal(
                 parts = listOf(
-                    UIndexedPart(UPart.Text("look at this", ""), null),
+                    UIndexedPart(UPart.Text("look at this", ""), null, null),
                     UIndexedPart(
                         UPart.Attachment(part = 0uL, uti = "public.png", mime = "image/png", name = "pic.png", iris = false, xml = ""),
                         0uL,
+                        null,
                     ),
                 ),
                 effect = null, replyGuid = null, replyPart = null, subject = null,
@@ -440,7 +441,7 @@ class MessageIngestorTest {
             conversation = conversation(me, friend),
             message = UMessage.Normal(
                 parts = listOf(
-                    UIndexedPart(UPart.Text("caption", ""), null),
+                    UIndexedPart(UPart.Text("caption", ""), null, null),
                     UIndexedPart(
                         UPart.Attachment(
                             part = 0uL,
@@ -451,6 +452,7 @@ class MessageIngestorTest {
                             xml = "<plist>real metadata</plist>",
                         ),
                         0uL,
+                        null,
                     ),
                 ),
                 effect = null,
@@ -490,7 +492,7 @@ class MessageIngestorTest {
             message = UMessage.Edit(
                 tuuid = "editable",
                 editPart = 0uL,
-                parts = listOf(UIndexedPart(UPart.Text("after", ""), 0uL)),
+                parts = listOf(UIndexedPart(UPart.Text("after", ""), 0uL, null)),
             ),
             sentTimestamp = 1_700_000_500_000uL,
             sendDelivered = false,
@@ -564,6 +566,7 @@ class MessageIngestorTest {
                     id = "react-1", sender = friend, conversation = conversation(me, friend),
                     message = UMessage.React(
                         toUuid = "target-1", toPart = 0uL, reactionJson = reactionJson, toText = "react to me",
+                        parts = emptyList(),
                     ),
                     sentTimestamp = 1_700_000_100_000uL, sendDelivered = false, verificationFailed = false,
                 )
@@ -603,6 +606,7 @@ class MessageIngestorTest {
                             toPart = 0uL,
                             reactionJson = json,
                             toText = "react to me",
+                            parts = emptyList(),
                         ),
                         sentTimestamp = timestamp,
                         sendDelivered = false,

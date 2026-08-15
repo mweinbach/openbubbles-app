@@ -107,7 +107,7 @@ class NotificationPreviewTest {
         sender = "mailto:friend@icloud.com",
         conversation = null,
         message = UMessage.Normal(
-            parts = parts.map { UIndexedPart(it, null) },
+            parts = parts.map { UIndexedPart(it, null, null) },
             effect = null,
             replyGuid = null,
             replyPart = null,
@@ -131,6 +131,7 @@ class NotificationPreviewTest {
             toPart = null,
             reactionJson = json,
             toText = "the new photo",
+            parts = emptyList(),
         ),
         sentTimestamp = 1_700_000_000_000uL,
         sendDelivered = false,

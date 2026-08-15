@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
@@ -261,6 +262,10 @@ object CoreGraph {
         if (store != null) CoreAttachmentSender else FakeAttachmentSender
     }
 
+    val stickerSender: StickerSender by lazy {
+        if (store != null) CoreStickerSender else StickerSender { _, _, _, _, _, _ -> Unit }
+    }
+
     /** Live typing indicators translated from the ingestor's chat guids. */
     val typing: TypingRepository by lazy {
         val ing = ingestor
@@ -314,6 +319,13 @@ object CoreGraph {
     }
     val chatInfoActions: ChatInfoActions by lazy {
         if (store != null) CoreChatInfoActions else FakeChatInfoActions
+    }
+
+    val chatBackgroundActions: ChatBackgroundActions by lazy {
+        if (store != null) CoreChatBackgroundActions else object : ChatBackgroundActions {
+            override suspend fun setLocalBackground(chatId: Long, file: File) = Unit
+            override suspend fun clearLocalBackground(chatId: Long) = Unit
+        }
     }
 
     /**
@@ -464,6 +476,9 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     avatarAddress = item.avatarAddress,
     avatarPath = item.avatarPath,
     isGroup = item.isGroup,
+    customBackgroundPath = item.customBackgroundPath,
+    transcriptBackgroundPath = item.transcriptBackgroundPath,
+    transcriptBackgroundVersion = item.transcriptBackgroundVersion,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -486,6 +501,21 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     senderAddress = item.senderAddress,
     guid = item.guid,
     replyToGuid = item.threadOriginatorGuid,
+    replyToPart = item.threadOriginatorPart,
+    stickers = item.stickers.map { sticker ->
+        StickerPlacement(
+            reactionGuid = sticker.reactionGuid,
+            attachmentGuid = sticker.attachmentGuid,
+            targetPart = sticker.targetPart,
+            messageWidth = sticker.messageWidth,
+            normalizedX = sticker.normalizedX,
+            normalizedY = sticker.normalizedY,
+            rotation = sticker.rotation,
+            scale = sticker.scale,
+            effectType = sticker.effectType,
+            downloaded = sticker.downloaded,
+        )
+    },
 )
 
 /** True when the mime/uti pair clearly describes an image. */
@@ -505,6 +535,7 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
     sizeBytes = attachment.totalBytes,
     isImage = isImageAttachment(attachment.mimeType, attachment.uti),
     downloaded = attachment.isDownloaded,
+    partIndex = attachment.guid?.substringAfterLast('_')?.toLongOrNull() ?: 0L,
 )
 
 /** Non-empty retracted-part array inside a dbMessageSummaryInfo JSON blob. */
@@ -535,9 +566,18 @@ private fun enrichWithEntityDetails(
 ): List<MessageItem> {
     if (store == null || items.isEmpty()) return items
     return runCatching {
-        val entities = store.boxFor(Message::class.java).get(items.map { it.id })
+        val messageBox = store.boxFor(Message::class.java)
+        val entities = messageBox.get(items.map { it.id })
         val byId = HashMap<Long, Message>(entities.size)
         entities.forEach { byId[it.id] = it }
+        val replyTargets = entities.asSequence()
+            .mapNotNull { it.threadOriginatorGuid }
+            .distinct()
+            .associateWith { guid ->
+                messageBox.query()
+                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+            }
         items.map { item ->
             val entity = byId[item.id] ?: return@map item
             val (edited, unsent) = editedFlags(entity)
@@ -552,6 +592,16 @@ private fun enrichWithEntityDetails(
                 unsent = unsent,
                 uploadProgress = firstAttachment?.guid?.let { UploadProgressBoard.current[it] },
                 expressiveSendStyleId = entity.expressiveSendStyleId,
+                replyPreviewText = entity.threadOriginatorGuid?.let { guid ->
+                    val target = replyTargets[guid]
+                    val part = entity.threadOriginatorPart?.toLongOrNull() ?: 0L
+                    val attachment = target?.dbAttachments?.firstOrNull { row ->
+                        row.guid?.substringAfterLast('_')?.toLongOrNull() == part
+                    }
+                    attachment?.transferName
+                        ?: target?.text?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: if (target?.hasAttachments == true) "Attachment" else null
+                },
             )
         }
     }.getOrDefault(items)
@@ -727,6 +777,12 @@ internal class CoreMessageListRepository(
         return enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
     }
 
+    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> =
+        enrichWithEntityDetails(
+            repo.threadMessages(chatId, rootGuid, part).map(::coreMessageToUi),
+            store,
+        )
+
     override fun release(chatId: Long) {
         windows.remove(chatId)
     }
@@ -776,8 +832,8 @@ private object CoreSender : Sender {
         sendInternal(chatId, text, effectId, null)
     }
 
-    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String) {
-        sendInternal(chatId, text, null, replyGuid)
+    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
+        sendInternal(chatId, text, null, replyGuid, replyPart)
     }
 
     private suspend fun sendInternal(
@@ -785,6 +841,7 @@ private object CoreSender : Sender {
         text: String,
         effectId: String?,
         replyGuid: String?,
+        replyPart: Long = 0L,
     ) {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
@@ -810,7 +867,7 @@ private object CoreSender : Sender {
             }
             if (replyGuid != null) {
                 staged.threadOriginatorGuid = replyGuid
-                staged.threadOriginatorPart = "0"
+                staged.threadOriginatorPart = replyPart.toString()
                 messageBox.put(staged)
             }
         }
@@ -829,7 +886,7 @@ private object CoreSender : Sender {
                     myHandle,
                     text,
                     // replyGuid, replyPart, effect, subject
-                    replyGuid, replyGuid?.let { "0" }, effectId, null,
+                    replyGuid, replyGuid?.let { replyPart.toString() }, effectId, null,
                 )
             }
             failureLookupGuid = inst.id
@@ -944,7 +1001,7 @@ private object CoreMessageActions : MessageActions {
                 sender,
                 messageGuid,
                 0uL,
-                listOf(UIndexedPart(UPart.Text(newText, ""), null)),
+                listOf(UIndexedPart(UPart.Text(newText, ""), null, null)),
             )
         }
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
@@ -1155,6 +1212,45 @@ private data class GroupActionContext(
     val ingestor: MessageIngestor,
 )
 
+/** Device-local background storage; synced Apple backgrounds are handled by push intake. */
+private object CoreChatBackgroundActions : ChatBackgroundActions {
+    override suspend fun setLocalBackground(chatId: Long, file: File) = withContext(Dispatchers.IO) {
+        require(file.isFile) { "background image is unavailable" }
+        val store = CoreGraph.store ?: error("store unavailable")
+        val context = AppContext.current ?: error("app context unavailable")
+        val chatBox = store.boxFor(Chat::class.java)
+        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+        val directory = File(context.filesDir, "chat_backgrounds").apply { mkdirs() }
+        val extension = file.extension.takeIf { it.length in 2..5 } ?: "jpg"
+        val destination = File(directory, "local-$chatId-${UUID.randomUUID()}.$extension")
+        file.copyTo(destination, overwrite = true)
+        deleteOwnedBackground(chat.customBackgroundPath, directory, destination)
+        chat.customBackgroundPath = destination.absolutePath
+        chatBox.put(chat)
+        Unit
+    }
+
+    override suspend fun clearLocalBackground(chatId: Long) = withContext(Dispatchers.IO) {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val context = AppContext.current ?: error("app context unavailable")
+        val chatBox = store.boxFor(Chat::class.java)
+        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+        val directory = File(context.filesDir, "chat_backgrounds")
+        deleteOwnedBackground(chat.customBackgroundPath, directory, null)
+        chat.customBackgroundPath = null
+        chatBox.put(chat)
+        Unit
+    }
+
+    private fun deleteOwnedBackground(path: String?, directory: File, except: File?) {
+        val candidate = path?.let(::File)?.canonicalFile ?: return
+        val root = directory.canonicalFile.toPath()
+        if (candidate.toPath().startsWith(root) && candidate != except) {
+            runCatching { candidate.delete() }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Attachment sending (M2 polish) — additive zone
 // ---------------------------------------------------------------------------
@@ -1303,6 +1399,65 @@ internal object CoreAttachmentSender : AttachmentSender {
         } finally {
             UploadProgressBoard.clear(attachmentGuid)
         }
+    }
+}
+
+/** Sticker upload/send path backed by the positional Rust reaction API. */
+private object CoreStickerSender : StickerSender {
+    override suspend fun send(
+        chatId: Long,
+        targetGuid: String,
+        targetPart: Long,
+        targetText: String,
+        sticker: OutgoingAttachment,
+        transform: StickerTransform,
+    ) {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val ingestor = CoreGraph.ingestor ?: error("ingestor unavailable")
+        val state = PushStateHolder.state ?: error("not connected to Apple push")
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+        val sender = sendingHandle(chat) ?: error("no registered sending handle")
+        val conversation = sendConversation(store, chat, sender)
+        val displayName = sticker.name ?: "sticker.png"
+
+        val inst = runInterruptible(Dispatchers.IO) {
+            state.sendSticker(
+                conversation,
+                sender,
+                targetGuid,
+                targetPart.toULong(),
+                targetText,
+                sticker.file.absolutePath,
+                sticker.mime,
+                sticker.uti,
+                displayName,
+                transform.messageWidth,
+                transform.normalizedX,
+                transform.normalizedY,
+                transform.rotation,
+                transform.scale,
+                transform.effectType,
+                null,
+            )
+        }
+        ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+
+        // The uploaded sticker is already local. Put a copy in the canonical
+        // attachment directory so the overlay renders immediately.
+        val attachmentGuid = "${inst.id}_0"
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val row = attachmentBox.query()
+            .equal(Attachment_.guid, attachmentGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+        if (row != null) {
+            val root = File(AppContext.current?.dataDir ?: error("no files dir"), "app_flutter")
+            val disk = AttachmentStore(store, root)
+            val destination = disk.pathFor(row)
+            destination.parentFile?.mkdirs()
+            sticker.file.copyTo(destination, overwrite = true)
+            disk.markDownloaded(attachmentGuid, destination.length())
+        }
+        runCatching { sticker.file.delete() }
     }
 }
 

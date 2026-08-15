@@ -169,7 +169,12 @@ class ChatViewModel(
                     // SIM-routed chats (isRpSms) send over the modem; everything else
                     // goes through the APNs iMessage sender.
                     smsRouter(chatId, text) -> Unit
-                    reply != null -> sender.sendReply(chatId, text, reply.replyToGuid ?: reply.guid)
+                    reply != null -> sender.sendReply(
+                        chatId,
+                        text,
+                        reply.replyToGuid ?: reply.guid,
+                        reply.replyToPart ?: 0L,
+                    )
                     effectId == null -> sender.send(chatId, text)
                     else -> sender.sendWithEffect(chatId, text, effectId)
                 }
