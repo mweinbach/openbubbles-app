@@ -242,6 +242,18 @@ object CoreGraph {
         CoreContacts.relink()
 
     /**
+     * (display name, avatar path) for a handle address, or null when unknown.
+     *
+     * The blocking twin of [UiContacts.contactNames], which is a suspend type
+     * and therefore unusable from non-composable, non-suspend callers such as
+     * the notification builder. Resolves against the same handle→contact index,
+     * so device and iCloud/CardDAV contacts both land here. Touches the store,
+     * so call it off the main thread.
+     */
+    fun contactDisplayInfo(address: String): Pair<String?, String?>? =
+        CoreContacts.displayInfo(address)
+
+    /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
      * state, stop the push service, and clear the holders — the sign-in
      * banner reappears on the chat list.

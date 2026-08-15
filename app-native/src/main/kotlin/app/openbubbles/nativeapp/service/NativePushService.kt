@@ -468,23 +468,31 @@ class NativePushService : Service(), MsgReceiver {
         ) return
 
         val isGroup = target.isGroupConversation()
+
+        // Prefer the linked contact's name over the raw handle. Without this the
+        // shade shows phone numbers and email addresses even when the contact is
+        // known, because formattedAddress is still just the address.
+        fun displayNameFor(address: String?): String? =
+            address?.let { CoreGraph.contactDisplayInfo(it)?.first }?.takeIf { it.isNotBlank() }
+
+        fun app.openbubbles.db.Handle.contactOrAddress(): String =
+            displayNameFor(address) ?: formattedAddress ?: address
+
+        val rawSender = inst.sender?.removePrefix("tel:")?.removePrefix("mailto:")
         val senderName = target.handles
-            .firstOrNull { handle ->
-                handle.address == inst.sender
-                    ?.removePrefix("tel:")
-                    ?.removePrefix("mailto:")
-            }
-            ?.let { it.formattedAddress ?: it.address }
-            ?: inst.sender?.removePrefix("tel:")?.removePrefix("mailto:")
+            .firstOrNull { handle -> handle.address == rawSender }
+            ?.contactOrAddress()
+            ?: displayNameFor(rawSender)
+            ?: rawSender
         val chatTitle = if (isGroup) {
             target.displayName
                 ?: target.apnTitle
                 ?: target.title
-                ?: target.handles.joinToString(", ") { it.formattedAddress ?: it.address }
+                ?: target.handles.joinToString(", ") { it.contactOrAddress() }
                     .ifBlank { "Group" }
         } else {
             target.displayName
-                ?: target.handles.firstOrNull()?.let { it.formattedAddress ?: it.address }
+                ?: target.handles.firstOrNull()?.contactOrAddress()
                 ?: senderName
                 ?: "Message"
         }

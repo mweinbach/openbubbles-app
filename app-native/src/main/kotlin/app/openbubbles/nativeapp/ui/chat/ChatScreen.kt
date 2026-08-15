@@ -54,7 +54,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -653,22 +653,35 @@ private fun MessageActionSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         if (!isSms) {
-            // A connected ButtonGroup rather than a loose row of Texts: the
-            // tapbacks are alternatives within one set, so they should read as a
-            // single object and compress against each other on press. This also
-            // gives each one a real button role and a 48dp target, neither of
-            // which the bare clickable Text had.
-            ButtonGroup(
-                overflowIndicator = {},
+            // Connected group of tapbacks: they are alternatives within one set,
+            // so they read as a single object rather than a loose row of text,
+            // and each carries a real button role and a 48dp target.
+            //
+            // Built from a Row with ButtonGroupDefaults.ConnectedSpaceBetween
+            // rather than the ButtonGroup composable on purpose. ButtonGroup
+            // reserves width for an overflow indicator and then hands each child
+            // a minimum width; with six fixed members in a bottom sheet that
+            // budget goes negative and its measure policy throws
+            // "maxWidth must be >= than minWidth". The hand-built form is the
+            // documented alternative and gives full layout control.
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(
+                    ButtonGroupDefaults.ConnectedSpaceBetween,
+                ),
             ) {
                 Tapbacks.forEachIndexed { index, emoji ->
-                    clickableItem(
+                    FilledTonalIconButton(
                         onClick = { onReact(index, null) },
-                        label = emoji,
-                    )
+                        modifier = Modifier.weight(1f).height(48.dp),
+                    ) {
+                        Text(
+                            text = emoji,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                 }
             }
         }

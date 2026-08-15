@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +44,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -70,15 +70,22 @@ private val BubbleCornerRadius = 20.dp
 /** Tightened radius on sides that touch a same-author neighbor. */
 private val GroupedCornerRadius = 8.dp
 
-/** Bubbles never exceed 78% of the screen width (or this absolute cap). */
+/** Bubbles never exceed 78% of the available width (or this absolute cap). */
 private val BubbleMaxWidthCap = 320.dp
 
 /**
- * Caps the bubble column at ~78% of the screen so conversations breathe in
- * any orientation; also caps in landscape so bubbles stay readable.
+ * Caps the bubble column at ~78% of the width it is actually given, so
+ * conversations breathe in any orientation, with an absolute cap so long lines
+ * stay readable on wide displays.
+ *
+ * The input must be the width of the transcript, not of the screen. In a
+ * list-detail layout the conversation occupies one pane, and measuring the
+ * screen there yields a cap wider than the pane itself — the absolute cap keeps
+ * it from overflowing, but every bubble runs edge to edge and the 78% breathing
+ * room disappears exactly where space is tightest.
  */
-private fun bubbleMaxWidth(screenWidth: Dp): Dp =
-    (screenWidth * 0.78f).coerceAtMost(BubbleMaxWidthCap)
+private fun bubbleMaxWidth(availableWidth: Dp): Dp =
+    (availableWidth * 0.78f).coerceAtMost(BubbleMaxWidthCap)
 
 /**
  * Grouping-aware corner radii: edges facing a consecutive same-author
@@ -163,7 +170,6 @@ fun MessageBubble(
             return
         }
     }
-    val maxBubbleWidth = bubbleMaxWidth(LocalConfiguration.current.screenWidthDp.dp)
     val shape = bubbleShape(tightTop, tightBottom)
     val attachments = message.attachmentMetas.ifEmpty {
         listOfNotNull(message.attachmentMeta)
@@ -171,7 +177,7 @@ fun MessageBubble(
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .then(
@@ -183,6 +189,9 @@ fun MessageBubble(
             )
             .padding(horizontal = 12.dp, vertical = 3.dp),
     ) {
+        // Measured from the row itself, so a conversation rendered as the detail
+        // pane sizes its bubbles against that pane rather than the whole display.
+        val maxBubbleWidth = bubbleMaxWidth(maxWidth)
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         Box(
             modifier = Modifier
