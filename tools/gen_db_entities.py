@@ -22,7 +22,7 @@ import json
 import os
 import sys
 
-MODEL = "lib/generated/objectbox-model.json"
+MODEL = "db/seed-objectbox-model.json"
 OUT_DIR = "db/src/main/java/app/openbubbles/db"
 
 # model property name -> (java field name, target entity)

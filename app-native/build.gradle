@@ -13,11 +13,11 @@ android {
     ndkVersion "28.2.13676358"
 
     defaultConfig {
-        applicationId "com.openbubbles.messaging.native"
+        applicationId "com.openbubbles.messaging"
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 20002236
+        versionName "2.0.0"
 
         // Keep in sync with installed Rust cross targets (rustup target list)
         ndk {
@@ -25,10 +25,22 @@ android {
         }
     }
 
+    def keystoreProperties = new Properties()
+    def keystorePropertiesFile = rootProject.file("../android/key.properties")
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.withReader('UTF-8') { keystoreProperties.load(it) }
+    }
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
     buildTypes {
         release {
-            // Hello-stage signing; the real keystore wiring lands with M4.
-            signingConfig signingConfigs.debug
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
         }
     }
@@ -96,7 +108,7 @@ dependencies {
 
 // UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native
 // (each app bundles its own copy); M0.2 moves generation into :shared.
-android.sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+// bindings live in :core
 
 // Build the same Rust cdylib the Flutter app uses, packaged into this APK.
 // Standalone cargokit invocation (upstream plugin.gradle requires Flutter).

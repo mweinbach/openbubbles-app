@@ -12,7 +12,7 @@ kotlin {
 }
 
 // UniFFI bindings (same generated file the Android app compiles)
-sourceSets.main.java.srcDir "../android/app/src/main/kotlin/uniffi"
+sourceSets.main.java.srcDir "../core/src/main/kotlin/uniffi"
 
 dependencies {
     implementation project(":shared")

@@ -28,7 +28,7 @@ kapt {
 // won't open. Run from CI or manually after entity changes.
 tasks.register("checkModelParity") {
     doLast {
-        def seed = rootProject.file("../lib/generated/objectbox-model.json")
+        def seed = rootProject.file("../db/seed-objectbox-model.json")
         def ours = rootProject.file("../db/objectbox-model.json")
         if (seed.text.trim() != ours.text.trim()) {
             throw new GradleException(
