@@ -83,6 +83,14 @@ fun ChatListScreen(
     onToggleArchived: (ChatListItem) -> Unit = {},
     onDelete: (ChatListItem) -> Unit = {},
     modifier: Modifier = Modifier,
+    /**
+     * Banner slot rendered above the conversation list, inside the Scaffold.
+     * It has to live here rather than above the NavHost: NavigationSuiteScaffold
+     * does not propagate its PaddingValues to inner content, so a banner hoisted
+     * outside the Scaffold draws underneath the status bar and pushes the app bar
+     * down.
+     */
+    header: @Composable ColumnScope.() -> Unit = {},
     footer: @Composable ColumnScope.() -> Unit = {},
 ) {
     var selectedChat by remember { mutableStateOf<ChatListItem?>(null) }
@@ -162,6 +170,7 @@ fun ChatListScreen(
                 onQueryChange = onQueryChange,
                 onChatClick = onChatClick,
                 onChatLongClick = { selectedChat = it },
+                header = header,
                 footer = footer,
             )
         }
@@ -221,6 +230,7 @@ private fun ChatSections(
     onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
+    header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
 ) {
     LazyColumn(
@@ -229,6 +239,9 @@ private fun ChatSections(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        item(key = "header") {
+            Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { header() }
+        }
         item(key = "search") {
             SearchField(
                 value = uiState.query,

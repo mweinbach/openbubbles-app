@@ -195,9 +195,6 @@ fun OpenBubblesApp(
 
     val appContent: @Composable () -> Unit = {
     Column(modifier = Modifier.fillMaxSize()) {
-        if (route == Routes.CHATS && pushState == null) {
-            SignInBanner(onSignIn = { navController.navigate(Routes.LOGIN) })
-        }
         NavHost(
             navController = navController,
             startDestination = Routes.CHATS,
@@ -216,6 +213,11 @@ fun OpenBubblesApp(
                     onMuteFor = viewModel::muteFor,
                     onToggleArchived = viewModel::toggleArchived,
                     onDelete = viewModel::delete,
+                    header = {
+                        if (pushState == null) {
+                            SignInBanner(onSignIn = { navController.navigate(Routes.LOGIN) })
+                        }
+                    },
                     footer = { DebugStatusFooter(debugLines) },
                 )
             }
