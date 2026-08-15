@@ -16,9 +16,13 @@ already-completed mechanical cutover.
 - [x] Android lint and release-variant AAB compilation run in native CI.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.
-- [x] The OpenAbsinthe development stub returns explicit errors instead of
-      panicking at login or provisioning boundaries.
-- [ ] Production native builds include the real on-device OpenAbsinthe engine.
+- [x] OpenAbsinthe rejects missing or incompatible native backends explicitly.
+- [x] Production native builds package the version-pinned on-device engine.
+- [x] Account-free device smoke test completes Apple validation and returns a
+      517-byte envelope without using the hosted relay.
+- [x] SIM-chat attachments route through Android carrier MMS rather than MMCS.
+- [x] The manifest qualifies for Android's default-SMS role and Settings exposes
+      the role needed for carrier MMS download/ingest.
 
 ## Android device acceptance
 
@@ -38,12 +42,14 @@ already-completed mechanical cutover.
 - [ ] Upgrade from a real Flutter-era backup preserves chats and attachments.
 - [ ] Sign-out and fresh sign-in clear/rebuild the correct native state.
 
-## Product parity still in progress
+## Product parity
 
-- [ ] Send reactions/tapbacks, threaded replies, edits, and unsend from Android UI.
-- [ ] Rename groups, edit group photos, and add/remove participants.
-- [ ] Pin, archive, delete, mute, and timed-unmute conversation controls.
-- [ ] Video/audio playback and generic-file open/share behavior.
+- [x] Send reactions/tapbacks, threaded replies, edits, and unsend from Android UI.
+- [x] Rename groups, edit group photos, and add/remove participants.
+- [x] Pin, archive, delete, and mute conversation controls.
+- [ ] Add timed-unmute presets and expiry scheduling.
+- [x] Open/share downloaded video, audio, and generic files with Android handlers.
+- [ ] Add dedicated in-app audio/video playback controls.
 - [ ] Instrumentation or journey coverage for login, service, worker, receiver,
       notification, and upgrade flows.
 

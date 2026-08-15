@@ -110,9 +110,9 @@ fun ProvisionScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Developer builds still need the production OpenAbsinthe engine " +
-                "to complete Apple registration. The public source checkout " +
-                "contains a safe nonfunctional stub.",
+            "This build includes the version-pinned on-device validation engine. " +
+                "If its compatibility check fails, setup stops instead of " +
+                "sending hardware data to a hosted relay.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

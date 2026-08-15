@@ -18,10 +18,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * MMS receive trigger. On `WAP_PUSH_RECEIVED` (the MMS notification PDU) this
- * receiver waits briefly for the system/default SMS app to download and store
- * the message in the telephony provider, then ingests the decoded row — text
- * parts as body, media parts persisted straight into the attachment store.
+ * Non-default MMS receive trigger. On `WAP_PUSH_RECEIVED` this receiver waits
+ * briefly for the current default SMS app to store the message in the
+ * telephony provider, then ingests text and media into the native store.
  *
  * When OpenBubbles holds Android's default-SMS role, [MmsPushReceiver] uses the
  * carrier transaction stack to download and persist the PDU, then

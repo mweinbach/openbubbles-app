@@ -64,18 +64,23 @@ The Android client includes native provisioning, Apple ID login and 2FA state
 handling, iMessage send/receive, attachment transfer, SMS/MMS, notifications,
 CloudKit history sync, contacts, backup/restore, Find My, and FaceTime surfaces.
 
-Important remaining work includes real-device login/2FA verification, message
-action UI (reactions, replies, edit, unsend), richer group controls, non-image
-attachment playback/opening, desktop parity, and store-ready release packaging.
+The native UI also includes tapbacks, replies, edit/unsend, group membership,
+group names and photos, pin/mute/archive/delete controls, and Android open/share
+handling for downloaded media and generic files. Important remaining release
+work is direct real-device acceptance of every login/2FA and carrier path,
+timed unmute, broader journey instrumentation, desktop parity, signing, and
+store-ready packaging.
 
 The native rewrite targets the self-hosted flow: scan or paste an `OABS` Mac
 hardware payload once, then generate Apple validation data locally on the
 Android device. It does not depend on the OpenBubbles hosted hardware relay.
-Production builds must supply the private OpenAbsinthe implementation; the
-public repository intentionally includes only a nonfunctional development stub.
+The arm64 APK packages a compatibility library pinned to a recorded SHA-256.
+The Rust OpenAbsinthe layer checks its expected context layout and exported
+anchor before calling the version-specific native routines. The debug device
+gate completes Apple's account-free validation exchange and requires a
+517-byte envelope.
 
-For local ABI investigation, a debug build can package a user-supplied copy of
-the production APK's Rust library without adding it to the repository:
+For local ABI investigation, a debug build can override the pinned library:
 
 ```bash
 cd native
@@ -83,9 +88,10 @@ OPENBUBBLES_OFFICIAL_RUST_LIB=/path/to/librust_lib_bluebubbles.so \
   ./gradlew :app-native:assembleDebug
 ```
 
-The library is renamed and probed separately from the native rewrite's Rust
-library. This is a compatibility diagnostic only: the production binary exports
-its Flutter and UniFFI bridges, but not a standalone OpenAbsinthe validation ABI.
+The override is accepted only when it matches the compatibility contract used
+by the Rust validation backend. A debug-only broadcast performs the complete
+Apple certificate, key-establishment, and signing round trip without account
+credentials.
 
 ## Data compatibility
 
