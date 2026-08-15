@@ -37,6 +37,7 @@ class MessageRepo(
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
         messageBox.query()
             .equal(Message_.chatId, chatId)
+            .isNull(Message_.associatedMessageGuid)
             .isNull(Message_.dateDeleted)
             .orderDesc(Message_.dateCreated)
             .build()
@@ -47,6 +48,7 @@ class MessageRepo(
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
         messageBox.query()
             .equal(Message_.chatId, chatId)
+            .isNull(Message_.associatedMessageGuid)
             .isNull(Message_.dateDeleted)
             .orderDesc(Message_.dateCreated)
             .build()
@@ -147,6 +149,11 @@ class MessageRepo(
 
     internal fun toItem(message: Message): MessageItem {
         val kind = kindOf(message)
+        val activeReaction = if (kind == MessageKind.TEXT && message.hasReactions) {
+            activeReactionFor(message.guid)
+        } else {
+            null
+        }
         return MessageItem(
             id = message.id,
             guid = message.guid,
@@ -159,14 +166,50 @@ class MessageRepo(
             status = statusOf(message),
             kind = kind,
             groupEventText = if (kind == MessageKind.GROUP_EVENT) chatRepo.groupEventText(message) else null,
-            reactionType = if (kind == MessageKind.REACTION) message.associatedMessageType else null,
-            reactionEmoji = if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
+            reactionType = activeReaction?.associatedMessageType
+                ?: if (kind == MessageKind.REACTION) message.associatedMessageType else null,
+            reactionEmoji = activeReaction?.associatedMessageEmoji
+                ?: if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
             threadOriginatorGuid = message.threadOriginatorGuid,
             associatedMessageGuid = message.associatedMessageGuid,
             expressiveSendStyleId = message.expressiveSendStyleId,
         )
+    }
+
+    /**
+     * Collapses reaction rows onto their target bubble. Each sender owns one
+     * active tapback; a later `-type` row removes that sender's matching one.
+     */
+    private fun activeReactionFor(messageGuid: String): Message? {
+        val reactions = messageBox.query()
+            .equal(
+                Message_.associatedMessageGuid,
+                messageGuid,
+                QueryBuilder.StringOrder.CASE_SENSITIVE,
+            )
+            .isNull(Message_.dateDeleted)
+            .order(Message_.dateCreated)
+            .build().use { it.find() }
+        val bySender = linkedMapOf<String, Message>()
+        reactions.forEach { reaction ->
+            val type = reaction.associatedMessageType ?: return@forEach
+            val senderKey = if (reaction.isFromMe) {
+                "me"
+            } else {
+                "handle:${reaction.handleId ?: reaction.handleRelation.targetId}"
+            }
+            if (type.startsWith("-")) {
+                val removedType = type.removePrefix("-")
+                if (bySender[senderKey]?.associatedMessageType == removedType) {
+                    bySender.remove(senderKey)
+                }
+            } else {
+                bySender[senderKey] = reaction
+            }
+        }
+        return bySender.values.maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
     }
 
     private fun kindOf(message: Message): MessageKind = when {

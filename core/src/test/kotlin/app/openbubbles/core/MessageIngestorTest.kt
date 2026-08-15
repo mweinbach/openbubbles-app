@@ -577,6 +577,44 @@ class MessageIngestorTest {
         val target = messageByGuid("target-1")
         assertNotNull(target)
         assertTrue(target.hasReactions)
+
+        val transcript = messageRepo.messages(chatRepo.chats().single().id)
+        assertEquals(1, transcript.size)
+        assertEquals("target-1", transcript.single().guid)
+        assertEquals("love", transcript.single().reactionType)
+        assertTrue(chatRepo.chats().single().snippet.orEmpty().contains("loved"))
+    }
+
+    @Test
+    fun `reaction removal clears the target bubble chip`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("target-remove", friend, "react to me")), myHandles)
+        suspend fun react(id: String, json: String, timestamp: ULong) {
+            ingestor.ingest(
+                push(
+                    UMessageInst(
+                        id = id,
+                        sender = friend,
+                        conversation = conversation(me, friend),
+                        message = UMessage.React(
+                            toUuid = "target-remove",
+                            toPart = 0uL,
+                            reactionJson = json,
+                            toText = "react to me",
+                        ),
+                        sentTimestamp = timestamp,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+        }
+        react("react-add", """{"React":{"reaction":"Like","enable":true}}""", 1_700_000_100_000uL)
+        react("react-remove", """{"React":{"reaction":"Like","enable":false}}""", 1_700_000_200_000uL)
+
+        val transcript = messageRepo.messages(chatRepo.chats().single().id)
+        assertEquals(1, transcript.size)
+        assertNull(transcript.single().reactionType)
     }
 
     @Test

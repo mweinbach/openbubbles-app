@@ -184,8 +184,45 @@ class ChatRepo(private val store: BoxStore) {
     /** Chat list snippet for the latest message. */
     private fun snippet(message: Message): String {
         if (message.itemType != null && message.itemType > 0) return groupEventText(message)
+        if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
+            return reactionSnippet(message)
+        }
         if (!message.text.isNullOrBlank()) return message.text
         return if (message.hasAttachments) "Attachment" else ""
+    }
+
+    private fun reactionSnippet(message: Message): String {
+        val rawType = message.associatedMessageType ?: return "Reaction"
+        val removed = rawType.startsWith("-")
+        val type = rawType.removePrefix("-")
+        val label = when (type) {
+            "love" -> "loved"
+            "like" -> "liked"
+            "dislike" -> "disliked"
+            "laugh" -> "laughed at"
+            "emphasize" -> "emphasized"
+            "question" -> "questioned"
+            "emoji" -> "reacted ${message.associatedMessageEmoji.orEmpty()} to"
+            else -> "reacted to"
+        }
+        val actor = if (message.isFromMe) {
+            "You"
+        } else {
+            message.handleRelation.target?.let(::handleDisplayName) ?: "Someone"
+        }
+        val targetText = message.associatedMessageGuid?.let { guid ->
+            messageBox.query()
+                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.text
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        } ?: "a message"
+        return if (removed) {
+            "$actor removed a reaction from “$targetText”"
+        } else {
+            "$actor $label “$targetText”"
+        }
     }
 
     /**
