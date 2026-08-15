@@ -9,12 +9,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -24,7 +22,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +34,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -51,12 +49,13 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialTheme.motionScheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -81,8 +80,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -111,6 +110,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val ConversationContentMaxWidth = 840.dp
 
 /** List model for the conversation LazyColumn. */
 sealed interface ConversationEntry {
@@ -333,8 +334,11 @@ fun ChatScreen(
                             modifier = Modifier.clickable(onClick = onOpenChatInfo),
                         )
                     },
+                    subtitle = {
+                        Text(if (uiState.chat?.isSms == true) "SMS / MMS" else "iMessage")
+                    },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        FilledTonalIconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
@@ -373,7 +377,7 @@ fun ChatScreen(
             Box(modifier = Modifier.padding(padding)) {
                 when {
                     uiState.initialLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        LoadingIndicator()
                     }
                     uiState.messages.isEmpty() && !isTyping ->
                         ChatEmptyState(Modifier.fillMaxSize())
@@ -382,13 +386,26 @@ fun ChatScreen(
                         reverseLayout = true,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
                             item(key = "typing-indicator") {
-                                TypingIndicatorRow(senderAddress = uiState.typingSenders.first())
+                                TypingIndicatorRow(
+                                    senderAddress = uiState.typingSenders.first(),
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                )
                             }
                         }
-                        items(entries, key = { it.key }) { entry ->
+                        items(
+                            items = entries,
+                            key = { it.key },
+                            contentType = {
+                                when (it) {
+                                    is ConversationEntry.Message -> "message"
+                                    is ConversationEntry.DaySeparator -> "day-separator"
+                                }
+                            },
+                        ) { entry ->
                             when (entry) {
                                 is ConversationEntry.Message -> MessageBubble(
                                     message = entry.message,
@@ -410,21 +427,23 @@ fun ChatScreen(
                                     } else {
                                         { selectedMessage = entry.message }
                                     },
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
                                 )
                                 is ConversationEntry.DaySeparator ->
-                                    DaySeparatorRow(label = formatConversationDay(entry.epochMillis))
+                                    DaySeparatorRow(
+                                        label = formatConversationDay(entry.epochMillis),
+                                        modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                    )
                             }
                         }
                         if (uiState.loadingOlder) {
                             item(key = "loading-older") {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
+                                        .fillMaxWidth().padding(12.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.padding(8.dp).size(22.dp),
-                                        strokeWidth = 2.dp,
-                                    )
+                                    LoadingIndicator()
                                 }
                             }
                         }
@@ -728,8 +747,8 @@ private fun MessageInputBarPreview() {
 }
 
 /**
- * iMessage-style capsule input bar: attachment icon + growing text field +
- * a circular send button that morphs color/scale when text is present.
+ * Expressive capsule input bar: tonal attachment action + growing text field
+ * + a send action that morphs color/scale when text is present.
  * Long-press the send button for the send-effect picker; long-press the
  * paperclip to attach any file.
  */
@@ -750,15 +769,16 @@ private fun MessageInputBar(
     onClearComposerAction: () -> Unit = {},
 ) {
     val hasText = value.isNotBlank()
+    val motionScheme = MaterialTheme.motionScheme
 
-    // Send button morph: blue when there's text to send, muted otherwise.
+    // Color is an effects animation; the button's size response is spatial.
     val sendContainer by animateColorAsState(
         targetValue = if (hasText) {
             MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = motionScheme.defaultEffectsSpec(),
         label = "sendContainer",
     )
     val sendContent by animateColorAsState(
@@ -767,59 +787,72 @@ private fun MessageInputBar(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = motionScheme.defaultEffectsSpec(),
         label = "sendContent",
     )
     val sendScale by animateFloatAsState(
-        targetValue = if (hasText) 1f else 0.88f,
-        animationSpec = spring(
-            stiffness = Spring.StiffnessMediumLow,
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-        ),
+        targetValue = if (hasText) 1f else 0.9f,
+        animationSpec = motionScheme.defaultSpatialSpec(),
         label = "sendScale",
     )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
             .imePadding(),
     ) {
         AnimatedVisibility(
             visible = composerActionLabel != null,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
+            enter = expandVertically(motionScheme.defaultSpatialSpec()) +
+                fadeIn(motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(motionScheme.defaultSpatialSpec()) +
+                fadeOut(motionScheme.defaultEffectsSpec()),
         ) {
             if (composerActionLabel != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = composerActionLabel,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        composerActionText?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            .widthIn(max = ConversationContentMaxWidth).fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = composerActionLabel,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                composerActionText?.let {
+                                    Text(
+                                        text = it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = onClearComposerAction) { Text("Cancel") }
                         }
                     }
-                    TextButton(onClick = onClearComposerAction) { Text("Cancel") }
                 }
             }
         }
         // Pending send-effect chip staged from the picker.
         AnimatedVisibility(
             visible = pendingEffect != null,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
+            enter = expandVertically(motionScheme.defaultSpatialSpec()) +
+                fadeIn(motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(motionScheme.defaultSpatialSpec()) +
+                fadeOut(motionScheme.defaultEffectsSpec()),
         ) {
             pendingEffect?.let { option ->
                 Row(
@@ -830,79 +863,93 @@ private fun MessageInputBar(
                 }
             }
         }
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
         ) {
-            Row(
-                modifier = Modifier.padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.Bottom,
+            Surface(
+                shape = MaterialTheme.shapes.extraLargeIncreased,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 2.dp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = ConversationContentMaxWidth).fillMaxWidth(),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.AttachFile,
-                    contentDescription = "Attach photo or video (long-press for any file)",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(start = 8.dp, end = 4.dp, bottom = 12.dp)
-                        .size(26.dp)
-                        .combinedClickable(onClick = onAttachClick, onLongClick = onAttachLongClick),
-                )
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    modifier = Modifier.weight(1f),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    maxLines = 5,
-                    keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Send,
-                        capitalization = KeyboardCapitalization.Sentences,
-                    ),
-                    keyboardActions = KeyboardActions(onSend = { onSend() }),
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 2.dp, vertical = 12.dp),
-                        ) {
-                            if (value.isEmpty()) {
-                                Text(
-                                    text = "Message",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            innerTextField()
-                        }
-                    },
-                )
-                // Long-press opens the send-effect picker (iMessage behavior).
-                Box(
-                    modifier = Modifier
-                        .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
-                        .size(40.dp)
-                        .graphicsLayer(scaleX = sendScale, scaleY = sendScale)
-                        .clip(CircleShape)
-                        .background(sendContainer)
-                        .pointerInput(hasText) {
-                            detectTapGestures(
-                                onTap = { if (hasText) onSend() },
-                                onLongPress = { onSendLongClick() },
-                            )
-                        },
-                    contentAlignment = Alignment.Center,
+                Row(
+                    modifier = Modifier.padding(6.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.ArrowUpward,
-                        contentDescription = "Send (long-press to pick an effect)",
-                        tint = sendContent,
-                        modifier = Modifier.size(22.dp),
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(48.dp).combinedClickable(
+                            role = Role.Button,
+                            onClickLabel = "Attach photo or video",
+                            onLongClickLabel = "Attach any file",
+                            onClick = onAttachClick,
+                            onLongClick = onAttachLongClick,
+                        ),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.AttachFile,
+                                contentDescription = "Attach photo or video",
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = 5,
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Send,
+                            capitalization = KeyboardCapitalization.Sentences,
+                        ),
+                        keyboardActions = KeyboardActions(onSend = { if (hasText) onSend() }),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                            ) {
+                                if (value.isEmpty()) {
+                                    Text(
+                                        text = "Message",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
                     )
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer(scaleX = sendScale, scaleY = sendScale)
+                            .clip(MaterialTheme.shapes.extraLarge)
+                            .background(sendContainer)
+                            .combinedClickable(
+                                enabled = hasText,
+                                role = Role.Button,
+                                onClickLabel = "Send",
+                                onLongClickLabel = "Choose send effect",
+                                onClick = onSend,
+                                onLongClick = onSendLongClick,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowUpward,
+                            contentDescription = "Send",
+                            tint = sendContent,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 }
             }
         }
