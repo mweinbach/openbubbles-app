@@ -45,6 +45,7 @@
 use crate::api::api::{self, PushMessage, SharedPushState};
 use crate::native::NativePushState;
 use crate::RUNTIME;
+use prost::Message as ProstMessage;
 // All message-model types are re-exported at the rustpush crate root.
 use rustpush::{
     ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage,
@@ -1772,6 +1773,18 @@ pub enum USyncState {
     NotEnabled,
 }
 
+/// One trusted-device escrow bottle that can admit this device to the
+/// account's end-to-end encrypted iCloud Keychain clique. The protobuf stays
+/// opaque to Kotlin and is handed back unchanged to
+/// [`NativePushState::join_clique_with_bottle`].
+#[derive(uniffi::Record)]
+pub struct UViableBottle {
+    pub escrow_data: Vec<u8>,
+    pub numeric_length: u64,
+    pub device_name: String,
+    pub model_class: String,
+}
+
 /// Which cursors `sync_history` starts from.
 #[derive(uniffi::Enum)]
 pub enum USyncMode {
@@ -1953,6 +1966,16 @@ fn cloud_messages_client(state: &SharedPushState) -> Result<Arc<CloudMessagesCli
         })
 }
 
+fn keychain_client(
+    state: &SharedPushState,
+) -> Result<Arc<rustpush::keychain::KeychainClient<DefaultAnisetteProvider>>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|services| services.keychain.clone())
+        .ok_or_else(|| UError::NotReady { reason: "no iCloud Keychain on this state".to_string() })
+}
+
 fn conv_chat(c: &CloudChat) -> UCloudChat {
     UCloudChat {
         guid: c.guid.clone(),
@@ -2107,13 +2130,49 @@ impl NativePushState {
     /// Circle membership check — the Dart sync loop skipped (and disabled
     /// cloud syncing) when the device fell out of the iCloud clique.
     pub fn is_in_clique(&self) -> Result<bool, UError> {
-        let keychain = self
-            .shared()
-            .icloud_services
-            .as_ref()
-            .and_then(|s| s.keychain.clone())
-            .ok_or_else(|| UError::NotReady { reason: "no keychain on this state".to_string() })?;
+        let keychain = keychain_client(self.shared())?;
         Ok(RUNTIME.block_on(api::is_in_clique(&keychain)))
+    }
+
+    /// Trusted-device escrow bottles available for non-destructive iCloud
+    /// Keychain recovery. Empty means the account has no recoverable bottle;
+    /// callers must not silently reset encrypted iCloud data in that case.
+    pub fn get_viable_bottles(&self) -> Result<Vec<UViableBottle>, UError> {
+        let keychain = keychain_client(self.shared())?;
+        let bottles = RUNTIME.block_on(api::get_bottles(&keychain)).map_err(sync_err)?;
+        Ok(bottles
+            .into_iter()
+            .map(|bottle| UViableBottle {
+                escrow_data: bottle.escrow.encode_to_vec(),
+                numeric_length: bottle.numeric_length,
+                device_name: bottle.device_name,
+                model_class: bottle.model_class,
+            })
+            .collect())
+    }
+
+    /// Join the end-to-end encrypted iCloud Keychain clique with a selected
+    /// trusted-device bottle. `password` is that device's passcode;
+    /// `device_password` is a newly generated recovery code for this device.
+    pub fn join_clique_with_bottle(
+        &self,
+        escrow_data: Vec<u8>,
+        password: String,
+        device_password: String,
+    ) -> Result<(), UError> {
+        let bottle = rustpush::cloudkit_proto::EscrowData::decode(escrow_data.as_slice())
+            .map_err(|e| UError::InvalidArgument {
+                reason: format!("invalid iCloud escrow bottle: {e}"),
+            })?;
+        let keychain = keychain_client(self.shared())?;
+        RUNTIME
+            .block_on(api::join_clique_with_bottle(
+                &keychain,
+                &bottle,
+                password,
+                device_password,
+            ))
+            .map_err(sync_err)
     }
 
     /// Pull one page of chat changes (`sync_chats`). Pass the previous

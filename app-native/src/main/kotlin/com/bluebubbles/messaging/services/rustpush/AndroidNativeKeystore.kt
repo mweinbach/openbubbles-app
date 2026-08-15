@@ -394,6 +394,15 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
 
     @RequiresApi(Build.VERSION_CODES.P)
     fun unlockKeystore(title: String, callback: (success: Boolean) -> Unit) {
+        unlockKeystore(title, context, callback)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    fun unlockKeystore(
+        title: String,
+        promptContext: Context,
+        callback: (success: Boolean) -> Unit,
+    ) {
         if (!isLocked()) {
             callback(true)
             return
@@ -404,7 +413,7 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
         val key = (entry as? KeyStore.PrivateKeyEntry)?.privateKey
         if (key == null) {
             recoverKeychain()
-            unlockKeystore(title, callback)
+            unlockKeystore(title, promptContext, callback)
             return
         }
 
@@ -421,7 +430,7 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             cipher.init(Cipher.DECRYPT_MODE, key, spec)
         } catch (e: KeyPermanentlyInvalidatedException) {
             recoverKeychain()
-            unlockKeystore(title, callback)
+            unlockKeystore(title, promptContext, callback)
             return
         }
 
@@ -436,7 +445,7 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
         }
 
 
-        var builder = BiometricPrompt.Builder(context)
+        var builder = BiometricPrompt.Builder(promptContext)
             .setTitle(title)
             .setDescription("iCloud Keychain is used for Find My and Messages in iCloud. OpenBubbles requires user authentication when managing iCloud Keychain for extra security.")
 
@@ -448,7 +457,7 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
 
         val prompt = builder.build()
 
-        prompt.authenticate(BiometricPrompt.CryptoObject(cipher), CancellationSignal(), context.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+        prompt.authenticate(BiometricPrompt.CryptoObject(cipher), CancellationSignal(), promptContext.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                 val result = result!!.cryptoObject.cipher
                 savedCipher = result
@@ -462,7 +471,9 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             }
 
             override fun onAuthenticationFailed() {
-                callback(false)
+                // A rejected biometric sample is not terminal; Android keeps
+                // the prompt open so the user can retry or choose the device
+                // credential. Only onAuthenticationError closes the prompt.
             }
         })
     }

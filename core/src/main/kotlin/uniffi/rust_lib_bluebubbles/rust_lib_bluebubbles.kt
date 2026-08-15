@@ -1438,6 +1438,10 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1601,7 +1605,11 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_site_config(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_viable_bottles(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_join_clique_with_bottle(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey_insert(
 ): Short
@@ -1971,8 +1979,12 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(`ptr`:
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_viable_bottles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(`ptr`: Pointer,`escrowData`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`devicePassword`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`recordId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`tag`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2582,7 +2594,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state() != 53880.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_viable_bottles() != 57624.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique() != 14793.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_join_clique_with_bottle() != 29168.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passkey_insert() != 43580.toShort()) {
@@ -5907,11 +5925,25 @@ public interface NativePushStateInterface {
     fun `getState`(): kotlin.ULong
     
     /**
+     * Trusted-device escrow bottles available for non-destructive iCloud
+     * Keychain recovery. Empty means the account has no recoverable bottle;
+     * callers must not silently reset encrypted iCloud data in that case.
+     */
+    fun `getViableBottles`(): List<UViableBottle>
+
+    /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
      */
     fun `isInClique`(): kotlin.Boolean
     
+    /**
+     * Join the end-to-end encrypted iCloud Keychain clique with a selected
+     * trusted-device bottle. `password` is that device's passcode;
+     * `device_password` is a newly generated recovery code for this device.
+     */
+    fun `joinCliqueWithBottle`(`escrowData`: kotlin.ByteArray, `password`: kotlin.String, `devicePassword`: kotlin.String)
+
     fun `keychainPasskeyInsert`(`site`: kotlin.String, `recordId`: kotlin.String, `id`: kotlin.ByteArray, `tag`: kotlin.ByteArray, `key`: kotlin.ByteArray, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
     
     fun `keychainPasswordInsert`(`site`: kotlin.String, `user`: kotlin.String, `password`: kotlin.String, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
@@ -6606,6 +6638,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Trusted-device escrow bottles available for non-destructive iCloud
+     * Keychain recovery. Empty means the account has no recoverable bottle;
+     * callers must not silently reset encrypted iCloud data in that case.
+     */
+    @Throws(UException::class)override fun `getViableBottles`(): List<UViableBottle> {
+            return FfiConverterSequenceTypeUViableBottle.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_viable_bottles(
+        it, _status)
+}
+    }
+    )
+    }
+
+
+
+    /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
      */
@@ -6620,6 +6670,23 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     )
     }
     
+
+
+    /**
+     * Join the end-to-end encrypted iCloud Keychain clique with a selected
+     * trusted-device bottle. `password` is that device's passcode;
+     * `device_password` is a newly generated recovery code for this device.
+     */
+    @Throws(UException::class)override fun `joinCliqueWithBottle`(`escrowData`: kotlin.ByteArray, `password`: kotlin.String, `devicePassword`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(
+        it, FfiConverterByteArray.lower(`escrowData`),FfiConverterString.lower(`password`),FfiConverterString.lower(`devicePassword`),_status)
+}
+    }
+
+
 
     override fun `keychainPasskeyInsert`(`site`: kotlin.String, `recordId`: kotlin.String, `id`: kotlin.ByteArray, `tag`: kotlin.ByteArray, `key`: kotlin.ByteArray, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
         = 
@@ -12831,6 +12898,52 @@ public object FfiConverterTypeUTrustedPhone: FfiConverterRustBuffer<UTrustedPhon
 
 
 /**
+ * One trusted-device escrow bottle that can admit this device to the
+ * account's end-to-end encrypted iCloud Keychain clique. The protobuf stays
+ * opaque to Kotlin and is handed back unchanged to
+ * [`NativePushState::join_clique_with_bottle`].
+ */
+data class UViableBottle (
+    var `escrowData`: kotlin.ByteArray,
+    var `numericLength`: kotlin.ULong,
+    var `deviceName`: kotlin.String,
+    var `modelClass`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUViableBottle: FfiConverterRustBuffer<UViableBottle> {
+    override fun read(buf: ByteBuffer): UViableBottle {
+        return UViableBottle(
+            FfiConverterByteArray.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UViableBottle) = (
+            FfiConverterByteArray.allocationSize(value.`escrowData`) +
+            FfiConverterULong.allocationSize(value.`numericLength`) +
+            FfiConverterString.allocationSize(value.`deviceName`) +
+            FfiConverterString.allocationSize(value.`modelClass`)
+    )
+
+    override fun write(value: UViableBottle, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`escrowData`, buf)
+            FfiConverterULong.write(value.`numericLength`, buf)
+            FfiConverterString.write(value.`deviceName`, buf)
+            FfiConverterString.write(value.`modelClass`, buf)
+    }
+}
+
+
+
+/**
  * Text styling of an incoming-call poster (WallpaperMetadata).
  */
 data class UWallpaperMetadata (
@@ -16655,6 +16768,34 @@ public object FfiConverterSequenceTypeUTrustedPhone: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUTrustedPhone.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUViableBottle: FfiConverterRustBuffer<List<UViableBottle>> {
+    override fun read(buf: ByteBuffer): List<UViableBottle> {
+        val len = buf.getInt()
+        return List<UViableBottle>(len) {
+            FfiConverterTypeUViableBottle.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UViableBottle>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUViableBottle.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UViableBottle>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUViableBottle.write(it, buf)
         }
     }
 }

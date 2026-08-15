@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -42,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -60,6 +62,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -68,6 +72,8 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.CloudSyncWiring
+import app.openbubbles.nativeapp.data.unlockICloudKeychain
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +83,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.URegisterState
+import uniffi.rust_lib_bluebubbles.UViableBottle
+import java.security.SecureRandom
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -85,6 +93,9 @@ private data class ConnectionInfo(
     val regstate: String,
     val handles: List<String>,
 )
+
+private const val NATIVE_SETUP_PREFS = "native_setup"
+private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
 
 private fun describeRegstate(state: URegisterState): String = when (state) {
     is URegisterState.Registered ->
@@ -109,6 +120,123 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+
+    val syncManager = CloudSyncWiring.manager
+    val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
+        ?: remember { mutableStateOf(null) }
+    var syncing by remember { mutableStateOf(false) }
+    var syncResult by remember { mutableStateOf<String?>(null) }
+
+    var cliqueRefresh by remember { mutableStateOf(0) }
+    var inClique by remember(pushState) { mutableStateOf<Boolean?>(null) }
+    var cliqueError by remember(pushState) { mutableStateOf<String?>(null) }
+    LaunchedEffect(pushState, cliqueRefresh) {
+        val live = pushState
+        if (live == null) {
+            inClique = null
+            cliqueError = null
+        } else {
+            val result = withContext(Dispatchers.IO) { runCatching { live.isInClique() } }
+            result.onSuccess {
+                inClique = it
+                cliqueError = null
+            }.onFailure {
+                inClique = false
+                cliqueError = it.message ?: "Unable to check iCloud Keychain"
+            }
+        }
+    }
+
+    var showCliqueJoin by remember { mutableStateOf(false) }
+    var loadingBottles by remember { mutableStateOf(false) }
+    var joiningClique by remember { mutableStateOf(false) }
+    var bottles by remember { mutableStateOf<List<UViableBottle>>(emptyList()) }
+    var selectedBottle by remember { mutableStateOf<UViableBottle?>(null) }
+    var trustedDevicePasscode by remember { mutableStateOf("") }
+    var joinError by remember { mutableStateOf<String?>(null) }
+    var newRecoveryCode by remember { mutableStateOf<String?>(null) }
+    var revealSavedRecoveryCode by remember { mutableStateOf(false) }
+
+    fun syncAllHistory() {
+        val manager = syncManager ?: return
+        if (syncing) return
+        syncing = true
+        syncResult = null
+        scope.launch {
+            val summary = manager.sync(app.openbubbles.core.sync.SyncMode.FULL)
+            syncing = false
+            syncResult = if (summary.error != null) {
+                "Sync failed: ${summary.error}"
+            } else {
+                "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages " +
+                    "(${summary.chatTombstones + summary.messageTombstones} removed) " +
+                    "in ${summary.durationMs / 1000}s"
+            }
+        }
+    }
+
+    fun openCliqueJoin() {
+        val live = pushState ?: return
+        showCliqueJoin = true
+        loadingBottles = true
+        joiningClique = false
+        bottles = emptyList()
+        selectedBottle = null
+        trustedDevicePasscode = ""
+        joinError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { live.getViableBottles() } }
+            loadingBottles = false
+            result.onSuccess { found ->
+                bottles = found
+                selectedBottle = found.singleOrNull()
+                if (found.isEmpty()) {
+                    joinError = "No recoverable trusted devices were found. Encrypted iCloud data was not reset."
+                }
+            }.onFailure {
+                joinError = it.message ?: "Unable to fetch trusted devices"
+            }
+        }
+    }
+
+    fun joinSelectedBottle() {
+        val live = pushState ?: return
+        val bottle = selectedBottle ?: return
+        if (joiningClique || trustedDevicePasscode.isEmpty()) return
+        joiningClique = true
+        joinError = null
+        scope.launch {
+            if (!unlockICloudKeychain(context)) {
+                joiningClique = false
+                joinError = "iCloud Keychain unlock was cancelled or unavailable"
+                return@launch
+            }
+            val recoveryCode = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    live.joinCliqueWithBottle(
+                        bottle.escrowData,
+                        trustedDevicePasscode,
+                        recoveryCode,
+                    )
+                    check(live.isInClique()) { "Apple did not confirm iCloud Keychain membership" }
+                }
+            }
+            joiningClique = false
+            result.onSuccess {
+                context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
+                    .edit().putString(KEY_KEYCHAIN_RECOVERY_CODE, recoveryCode).apply()
+                trustedDevicePasscode = ""
+                showCliqueJoin = false
+                newRecoveryCode = recoveryCode
+                inClique = true
+                cliqueRefresh += 1
+                syncAllHistory()
+            }.onFailure {
+                joinError = it.message ?: "Unable to join iCloud Keychain"
+            }
+        }
+    }
 
     // Connection details come from the live Rust state (blocking calls; IO).
     val connection by produceState<ConnectionInfo?>(initialValue = null, pushState) {
@@ -254,12 +382,6 @@ fun SettingsScreen(
             }
 
             SectionCard(title = "iCloud Sync") {
-                val syncManager = app.openbubbles.nativeapp.data.CloudSyncWiring.manager
-                val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
-                    ?: remember { androidx.compose.runtime.mutableStateOf(null) }
-                var syncing by remember { androidx.compose.runtime.mutableStateOf(false) }
-                var syncResult by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-
                 if (syncManager == null) {
                     SettingRow(
                         title = "History sync",
@@ -271,37 +393,49 @@ fun SettingsScreen(
                     SettingRow(
                         title = "History sync",
                         supporting = when {
+                            cliqueError != null -> cliqueError!!
+                            inClique == null -> "Checking Secure iCloud Keychain…"
+                            inClique == false ->
+                                "Join Secure iCloud Keychain before Messages in iCloud history can be decrypted"
                             progress != null && syncing ->
                                 "${progress.phase}: ${progress.chatsDone} chats, ${progress.messagesDone} messages"
                             syncResult != null -> syncResult!!
-                            else -> "Chats back up to iCloud; new devices sync history on sign-in"
+                            else -> "Downloads your Messages in iCloud history to this device"
                         },
                         icon = Icons.Filled.CloudSync,
                         multiline = true,
                     )
-                    if (syncing) {
-                        TextButton(onClick = { syncManager.cancel() }) { Text("Stop") }
-                    } else {
+                    if (inClique == false) {
                         FilledTonalButton(
-                            onClick = {
-                                syncing = true
-                                syncResult = null
-                                scope.launch {
-                                    val summary = syncManager.sync(
-                                        app.openbubbles.core.sync.SyncMode.FULL,
-                                    )
-                                    syncing = false
-                                    syncResult = if (summary.error != null) {
-                                        "Sync failed: ${summary.error}"
-                                    } else {
-                                        "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages " +
-                                            "(${summary.chatTombstones + summary.messageTombstones} removed) " +
-                                            "in ${summary.durationMs / 1000}s"
-                                    }
-                                }
-                            },
+                            onClick = ::openCliqueJoin,
+                            enabled = !loadingBottles && !joiningClique,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Join iCloud Keychain") }
+                    } else if (syncing) {
+                        TextButton(onClick = { syncManager.cancel() }) { Text("Stop") }
+                    } else if (inClique == true) {
+                        FilledTonalButton(
+                            onClick = ::syncAllHistory,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Sync all history now") }
+                    }
+
+                    if (inClique == true) {
+                        val savedRecoveryCode = context
+                            .getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
+                            .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
+                        if (savedRecoveryCode != null) {
+                            SettingActionRow(
+                                title = "Device Keychain code",
+                                supporting = if (revealSavedRecoveryCode) {
+                                    savedRecoveryCode
+                                } else {
+                                    "Saved on this device — tap to reveal"
+                                },
+                                icon = Icons.Filled.CloudDone,
+                                onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
+                            )
+                        }
                     }
                 }
             }
@@ -452,6 +586,115 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showCliqueJoin) {
+        val requiredLength = selectedBottle?.numericLength?.toInt()?.takeIf { it > 0 }
+        val passcodeValid = trustedDevicePasscode.isNotEmpty() &&
+            (requiredLength == null || trustedDevicePasscode.length == requiredLength)
+        AlertDialog(
+            onDismissRequest = {
+                if (!joiningClique) showCliqueJoin = false
+            },
+            title = { Text("Join iCloud Keychain") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Choose a trusted Apple device, then enter that device's passcode to unlock Messages in iCloud history. OpenBubbles will not reset encrypted iCloud data.")
+                    if (loadingBottles) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                        }
+                    } else {
+                        bottles.forEach { bottle ->
+                            OutlinedButton(
+                                onClick = {
+                                    selectedBottle = bottle
+                                    trustedDevicePasscode = ""
+                                    joinError = null
+                                },
+                                enabled = !joiningClique,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                val selected = selectedBottle === bottle
+                                Text(
+                                    buildString {
+                                        if (selected) append("Selected: ")
+                                        append(bottle.deviceName.ifBlank { "Trusted device" })
+                                        if (bottle.modelClass.isNotBlank()) append(" · ${bottle.modelClass}")
+                                    },
+                                )
+                            }
+                        }
+                        selectedBottle?.let {
+                            OutlinedTextField(
+                                value = trustedDevicePasscode,
+                                onValueChange = { value ->
+                                    trustedDevicePasscode = if (requiredLength != null) {
+                                        value.filter(Char::isDigit).take(requiredLength)
+                                    } else {
+                                        value
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        requiredLength?.let { "Trusted device passcode ($it digits)" }
+                                            ?: "Trusted device password",
+                                    )
+                                },
+                                enabled = !joiningClique,
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = if (requiredLength != null) {
+                                        KeyboardType.NumberPassword
+                                    } else {
+                                        KeyboardType.Password
+                                    },
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                    joinError?.let { error ->
+                        Text(error, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = ::joinSelectedBottle,
+                    enabled = passcodeValid && !joiningClique,
+                ) {
+                    if (joiningClique) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    } else {
+                        Text("Join")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCliqueJoin = false },
+                    enabled = !joiningClique,
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
+    newRecoveryCode?.let { code ->
+        AlertDialog(
+            onDismissRequest = { newRecoveryCode = null },
+            title = { Text("iCloud Keychain joined") },
+            text = {
+                Text("This device's iCloud Keychain recovery code is $code. It is saved in Settings and may be needed to recover encrypted iCloud data from another device. History sync is now running.")
+            },
+            confirmButton = {
+                TextButton(onClick = { newRecoveryCode = null }) { Text("Done") }
+            },
+        )
     }
 
     // Restore confirmation: replacing data is destructive, so the picked file

@@ -25,6 +25,8 @@ object RustBoot {
     private var started = false
 
     private var starting = false
+    @Volatile
+    private var nativeKeystore: AndroidNativeKeystore? = null
 
     fun ensureStarted(context: android.content.Context, dir: String) {
         synchronized(startLock) {
@@ -36,7 +38,9 @@ object RustBoot {
             purgeLegacyAuthLogs(context, File(dir))
             uniffiEnsureInitialized()
             start(dir, SimpleFilePackager(), BootWifiCallback())
-            setupKeystore(dir, AndroidNativeKeystore(context.applicationContext))
+            val keystore = AndroidNativeKeystore(context.applicationContext)
+            setupKeystore(dir, keystore)
+            nativeKeystore = keystore
         } catch (error: Throwable) {
             synchronized(startLock) {
                 starting = false
@@ -49,6 +53,19 @@ object RustBoot {
             starting = false
             startLock.notifyAll()
         }
+    }
+
+    fun unlockKeystore(
+        promptContext: android.content.Context,
+        title: String,
+        callback: (success: Boolean) -> Unit,
+    ) {
+        val keystore = nativeKeystore
+        if (!started || keystore == null) {
+            callback(false)
+            return
+        }
+        keystore.unlockKeystore(title, promptContext, callback)
     }
 
     /**
