@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -126,6 +127,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val ConversationContentMaxWidth = 840.dp
+
+/** iMessage tapback set, in the order the protocol indexes them. */
+private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
 
 private data class SelectedMessageAction(val message: MessageItem, val part: Long)
 
@@ -649,18 +653,21 @@ private fun MessageActionSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         if (!isSms) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+            // A connected ButtonGroup rather than a loose row of Texts: the
+            // tapbacks are alternatives within one set, so they should read as a
+            // single object and compress against each other on press. This also
+            // gives each one a real button role and a 48dp target, neither of
+            // which the bare clickable Text had.
+            ButtonGroup(
+                overflowIndicator = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                listOf("❤️", "👍", "👎", "😂", "‼️", "❓").forEachIndexed { index, emoji ->
-                    Text(
-                        text = emoji,
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { onReact(index, null) }
-                            .padding(8.dp),
+                Tapbacks.forEachIndexed { index, emoji ->
+                    clickableItem(
+                        onClick = { onReact(index, null) },
+                        label = emoji,
                     )
                 }
             }
