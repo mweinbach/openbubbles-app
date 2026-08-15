@@ -36,6 +36,19 @@ class LoginViewModelTest {
     }
 
     @Test
+    fun `Apple may complete login without requesting 2FA`() = runTest {
+        val handle = FakeLoginHandle().apply { nextState = LoginUiState.LoggedIn }
+        val model = model(handle)
+        advanceUntilIdle()
+
+        model.submitCredentials("person@icloud.com", "password")
+        advanceUntilIdle()
+
+        val done = assertIs<LoginScreen.Done>(model.screen.value)
+        assertEquals("person@icloud.com", done.username)
+    }
+
+    @Test
     fun `rejected trusted-device code stays on code entry`() = runTest {
         val model = model(FakeLoginHandle())
         model.submitCredentials("person@icloud.com", "password")

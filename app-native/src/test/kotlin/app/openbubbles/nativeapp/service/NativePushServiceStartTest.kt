@@ -20,4 +20,21 @@ class NativePushServiceStartTest {
         assertFalse(isPollStart("app.openbubbles.nativeapp.action.UNKNOWN"))
         assertEquals(Service.START_STICKY, restartModeFor(pollMode = false))
     }
+
+    @Test
+    fun `reload action reinitializes an already-started service`() {
+        assertTrue(isReloadStart(NativePushService.ACTION_RELOAD))
+        assertTrue(
+            shouldInitializePush(
+                bootStarted = true,
+                action = NativePushService.ACTION_RELOAD,
+            ),
+        )
+    }
+
+    @Test
+    fun `ordinary duplicate start does not create a second native state`() {
+        assertTrue(shouldInitializePush(bootStarted = false, action = null))
+        assertFalse(shouldInitializePush(bootStarted = true, action = null))
+    }
 }

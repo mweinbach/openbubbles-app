@@ -38,6 +38,7 @@ import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
@@ -55,6 +56,7 @@ import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.rust_lib_bluebubbles.hasSavedUsers
 
 object Routes {
     const val CHATS = "chats"
@@ -109,12 +111,31 @@ fun OpenBubblesApp(
     var onboardingComplete by remember(onboardingPrefs) {
         androidx.compose.runtime.mutableStateOf(onboardingPrefs?.getBoolean("onboarding_complete", false) ?: true)
     }
+
+    // A force-stop or process restart clears the in-memory holder even though
+    // IDS registration remains on disk. Returning users must restore the live
+    // state when the activity becomes usable again; boot broadcasts alone are
+    // insufficient because Android suppresses them for force-stopped apps.
+    LaunchedEffect(context, onboardingComplete) {
+        val ctx = context ?: return@LaunchedEffect
+        if (!onboardingComplete) return@LaunchedEffect
+        val hasRegistration = withContext(Dispatchers.IO) {
+            runCatching { hasSavedUsers(ctx.filesDir.absolutePath) }.getOrDefault(false)
+        }
+        if (!hasRegistration) return@LaunchedEffect
+        if (BatterySaver.isEnabled(ctx)) {
+            BatterySaver.schedule(ctx)
+        } else {
+            NativePushService.start(ctx)
+        }
+    }
+
     if (pushState == null && !onboardingComplete && context != null) {
         OnboardingScreen(
             onFinished = {
                 onboardingPrefs?.edit()?.putBoolean("onboarding_complete", true)?.apply()
                 onboardingComplete = true
-                NativePushService.start(context)
+                NativePushService.reloadAfterLogin(context)
                 requestBatteryExemptionOnce(context)
             },
             onLaunchSignIn = { },
@@ -249,7 +270,7 @@ fun OpenBubblesApp(
                         handle = RustLoginHandle(path = confDir),
                         onFinished = { _ ->
                             context?.let { ctx ->
-                                NativePushService.start(ctx)
+                                NativePushService.reloadAfterLogin(ctx)
                                 requestBatteryExemptionOnce(ctx)
                             }
                             navController.popBackStack(Routes.CHATS, inclusive = false)

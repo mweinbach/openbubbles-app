@@ -3,7 +3,6 @@ package app.openbubbles.nativeapp.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -11,10 +10,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
-import com.bluebubbles.messaging.services.rustpush.AndroidNativeKeystore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,11 +25,9 @@ import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UMessageInst
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
-import uniffi.rust_lib_bluebubbles.isLocked
 import uniffi.rust_lib_bluebubbles.ptrToMessage
-import uniffi.rust_lib_bluebubbles.start
-import uniffi.rust_lib_bluebubbles.setupKeystore
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Foreground service owning the live Rust push state for the native app —
@@ -53,6 +48,9 @@ class NativePushService : Service(), MsgReceiver {
 
     private var bootStarted = false
 
+    /** Invalidates late callbacks when a post-login reload supersedes restore. */
+    private val initGeneration = AtomicInteger(0)
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -65,7 +63,7 @@ class NativePushService : Service(), MsgReceiver {
         // onCreate runs before Android delivers the start intent. Configure the
         // service mode first, then boot Rust, so a fast nativeReady callback can
         // never mistake a one-shot poll for the persistent APNs loop.
-        if (!bootStarted) {
+        if (shouldInitializePush(bootStarted, intent?.action)) {
             pollMode = isPollStart(intent?.action)
             bootStarted = true
             bootRust()
@@ -76,16 +74,45 @@ class NativePushService : Service(), MsgReceiver {
     // -- Rust lifecycle -----------------------------------------------------
 
     private fun bootRust() {
+        val generation = initGeneration.incrementAndGet()
         scope.launch {
             val dir = filesDir.absolutePath
-            runInterruptible(Dispatchers.IO) {
-                uniffiEnsureInitialized()
-                if (!booted) {
+            try {
+                runInterruptible(Dispatchers.IO) {
+                    uniffiEnsureInitialized()
                     app.openbubbles.nativeapp.data.RustBoot.ensureStarted(this@NativePushService, dir)
-                    booted = true
+                    initNative(dir, null, InitReceiver(generation))
                 }
-                initNative(dir, null, this@NativePushService)
+            } catch (error: Throwable) {
+                Log.e(TAG, "native initialization failed", error)
+                if (generation == initGeneration.get()) stopUnavailableService()
             }
+        }
+    }
+
+    /**
+     * `initNative` invokes its callback on Rust's Tokio worker. Calling a
+     * synchronous UniFFI method such as `getHandles` from that callback would
+     * recursively call `RUNTIME.block_on` and panic. This generation-tagged
+     * receiver immediately hands completion back to the service's IO scope.
+     */
+    private inner class InitReceiver(
+        private val generation: Int,
+    ) : MsgReceiver {
+        override fun receievedMsg(msg: ULong, retry: ULong) {
+            this@NativePushService.receievedMsg(msg, retry)
+        }
+
+        override fun nativeReady(state: NativePushState?) {
+            handleNativeReady(generation, state)
+        }
+
+        override fun twofaEvent(success: Boolean) {
+            this@NativePushService.twofaEvent(success)
+        }
+
+        override fun finish() {
+            this@NativePushService.finish()
         }
     }
 
@@ -113,14 +140,39 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     override fun nativeReady(state: NativePushState?) {
-        val live = state ?: return
-        val handles = runCatching { live.getHandles().toSet() }.getOrDefault(emptySet())
-        if (pollMode) {
-            runPollOnce(live)
-            return
+        handleNativeReady(initGeneration.get(), state)
+    }
+
+    private fun handleNativeReady(generation: Int, state: NativePushState?) {
+        scope.launch {
+            if (generation != initGeneration.get()) return@launch
+            val live = state ?: run {
+                Log.i(TAG, "no registered account to restore; stopping push service")
+                stopUnavailableService()
+                return@launch
+            }
+
+            // This coroutine runs on Dispatchers.IO, never Rust's Tokio worker.
+            val handles = runCatching { live.getHandles().toSet() }
+                .onFailure { Log.e(TAG, "failed to load registered handles", it) }
+                .getOrDefault(emptySet())
+            if (generation != initGeneration.get()) return@launch
+
+            if (pollMode) {
+                runPollOnce(live)
+                return@launch
+            }
+            PushStateHolder.install(live, handles)
+            updateStatus(CONNECTED_STATUS)
+            runCatching { live.startLoop(this@NativePushService) }
+                .onFailure { Log.e(TAG, "failed to start Apple push loop", it) }
         }
-        PushStateHolder.install(live, handles)
-        runCatching { live.startLoop(this@NativePushService) }
+    }
+
+    private fun stopUnavailableService() {
+        PushStateHolder.clear()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     /**
@@ -214,12 +266,7 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     private fun startForegroundCompat() {
-        val notification = Notification.Builder(this, CHANNEL_STATUS)
-            .setSmallIcon(app.openbubbles.nativeapp.R.drawable.ic_stat_message)
-            .setContentTitle("OpenBubbles")
-            .setContentText("Connected to Apple push")
-            .setOngoing(true)
-            .build()
+        val notification = statusNotification(CONNECTING_STATUS)
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(STATUS_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -227,7 +274,22 @@ class NativePushService : Service(), MsgReceiver {
         }
     }
 
+    private fun updateStatus(text: String) {
+        getSystemService(NotificationManager::class.java)
+            ?.notify(STATUS_NOTIFICATION_ID, statusNotification(text))
+    }
+
+    private fun statusNotification(text: String): Notification =
+        Notification.Builder(this, CHANNEL_STATUS)
+            .setSmallIcon(app.openbubbles.nativeapp.R.drawable.ic_stat_message)
+            .setContentTitle("OpenBubbles")
+            .setContentText(text)
+            .setOngoing(true)
+            .build()
+
     override fun onDestroy() {
+        initGeneration.incrementAndGet()
+        PushStateHolder.clear()
         scope.cancel()
         super.onDestroy()
     }
@@ -236,13 +298,25 @@ class NativePushService : Service(), MsgReceiver {
         private const val CHANNEL_STATUS = "push-status"
         private const val CHANNEL_MESSAGES = "messages"
         private const val STATUS_NOTIFICATION_ID = 1001
-
-        @Volatile
-        private var booted = false
+        private const val CONNECTING_STATUS = "Connecting to Apple push"
+        private const val CONNECTED_STATUS = "Connected to Apple push"
+        internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
+        private const val TAG = "NativePushService"
 
         fun start(context: Context): Boolean {
+            return start(context, action = null)
+        }
+
+        /** Re-run persisted-state restoration after IDS registration. */
+        fun reloadAfterLogin(context: Context): Boolean {
+            return start(context, action = ACTION_RELOAD)
+        }
+
+        private fun start(context: Context, action: String?): Boolean {
             return try {
-                context.startForegroundService(Intent(context, NativePushService::class.java))
+                context.startForegroundService(
+                    Intent(context, NativePushService::class.java).setAction(action),
+                )
                 true
             } catch (error: SecurityException) {
                 Log.w("NativePushService", "foreground start denied", error)
@@ -267,11 +341,11 @@ class NativePushService : Service(), MsgReceiver {
 internal fun isPollStart(action: String?): Boolean =
     action == BatterySaver.ACTION_POLL_ONCE
 
+internal fun isReloadStart(action: String?): Boolean =
+    action == NativePushService.ACTION_RELOAD
+
+internal fun shouldInitializePush(bootStarted: Boolean, action: String?): Boolean =
+    !bootStarted || isReloadStart(action)
+
 internal fun restartModeFor(pollMode: Boolean): Int =
     if (pollMode) Service.START_NOT_STICKY else Service.START_STICKY
-
-private class NoopWifiCallback : uniffi.rust_lib_bluebubbles.HandleWifiNetworksCallback {
-    override fun handleWifiNetworks(networks: Map<String, String>, userApprove: Boolean) {
-        // Wi-Fi suggestions UI is out of MVP scope.
-    }
-}

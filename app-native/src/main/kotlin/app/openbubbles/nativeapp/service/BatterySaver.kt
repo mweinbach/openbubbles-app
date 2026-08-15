@@ -87,7 +87,7 @@ class PushRestartWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val context = applicationContext
-        if (!uniffi.rust_lib_bluebubbles.hasHardwareConfig(context.filesDir.absolutePath)) {
+        if (!uniffi.rust_lib_bluebubbles.hasSavedUsers(context.filesDir.absolutePath)) {
             return Result.success()
         }
         if (BatterySaver.isEnabled(context)) {
