@@ -113,9 +113,12 @@ fun MessageBubble(
     }
     val maxBubbleWidth = bubbleMaxWidth(LocalConfiguration.current.screenWidthDp.dp)
     val shape = bubbleShape(tightTop, tightBottom)
+    val attachments = message.attachmentMetas.ifEmpty {
+        listOfNotNull(message.attachmentMeta)
+    }
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
-    val attachmentShape = if (message.text.isEmpty()) shape else null
+    val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -136,7 +139,7 @@ fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
-            message.attachmentMeta?.let { attachment ->
+            attachments.forEachIndexed { index, attachment ->
                 Box {
                     AttachmentContent(
                         attachment = attachment,
@@ -145,7 +148,7 @@ fun MessageBubble(
                         onDownloadAttachment = onDownloadAttachment,
                         shape = attachmentShape,
                     )
-                    message.reactionEmoji?.let { emoji ->
+                    message.reactionEmoji?.takeIf { index == attachments.lastIndex }?.let { emoji ->
                         ReactionChip(
                             emoji = emoji,
                             isFromMe = message.isFromMe,
@@ -159,7 +162,7 @@ fun MessageBubble(
             message.uploadProgress?.let { progress ->
                 UploadProgressRow(done = progress.first, total = progress.second)
             }
-            if (message.text.isNotEmpty()) {
+            if (message.text.isNotBlank()) {
                 Box {
                     if (isInvisibleInk(message.expressiveSendStyleId)) {
                         InvisibleInkBubble(message = message, shape = shape)
@@ -184,7 +187,7 @@ fun MessageBubble(
                             )
                         }
                     }
-                    if (message.attachmentMeta == null) {
+                    if (attachments.isEmpty()) {
                         message.reactionEmoji?.let { emoji ->
                             ReactionChip(
                                 emoji = emoji,

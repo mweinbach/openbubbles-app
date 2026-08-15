@@ -2,6 +2,8 @@ package app.openbubbles.core.sync
 
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.Attachment
+import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.db.MyObjectBox
@@ -13,6 +15,9 @@ import org.junit.Before
 import org.junit.Test
 import uniffi.rust_lib_bluebubbles.UChatChange
 import uniffi.rust_lib_bluebubbles.UChatSyncPage
+import uniffi.rust_lib_bluebubbles.UAttachmentChange
+import uniffi.rust_lib_bluebubbles.UAttachmentSyncPage
+import uniffi.rust_lib_bluebubbles.UCloudAttachment
 import uniffi.rust_lib_bluebubbles.UCloudChat
 import uniffi.rust_lib_bluebubbles.UCloudMessage
 import uniffi.rust_lib_bluebubbles.UMessageChange
@@ -33,14 +38,17 @@ private class FakeCloudSyncPort : CloudSyncPort {
 
     val chatPages = ArrayDeque<UChatSyncPage>()
     val messagePages = ArrayDeque<UMessageSyncPage>()
+    val attachmentPages = ArrayDeque<UAttachmentSyncPage>()
 
     /** Cursors received, in order (null = fresh start). */
     val chatCursorsReceived = mutableListOf<ByteArray?>()
     val messageCursorsReceived = mutableListOf<ByteArray?>()
+    val attachmentCursorsReceived = mutableListOf<ByteArray?>()
 
     /** Remote deletions in call order. */
     val deletedChats = mutableListOf<List<String>>()
     val deletedMessages = mutableListOf<List<String>>()
+    val deletedAttachments = mutableListOf<List<String>>()
 
     /** Call log across all port methods, for ordering assertions. */
     val calls = mutableListOf<String>()
@@ -79,6 +87,13 @@ private class FakeCloudSyncPort : CloudSyncPort {
         return messagePages.removeFirst()
     }
 
+    override suspend fun attachmentsPage(cursor: ByteArray?): UAttachmentSyncPage {
+        calls += "attachments"
+        attachmentCursorsReceived += cursor
+        return attachmentPages.removeFirstOrNull()
+            ?: UAttachmentSyncPage(emptyList(), byteArrayOf(), false, 3)
+    }
+
     override suspend fun deleteChatsRemote(recordIds: List<String>) {
         calls += "delete-chats"
         deletedChats += recordIds
@@ -87,6 +102,11 @@ private class FakeCloudSyncPort : CloudSyncPort {
     override suspend fun deleteMessagesRemote(recordIds: List<String>) {
         calls += "delete-messages"
         deletedMessages += recordIds
+    }
+
+    override suspend fun deleteAttachmentsRemote(recordIds: List<String>) {
+        calls += "delete-attachments"
+        deletedAttachments += recordIds
     }
 }
 
@@ -156,6 +176,7 @@ class CloudSyncManagerTest {
         sender: String = "tel:+15551234567",
         time: Long = 700_000_000_000_000_000L, // ~2023-03 in Apple ns
         flags: Long = 0,
+        attachmentGuids: List<String> = emptyList(),
     ) = UCloudMessage(
         guid = guid,
         chatId = chatId,
@@ -167,8 +188,8 @@ class CloudSyncManagerTest {
         flagsBits = flags,
         text = text,
         subject = null,
-        hasAttachments = false,
-        attachmentGuids = emptyList(),
+        hasAttachments = attachmentGuids.isNotEmpty(),
+        attachmentGuids = attachmentGuids,
         balloonBundleId = null,
         hasPayloadData = false,
         summaryInfoJson = null,
@@ -188,6 +209,12 @@ class CloudSyncManagerTest {
     private fun messagePage(vararg records: UMessageChange, cursor: ByteArray = byteArrayOf(2), more: Boolean = false) =
         UMessageSyncPage(records.toList(), cursor, more, if (more) 1 else 3)
 
+    private fun attachmentPage(
+        vararg records: UAttachmentChange,
+        cursor: ByteArray = byteArrayOf(3),
+        more: Boolean = false,
+    ) = UAttachmentSyncPage(records.toList(), cursor, more, if (more) 1 else 3)
+
     private fun chatByGuid(guid: String): Chat? =
         store.boxFor(Chat::class.java).query()
             .equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -196,6 +223,11 @@ class CloudSyncManagerTest {
     private fun messageByGuid(guid: String): Message? =
         store.boxFor(Message::class.java).query()
             .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+
+    private fun attachmentByGuid(guid: String): Attachment? =
+        store.boxFor(Attachment::class.java).query()
+            .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
 
     /** ByteArray has no structural equals — compare cursor lists by content. */
@@ -267,6 +299,56 @@ class CloudSyncManagerTest {
         assertEquals(second.id, dm.dbLatestMessage.targetId)
         assertEquals(second.dateCreated, dm.dbOnlyLatestMessageDate)
         assertFalse(dm.hasUnreadMessage)
+    }
+
+    @Test
+    fun `full sync links cloud attachments and applies attachment tombstones`() {
+        port.chatPages += chatPage(UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()))
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-message",
+                cloudMessage(
+                    "rec-message",
+                    guid = "message_with_underscore",
+                    chatId = "iMessage;-;+15551234567",
+                    attachmentGuids = listOf("message_with_underscore_0"),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.attachmentPages += attachmentPage(
+            UAttachmentChange(
+                "rec-attachment",
+                UCloudAttachment(
+                    guid = "message_with_underscore_0",
+                    messageGuid = "message_with_underscore",
+                    uti = "public.jpeg",
+                    mimeType = "image/jpeg",
+                    isOutgoing = false,
+                    transferName = "photo.jpg",
+                    totalBytes = 42,
+                ),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertEquals(1uL, summary.totalAttachments)
+        val attachment = attachmentByGuid("message_with_underscore_0")
+        assertNotNull(attachment)
+        assertEquals("rec-attachment", attachment.ckRecordId)
+        assertEquals("photo.jpg", attachment.transferName)
+        assertEquals("rec-attachment", attachment.metadata["cloud"])
+        assertEquals("message_with_underscore", attachment.message.target?.guid)
+
+        port.chatPages += chatPage()
+        port.messagePages += messagePage()
+        port.attachmentPages += attachmentPage(UAttachmentChange("rec-attachment", null))
+
+        val tombstoneSummary = runSync(SyncMode.INCREMENTAL)
+
+        assertEquals(1uL, tombstoneSummary.attachmentTombstones)
+        assertNull(attachmentByGuid("message_with_underscore_0"))
     }
 
     @Test

@@ -1442,6 +1442,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1565,6 +1571,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote(
@@ -1574,6 +1582,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
 ): Short
@@ -1650,6 +1660,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page(
 ): Short
@@ -1939,6 +1951,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`:
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1948,6 +1962,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -2025,6 +2041,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`:
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2534,6 +2552,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote() != 30801.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share() != 9292.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2547,6 +2568,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment() != 5180.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 9054.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 22742.toShort()) {
@@ -2661,6 +2685,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page() != 17111.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page() != 48692.toShort()) {
@@ -5822,6 +5849,11 @@ public interface NativePushStateInterface {
     fun `declineFacetime`(`guid`: kotlin.String)
     
     /**
+     * Push local attachment deletions to iCloud (`delete_attachments`).
+     */
+    fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
+
+    /**
      * Delete a shared item.
      */
     fun `deleteBeaconShare`(`shareId`: kotlin.String)
@@ -5848,6 +5880,11 @@ public interface NativePushStateInterface {
      */
     fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
     
+    /**
+     * Download one Messages-in-iCloud attachment asset directly to `path`.
+     */
+    fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
+
     /**
      * Download a bare MMCS file (e.g. a group icon from
      * `UMessage.IconChange.icon_xml`) to `dest_path`.
@@ -6048,6 +6085,12 @@ public interface NativePushStateInterface {
     
     fun `startLoop`(`handler`: MsgReceiver)
     
+    /**
+     * Pull one page of attachment metadata. Payload bytes stay remote until
+     * `download_cloud_attachment` is called for a visible attachment.
+     */
+    fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage
+
     /**
      * Pull one page of chat changes (`sync_chats`). Pass the previous
      * page's `next_cursor` (none for the first page); persist the returned
@@ -6328,6 +6371,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
+     * Push local attachment deletions to iCloud (`delete_attachments`).
+     */
+    @Throws(UException::class)override fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(
+        it, FfiConverterSequenceString.lower(`recordIds`),_status)
+}
+    }
+
+
+
+
+    /**
      * Delete a shared item.
      */
     @Throws(UException::class)override fun `deleteBeaconShare`(`shareId`: kotlin.String)
@@ -6403,6 +6461,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     
 
     
+    /**
+     * Download one Messages-in-iCloud attachment asset directly to `path`.
+     */
+    @Throws(UException::class)override fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
+        it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
+}
+    }
+
+
+
+
     /**
      * Download a bare MMCS file (e.g. a group icon from
      * `UMessage.IconChange.icon_xml`) to `dest_path`.
@@ -7001,6 +7074,23 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     
 
     
+    /**
+     * Pull one page of attachment metadata. Payload bytes stay remote until
+     * `download_cloud_attachment` is called for a visible attachment.
+     */
+    @Throws(UException::class)override fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage {
+            return FfiConverterTypeUAttachmentSyncPage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(
+        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
+}
+    }
+    )
+    }
+
+
+
     /**
      * Pull one page of chat changes (`sync_chats`). Pass the previous
      * page's `next_cursor` (none for the first page); persist the returned
@@ -11001,6 +11091,84 @@ public object FfiConverterTypeSavedPassword: FfiConverterRustBuffer<SavedPasswor
 
 
 /**
+ * One attachment-zone change: `attachment == None` is a tombstone.
+ */
+data class UAttachmentChange (
+    var `recordId`: kotlin.String,
+    var `attachment`: UCloudAttachment?
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUAttachmentChange: FfiConverterRustBuffer<UAttachmentChange> {
+    override fun read(buf: ByteBuffer): UAttachmentChange {
+        return UAttachmentChange(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeUCloudAttachment.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UAttachmentChange) = (
+            FfiConverterString.allocationSize(value.`recordId`) +
+            FfiConverterOptionalTypeUCloudAttachment.allocationSize(value.`attachment`)
+    )
+
+    override fun write(value: UAttachmentChange, buf: ByteBuffer) {
+            FfiConverterString.write(value.`recordId`, buf)
+            FfiConverterOptionalTypeUCloudAttachment.write(value.`attachment`, buf)
+    }
+}
+
+
+
+/**
+ * A page from the attachment zone (`sync_attachments`).
+ */
+data class UAttachmentSyncPage (
+    var `records`: List<UAttachmentChange>,
+    var `nextCursor`: kotlin.ByteArray,
+    var `more`: kotlin.Boolean,
+    var `status`: kotlin.Int
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUAttachmentSyncPage: FfiConverterRustBuffer<UAttachmentSyncPage> {
+    override fun read(buf: ByteBuffer): UAttachmentSyncPage {
+        return UAttachmentSyncPage(
+            FfiConverterSequenceTypeUAttachmentChange.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UAttachmentSyncPage) = (
+            FfiConverterSequenceTypeUAttachmentChange.allocationSize(value.`records`) +
+            FfiConverterByteArray.allocationSize(value.`nextCursor`) +
+            FfiConverterBoolean.allocationSize(value.`more`) +
+            FfiConverterInt.allocationSize(value.`status`)
+    )
+
+    override fun write(value: UAttachmentSyncPage, buf: ByteBuffer) {
+            FfiConverterSequenceTypeUAttachmentChange.write(value.`records`, buf)
+            FfiConverterByteArray.write(value.`nextCursor`, buf)
+            FfiConverterBoolean.write(value.`more`, buf)
+            FfiConverterInt.write(value.`status`, buf)
+    }
+}
+
+
+
+/**
  * One chat-zone change: `chat == None` is a tombstone.
  */
 data class UChatChange (
@@ -11205,6 +11373,67 @@ public object FfiConverterTypeUCkSaveResult: FfiConverterRustBuffer<UCkSaveResul
             FfiConverterString.write(value.`recordId`, buf)
             FfiConverterBoolean.write(value.`ok`, buf)
             FfiConverterOptionalString.write(value.`error`, buf)
+    }
+}
+
+
+
+/**
+ * Display and download metadata from one `attachmentManateeZone` record.
+ */
+data class UCloudAttachment (
+    /**
+     * Local-form guid (`at_<part>_<messageGuid>` -> `<messageGuid>_<part>`).
+     */
+    var `guid`: kotlin.String,
+    /**
+     * Message guid encoded into the cloud attachment guid, when present.
+     */
+    var `messageGuid`: kotlin.String?,
+    var `uti`: kotlin.String?,
+    var `mimeType`: kotlin.String?,
+    var `isOutgoing`: kotlin.Boolean,
+    var `transferName`: kotlin.String?,
+    var `totalBytes`: kotlin.Long
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUCloudAttachment: FfiConverterRustBuffer<UCloudAttachment> {
+    override fun read(buf: ByteBuffer): UCloudAttachment {
+        return UCloudAttachment(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UCloudAttachment) = (
+            FfiConverterString.allocationSize(value.`guid`) +
+            FfiConverterOptionalString.allocationSize(value.`messageGuid`) +
+            FfiConverterOptionalString.allocationSize(value.`uti`) +
+            FfiConverterOptionalString.allocationSize(value.`mimeType`) +
+            FfiConverterBoolean.allocationSize(value.`isOutgoing`) +
+            FfiConverterOptionalString.allocationSize(value.`transferName`) +
+            FfiConverterLong.allocationSize(value.`totalBytes`)
+    )
+
+    override fun write(value: UCloudAttachment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`guid`, buf)
+            FfiConverterOptionalString.write(value.`messageGuid`, buf)
+            FfiConverterOptionalString.write(value.`uti`, buf)
+            FfiConverterOptionalString.write(value.`mimeType`, buf)
+            FfiConverterBoolean.write(value.`isOutgoing`, buf)
+            FfiConverterOptionalString.write(value.`transferName`, buf)
+            FfiConverterLong.write(value.`totalBytes`, buf)
     }
 }
 
@@ -15862,6 +16091,38 @@ public object FfiConverterOptionalTypeUProgressCallback: FfiConverterRustBuffer<
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeUCloudAttachment: FfiConverterRustBuffer<UCloudAttachment?> {
+    override fun read(buf: ByteBuffer): UCloudAttachment? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUCloudAttachment.read(buf)
+    }
+
+    override fun allocationSize(value: UCloudAttachment?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUCloudAttachment.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UCloudAttachment?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUCloudAttachment.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeUCloudChat: FfiConverterRustBuffer<UCloudChat?> {
     override fun read(buf: ByteBuffer): UCloudChat? {
         if (buf.get().toInt() == 0) {
@@ -16320,6 +16581,34 @@ public object FfiConverterSequenceTypeSavedPassword: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeSavedPassword.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUAttachmentChange: FfiConverterRustBuffer<List<UAttachmentChange>> {
+    override fun read(buf: ByteBuffer): List<UAttachmentChange> {
+        val len = buf.getInt()
+        return List<UAttachmentChange>(len) {
+            FfiConverterTypeUAttachmentChange.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UAttachmentChange>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUAttachmentChange.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UAttachmentChange>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUAttachmentChange.write(it, buf)
         }
     }
 }

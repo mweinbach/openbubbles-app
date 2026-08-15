@@ -175,8 +175,9 @@ fun SettingsScreen(
             syncResult = if (summary.error != null) {
                 "Sync failed: ${summary.error}"
             } else {
-                "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages " +
-                    "(${summary.chatTombstones + summary.messageTombstones} removed) " +
+                "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages, " +
+                    "${summary.totalAttachments} attachments " +
+                    "(${summary.chatTombstones + summary.messageTombstones + summary.attachmentTombstones} removed) " +
                     "in ${summary.durationMs / 1000}s"
             }
         }
@@ -406,7 +407,8 @@ fun SettingsScreen(
                             inClique == false ->
                                 "Join Secure iCloud Keychain before Messages in iCloud history can be decrypted"
                             progress != null && syncing ->
-                                "${progress.phase}: ${progress.chatsDone} chats, ${progress.messagesDone} messages"
+                                "${progress.phase}: ${progress.chatsDone} chats, " +
+                                    "${progress.messagesDone} messages, ${progress.attachmentsDone} attachments"
                             syncResult != null -> syncResult!!
                             else -> "Downloads your Messages in iCloud history to this device"
                         },

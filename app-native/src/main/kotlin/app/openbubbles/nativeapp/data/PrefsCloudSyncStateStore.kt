@@ -20,8 +20,10 @@ import java.util.concurrent.atomic.AtomicReference
 private const val PREFS = "cloud_sync"
 private const val KEY_CHAT_CURSOR = "chatSyncToken"
 private const val KEY_MESSAGE_CURSOR = "messageSyncToken"
+private const val KEY_ATTACHMENT_CURSOR = "attachmentSyncToken"
 private const val KEY_CHAT_DELETES = "chatDeletionIds"
 private const val KEY_MESSAGE_DELETES = "messageDeletionIds"
+private const val KEY_ATTACHMENT_DELETES = "attachmentDeletionIds"
 
 object CloudSyncWiring {
 
@@ -55,6 +57,7 @@ private class PrefsCloudSyncStateStore(
 
     override fun chatCursor(): ByteArray? = decode(prefs.getString(KEY_CHAT_CURSOR, null))
     override fun messageCursor(): ByteArray? = decode(prefs.getString(KEY_MESSAGE_CURSOR, null))
+    override fun attachmentCursor(): ByteArray? = decode(prefs.getString(KEY_ATTACHMENT_CURSOR, null))
 
     override fun saveChatCursor(cursor: ByteArray?) {
         prefs.edit().putString(KEY_CHAT_CURSOR, encode(cursor)).apply()
@@ -64,11 +67,18 @@ private class PrefsCloudSyncStateStore(
         prefs.edit().putString(KEY_MESSAGE_CURSOR, encode(cursor)).apply()
     }
 
+    override fun saveAttachmentCursor(cursor: ByteArray?) {
+        prefs.edit().putString(KEY_ATTACHMENT_CURSOR, encode(cursor)).apply()
+    }
+
     override fun pendingChatDeletes(): List<String> =
         prefs.getStringSet(KEY_CHAT_DELETES, emptySet())?.toList().orEmpty()
 
     override fun pendingMessageDeletes(): List<String> =
         prefs.getStringSet(KEY_MESSAGE_DELETES, emptySet())?.toList().orEmpty()
+
+    override fun pendingAttachmentDeletes(): List<String> =
+        prefs.getStringSet(KEY_ATTACHMENT_DELETES, emptySet())?.toList().orEmpty()
 
     override fun savePendingChatDeletes(ids: List<String>) {
         prefs.edit().putStringSet(KEY_CHAT_DELETES, ids.toSet()).apply()
@@ -76,6 +86,10 @@ private class PrefsCloudSyncStateStore(
 
     override fun savePendingMessageDeletes(ids: List<String>) {
         prefs.edit().putStringSet(KEY_MESSAGE_DELETES, ids.toSet()).apply()
+    }
+
+    override fun savePendingAttachmentDeletes(ids: List<String>) {
+        prefs.edit().putStringSet(KEY_ATTACHMENT_DELETES, ids.toSet()).apply()
     }
 
     private fun encode(bytes: ByteArray?): String? =

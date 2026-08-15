@@ -1758,7 +1758,9 @@ impl NativePushState {
 // flow) is deliberately NOT part of batch 4 — this surface only backfills /
 // incrementally updates local history from iCloud.
 
-use rustpush::cloud_messages::{CloudChat, CloudMessage, CloudMessagesClient, MessageSummaryInfo};
+use rustpush::cloud_messages::{
+    CloudAttachment, CloudChat, CloudMessage, CloudMessagesClient, MessageSummaryInfo,
+};
 use rustpush::{coder_decode_flattened, NSAttributedString, NSString};
 
 /// Availability of CloudKit message-history sync on the live state.
@@ -1872,6 +1874,20 @@ pub struct UCloudMessage {
     pub associated_message_emoji: Option<String>,
 }
 
+/// Display and download metadata from one `attachmentManateeZone` record.
+#[derive(uniffi::Record)]
+pub struct UCloudAttachment {
+    /// Local-form guid (`at_<part>_<messageGuid>` -> `<messageGuid>_<part>`).
+    pub guid: String,
+    /// Message guid encoded into the cloud attachment guid, when present.
+    pub message_guid: Option<String>,
+    pub uti: Option<String>,
+    pub mime_type: Option<String>,
+    pub is_outgoing: bool,
+    pub transfer_name: Option<String>,
+    pub total_bytes: i64,
+}
+
 /// One chat-zone change: `chat == None` is a tombstone.
 #[derive(uniffi::Record)]
 pub struct UChatChange {
@@ -1894,6 +1910,13 @@ pub struct UMessageChange {
     pub blob: Vec<u8>,
 }
 
+/// One attachment-zone change: `attachment == None` is a tombstone.
+#[derive(uniffi::Record)]
+pub struct UAttachmentChange {
+    pub record_id: String,
+    pub attachment: Option<UCloudAttachment>,
+}
+
 /// A page from the chat zone (`sync_chats`).
 #[derive(uniffi::Record)]
 pub struct UChatSyncPage {
@@ -1909,6 +1932,15 @@ pub struct UChatSyncPage {
 #[derive(uniffi::Record)]
 pub struct UMessageSyncPage {
     pub records: Vec<UMessageChange>,
+    pub next_cursor: Vec<u8>,
+    pub more: bool,
+    pub status: i32,
+}
+
+/// A page from the attachment zone (`sync_attachments`).
+#[derive(uniffi::Record)]
+pub struct UAttachmentSyncPage {
+    pub records: Vec<UAttachmentChange>,
     pub next_cursor: Vec<u8>,
     pub more: bool,
     pub status: i32,
@@ -1993,16 +2025,36 @@ fn conv_chat(c: &CloudChat) -> UCloudChat {
     }
 }
 
-/// Dart `convertAttachmentGuid`: cloud `at_<msgGuid>_<part>` -> local
-/// `<msgGuid>_<part>`.
-fn convert_attachment_guid(guid: &str) -> String {
-    if guid.starts_with("at") {
-        let items: Vec<&str> = guid.split('_').collect();
-        if items.len() >= 3 {
-            return format!("{}_{}", items[2], items[1]);
+/// Dart `convertAttachmentGuid`, preserving message guids that contain `_`:
+/// cloud `at_<part>_<msgGuid>` -> local `<msgGuid>_<part>`.
+fn attachment_guid_parts(guid: &str) -> (String, Option<String>) {
+    if let Some(rest) = guid.strip_prefix("at_") {
+        if let Some((part, message_guid)) = rest.split_once('_') {
+            return (
+                format!("{message_guid}_{part}"),
+                Some(message_guid.to_string()),
+            );
         }
     }
-    guid.to_string()
+    (guid.to_string(), None)
+}
+
+fn convert_attachment_guid(guid: &str) -> String {
+    attachment_guid_parts(guid).0
+}
+
+fn conv_cloud_attachment(c: &CloudAttachment) -> UCloudAttachment {
+    let meta = &c.cm.0;
+    let (guid, message_guid) = attachment_guid_parts(&meta.guid);
+    UCloudAttachment {
+        guid,
+        message_guid,
+        uti: meta.uti.clone(),
+        mime_type: meta.mime_type.clone(),
+        is_outgoing: meta.is_outgoing,
+        transfer_name: meta.transfer_name.clone(),
+        total_bytes: meta.total_bytes,
+    }
 }
 
 /// Decode a streamtyped attributed body into (text, attachment guids).
@@ -2218,6 +2270,44 @@ impl NativePushState {
         })
     }
 
+    /// Pull one page of attachment metadata. Payload bytes stay remote until
+    /// `download_cloud_attachment` is called for a visible attachment.
+    pub fn sync_attachments_page(
+        &self,
+        cursor: Option<Vec<u8>>,
+    ) -> Result<UAttachmentSyncPage, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let (next, items, status) =
+            RUNTIME.block_on(api::sync_attachments(&client, cursor)).map_err(sync_err)?;
+        Ok(UAttachmentSyncPage {
+            records: items
+                .into_iter()
+                .map(|(record_id, attachment)| UAttachmentChange {
+                    record_id,
+                    attachment: attachment.as_ref().map(conv_cloud_attachment),
+                })
+                .collect(),
+            next_cursor: next,
+            more: status != 3,
+            status,
+        })
+    }
+
+    /// Download one Messages-in-iCloud attachment asset directly to `path`.
+    pub fn download_cloud_attachment(
+        &self,
+        record_id: String,
+        path: String,
+    ) -> Result<(), UError> {
+        let client = cloud_messages_client(self.shared())?;
+        RUNTIME
+            .block_on(api::download_cloud_attachments(
+                &client,
+                vec![(path, record_id)],
+            ))
+            .map_err(sync_err)
+    }
+
     /// Push local deletions to iCloud BEFORE pulling (`delete_chats`);
     /// otherwise the pull resurrects rows the user removed. Flushes the
     /// caller's pending-delete queues like Dart's `chatDeletionIds-1`.
@@ -2230,6 +2320,14 @@ impl NativePushState {
     pub fn delete_messages_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
         RUNTIME.block_on(api::delete_messages(&client, &record_ids)).map_err(sync_err)
+    }
+
+    /// Push local attachment deletions to iCloud (`delete_attachments`).
+    pub fn delete_attachments_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+        let client = cloud_messages_client(self.shared())?;
+        RUNTIME
+            .block_on(api::delete_attachments(&client, &record_ids))
+            .map_err(sync_err)
     }
 
     /// Coarse driver: pull both zones (chats, then messages) to completion,
@@ -3405,7 +3503,7 @@ impl NativePushState {
 // - `upload_group_photo` mirrors uploadGroupPhoto + saveChats: uploads the
 //   image, grafts the Asset onto the restored chat record, saves it.
 
-use rustpush::cloud_messages::{AttachmentMeta, CloudAttachment, MessageFlags};
+use rustpush::cloud_messages::{AttachmentMeta, MessageFlags};
 use rustpush::cloudkit_proto::{Asset, CloudKitBytes};
 use rustpush::cloud_messages::cloudmessagesp::{MessageProto, MessageProto2, MessageProto3, MessageProto4};
 use rustpush::cloud_messages::GZipWrapper;

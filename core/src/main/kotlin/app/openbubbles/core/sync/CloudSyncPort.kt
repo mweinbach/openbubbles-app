@@ -3,6 +3,7 @@ package app.openbubbles.core.sync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UAttachmentSyncPage
 import uniffi.rust_lib_bluebubbles.UChatSyncPage
 import uniffi.rust_lib_bluebubbles.UMessageSyncPage
 import uniffi.rust_lib_bluebubbles.USyncState
@@ -40,11 +41,17 @@ interface CloudSyncPort {
     /** Pull one page of message changes. Same cursor contract. */
     suspend fun messagesPage(cursor: ByteArray?): UMessageSyncPage
 
+    /** Pull one page of attachment metadata. Same cursor contract. */
+    suspend fun attachmentsPage(cursor: ByteArray?): UAttachmentSyncPage
+
     /** Push local chat deletions to iCloud (flush BEFORE pulling). */
     suspend fun deleteChatsRemote(recordIds: List<String>)
 
     /** Push local message deletions to iCloud (flush BEFORE pulling). */
     suspend fun deleteMessagesRemote(recordIds: List<String>)
+
+    /** Push local attachment deletions to iCloud (flush BEFORE pulling). */
+    suspend fun deleteAttachmentsRemote(recordIds: List<String>)
 }
 
 /**
@@ -66,9 +73,15 @@ class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
     override suspend fun messagesPage(cursor: ByteArray?): UMessageSyncPage =
         withContext(Dispatchers.IO) { state.syncMessagesPage(cursor) }
 
+    override suspend fun attachmentsPage(cursor: ByteArray?): UAttachmentSyncPage =
+        withContext(Dispatchers.IO) { state.syncAttachmentsPage(cursor) }
+
     override suspend fun deleteChatsRemote(recordIds: List<String>) =
         withContext(Dispatchers.IO) { state.deleteChatsRemote(recordIds) }
 
     override suspend fun deleteMessagesRemote(recordIds: List<String>) =
         withContext(Dispatchers.IO) { state.deleteMessagesRemote(recordIds) }
+
+    override suspend fun deleteAttachmentsRemote(recordIds: List<String>) =
+        withContext(Dispatchers.IO) { state.deleteAttachmentsRemote(recordIds) }
 }

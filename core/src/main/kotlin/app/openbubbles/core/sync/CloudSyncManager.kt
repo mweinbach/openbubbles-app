@@ -3,6 +3,7 @@ package app.openbubbles.core.sync
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Attachment
+import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Handle_
@@ -18,7 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import uniffi.rust_lib_bluebubbles.UAttachmentChange
 import uniffi.rust_lib_bluebubbles.UChatChange
+import uniffi.rust_lib_bluebubbles.UCloudAttachment
 import uniffi.rust_lib_bluebubbles.UCloudChat
 import uniffi.rust_lib_bluebubbles.UCloudMessage
 import uniffi.rust_lib_bluebubbles.UMessageChange
@@ -35,23 +38,27 @@ enum class SyncMode {
     INCREMENTAL,
 }
 
-enum class SyncPhase { IDLE, CHECKING, CHATS, MESSAGES, DONE, FAILED }
+enum class SyncPhase { IDLE, CHECKING, CHATS, MESSAGES, ATTACHMENTS, DONE, FAILED }
 
 /** Coarse per-run progress, emitted after every applied page. */
 data class SyncProgress(
     val phase: SyncPhase,
     val chatsDone: ULong = 0u,
     val messagesDone: ULong = 0u,
+    val attachmentsDone: ULong = 0u,
     val chatTombstones: ULong = 0u,
     val messageTombstones: ULong = 0u,
+    val attachmentTombstones: ULong = 0u,
 )
 
 /** Final result of one [CloudSyncManager.sync] run. */
 data class SyncSummary(
     val totalChats: ULong,
     val totalMessages: ULong,
+    val totalAttachments: ULong = 0u,
     val chatTombstones: ULong = 0u,
     val messageTombstones: ULong = 0u,
+    val attachmentTombstones: ULong = 0u,
     val durationMs: Long,
     /** Human-readable failure; non-null means the run aborted early. */
     val error: String? = null,
@@ -73,6 +80,8 @@ data class SyncSummary(
  * 4. page the message zone to completion (dedupe by guid — existing rows
  *    only get their ckRecordId refreshed; new rows are inserted with
  *    latest-message wiring).
+ * 5. page attachment metadata to completion, link each record to its message,
+ *    and retain its CloudKit id for on-demand payload download.
  *
  * Differences vs Dart, deliberate:
  * - Historical rows never set `Chat.hasUnreadMessage` (the intake path does
@@ -83,8 +92,6 @@ data class SyncSummary(
  * - `Chat.cloudData` (the serialized `CloudChat` plist the Dart app kept
  *   for round-tripping changes) is not persisted — the upload half is a
  *   later batch.
- * - Attachment-record sync (zone 3 in Dart) is out of scope; message
- *   attachment guids are recorded so a later pass can fetch them.
  * - No `syncHistoryTime` cutoff (Dart's "only sync the last N ms" pref):
  *   full history comes down; a cutoff can be layered by the caller later.
  *
@@ -164,8 +171,10 @@ class CloudSyncManager(
                 return SyncSummary(
                     totalChats = state.chatsDone,
                     totalMessages = state.messagesDone,
+                    totalAttachments = state.attachmentsDone,
                     chatTombstones = state.chatTombstones,
                     messageTombstones = state.messageTombstones,
+                    attachmentTombstones = state.attachmentTombstones,
                     durationMs = System.currentTimeMillis() - startedAt,
                     error = error,
                     cancelled = cancelledFlag,
@@ -188,6 +197,8 @@ class CloudSyncManager(
                 //    *DeletionIds-1 queues) or the pull resurrects them.
                 port.deleteMessagesRemote(syncStore.pendingMessageDeletes())
                 syncStore.savePendingMessageDeletes(emptyList())
+                port.deleteAttachmentsRemote(syncStore.pendingAttachmentDeletes())
+                syncStore.savePendingAttachmentDeletes(emptyList())
                 port.deleteChatsRemote(syncStore.pendingChatDeletes())
                 syncStore.savePendingChatDeletes(emptyList())
 
@@ -221,6 +232,26 @@ class CloudSyncManager(
                     )
                     messageCursor = page.nextCursor
                     syncStore.saveMessageCursor(messageCursor)
+                    update()
+                    if (!page.more) break
+                }
+
+                // 5. Attachment metadata zone. Payloads remain in CloudKit
+                // until the user opens/downloads an attachment.
+                update(SyncPhase.ATTACHMENTS)
+                var attachmentCursor = if (mode == SyncMode.INCREMENTAL) syncStore.attachmentCursor() else null
+                while (true) {
+                    if (cancelled.get()) return@withContext finish(cancelledFlag = true)
+                    val page = port.attachmentsPage(attachmentCursor)
+                    applyAttachmentPage(page.records)
+                    state = state.copy(
+                        attachmentsDone = state.attachmentsDone +
+                            page.records.count { it.attachment != null }.toULong(),
+                        attachmentTombstones = state.attachmentTombstones +
+                            page.records.count { it.attachment == null }.toULong(),
+                    )
+                    attachmentCursor = page.nextCursor
+                    syncStore.saveAttachmentCursor(attachmentCursor)
                     update()
                     if (!page.more) break
                 }
@@ -463,6 +494,16 @@ class CloudSyncManager(
             return
         }
 
+        cloud.attachmentGuids.forEach { guid ->
+            attachmentBox.query()
+                .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.let { attachment ->
+                    attachment.message.target = message
+                    attachmentBox.put(attachment)
+                }
+        }
+
         // Reaction bookkeeping (Message.save): flag the target message.
         if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
             messageBox.query()
@@ -524,5 +565,79 @@ class CloudSyncManager(
         val ids = pendingDuplicateMessageDeletes.toList()
         pendingDuplicateMessageDeletes.clear()
         if (ids.isNotEmpty()) port.deleteMessagesRemote(ids)
+    }
+
+    // ------------------------------------------------------------------
+    // Attachment zone
+    // ------------------------------------------------------------------
+
+    private suspend fun applyAttachmentPage(records: List<UAttachmentChange>) {
+        for (record in records) {
+            try {
+                val cloud = record.attachment
+                if (cloud == null) {
+                    deleteAttachmentByRecordId(record.recordId)
+                    continue
+                }
+                store.runInTx { applyAttachmentLocked(record.recordId, cloud) }
+            } catch (_: Exception) {
+                // Keep applying the page when one malformed attachment is encountered.
+            }
+        }
+        flushDuplicateAttachmentDeletes()
+    }
+
+    private fun deleteAttachmentByRecordId(recordId: String) {
+        store.runInTx {
+            attachmentBox.query()
+                .equal(Attachment_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.find() }
+                .forEach(attachmentBox::remove)
+        }
+    }
+
+    private fun applyAttachmentLocked(recordId: String, cloud: UCloudAttachment) {
+        val existing = attachmentBox.query()
+            .equal(Attachment_.guid, cloud.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+        if (existing != null) {
+            existing.ckRecordId?.takeIf { it != recordId }
+                ?.let(pendingDuplicateAttachmentDeletes::add)
+            existing.ckRecordId = recordId
+            existing.metadata = existing.metadata.orEmpty() + ("cloud" to recordId)
+            attachmentBox.put(existing)
+            return
+        }
+
+        val message = cloud.messageGuid?.let { guid ->
+            messageBox.query()
+                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+        }
+        val attachment = Attachment().apply {
+            guid = cloud.guid
+            ckRecordId = recordId
+            uti = cloud.uti
+            mimeType = cloud.mimeType
+            isOutgoing = cloud.isOutgoing
+            transferName = cloud.transferName
+            totalBytes = cloud.totalBytes
+            isDownloaded = false
+            metadata = mapOf("cloud" to recordId)
+            this.message.target = message
+        }
+        try {
+            attachmentBox.put(attachment)
+        } catch (_: UniqueViolationException) {
+            // A live push may have inserted the same guid during the page.
+        }
+    }
+
+    private val pendingDuplicateAttachmentDeletes = ArrayDeque<String>()
+
+    private suspend fun flushDuplicateAttachmentDeletes() {
+        val ids = pendingDuplicateAttachmentDeletes.toList()
+        pendingDuplicateAttachmentDeletes.clear()
+        if (ids.isNotEmpty()) port.deleteAttachmentsRemote(ids)
     }
 }

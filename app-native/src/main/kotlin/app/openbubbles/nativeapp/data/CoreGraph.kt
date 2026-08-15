@@ -89,16 +89,25 @@ object CoreGraph {
                     val pushState = PushStateHolder.state
                         ?: return@AttachmentDownloader Result.failure(IllegalStateException("not connected"))
                     val attachmentBox = st.boxFor(app.openbubbles.db.Attachment::class.java)
-                    val xml = attachmentBox.query()
+                    val attachment = attachmentBox.query()
                         .equal(
                             app.openbubbles.db.Attachment_.guid,
                             attachmentGuid,
                             io.objectbox.query.QueryBuilder.StringOrder.CASE_SENSITIVE,
                         )
                         .build().use { it.findFirst() }
-                        ?.metadata?.get("rustpush") as? String
                         ?: return@AttachmentDownloader Result.failure(
-                            IllegalStateException("no rustpush metadata for $attachmentGuid"))
+                            IllegalStateException("unknown attachment $attachmentGuid"))
+                    val cloudRecordId = attachment.metadata?.get("cloud") as? String
+                    if (cloudRecordId != null) {
+                        return@AttachmentDownloader runCatching {
+                            pushState.downloadCloudAttachment(cloudRecordId, destPath)
+                            Unit
+                        }
+                    }
+                    val xml = attachment.metadata?.get("rustpush") as? String
+                        ?: return@AttachmentDownloader Result.failure(
+                            IllegalStateException("no download metadata for $attachmentGuid"))
                     runCatching {
                         val uatt = uniffi.rust_lib_bluebubbles.restoreAttachment(xml)
                         pushState.downloadAttachment(
@@ -110,7 +119,7 @@ object CoreGraph {
                                 }
                             },
                         )
-                        Result.success(Unit)
+                        Unit
                     }
                 },
             )
@@ -496,7 +505,7 @@ private fun editedFlags(entity: Message): Pair<Boolean, Boolean> {
 }
 
 /**
- * Fills the M2 display fields (attachment metadata, edited/unsent flags) the
+ * Fills the display fields (attachment metadata, edited/unsent flags) the
  * core MessageItem does not carry yet, using one batched entity read.
  */
 private fun enrichWithEntityDetails(
@@ -511,12 +520,16 @@ private fun enrichWithEntityDetails(
         items.map { item ->
             val entity = byId[item.id] ?: return@map item
             val (edited, unsent) = editedFlags(entity)
-            val attachment = runCatching { entity.dbAttachments.firstOrNull() }.getOrNull()
+            val attachments = runCatching {
+                entity.dbAttachments.map(::attachmentToMeta)
+            }.getOrDefault(emptyList())
+            val firstAttachment = attachments.firstOrNull()
             item.copy(
-                attachmentMeta = attachment?.let(::attachmentToMeta),
+                attachmentMeta = firstAttachment,
+                attachmentMetas = attachments,
                 edited = edited,
                 unsent = unsent,
-                uploadProgress = attachment?.guid?.let { UploadProgressBoard.current[it] },
+                uploadProgress = firstAttachment?.guid?.let { UploadProgressBoard.current[it] },
                 expressiveSendStyleId = entity.expressiveSendStyleId,
             )
         }

@@ -28,10 +28,7 @@ data class ChatListItem(
     val avatarAddress: String? = null,
 )
 
-/**
- * Display metadata for a single attachment (the first of a message for now).
- * Mirrors the fields of `app.openbubbles.db.Attachment` the UI needs.
- */
+/** Display metadata for an attachment shown in the transcript. */
 data class AttachmentMeta(
     /** Stable attachment GUID (used for the viewer route and file lookup). */
     val guid: String,
@@ -52,8 +49,10 @@ data class MessageItem(
     val status: MessageStatus,
     val isGroupEvent: Boolean,
     val reactionEmoji: String?,
-    /** First attachment's display metadata, null for pure text messages. */
+    /** First attachment's display metadata, retained for source compatibility. */
     val attachmentMeta: AttachmentMeta? = null,
+    /** Every attachment carried by the message, in database order. */
+    val attachmentMetas: List<AttachmentMeta> = attachmentMeta?.let(::listOf).orEmpty(),
     /** True when the sender edited the message after sending. */
     val edited: Boolean = false,
     /** True when the message was retracted ("unsent") by its sender. */

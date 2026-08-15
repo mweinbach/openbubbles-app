@@ -21,9 +21,13 @@ interface CloudSyncStateStore {
 
     fun messageCursor(): ByteArray?
 
+    fun attachmentCursor(): ByteArray?
+
     fun saveChatCursor(cursor: ByteArray?)
 
     fun saveMessageCursor(cursor: ByteArray?)
+
+    fun saveAttachmentCursor(cursor: ByteArray?)
 
     /** CloudKit record ids of chats deleted locally, not yet pushed. */
     fun pendingChatDeletes(): List<String>
@@ -31,9 +35,14 @@ interface CloudSyncStateStore {
     /** CloudKit record ids of messages deleted locally, not yet pushed. */
     fun pendingMessageDeletes(): List<String>
 
+    /** CloudKit record ids of attachments deleted locally, not yet pushed. */
+    fun pendingAttachmentDeletes(): List<String>
+
     fun savePendingChatDeletes(ids: List<String>)
 
     fun savePendingMessageDeletes(ids: List<String>)
+
+    fun savePendingAttachmentDeletes(ids: List<String>)
 }
 
 /** In-memory [CloudSyncStateStore] — tests, or wrap it for real storage. */
@@ -41,12 +50,16 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
 
     private var chatCursor: ByteArray? = null
     private var messageCursor: ByteArray? = null
+    private var attachmentCursor: ByteArray? = null
     private var chatDeletes: List<String> = emptyList()
     private var messageDeletes: List<String> = emptyList()
+    private var attachmentDeletes: List<String> = emptyList()
 
     override fun chatCursor(): ByteArray? = chatCursor
 
     override fun messageCursor(): ByteArray? = messageCursor
+
+    override fun attachmentCursor(): ByteArray? = attachmentCursor
 
     override fun saveChatCursor(cursor: ByteArray?) {
         chatCursor = cursor?.copyOf()
@@ -56,9 +69,15 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
         messageCursor = cursor?.copyOf()
     }
 
+    override fun saveAttachmentCursor(cursor: ByteArray?) {
+        attachmentCursor = cursor?.copyOf()
+    }
+
     override fun pendingChatDeletes(): List<String> = chatDeletes
 
     override fun pendingMessageDeletes(): List<String> = messageDeletes
+
+    override fun pendingAttachmentDeletes(): List<String> = attachmentDeletes
 
     override fun savePendingChatDeletes(ids: List<String>) {
         chatDeletes = ids.toList()
@@ -66,5 +85,9 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
 
     override fun savePendingMessageDeletes(ids: List<String>) {
         messageDeletes = ids.toList()
+    }
+
+    override fun savePendingAttachmentDeletes(ids: List<String>) {
+        attachmentDeletes = ids.toList()
     }
 }
