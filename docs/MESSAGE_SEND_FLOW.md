@@ -1,5 +1,8 @@
 # Message Send Flow
 
+> **Legacy Flutter reference:** this HTTP/socket flow is not the native
+> Kotlin/Rust send path. See `docs/ARCHITECTURE.md` for the current flow.
+
 End-to-end flow for an outbound message: from the user tapping Send through the API call, the race between the socket response and the HTTP response, and the tempGuid → realGuid swap that merges them.
 
 For the inbound half of this flow (after the server echoes the message back), see `docs/MESSAGE_RECEIVE_FLOW.md`.

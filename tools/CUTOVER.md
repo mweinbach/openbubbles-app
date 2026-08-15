@@ -1,83 +1,64 @@
-# Native cutover runbook (M4)
+# Native release-readiness checklist
 
-This is the checklist for retiring the Flutter app and making the native
-(Kotlin+Rust) client the shipping OpenBubbles app. **Do not run this until
-the native app has been daily-driven and verified on a real device with a
-real Apple ID.** Every step is one commit so any of it is revertible.
+The Flutter application code has been removed and the Kotlin/Rust client owns
+the shipping application ID. This file now tracks release evidence, not the
+already-completed mechanical cutover.
 
-## Preconditions
-- [ ] Native app verified: login (incl. SMS 2FA + terms), send/receive text
-      + attachments, notifications, group ops, typing, edits/unsend
-- [ ] Battery-life check: foreground service running for 24h without
-      excessive drain
-- [ ] Desktop (Windows) build opens the same account and renders history
+## Automated gates
 
-## Store compatibility (the critical invariant)
-The native app opens the Flutter app's ObjectBox files **iff**
-`db/objectbox-model.json` stays byte-identical to
-`lib/generated/objectbox-model.json`. Guarded by `:db:checkModelParity`
-(wired into native CI). If this ever breaks, stores must be migrated via
-backup/restore instead of in-place open — do not discover this at cutover.
+- [x] Native Gradle root builds with JDK 21.
+- [x] Android application ID is `com.openbubbles.messaging`.
+- [x] Android store path targets the legacy app data directory.
+- [x] ObjectBox model parity is enforced by `:db:checkModelParity`.
+- [x] Database, core, and Android JVM tests run in native CI.
+- [x] Fixture-free `rustpush` library tests run in native CI.
+- [x] Debug APK assembles for arm64 and x86_64.
+- [x] Boot and package-replaced receiver can start the native push service.
+- [x] Poll-mode intent is applied before Rust initialization.
 
-The Flutter app writes its store under its applicationId data dir
-(`com.openbubbles.messaging` for the `prod` flavor). For the in-place
-upgrade path the native app must ship with the SAME applicationId
-(see step 2), and its store dir must point at the same location the
-Flutter app used:
-`context.filesDir/../` — the Flutter app used
-`getApplicationDocumentsDirectory()` (= `/data/data/<pkg>/app_flutter` on
-Android via path_provider).
+## Android device acceptance
 
-**UPDATE: the Android side is fixed** — `CoreGraph` now builds its store
-and attachment root at `<dataDir>/app_flutter`, matching the Flutter app
-exactly. Remaining: (a) test against a real device backup, (b) the
-DESKTOP app still uses `~/.openbubbles-natives` — at cutover switch it
-to the Flutter desktop location (`getApplicationSupportDirectory()` —
-`%APPDATA%/<org>/<app>` on Windows) with a first-run copy, since the
-Flutter desktop app may have data there.
+- [ ] Fresh provisioning succeeds using each supported setup method.
+- [ ] Apple ID password login succeeds on the release candidate.
+- [ ] Trusted-device 2FA succeeds and registration writes usable account state.
+- [ ] SMS 2FA fallback, phone selection, and code submission succeed.
+- [ ] Account-update/terms and Apple-blocked registration paths are exercised.
+- [ ] Text send/receive works for direct and group iMessage conversations.
+- [ ] SMS and MMS send/receive works with required permissions.
+- [ ] Attachment upload/download works for supported media types.
+- [ ] Notification delivery, grouping, privacy, deep links, reply, and mark-read work.
+- [ ] Reboot and package replacement restore background receiving.
+- [ ] Live mode receives after the UI has been backgrounded for an extended period.
+- [ ] Battery-saver mode polls, posts new messages, and tears down the service.
+- [ ] A 24-hour live-mode battery sample shows acceptable drain.
+- [ ] Upgrade from a real Flutter-era backup preserves chats and attachments.
+- [ ] Sign-out and fresh sign-in clear/rebuild the correct native state.
 
-## Steps (one commit each, on the `m4-cutover` branch)
-Mechanical steps 1-7 are scripted: `bash tools/prepare-cutover.sh` (phased,
-interactive confirms, one commit per phase). Manual follow-ups below still
-apply (store-path device test, boot behavior, README polish).
+## Product parity still in progress
 
-1. `git checkout -b m4-cutover`
-2. app-native `defaultConfig`: `applicationId "com.openbubbles.messaging"`
-   (drop the `.native` suffix), versionCode continuing the Flutter app's
-   (`20002000 + N` scheme in android/app/build.gradle), versionName match.
-   Keep `namespace app.openbubbles.nativeapp` (namespaces are independent).
-3. Release signing: reuse `android/key.properties` +
-   `android/keystore/openbubbles-release.jks` in app-native's release
-   block (both gitignored; regenerate if lost — but then it is NOT an
-   in-place upgrade for users signed with the old key).
-4. Store-dir switch per the compatibility section above + migration test
-   against a real device backup.
-5. Launch cutover: make NativePushService start on boot
-   (BOOT_COMPLETED receiver — port `BootReciever.kt` pattern), launcher
-   activity already native.
-6. The deletion commit: remove `lib/`, `android/` (Flutter host),
-   `rust_builder/` (FRB plugin — keep `rust_builder/cargokit`! the native
-   build shells into it), `.fvmrc`-adjacent flutter config from CI,
-   `flutter_rust_bridge.yaml`, Flutter deps from pubspec (delete pubspec
-   entirely once nothing references it), and the 82 MB
-   `android/app/src/main/jniLibs/**/libnative_lib.so` — wait: those live
-   under `android/` which step 6 deletes wholesale; the uniffi bindings
-   file also lives under `android/app/src/main/kotlin/uniffi/` — MOVE it
-   to `core/src/main/kotlin/uniffi/` (or a dedicated module) BEFORE
-   deleting `android/`. Also move `tools/gen_db_entities.py`'s seed model
-   copy somewhere stable (it reads lib/generated/objectbox-model.json —
-   copy that file to db/seed first).
-   Update: `native/settings.gradle` srcDir aliases, CI workflows
-   (build.yml dies; native.yml becomes the only build), README.
-   NOTE (done ahead of cutover): the FaceTime + credentials/autofill
-   subsystems already live in app-native (ported with an APNService shim);
-   the remaining android/-only native pieces at deletion time are the SMS
-   receivers + extension platform views (SMS stays deferred) — audit
-   `git ls-tree android/app/src/main/kotlin` before the deletion commit.
-7. Merge `m4-cutover` -> `main` only after device verification.
+- [ ] Send reactions/tapbacks, threaded replies, edits, and unsend from Android UI.
+- [ ] Rename groups, edit group photos, and add/remove participants.
+- [ ] Pin, archive, delete, mute, and timed-unmute conversation controls.
+- [ ] Video/audio playback and generic-file open/share behavior.
+- [ ] Instrumentation or journey coverage for login, service, worker, receiver,
+      notification, and upgrade flows.
 
-## Post-cutover cleanup backlog
-- SMS/MMS telephony (or explicitly drop the feature)
-- CloudKit history backfill on fresh installs
-- FindMy / FaceTime / posters / passwords UI if not done by then
-- Windows packaging polish (MSIX signing, Inno Setup)
+## Desktop release work
+
+- [ ] Migrate existing desktop data into the native desktop data directory.
+- [ ] Verify login and history rendering on Windows with a real account.
+- [ ] Add contacts, new-chat, attachments, message actions, and group controls.
+- [ ] Add desktop tests.
+- [ ] Align desktop package version with Android.
+- [ ] Produce and verify signed Windows packaging.
+
+## Release artifacts
+
+- [ ] Build and install the signed release APK/AAB using the production key.
+- [ ] Verify version-code continuity and in-place upgrade signature.
+- [ ] Add release artifact and lint gates to CI.
+- [ ] Measure and reduce release package size where practical.
+- [ ] Complete store listing, privacy disclosure, signing backup, and rollback plan.
+
+Do not merge or publish a release solely because the automated gates pass. The
+unchecked device, migration, signing, and packaging items require direct evidence.

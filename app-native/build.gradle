@@ -1,6 +1,4 @@
-// Native (no-Dart) OpenBubbles Android app. Coexists with the Flutter app
-// (:app) until the cutover milestone; dev applicationId is suffixed so both
-// can be installed side by side.
+// Native (no-Dart) OpenBubbles Android application.
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
@@ -107,9 +105,7 @@ dependencies {
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0"
 }
 
-// UniFFI-generated Kotlin bindings. Compiled in both :app and :app-native
-// (each app bundles its own copy); M0.2 moves generation into :shared.
-// bindings live in :core
+// UniFFI-generated Kotlin bindings live in :core.
 
 // Build the same Rust cdylib the Flutter app uses, packaged into this APK.
 // Standalone cargokit invocation (upstream plugin.gradle requires Flutter).

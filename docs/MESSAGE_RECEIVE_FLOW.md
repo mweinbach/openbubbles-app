@@ -1,5 +1,8 @@
 # Message Receive Flow
 
+> **Legacy Flutter reference:** this server/socket flow is not the native
+> Kotlin/Rust receive path. See `docs/ARCHITECTURE.md` for the current flow.
+
 End-to-end flow for an inbound message: from the server socket through the database to the reactive UI state.
 
 For the outgoing half (user sends a message), see `docs/MESSAGE_SEND_FLOW.md`.

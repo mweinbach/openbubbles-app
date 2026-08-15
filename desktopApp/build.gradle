@@ -41,7 +41,7 @@ compose.desktop {
         nativeDistributions {
             packageName = "OpenBubbles"
             // macOS jpackage rejects versions with a leading 0
-            packageVersion = "1.0.0"
+            packageVersion = "2.0.0"
         }
     }
 }

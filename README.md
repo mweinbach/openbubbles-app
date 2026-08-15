@@ -1,105 +1,82 @@
-# BlueBubbles
+# OpenBubbles
 
-BlueBubbles is an open-source, cross-platform ecosystem of apps that brings iMessage to Android, Windows, Linux, and the web. Send messages, media, reactions, and more — all from your non-Apple devices.
+OpenBubbles is a native Kotlin and Rust messaging client for Android and
+desktop. It connects directly to Apple's messaging services; it is not the
+legacy BlueBubbles client and does not require a BlueBubbles Mac server.
 
-> **Note:** BlueBubbles requires a Mac running the BlueBubbles Server and an active Apple ID. A macOS virtual machine on Windows or Linux works as well.
+> The native rewrite is pre-release. Automated JVM, Rust, database-compatibility,
+> and APK gates pass, but real-device Apple ID login, 2FA, background delivery,
+> upgrade migration, and battery acceptance must pass before release.
 
----
+## Repository layout
 
-## Features
+- `app-native/` — Android app, Compose UI, services, notifications, login, SMS/MMS.
+- `core/` — shared message intake, repositories, contacts, attachments, backup,
+  and CloudKit orchestration.
+- `db/` — ObjectBox entities and the compatibility model.
+- `desktopApp/` — Compose Desktop application, currently targeting Windows.
+- `shared/` — Kotlin Multiplatform code shared by Android and desktop.
+- `rust/` — UniFFI-facing native API used by the Kotlin applications.
+- `rustpush/` — Apple protocol implementation, included as a Git submodule.
+- `native/` — Gradle root for all Kotlin-native modules.
 
-### Core Messaging
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime flows and
+[tools/CUTOVER.md](tools/CUTOVER.md) for the remaining release gates.
 
-- Send and receive iMessages, SMS, and MMS
-- View and send tapbacks, stickers, and emoji reactions
-- Full support for read receipts and delivered timestamps
-- Threaded replies (requires macOS 11+)
-- Create new chats and group conversations
-- Mute or archive conversations
-- Share your location
+## Build and test
 
-### Customization
+Required tooling:
 
-- Robust theming engine with light and dark mode support
-- Choose between iOS, Material, or Samsung-style UI skins
-- Extensive settings to personalize your experience
-- Full cross-platform support — message from Android, Linux, Windows, and macOS
+- JDK 21 (`.java-version` is checked in; other JDKs are rejected explicitly)
+- Android SDK 36 and NDK `28.2.13676358`
+- stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
+- `protoc`
+- Dart, used only by cargokit's Rust build helper
 
-### Private API Features
+Initialize submodules, provide `native/local.properties` with `sdk.dir`, then run:
 
-With optional Private API setup, you can unlock deeper iMessage integration:
+```bash
+cd native
+./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain
+```
 
-- Send and receive typing indicators in real time
-- Send tapbacks, subject lines, message effects, and replies
-- Automatically mark chats as read on your Mac
-- Rename group chats and manage participants
+The APK is written to
+`build-native/app-native/outputs/apk/debug/app-native-debug.apk`.
 
-> Private API features require additional configuration. See the [Private API setup guide](https://docs.bluebubbles.app/helper-bundle/installation) for instructions.
+Run the clean-checkout Rust gate separately:
 
----
+```bash
+cargo test --manifest-path rustpush/Cargo.toml --lib --locked
+```
 
-## Screenshots
+The APNs proxy and replay tests are manual integration tools. They remain
+ignored unless their private/local fixtures and network environment are supplied.
 
-<table>
-  <tr>
-    <td align="center">Chat List</td>
-    <td align="center">Message View</td>
-    <td align="center">Private API Features</td>
-  </tr>
-  <tr>
-    <td><img src="https://raw.githubusercontent.com/BlueBubblesApp/bluebubbles-app/master/screenshots/Samsung%20Galaxy%20S10%2B%20Prism%20Black%20-%20imessage_framed.png" width=270></td>
-    <td><img src="https://raw.githubusercontent.com/BlueBubblesApp/bluebubbles-app/master/screenshots/Samsung%20Galaxy%20S10+%20Prism%20Black%20-%20messaging_framed.png" width=270></td>
-    <td><img src="https://raw.githubusercontent.com/BlueBubblesApp/bluebubbles-app/master/screenshots/Samsung%20Galaxy%20S10+%20Prism%20Black%20-%20privateAPI_framed.png" width=270></td>
-  </tr>
-</table>
+## Current functionality
 
----
+The Android client includes native provisioning, Apple ID login and 2FA state
+handling, iMessage send/receive, attachment transfer, SMS/MMS, notifications,
+CloudKit history sync, contacts, backup/restore, Find My, and FaceTime surfaces.
 
-## Getting Started
+Important remaining work includes real-device login/2FA verification, message
+action UI (reactions, replies, edit, unsend), richer group controls, non-image
+attachment playback/opening, desktop parity, and store-ready release packaging.
 
-1. Download and install the **BlueBubbles Server** on your Mac: [Server releases](https://github.com/BlueBubblesApp/BlueBubbles-Server/releases)
-2. Download the **BlueBubbles client app** for your platform: [Client releases](https://github.com/BlueBubblesApp/blueBubbles-app/releases)
-3. Follow the [installation guide](https://bluebubbles.app/install/) to connect everything together
+## Data compatibility
 
-The client is also available on:
+Android retains the shipping application ID, `com.openbubbles.messaging`, and
+uses the legacy ObjectBox data location for in-place upgrades. The
+`:db:checkModelParity` task guards the ObjectBox model contract. Any model change
+must keep that gate green or provide an explicit migration.
 
-- [Google Play](https://play.google.com/store/apps/details?id=com.bluebubbles.messaging)
-- [Snap Store](https://snapcraft.io/bluebubbles)
-- [Flathub](https://flathub.org/apps/app.bluebubbles.BlueBubbles)
-- [Microsoft Store](https://www.microsoft.com/store/productId/9P3XF8KJ0LSM)
+## Security
 
----
-
-## Community
-
-We have an active and welcoming community. Come say hello, get help, or follow along with development:
-
-- **Discord:** [discord.gg/6nrGRHT](https://discord.gg/6nrGRHT) — the best place for support, feedback, and general chat
-- **Reddit:** [r/BlueBubbles](https://www.reddit.com/r/BlueBubbles/)
-- **Website:** [bluebubbles.app](https://bluebubbles.app)
-- **Documentation:** [docs.bluebubbles.app](https://docs.bluebubbles.app)
-- **FAQ:** [bluebubbles.app/faq](https://bluebubbles.app/faq)
-
----
+Never commit Apple credentials, device provisioning state, signing keys, APNs
+proxy certificates, or captured message traffic. Treat `hw_info.plist`,
+`gsa.plist`, `id.plist`, keystores, and replay fixtures as secrets.
 
 ## Contributing
 
-Contributions are always welcome. Whether it's fixing a bug, improving performance, or adding a new feature — we appreciate the help.
-
-Before getting started, please read [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and code conventions.
-
-To report a bug or request a feature, [open an issue on GitHub](https://github.com/BlueBubblesApp/bluebubbles-app/issues). Please search before opening a new ticket.
-
----
-
-## Donating
-
-BlueBubbles is free and open-source, maintained entirely by volunteers. If you find the project valuable, consider supporting its development:
-
-[bluebubbles.app/donate](https://bluebubbles.app/donate)
-
----
-
-## License
-
-BlueBubbles is released under the terms of the [LICENSE](LICENSE) file in this repository.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Every change should include focused
+tests, the relevant full gate, and a descriptive commit.
