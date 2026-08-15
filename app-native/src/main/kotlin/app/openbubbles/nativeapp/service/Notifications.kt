@@ -377,9 +377,7 @@ object Notifications {
             // The newest row is usually the message being notified (it is
             // ingested before posting); drop it so the current message is not
             // duplicated by the appended one.
-            val dropCurrent = currentText != null && rows.firstOrNull()?.text?.trim() == currentText.trim()
-            rows
-                .drop(if (dropCurrent) 1 else 0)
+            withoutCurrentNotificationRow(rows, currentText) { it.text }
                 .mapNotNull { row -> historyEntry(row) }
                 .takeLast(HISTORY_DEPTH)
         }.getOrDefault(emptyList())

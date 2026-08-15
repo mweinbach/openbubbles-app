@@ -21,8 +21,6 @@ import kotlinx.coroutines.runInterruptible
 import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UPushMessage
-import uniffi.rust_lib_bluebubbles.UMessage
-import uniffi.rust_lib_bluebubbles.UMessageInst
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
 import uniffi.rust_lib_bluebubbles.ptrToMessage
@@ -225,7 +223,7 @@ class NativePushService : Service(), MsgReceiver {
     private fun notifyIncoming(decoded: UPushMessage, chat: app.openbubbles.db.Chat?) {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
-        val body = plainText(inst) ?: return
+        val body = notificationPreview(inst) ?: return
         val target = chat ?: return
         // Per-chat mute (Flutter parity: muteType set -> no notification).
         // Time-based auto-unmute (muteArgs) lands with chat settings UI.
@@ -246,13 +244,6 @@ class NativePushService : Service(), MsgReceiver {
             text = body,
             isGroup = target.handles.size > 2,
         )
-    }
-
-    private fun plainText(inst: UMessageInst): String? {
-        val normal = (inst.message as? UMessage.Normal) ?: return null
-        return normal.parts.joinToString("") { indexed ->
-            (indexed.part as? uniffi.rust_lib_bluebubbles.UPart.Text)?.text ?: " "
-        }.trim().ifEmpty { null }
     }
 
     private fun createChannels() {
