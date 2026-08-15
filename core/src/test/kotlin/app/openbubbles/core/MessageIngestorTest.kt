@@ -713,6 +713,19 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `soft deleted messages leave transcript and unread count`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("visible", friend, "keep", timestamp = 1_700_000_000_000uL)), myHandles)
+        ingestor.ingest(push(textInst("deleted", friend, "remove", timestamp = 1_700_000_100_000uL)), myHandles)
+        val chat = chatBox().all.single()
+        val deleted = messageByGuid("deleted")!!
+        deleted.dateDeleted = java.util.Date(1_700_000_200_000L)
+        messageBox().put(deleted)
+
+        assertEquals(listOf("keep"), messageRepo.messages(chat.id).map { it.text })
+        assertEquals(1, chatRepo.unreadCount(chat))
+    }
+
+    @Test
     fun `markRead clears unread and count`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("msg-1", friend, "unread one", timestamp = 1_700_000_000_000uL)), myHandles)
         ingestor.ingest(push(textInst("msg-2", friend, "unread two", timestamp = 1_700_000_500_000uL)), myHandles)

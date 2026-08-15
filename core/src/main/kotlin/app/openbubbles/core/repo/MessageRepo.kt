@@ -37,6 +37,7 @@ class MessageRepo(
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
         messageBox.query()
             .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
             .orderDesc(Message_.dateCreated)
             .build()
             .use { it.find(offset.toLong(), limit.toLong()) }
@@ -46,6 +47,7 @@ class MessageRepo(
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
         messageBox.query()
             .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
             .orderDesc(Message_.dateCreated)
             .build()
             .subscribe()

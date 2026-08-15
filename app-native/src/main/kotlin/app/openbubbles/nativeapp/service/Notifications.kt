@@ -379,6 +379,7 @@ object Notifications {
                     app.openbubbles.db.Message_.chatId,
                     chatId,
                 )
+                .isNull(app.openbubbles.db.Message_.dateDeleted)
                 .orderDesc(app.openbubbles.db.Message_.dateCreated)
                 .build()
                 .use { query -> query.find(0, (HISTORY_DEPTH + 1).toLong()) }

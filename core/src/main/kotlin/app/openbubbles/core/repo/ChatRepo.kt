@@ -156,6 +156,7 @@ class ChatRepo(private val store: BoxStore) {
             .equal(Message_.chatId, chat.id)
             .equal(Message_.isFromMe, false)
             .isNull(Message_.associatedMessageGuid)
+            .isNull(Message_.dateDeleted)
         if (lastReadDate != null) builder.greater(Message_.dateCreated, lastReadDate)
         return builder.build().use { it.count().toInt() }
     }
