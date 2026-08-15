@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -126,6 +127,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+    val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
 
     val syncManager = CloudSyncWiring.manager
     val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
@@ -356,8 +358,9 @@ fun SettingsScreen(
                 if (pushState == null) {
                     SettingRow(
                         title = "Not connected",
-                        supporting = "Sign in from the banner on the chat list",
+                        supporting = pushError ?: "Sign in from the banner on the chat list",
                         icon = Icons.Filled.CloudDone,
+                        multiline = pushError != null,
                     )
                 } else {
                     SettingRow(
@@ -371,6 +374,14 @@ fun SettingsScreen(
                         icon = Icons.Filled.AlternateEmail,
                         multiline = true,
                     )
+                    pushError?.let { error ->
+                        SettingRow(
+                            title = "Last push problem",
+                            supporting = error,
+                            icon = Icons.Filled.Warning,
+                            multiline = true,
+                        )
+                    }
                     var signingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
                     SettingActionRow(
                         title = if (signingOut) "Signing out…" else "Sign out",

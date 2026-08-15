@@ -226,7 +226,7 @@ object CoreGraph {
         kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { PushStateHolder.state?.teardown(true) }
         }
-        PushStateHolder.clear()
+        PushStateHolder.clear(resetError = true)
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
@@ -411,16 +411,26 @@ object PushStateHolder {
     val myHandlesFlow = _myHandles.asStateFlow()
     val myHandles: Set<String> get() = _myHandles.value
 
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastErrorFlow = _lastError.asStateFlow()
+    val lastError: String? get() = _lastError.value
+
     fun install(state: NativePushState, handles: Set<String>) {
         _state.value = state
         _myHandles.value = handles
+        _lastError.value = null
         CoreGraph.startQueueDrainer()
         NativeMainActivity.appContext?.let { CloudSyncWiring.onStateInstalled(it, state) }
     }
 
-    fun clear() {
+    fun reportError(message: String) {
+        _lastError.value = message
+    }
+
+    fun clear(resetError: Boolean = false) {
         _state.value = null
         _myHandles.value = emptySet()
+        if (resetError) _lastError.value = null
         CloudSyncWiring.clear()
     }
 }
@@ -707,6 +717,7 @@ private object CoreSender : Sender {
         val chatBox = store.boxFor(Chat::class.java)
         val messageBox = store.boxFor(Message::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+        val conversation = sendConversation(store, chat)
 
         val pushState = PushStateHolder.state
         val myHandle = sendingHandle(chat)
@@ -733,12 +744,7 @@ private object CoreSender : Sender {
         try {
             val inst = runInterruptible(Dispatchers.IO) {
                 pushState.sendText(
-                    UConversation(
-                        participants = chat.handles.map { it.address }.distinct(),
-                        cvName = chat.displayName,
-                        senderGuid = null,
-                        afterGuid = null,
-                    ),
+                    conversation,
                     myHandle,
                     text,
                     // replyGuid, replyPart, effect, subject
@@ -797,6 +803,34 @@ internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.my
     return handles.firstOrNull()
 }
 
+/**
+ * Legacy `Chat.getConversationData`: retain the stable chat identity and the
+ * latest confirmed message anchor on every send. Without these fields Rust
+ * creates a new sender guid, which can split group conversations.
+ */
+internal fun sendConversation(chat: Chat, afterGuid: String?): UConversation = UConversation(
+    participants = chat.handles
+        .map { MessageMapper.toRustHandle(it.address) }
+        .distinct(),
+    cvName = chat.apnTitle ?: chat.displayName,
+    senderGuid = chat.guid,
+    afterGuid = afterGuid ?: chat.guid,
+)
+
+private fun sendConversation(store: BoxStore, chat: Chat): UConversation {
+    val anchor = store.boxFor(Message::class.java)
+        .query()
+        .equal(Message_.chatId, chat.id)
+        .orderDesc(Message_.dateCreated)
+        .build().use { it.find(0, 10) }
+        .firstNotNullOfOrNull { message ->
+            (message.stagingGuid ?: message.guid)?.takeUnless {
+                it.contains("temp") || it.contains("error")
+            }
+        }
+    return sendConversation(chat, anchor)
+}
+
 /** Unused today; reserved for the login flow (M1.e) to name new sessions. */
 @Suppress("unused")
 private fun newStagingGuid(): String = UUID.randomUUID().toString().uppercase()
@@ -814,12 +848,7 @@ internal object CoreGroupOps {
             val chat = st.boxFor(Chat::class.java).get(chatId)
                 ?: error("no chat $chatId")
             val myHandle = sendingHandle(chat) ?: error("no registered sending handle")
-            val conversation = uniffi.rust_lib_bluebubbles.UConversation(
-                participants = chat.handles.map { it.address }.distinct(),
-                cvName = chat.displayName,
-                senderGuid = null,
-                afterGuid = null,
-            )
+            val conversation = sendConversation(st, chat)
             pushState.leaveChat(
                 conversation,
                 myHandle,
@@ -870,6 +899,7 @@ internal object CoreAttachmentSender : AttachmentSender {
         val messageBox = store.boxFor(Message::class.java)
         val attachmentBox = store.boxFor(Attachment::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+        val conversation = sendConversation(store, chat)
 
         val pushState = PushStateHolder.state
         val myHandle = sendingHandle(chat)
@@ -928,12 +958,7 @@ internal object CoreAttachmentSender : AttachmentSender {
         try {
             val inst = runInterruptible(Dispatchers.IO) {
                 pushState.sendAttachment(
-                    UConversation(
-                        participants = chat.handles.map { it.address }.distinct(),
-                        cvName = chat.displayName,
-                        senderGuid = null,
-                        afterGuid = null,
-                    ),
+                    conversation,
                     myHandle,
                     payload.absolutePath,
                     caption?.takeIf { it.isNotBlank() },

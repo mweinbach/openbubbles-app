@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import app.openbubbles.db.Chat
+import app.openbubbles.db.Handle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -21,5 +22,32 @@ class SendRoutingTest {
 
         assertEquals("mailto:new@icloud.com", sendingHandle(chat, setOf("mailto:new@icloud.com")))
         assertNull(sendingHandle(chat, emptySet()))
+    }
+
+    @Test
+    fun `conversation preserves chat identity anchor and rust handle prefixes`() {
+        val chat = Chat().apply {
+            guid = "stable-group-guid"
+            apnTitle = "Friends"
+            handles.add(Handle().apply { address = "+15551234567" })
+            handles.add(Handle().apply { address = "friend@icloud.com" })
+        }
+
+        val conversation = sendConversation(chat, "latest-message-guid")
+
+        assertEquals(
+            listOf("tel:+15551234567", "mailto:friend@icloud.com"),
+            conversation.participants,
+        )
+        assertEquals("Friends", conversation.cvName)
+        assertEquals("stable-group-guid", conversation.senderGuid)
+        assertEquals("latest-message-guid", conversation.afterGuid)
+    }
+
+    @Test
+    fun `conversation falls back to chat guid when history is empty`() {
+        val chat = Chat().apply { guid = "new-chat-guid" }
+
+        assertEquals("new-chat-guid", sendConversation(chat, null).afterGuid)
     }
 }

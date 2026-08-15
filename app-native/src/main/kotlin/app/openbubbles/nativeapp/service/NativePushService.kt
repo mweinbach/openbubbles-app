@@ -84,6 +84,9 @@ class NativePushService : Service(), MsgReceiver {
                 }
             } catch (error: Throwable) {
                 Log.e(TAG, "native initialization failed", error)
+                PushStateHolder.reportError(
+                    "Apple push initialization failed: ${error.message ?: error.javaClass.simpleName}",
+                )
                 if (generation == initGeneration.get()) stopUnavailableService()
             }
         }
@@ -111,14 +114,18 @@ class NativePushService : Service(), MsgReceiver {
         }
 
         override fun finish() {
-            this@NativePushService.finish()
+            handleFinish(generation)
         }
     }
 
     // -- MsgReceiver (called on Rust threads — keep them light) -------------
 
     override fun receievedMsg(msg: kotlin.ULong, retry: kotlin.ULong) {
-        val ingestor = CoreGraph.ingestor ?: return
+        val ingestor = CoreGraph.ingestor ?: run {
+            Log.e(TAG, "incoming pointer $msg cannot be ingested: message store unavailable")
+            PushStateHolder.reportError("Incoming message could not be saved; waiting to retry")
+            return
+        }
         scope.launch {
             try {
                 val handles = PushStateHolder.myHandles
@@ -132,8 +139,13 @@ class NativePushService : Service(), MsgReceiver {
                     notifyIncoming(decoded, chat)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
                 // Leave the entry queued; Rust re-emits with backoff.
+                Log.e(TAG, "incoming pointer $msg failed on attempt $retry", error)
+                PushStateHolder.reportError(
+                    "Incoming message failed on attempt ${retry + 1uL}: " +
+                        (error.message ?: error.javaClass.simpleName),
+                )
             }
         }
     }
@@ -152,8 +164,12 @@ class NativePushService : Service(), MsgReceiver {
             }
 
             // This coroutine runs on Dispatchers.IO, never Rust's Tokio worker.
+            var handlesError: Throwable? = null
             val handles = runCatching { live.getHandles().toSet() }
-                .onFailure { Log.e(TAG, "failed to load registered handles", it) }
+                .onFailure {
+                    Log.e(TAG, "failed to load registered handles", it)
+                    handlesError = it
+                }
                 .getOrDefault(emptySet())
             if (generation != initGeneration.get()) return@launch
 
@@ -162,9 +178,20 @@ class NativePushService : Service(), MsgReceiver {
                 return@launch
             }
             PushStateHolder.install(live, handles)
+            handlesError?.let {
+                PushStateHolder.reportError(
+                    "Registered handles unavailable: ${it.message ?: it.javaClass.simpleName}",
+                )
+            }
             updateStatus(CONNECTED_STATUS)
-            runCatching { live.startLoop(this@NativePushService) }
-                .onFailure { Log.e(TAG, "failed to start Apple push loop", it) }
+            runCatching { live.startLoop(InitReceiver(generation)) }
+                .onFailure {
+                    Log.e(TAG, "failed to start Apple push loop", it)
+                    PushStateHolder.reportError(
+                        "Apple push loop failed: ${it.message ?: it.javaClass.simpleName}",
+                    )
+                    updateStatus(DISCONNECTED_STATUS)
+                }
         }
     }
 
@@ -189,8 +216,12 @@ class NativePushService : Service(), MsgReceiver {
                         notifyPollResult(chatId, title, body)
                     },
                 )
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
                 // next WorkManager tick retries
+                Log.e(TAG, "battery-saver poll failed", error)
+                PushStateHolder.reportError(
+                    "Background message check failed: ${error.message ?: error.javaClass.simpleName}",
+                )
             } finally {
                 stopSelf()
             }
@@ -215,8 +246,20 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     override fun finish() {
-        // Rust loop ended (state torn down); service stays for a future
-        // re-init (e.g. after re-login).
+        handleFinish(initGeneration.get())
+    }
+
+    private fun handleFinish(generation: Int) {
+        scope.launch {
+            if (generation != initGeneration.get()) {
+                Log.i(TAG, "ignoring stale Apple push loop completion")
+                return@launch
+            }
+            Log.w(TAG, "Apple push loop ended")
+            PushStateHolder.clear()
+            PushStateHolder.reportError("Apple push disconnected; reopen OpenBubbles to reconnect")
+            updateStatus(DISCONNECTED_STATUS)
+        }
     }
 
     // -- Notifications -------------------------------------------------------
@@ -312,6 +355,7 @@ class NativePushService : Service(), MsgReceiver {
         private const val STATUS_NOTIFICATION_ID = 1001
         private const val CONNECTING_STATUS = "Connecting to Apple push"
         private const val CONNECTED_STATUS = "Connected to Apple push"
+        private const val DISCONNECTED_STATUS = "Apple push disconnected"
         internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
         private const val TAG = "NativePushService"
 

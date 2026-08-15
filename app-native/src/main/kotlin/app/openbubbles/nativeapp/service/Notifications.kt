@@ -153,7 +153,7 @@ object Notifications {
                     nowMs = System.currentTimeMillis(),
                     // Store history only when previews are shown; the current
                     // message is always appended as the newest message.
-                    history = if (hide) emptyList() else readHistory(chatId, text),
+                    history = if (hide) emptyList() else readHistory(chatId, text, messageGuid),
                     currentText = shownText,
                     currentSenderPerson = senderName?.takeIf { isGroup }?.let {
                         Person.Builder().setName(it).build()
@@ -174,7 +174,7 @@ object Notifications {
             .setShortcutId(chatGuid)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
-                publicVersion(context, channelId, shownTitle, shownText, contentIntent),
+                publicVersion(context, channelId, contentIntent),
             )
             .setExtras(extras)
             .addAction(markReadAction)
@@ -280,13 +280,57 @@ object Notifications {
             .setShortcutId(chatGuid)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
-                publicVersion(context, channelId, shownTitle, shownText, contentIntent),
+                publicVersion(context, channelId, contentIntent),
             )
             .setExtras(Bundle().apply {
                 putString(EXTRA_CHAT_GUID, chatGuid)
                 putLong(EXTRA_CHAT_ID, chatId)
                 putString(EXTRA_CONVERSATION_ID, chatGuid)
                 putString(EXTRA_SEARCH_KEY, chatGuid)
+            })
+            .build()
+        nm.notify(requestCode, notification)
+    }
+
+    /** Replaces the action notification with an explicit, tap-to-recover failure. */
+    fun postReplyFailed(
+        context: Context,
+        notificationId: Int,
+        chatId: Long,
+        chatGuid: String?,
+        title: String,
+    ) {
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        if (!nm.areNotificationsEnabled()) return
+        val conversationId = chatGuid ?: "chat-$chatId"
+        val channelId = ensureChannel(nm, conversationId, title, isGroup = false)
+        val requestCode = if (notificationId > 0) notificationId else {
+            "$chatId:reply-failed".hashCode()
+        }
+        val openIntent = Intent(context, NativeMainActivity::class.java).apply {
+            chatGuid?.let { putExtra(EXTRA_CHAT_GUID, it) }
+        }
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(SMALL_ICON)
+            .setContentTitle("Reply not sent")
+            .setContentText("Tap to open OpenBubbles and try again")
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .setColor(ACCENT_COLOR)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(context, channelId, contentIntent))
+            .setExtras(Bundle().apply {
+                chatGuid?.let { putString(EXTRA_CHAT_GUID, it) }
+                putLong(EXTRA_CHAT_ID, chatId)
+                putString(EXTRA_CONVERSATION_ID, conversationId)
             })
             .build()
         nm.notify(requestCode, notification)
@@ -329,13 +373,17 @@ object Notifications {
         currentSenderPerson: Person?,
         currentFromMe: Boolean,
     ): NotificationCompat.MessagingStyle {
-        // Person per chat: name = chat title, key = chat guid (search/dedupe).
+        val localPerson = Person.Builder()
+            .setName("You")
+            .setKey("openbubbles-local-user")
+            .build()
+        // Remote person per chat: name = chat title, key = chat guid.
         val chatPerson = Person.Builder()
             .setName(chatTitle)
             .setKey(chatGuid)
             .setImportant(true)
             .build()
-        val style = NotificationCompat.MessagingStyle(chatPerson)
+        val style = NotificationCompat.MessagingStyle(localPerson)
             .setGroupConversation(isGroup)
         if (isGroup) {
             // The conversation title is redundant for 1:1 chats (the person
@@ -347,7 +395,7 @@ object Notifications {
                 NotificationCompat.MessagingStyle.Message(
                     entry.text,
                     entry.timestampMs,
-                    entry.senderPerson ?: chatPerson,
+                    entry.senderPerson,
                 ),
             )
         }
@@ -369,7 +417,11 @@ object Notifications {
      * ingested as the newest row. Returns an empty list when the store is
      * unavailable — the notification then shows only the current message.
      */
-    private fun readHistory(chatId: Long, currentText: String?): List<HistoryEntry> {
+    private fun readHistory(
+        chatId: Long,
+        currentText: String?,
+        currentMessageGuid: String? = null,
+    ): List<HistoryEntry> {
         if (chatId <= 0L) return emptyList()
         val store = CoreGraph.store ?: return emptyList()
         return runCatching {
@@ -388,7 +440,14 @@ object Notifications {
             // The newest row is usually the message being notified (it is
             // ingested before posting); drop it so the current message is not
             // duplicated by the appended one.
-            withoutCurrentNotificationRow(rows, currentText) { it.text }
+            val priorRows = if (
+                currentMessageGuid != null && rows.lastOrNull()?.guid == currentMessageGuid
+            ) {
+                rows.dropLast(1)
+            } else {
+                withoutCurrentNotificationRow(rows, currentText) { it.text }
+            }
+            priorRows
                 .mapNotNull { row -> historyEntry(row) }
                 .takeLast(HISTORY_DEPTH)
         }.getOrDefault(emptyList())
@@ -431,13 +490,11 @@ object Notifications {
     private fun publicVersion(
         context: Context,
         channelId: String,
-        title: String,
-        text: String,
         contentIntent: PendingIntent,
     ): Notification = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(SMALL_ICON)
-        .setContentTitle(title)
-        .setContentText(text)
+        .setContentTitle("OpenBubbles")
+        .setContentText("New message")
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setAutoCancel(true)
         .setContentIntent(contentIntent)

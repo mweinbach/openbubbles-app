@@ -3,15 +3,16 @@ package app.openbubbles.nativeapp.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.RemoteInput
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.sendConversation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UPushMessage
 
 /**
@@ -53,37 +54,77 @@ class ReplyReceiver : BroadcastReceiver() {
         notificationId: Int,
         text: String,
     ) {
-        val store = CoreGraph.store ?: return
-        val pushState = PushStateHolder.state ?: return
-        val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull() ?: return
-        val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: return
+        var resolvedGuid = chatGuid
+        var title = "Message"
+        fun fail(reason: String, error: Throwable? = null) {
+            if (error != null) Log.e(TAG, reason, error) else Log.e(TAG, reason)
+            PushStateHolder.reportError(reason)
+            Notifications.postReplyFailed(
+                context = context,
+                notificationId = notificationId,
+                chatId = chatId,
+                chatGuid = resolvedGuid,
+                title = title,
+            )
+        }
 
-        val sent = runCatching {
-            val inst = pushState.sendText(
-                UConversation(
-                    participants = chat.handles.map { it.address }.distinct(),
-                    cvName = chat.displayName,
-                    senderGuid = null,
-                    afterGuid = null,
-                ),
+        val store = CoreGraph.store ?: run {
+            fail("Reply not sent: message store unavailable")
+            return
+        }
+        val pushState = PushStateHolder.state ?: run {
+            fail("Reply not sent: Apple push is disconnected")
+            return
+        }
+        val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull() ?: run {
+            fail("Reply not sent: conversation unavailable")
+            return
+        }
+        resolvedGuid = chatGuid ?: chat.guid
+        title = chat.displayName
+            ?: chat.handles.firstOrNull()?.formattedAddress
+            ?: "Message"
+        val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: run {
+            fail("Reply not sent: no registered sending address")
+            return
+        }
+        val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
+
+        val inst = runCatching {
+            pushState.sendText(
+                sendConversation(chat, afterGuid),
                 sender,
                 text,
                 // replyGuid, replyPart, effect, subject
                 null, null, null, null,
             )
-            // Ingest the echo so the sent message (and its receipts) flow
-            // through the normal intake path, same as the in-app send path.
+        }.getOrElse { error ->
+            fail("Reply not sent: ${error.message ?: error.javaClass.simpleName}", error)
+            return
+        }
+
+        // The network send succeeded. A local-echo failure should be visible,
+        // but must not claim the already-sent reply failed.
+        runCatching {
             CoreGraph.ingestor?.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
-        }.isSuccess
+        }.onFailure { error ->
+            Log.e(TAG, "reply sent but local echo ingest failed", error)
+            PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
+        }
 
         runCatching { ChatRepo(store).markRead(chatId) }
         Notifications.cancelForChat(context, chatId)
-        if (sent) {
-            val guid = chatGuid ?: chat.guid
-            val title = chat.displayName
-                ?: chat.handles.firstOrNull()?.formattedAddress
-                ?: "Message"
-            Notifications.postReplySent(context, notificationId, chatId, guid, title, text)
-        }
+        Notifications.postReplySent(
+            context,
+            notificationId,
+            chatId,
+            resolvedGuid ?: "chat-$chatId",
+            title,
+            text,
+        )
+    }
+
+    private companion object {
+        const val TAG = "ReplyReceiver"
     }
 }
