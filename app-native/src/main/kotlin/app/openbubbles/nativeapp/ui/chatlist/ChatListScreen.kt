@@ -250,7 +250,8 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth).animateItem(),
+                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
+                        .padding(horizontal = 12.dp).animateItem(),
                 )
             }
         }
@@ -267,7 +268,8 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth).animateItem(),
+                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
+                        .padding(horizontal = 12.dp).animateItem(),
                 )
             }
         }
@@ -284,7 +286,8 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth).animateItem(),
+                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
+                        .padding(horizontal = 12.dp).animateItem(),
                 )
             }
         }
