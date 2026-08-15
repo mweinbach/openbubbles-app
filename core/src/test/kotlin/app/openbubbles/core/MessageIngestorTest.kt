@@ -834,6 +834,22 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `newly pinned chat is first among existing pins`() = runBlocking<Unit> {
+        val secondFriend = "mailto:second@icloud.com"
+        ingestor.ingest(push(textInst("first", friend, "first pin")), myHandles)
+        ingestor.ingest(push(textInst("second", secondFriend, "second pin")), myHandles)
+
+        val bySnippet = chatRepo.chats().associateBy { it.snippet }
+        chatRepo.setPinned(requireNotNull(bySnippet["first pin"]).id, pinned = true)
+        chatRepo.setPinned(requireNotNull(bySnippet["second pin"]).id, pinned = true)
+
+        assertEquals(
+            listOf("second pin", "first pin"),
+            chatRepo.chats().filter { it.pinned }.map { it.snippet },
+        )
+    }
+
+    @Test
     fun `chat lifecycle updates mute archive and soft delete`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("msg-1", friend, "hello")), myHandles)
         val chat = chatBox().all.single()

@@ -43,7 +43,9 @@ class ChatListViewModel(
             ChatListUiState(
                 loading = false,
                 query = rawQuery,
-                pinned = filtered.filter { it.pinned && !it.archived }.sortedByDescending { it.date },
+                // Core already returns pins in their persisted pinIndex order.
+                // Re-sorting by message date made pin placement unstable.
+                pinned = filtered.filter { it.pinned && !it.archived },
                 chats = filtered.filter { !it.pinned && !it.archived }.sortedByDescending { it.date },
                 archived = filtered.filter { it.archived }.sortedByDescending { it.date },
             )

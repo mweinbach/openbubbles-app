@@ -149,10 +149,14 @@ class ChatRepo(private val store: BoxStore) {
         chat.isPinned = pinned
         if (pinned) {
             // New pins go to the top of the pin order.
-            val maxPin = chatBox.query().isNull(Chat_.dateDeleted).build().use { q ->
-                q.find().maxOfOrNull { it.pinIndex ?: 0L } ?: -1L
+            val firstPin = chatBox.query().isNull(Chat_.dateDeleted).build().use { q ->
+                q.find()
+                    .asSequence()
+                    .filter { it.isPinned && it.id != chatId }
+                    .mapNotNull { it.pinIndex }
+                    .minOrNull() ?: 0L
             }
-            chat.pinIndex = maxPin + 1
+            chat.pinIndex = firstPin - 1L
         } else {
             chat.pinIndex = null
         }
