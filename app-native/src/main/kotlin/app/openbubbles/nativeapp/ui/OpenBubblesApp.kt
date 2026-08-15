@@ -5,12 +5,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -76,6 +82,18 @@ object Routes {
     /** Attachment guids can contain ':'/'/' — encode for the path segment. */
     fun attachment(guid: String): String = "attachment/${Uri.encode(guid)}"
 }
+
+private data class TopLevelDestination(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+)
+
+private val TopLevelDestinations = listOf(
+    TopLevelDestination(Routes.CHATS, "Chats", Icons.AutoMirrored.Filled.Chat),
+    TopLevelDestination(Routes.FIND_MY, "Find My", Icons.Filled.LocationOn),
+    TopLevelDestination(Routes.SETTINGS, "Settings", Icons.Filled.Settings),
+)
 
 /** Root scaffold: navigation between the chat list, conversations, viewer, info, and login. */
 @Composable
@@ -166,7 +184,17 @@ fun OpenBubblesApp(
         return
     }
 
-    Column(modifier = modifier) {
+    fun navigateTopLevel(destination: TopLevelDestination) {
+        if (route == destination.route) return
+        navController.navigate(destination.route) {
+            popUpTo(Routes.CHATS) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    val appContent: @Composable () -> Unit = {
+    Column(modifier = Modifier.fillMaxSize()) {
         if (route == Routes.CHATS && pushState == null) {
             SignInBanner(onSignIn = { navController.navigate(Routes.LOGIN) })
         }
@@ -241,8 +269,9 @@ fun OpenBubblesApp(
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navigateTopLevel(TopLevelDestinations.first()) },
                     onOpenFindMy = { navController.navigate(Routes.FIND_MY) },
+                    showBackButton = false,
                 )
             }
             composable(Routes.FIND_MY) {
@@ -251,7 +280,8 @@ fun OpenBubblesApp(
                 FindMyScreen(
                     uiState = state,
                     onRefresh = viewModel::refresh,
-                    onBack = { navController.popBackStack() },
+                    onBack = { navigateTopLevel(TopLevelDestinations.first()) },
+                    showBackButton = false,
                 )
             }
             composable(
@@ -340,6 +370,31 @@ fun OpenBubblesApp(
                 }
             }
         }
+    }
+    }
+
+    if (TopLevelDestinations.any { it.route == route }) {
+        NavigationSuiteScaffold(
+            modifier = modifier,
+            navigationSuiteItems = {
+                TopLevelDestinations.forEach { destination ->
+                    item(
+                        selected = route == destination.route,
+                        onClick = { navigateTopLevel(destination) },
+                        icon = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                            )
+                        },
+                        label = { Text(destination.label) },
+                    )
+                }
+            },
+            content = appContent,
+        )
+    } else {
+        Box(modifier = modifier.fillMaxSize()) { appContent() }
     }
 }
 

@@ -66,6 +66,7 @@ fun FindMyScreen(
     uiState: FindMyUiState,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
+    showBackButton: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -75,8 +76,10 @@ fun FindMyScreen(
             TopAppBar(
                 title = { Text("Find My") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (showBackButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {

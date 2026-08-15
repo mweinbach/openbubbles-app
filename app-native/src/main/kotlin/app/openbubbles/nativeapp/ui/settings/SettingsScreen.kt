@@ -125,6 +125,7 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenFindMy: () -> Unit = {},
+    showBackButton: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -348,8 +349,10 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (showBackButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
             )
