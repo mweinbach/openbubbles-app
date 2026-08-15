@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Folder
@@ -37,11 +39,15 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -152,6 +158,7 @@ fun SettingsScreen(
     var joiningClique by remember { mutableStateOf(false) }
     var bottles by remember { mutableStateOf<List<UViableBottle>>(emptyList()) }
     var selectedBottle by remember { mutableStateOf<UViableBottle?>(null) }
+    var deviceMenuExpanded by remember { mutableStateOf(false) }
     var trustedDevicePasscode by remember { mutableStateOf("") }
     var joinError by remember { mutableStateOf<String?>(null) }
     var newRecoveryCode by remember { mutableStateOf<String?>(null) }
@@ -182,6 +189,7 @@ fun SettingsScreen(
         joiningClique = false
         bottles = emptyList()
         selectedBottle = null
+        deviceMenuExpanded = false
         trustedDevicePasscode = ""
         joinError = null
         scope.launch {
@@ -594,12 +602,19 @@ fun SettingsScreen(
             (requiredLength == null || trustedDevicePasscode.length == requiredLength)
         AlertDialog(
             onDismissRequest = {
-                if (!joiningClique) showCliqueJoin = false
+                if (!joiningClique) {
+                    deviceMenuExpanded = false
+                    showCliqueJoin = false
+                }
             },
             title = { Text("Join iCloud Keychain") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Choose a trusted Apple device, then enter that device's passcode to unlock Messages in iCloud history. OpenBubbles will not reset encrypted iCloud data.")
+                    Text(
+                        "Choose a trusted Apple device and enter its passcode. " +
+                            "This unlocks Messages in iCloud without resetting encrypted data.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                     if (loadingBottles) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -607,25 +622,60 @@ fun SettingsScreen(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(28.dp))
                         }
-                    } else {
-                        bottles.forEach { bottle ->
-                            OutlinedButton(
-                                onClick = {
-                                    selectedBottle = bottle
-                                    trustedDevicePasscode = ""
-                                    joinError = null
+                    } else if (bottles.isNotEmpty()) {
+                        ExposedDropdownMenuBox(
+                            expanded = deviceMenuExpanded,
+                            onExpandedChange = {
+                                if (!joiningClique) deviceMenuExpanded = !deviceMenuExpanded
+                            },
+                        ) {
+                            OutlinedTextField(
+                                value = selectedBottle?.displayName().orEmpty(),
+                                onValueChange = {},
+                                label = { Text("Trusted Apple device") },
+                                placeholder = { Text("Select a device") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(
+                                        expanded = deviceMenuExpanded,
+                                    )
                                 },
+                                readOnly = true,
                                 enabled = !joiningClique,
-                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                modifier = Modifier
+                                    .menuAnchor(
+                                        type = MenuAnchorType.PrimaryNotEditable,
+                                        enabled = !joiningClique,
+                                    )
+                                    .fillMaxWidth(),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = deviceMenuExpanded,
+                                onDismissRequest = { deviceMenuExpanded = false },
+                                modifier = Modifier.heightIn(max = 320.dp),
                             ) {
-                                val selected = selectedBottle === bottle
-                                Text(
-                                    buildString {
-                                        if (selected) append("Selected: ")
-                                        append(bottle.deviceName.ifBlank { "Trusted device" })
-                                        if (bottle.modelClass.isNotBlank()) append(" · ${bottle.modelClass}")
-                                    },
-                                )
+                                bottles.forEach { bottle ->
+                                    val selected = selectedBottle == bottle
+                                    DropdownMenuItem(
+                                        text = { Text(bottle.displayName()) },
+                                        trailingIcon = if (selected) {
+                                            {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Check,
+                                                    contentDescription = "Selected",
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        onClick = {
+                                            selectedBottle = bottle
+                                            deviceMenuExpanded = false
+                                            trustedDevicePasscode = ""
+                                            joinError = null
+                                        },
+                                    )
+                                }
                             }
                         }
                         selectedBottle?.let {
@@ -659,7 +709,18 @@ fun SettingsScreen(
                         }
                     }
                     joinError?.let { error ->
-                        Text(error, color = MaterialTheme.colorScheme.error)
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
                     }
                 }
             },
@@ -671,7 +732,7 @@ fun SettingsScreen(
                     if (joiningClique) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     } else {
-                        Text("Join")
+                        Text("Join and sync")
                     }
                 }
             },
@@ -719,6 +780,11 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+private fun UViableBottle.displayName(): String = buildString {
+    append(deviceName.ifBlank { "Trusted device" })
+    if (modelClass.isNotBlank()) append(" · $modelClass")
 }
 
 /** iOS-style inset grouped card: small header above a rounded surface. */
