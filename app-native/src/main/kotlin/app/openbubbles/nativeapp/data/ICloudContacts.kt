@@ -168,6 +168,7 @@ private data class AddressBook(
     val url: URI,
     val displayName: String?,
     val ctag: String?,
+    val syncToken: String?,
 )
 
 private data class ChangedResource(
@@ -202,21 +203,32 @@ private class ICloudCardDavClient(
 
     fun sync(stored: (URI) -> Pair<String?, String?>): List<BookSync> {
         return discoverAddressBooks().mapNotNull { discovered ->
-            val current = fetchBookProperties(discovered.url)
+            val fetched = fetchBookProperties(discovered.url)
+            val current = fetched.copy(
+                displayName = discovered.displayName,
+                ctag = fetched.ctag ?: discovered.ctag,
+                syncToken = fetched.syncToken ?: discovered.syncToken,
+            )
             val (storedCtag, storedToken) = stored(discovered.url)
             if (current.ctag != null && storedCtag == current.ctag) return@mapNotNull null
 
-            var reset = storedToken == null
-            val changes = try {
+            var reset = false
+            val changes = if (storedToken == null) {
+                // Apple's server rejected an empty-token sync-collection on
+                // real devices. Enumerate the initial snapshot with Depth:1,
+                // then continue incrementally from its advertised token.
+                reset = true
+                listCollection(current)
+            } else try {
                 syncCollection(current.url, storedToken)
             } catch (error: CardDavHttpException) {
-                if (storedToken == null || error.status !in setOf(403, 409, 410)) throw error
+                if (error.status !in setOf(400, 403, 409, 410)) throw error
                 reset = true
-                syncCollection(current.url, null)
+                listCollection(current)
             }
             val changed = changes.resources.filterNot(ChangedResource::deleted).map(ChangedResource::href)
             BookSync(
-                book = current.copy(displayName = discovered.displayName),
+                book = current,
                 token = changes.token,
                 reset = reset,
                 cards = downloadCards(current.url, changed),
@@ -251,6 +263,7 @@ private class ICloudCardDavClient(
                 url = response.url.resolve(href),
                 displayName = element.firstText("displayname"),
                 ctag = element.firstText("getctag"),
+                syncToken = element.firstText("sync-token"),
             )
         }
     }
@@ -291,7 +304,30 @@ private class ICloudCardDavClient(
             ),
             "0",
         )
-        return AddressBook(response.url, null, response.document.firstText("getctag"))
+        return AddressBook(
+            response.url,
+            null,
+            response.document.firstText("getctag"),
+            response.document.firstText("sync-token"),
+        )
+    }
+
+    private fun listCollection(book: AddressBook): CollectionChanges {
+        val response = xmlRequest(
+            "PROPFIND",
+            book.url,
+            propfind("<d:getetag/>"),
+            "1",
+        )
+        val resources = response.document.responses().mapNotNull { element ->
+            val href = element.firstText("href") ?: return@mapNotNull null
+            val resolved = response.url.resolve(href)
+            if (sameResource(resolved, book.url) || element.firstText("getetag") == null) {
+                return@mapNotNull null
+            }
+            ChangedResource(resolved, deleted = false)
+        }
+        return CollectionChanges(book.syncToken, resources)
     }
 
     private fun syncCollection(url: URI, token: String?): CollectionChanges {
@@ -349,7 +385,7 @@ private class ICloudCardDavClient(
                 .header("Accept", "*/*")
                 .header("Depth", depth)
             authHeaders.forEach { (name, value) -> builder.header(name, value) }
-            val requestBody = body.toRequestBody("application/xml; charset=utf-8".toMediaType())
+            val requestBody = body.toRequestBody("text/xml; charset=utf-8".toMediaType())
             builder.method(method, requestBody)
 
             http.newCall(builder.build()).execute().use { response ->
@@ -514,6 +550,9 @@ private fun Document.firstText(localName: String): String? =
     elements(localName).firstOrNull()?.textContent?.trim()?.takeIf(String::isNotEmpty)
 
 private fun URI.rawPathWithQuery(): String = rawPath + rawQuery?.let { "?$it" }.orEmpty()
+
+private fun sameResource(first: URI, second: URI): Boolean =
+    first.normalize().toString().trimEnd('/') == second.normalize().toString().trimEnd('/')
 
 private fun isAppleICloudHost(host: String?): Boolean =
     host == "icloud.com" || host?.endsWith(".icloud.com") == true
