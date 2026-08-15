@@ -2,9 +2,11 @@ package app.openbubbles.nativeapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.platform.ComposeView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -15,11 +17,17 @@ import app.openbubbles.nativeapp.data.OfficialEngineProbe
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.shared.Hello
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.isLocked
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 
 class NativeMainActivity : ComponentActivity() {
+    private var debugLines: List<String> = emptyList()
+    private var resumeRoute: String? = null
+    private var uiDetached = false
+    private var uiReleaseJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,14 +69,60 @@ class NativeMainActivity : ComponentActivity() {
             }
         }
 
+        debugLines = listOf(Hello.greeting(), rustStatus)
+        renderUi()
+    }
+
+    private fun renderUi() {
         setContent {
             OpenBubblesTheme {
                 OpenBubblesApp(
-                    debugLines = listOf(Hello.greeting(), rustStatus),
+                    debugLines = debugLines,
                     startChatGuid = pendingChatGuid,
+                    resumeRoute = resumeRoute,
+                    onRouteChanged = { resumeRoute = it },
                 )
             }
         }
+        uiDetached = false
+    }
+
+    override fun onStart() {
+        super.onStart()
+        uiReleaseJob?.cancel()
+        uiReleaseJob = null
+        if (uiDetached) renderUi()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (isChangingConfigurations) return
+        uiReleaseJob?.cancel()
+        uiReleaseJob = lifecycleScope.launch {
+            delay(BACKGROUND_UI_RELEASE_MS)
+            if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                releaseHiddenUi()
+            }
+        }
+    }
+
+    /**
+     * The foreground push engine keeps this process important. Drop UI-only
+     * state after a grace period so that does not also pin Compose, ViewModels,
+     * decoded images, and conversation pages for the whole screen-off period.
+     */
+    private fun releaseHiddenUi() {
+        val content = findViewById<ViewGroup>(android.R.id.content)
+        (content.getChildAt(0) as? ComposeView)?.disposeComposition()
+        content.removeAllViews()
+        viewModelStore.clear()
+        app.openbubbles.nativeapp.data.MemoryCaches.clear()
+        uiDetached = true
+    }
+
+    override fun onDestroy() {
+        uiReleaseJob?.cancel()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -92,6 +146,9 @@ class NativeMainActivity : ComponentActivity() {
     companion object {
         /** Deep-link extra carrying the tapped notification's chat guid. */
         const val EXTRA_CHAT_GUID = "chat_guid"
+
+        /** Keeps quick app switches warm but releases UI during longer background periods. */
+        internal const val BACKGROUND_UI_RELEASE_MS = 60_000L
 
         /**
          * Chat guid requested by a notification tap, consumed once by

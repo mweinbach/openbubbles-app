@@ -83,12 +83,34 @@ fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
     /** Chat guid from a notification tap; resolved and consumed once. */
     startChatGuid: String? = null,
+    /** Actual route restored after the hidden Compose tree was released. */
+    resumeRoute: String? = null,
+    onRouteChanged: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+
+    LaunchedEffect(resumeRoute, startChatGuid) {
+        val target = resumeRoute?.takeIf { it != Routes.CHATS } ?: return@LaunchedEffect
+        if (startChatGuid == null && navController.currentDestination?.route == Routes.CHATS) {
+            navController.navigate(target) { launchSingleTop = true }
+        }
+    }
+
+    LaunchedEffect(backStack) {
+        val entry = backStack
+        val actualRoute = when (entry?.destination?.route) {
+            Routes.CHAT_PATTERN -> entry.arguments?.getLong(Routes.CHAT_ARG)?.let(Routes::chat)
+            Routes.CHAT_INFO_PATTERN -> entry.arguments?.getLong(Routes.CHAT_ARG)?.let(Routes::chatInfo)
+            Routes.ATTACHMENT_PATTERN -> entry.arguments?.getString(Routes.ATTACHMENT_ARG)
+                ?.let(Routes::attachment)
+            else -> entry?.destination?.route
+        }
+        onRouteChanged(actualRoute)
+    }
 
     // Deep link from a notification tap: resolve the guid to a chat id and
     // navigate once, then clear the pending static so config changes (and
