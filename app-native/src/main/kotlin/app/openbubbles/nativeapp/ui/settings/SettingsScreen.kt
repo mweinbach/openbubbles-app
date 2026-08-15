@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
@@ -514,6 +515,27 @@ fun SettingsScreen(
                     onCheckedChange = { enabled ->
                         replyEnabled = enabled
                         notifPrefs.replyEnabled = enabled
+                    },
+                )
+            }
+
+            SectionCard(title = "Messaging") {
+                val messagingPrefs = remember { MessagingPrefs(context) }
+                var sendReadReceipts by remember {
+                    mutableStateOf(messagingPrefs.sendReadReceipts)
+                }
+                SwitchSettingRow(
+                    title = "Send read receipts",
+                    supporting = if (sendReadReceipts) {
+                        "Tell people in direct iMessage chats when you read their messages"
+                    } else {
+                        "Read state syncs privately to your Apple devices"
+                    },
+                    icon = Icons.Filled.Check,
+                    checked = sendReadReceipts,
+                    onCheckedChange = { enabled ->
+                        sendReadReceipts = enabled
+                        messagingPrefs.sendReadReceipts = enabled
                     },
                 )
             }

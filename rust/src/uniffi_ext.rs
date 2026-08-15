@@ -429,12 +429,21 @@ impl NativePushState {
         send_inst(self.shared(), inst).map(|_| ())
     }
 
-    pub fn send_read(&self, conversation: UConversation, sender: String) -> Result<(), UError> {
-        let inst = RUNTIME.block_on(api::new_msg(
+    pub fn send_read(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        message_guid: String,
+    ) -> Result<(), UError> {
+        let mut inst = RUNTIME.block_on(api::new_msg(
             back_conversation(conversation),
             sender,
             Message::Read,
         ));
+        // Read receipts identify the newest message they acknowledge. A fresh
+        // random id is a valid iMessage envelope but cannot update the remote
+        // transcript's read state.
+        inst.id = message_guid;
         send_inst(self.shared(), inst).map(|_| ())
     }
 

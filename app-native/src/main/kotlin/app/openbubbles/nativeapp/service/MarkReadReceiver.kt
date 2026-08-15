@@ -3,7 +3,6 @@ package app.openbubbles.nativeapp.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.nativeapp.data.CoreGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +27,7 @@ class MarkReadReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 runCatching {
-                    CoreGraph.store?.let { ChatRepo(it).markRead(chatId) }
+                    CoreGraph.readReceipts.markRead(chatId)
                 }
                 if (cancelNotifications) Notifications.cancelForChat(context, chatId)
             } finally {

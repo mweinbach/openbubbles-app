@@ -472,6 +472,7 @@ object AppGraph {
     val chats: ChatListRepository get() = CoreGraph.chats
     val messages: MessageListRepository get() = CoreGraph.messages
     val sender: Sender get() = CoreGraph.sender
+    val readReceipts: ReadReceiptSender get() = CoreGraph.readReceipts
     val messageActions: MessageActions get() = CoreGraph.messageActions
     val attachmentSender: AttachmentSender get() = CoreGraph.attachmentSender
     val typing: TypingRepository get() = CoreGraph.typing

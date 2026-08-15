@@ -149,6 +149,9 @@ object CoreGraph {
     val sender: Sender by lazy {
         if (store != null) CoreSender else FakeSender
     }
+    val readReceipts: ReadReceiptSender by lazy {
+        if (store != null) CoreReadReceiptSender else ReadReceiptSender(chats::markRead)
+    }
     val messageActions: MessageActions by lazy {
         if (store != null) CoreMessageActions else FakeMessageActions
     }
@@ -828,6 +831,46 @@ private object CoreSender : Sender {
     }
 }
 
+/** Local unread-state update plus the legacy iMessage read-receipt routing. */
+private object CoreReadReceiptSender : ReadReceiptSender {
+    override suspend fun markRead(chatId: Long) {
+        val store = CoreGraph.store ?: return
+        ChatRepo(store).markRead(chatId)
+
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: return
+        val state = PushStateHolder.state ?: return
+        val sender = sendingHandle(chat) ?: return
+        val messageGuid = store.boxFor(Message::class.java)
+            .query()
+            .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .build().use { query ->
+                query.find(0, 10).firstNotNullOfOrNull { message ->
+                    (message.stagingGuid ?: message.guid)?.takeUnless {
+                        it.contains("temp") || it.contains("error")
+                    }
+                }
+            }
+            ?: return
+        val globalReceipts = NativeMainActivity.appContext
+            ?.let { MessagingPrefs(it).sendReadReceipts }
+            ?: false
+        val notifyOthers = chat.autoSendReadReceipts || globalReceipts
+        val conversation = readReceiptConversation(chat, sender, messageGuid, notifyOthers)
+        runCatching {
+            runInterruptible(Dispatchers.IO) {
+                state.sendRead(conversation, sender, messageGuid)
+            }
+        }.onFailure { error ->
+            PushStateHolder.reportError(
+                "Conversation was marked read locally, but the Apple receipt failed: " +
+                    (error.message ?: error.javaClass.simpleName),
+            )
+        }
+    }
+}
+
 /** Rust-backed tapback, edit, and undo-send operations with local echoes. */
 private object CoreMessageActions : MessageActions {
     override suspend fun react(
@@ -928,6 +971,25 @@ internal fun sendConversation(chat: Chat, afterGuid: String?, sender: String? = 
     senderGuid = chat.guid,
     afterGuid = afterGuid ?: chat.guid,
 )
+
+/**
+ * Public direct-chat receipts reach the peer and our devices. Private direct
+ * receipts, group receipts, and carrier-chat receipts target only our
+ * registered handle, matching the legacy client.
+ */
+internal fun readReceiptConversation(
+    chat: Chat,
+    sender: String,
+    messageGuid: String,
+    notifyOthers: Boolean,
+): UConversation {
+    val conversation = sendConversation(chat, messageGuid, sender)
+    return if (!notifyOthers || conversation.participants.size > 2) {
+        conversation.copy(participants = listOf(sender))
+    } else {
+        conversation
+    }
+}
 
 private fun sendConversation(store: BoxStore, chat: Chat, sender: String? = null): UConversation {
     val anchor = store.boxFor(Message::class.java)

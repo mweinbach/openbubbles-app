@@ -65,4 +65,62 @@ class SendRoutingTest {
 
         assertEquals("new-chat-guid", sendConversation(chat, null).afterGuid)
     }
+
+    @Test
+    fun `direct read receipt includes peer and sending handle`() {
+        val chat = Chat().apply {
+            guid = "direct-guid"
+            handles.add(Handle().apply { address = "friend@icloud.com" })
+        }
+
+        val conversation = readReceiptConversation(
+            chat,
+            "mailto:me@icloud.com",
+            "latest",
+            notifyOthers = true,
+        )
+
+        assertEquals(
+            listOf("mailto:friend@icloud.com", "mailto:me@icloud.com"),
+            conversation.participants,
+        )
+        assertEquals("latest", conversation.afterGuid)
+    }
+
+    @Test
+    fun `group read receipt targets only own devices`() {
+        val chat = Chat().apply {
+            guid = "group-guid"
+            handles.add(Handle().apply { address = "one@icloud.com" })
+            handles.add(Handle().apply { address = "two@icloud.com" })
+        }
+
+        val conversation = readReceiptConversation(
+            chat,
+            "mailto:me@icloud.com",
+            "latest",
+            notifyOthers = true,
+        )
+
+        assertEquals(listOf("mailto:me@icloud.com"), conversation.participants)
+        assertEquals("group-guid", conversation.senderGuid)
+        assertEquals("latest", conversation.afterGuid)
+    }
+
+    @Test
+    fun `private direct read receipt targets only own devices`() {
+        val chat = Chat().apply {
+            guid = "direct-guid"
+            handles.add(Handle().apply { address = "friend@icloud.com" })
+        }
+
+        val conversation = readReceiptConversation(
+            chat,
+            "mailto:me@icloud.com",
+            "latest",
+            notifyOthers = false,
+        )
+
+        assertEquals(listOf("mailto:me@icloud.com"), conversation.participants)
+    }
 }

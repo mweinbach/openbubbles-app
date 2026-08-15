@@ -8,6 +8,7 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.TypingEntry
 import app.openbubbles.nativeapp.data.TypingRepository
@@ -103,6 +104,7 @@ class ChatViewModelTest {
         actions: MessageActions,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
+        readReceiptSender: ReadReceiptSender = ReadReceiptSender { },
     ) = ChatViewModel(
         chatId = 7L,
         chatListRepository = StaticChats,
@@ -111,6 +113,7 @@ class ChatViewModelTest {
         messageActions = actions,
         attachmentSender = attachmentSender,
         typingRepository = NoopTyping,
+        readReceiptSender = readReceiptSender,
         smsRouter = { _, _ -> false },
         smsAttachmentRouter = smsAttachmentRouter,
     )

@@ -23,6 +23,9 @@ already-completed mechanical cutover.
 - [x] SIM-chat attachments route through Android carrier MMS rather than MMCS.
 - [x] The manifest qualifies for Android's default-SMS role and Settings exposes
       the role needed for carrier MMS download/ingest.
+- [x] Opening a chat, notification reply, and notification mark-read clear the
+      local unread state and emit correctly routed private/public Apple read
+      receipts according to the user's privacy setting.
 
 ## Android device acceptance
 

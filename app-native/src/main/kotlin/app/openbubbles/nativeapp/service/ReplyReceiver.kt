@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
-import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -112,7 +111,7 @@ class ReplyReceiver : BroadcastReceiver() {
             PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
         }
 
-        runCatching { ChatRepo(store).markRead(chatId) }
+        runCatching { CoreGraph.readReceipts.markRead(chatId) }
         Notifications.cancelForChat(context, chatId)
         Notifications.postReplySent(
             context,

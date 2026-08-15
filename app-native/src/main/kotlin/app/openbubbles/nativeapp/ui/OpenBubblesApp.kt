@@ -184,6 +184,7 @@ fun OpenBubblesApp(
                         AppGraph.messageActions,
                         AppGraph.attachmentSender,
                         AppGraph.typing,
+                        AppGraph.readReceipts,
                     ),
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()

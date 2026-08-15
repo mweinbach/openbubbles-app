@@ -12,6 +12,7 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
@@ -78,14 +79,16 @@ class ChatViewModel(
     private val messageActions: MessageActions,
     private val attachmentSender: AttachmentSender,
     typingRepository: TypingRepository,
+    private val readReceiptSender: ReadReceiptSender,
     private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
     private val smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean =
         SmsBridge::routeAttachmentIfSmsChat,
 ) : ViewModel() {
 
     init {
-        // Opening a conversation clears its unread badge.
-        chatListRepository.markRead(chatId)
+        // Opening a conversation clears its unread badge and mirrors the
+        // receipt to Apple/the user's other devices when connected.
+        viewModelScope.launch { readReceiptSender.markRead(chatId) }
     }
 
     private val input = MutableStateFlow("")
@@ -279,6 +282,7 @@ class ChatViewModel(
             messageActions: MessageActions,
             attachmentSender: AttachmentSender,
             typingRepository: TypingRepository,
+            readReceiptSender: ReadReceiptSender,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatViewModel(
@@ -289,6 +293,7 @@ class ChatViewModel(
                     messageActions,
                     attachmentSender,
                     typingRepository,
+                    readReceiptSender,
                 )
             }
         }
