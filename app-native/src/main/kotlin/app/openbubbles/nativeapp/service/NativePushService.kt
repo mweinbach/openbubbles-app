@@ -74,8 +74,7 @@ class NativePushService : Service(), MsgReceiver {
             runInterruptible(Dispatchers.IO) {
                 uniffiEnsureInitialized()
                 if (!booted) {
-                    start(dir, SimpleFilePackager(), NoopWifiCallback())
-                    setupKeystore(dir, AndroidNativeKeystore(this@NativePushService))
+                    app.openbubbles.nativeapp.data.RustBoot.ensureStarted(this@NativePushService, dir)
                     booted = true
                 }
                 initNative(dir, null, this@NativePushService)
