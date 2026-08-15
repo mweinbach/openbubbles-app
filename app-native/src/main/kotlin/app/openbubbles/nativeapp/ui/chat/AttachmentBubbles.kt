@@ -86,12 +86,17 @@ fun AttachmentContent(
         )
         attachment.isVideo -> VideoAttachmentBubble(
             attachment = attachment,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
             modifier = modifier,
             shape = effectiveShape,
         )
         else -> FileAttachmentRow(
             attachment = attachment,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
+            onDownloadAttachment = onDownloadAttachment,
             modifier = modifier,
             shape = effectiveShape,
         )
@@ -138,32 +143,40 @@ private fun ImageAttachmentBubble(
                 attachment = attachment,
                 onDownloadAttachment = onDownloadAttachment,
                 icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                showDownload = file == null,
             )
         }
     }
 }
 
-/** Video poster placeholder — playback lands with a later milestone. */
+/** Video tile; tapping a local payload opens the system media player. */
 @Composable
 private fun VideoAttachmentBubble(
     attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
+    val file = remember(attachment.guid, attachment.downloaded) {
+        attachmentFile(attachment.guid)
+    }
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
-            .aspectRatio(FallbackAspectRatio),
+            .aspectRatio(FallbackAspectRatio)
+            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AttachmentPlaceholder(
                 attachment = attachment,
                 onDownloadAttachment = onDownloadAttachment,
                 icon = Icons.Filled.VideoFile,
+                showDownload = file == null,
             )
             Surface(
                 shape = CircleShape,
@@ -183,17 +196,25 @@ private fun VideoAttachmentBubble(
     }
 }
 
-/** Generic file row: mime icon, transfer name, size. Tap is a no-op for now. */
+/** Generic file row: tap opens local files; missing payloads can download. */
 @Composable
 private fun FileAttachmentRow(
     attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
+    val file = remember(attachment.guid, attachment.downloaded) {
+        attachmentFile(attachment.guid)
+    }
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.widthIn(max = ImageBubbleMaxWidth),
+        modifier = modifier
+            .widthIn(max = ImageBubbleMaxWidth)
+            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -222,6 +243,13 @@ private fun FileAttachmentRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (file == null) {
+                    DownloadChip(
+                        attachment = attachment,
+                        onDownload = onDownloadAttachment,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         }
     }
@@ -233,6 +261,7 @@ private fun AttachmentPlaceholder(
     attachment: AttachmentMeta,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     icon: ImageVector,
+    showDownload: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -267,7 +296,7 @@ private fun AttachmentPlaceholder(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (!attachment.downloaded) {
+            if (showDownload) {
                 DownloadChip(attachment = attachment, onDownload = onDownloadAttachment)
             }
         }

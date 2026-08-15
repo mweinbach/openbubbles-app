@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.attachmentviewer
 
 import android.content.res.Configuration
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -21,7 +22,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -68,6 +73,7 @@ fun AttachmentViewerScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val meta = remember(guid) { provider.byGuid(guid) }
     // Disk presence beats the persisted flag (same rule as the bubble).
     val file = remember(guid) { provider.localFile(guid) }
@@ -102,8 +108,24 @@ fun AttachmentViewerScreen(
     ) {
         val content: @Composable () -> Unit = when {
             meta == null -> { { ViewerMessage("Attachment not found") } }
-            !meta.isImage -> { { ViewerMessage("${meta.name ?: "Attachment"} — preview not available yet") } }
             file == null -> { { ViewerMessage("${meta.name ?: "Attachment"} — not downloaded yet") } }
+            !meta.isImage -> {
+                {
+                    ExternalAttachmentActions(
+                        name = meta.name,
+                        onOpen = {
+                            if (!openAttachmentExternally(context, file, meta.mime)) {
+                                Toast.makeText(context, "No app can open this attachment", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onShare = {
+                            if (!shareAttachment(context, file, meta.mime)) {
+                                Toast.makeText(context, "Unable to share this attachment", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+            }
             else -> {
                 {
                     val decoded = rememberDecodedImage(file = file, maxDimensionPx = 2048)
@@ -135,6 +157,13 @@ fun AttachmentViewerScreen(
             title = meta?.name,
             subtitle = formatBytes(meta?.sizeBytes),
             onBack = onBack,
+            onShare = if (file == null) null else {
+                {
+                    if (!shareAttachment(context, file, meta?.mime)) {
+                        Toast.makeText(context, "Unable to share this attachment", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
         )
     }
 }
@@ -145,6 +174,7 @@ private fun ViewerChrome(
     title: String?,
     subtitle: String,
     onBack: () -> Unit,
+    onShare: (() -> Unit)?,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -166,7 +196,11 @@ private fun ViewerChrome(
                     tint = Color.White,
                 )
             }
-            Column(modifier = Modifier.padding(end = 16.dp)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+            ) {
                 Text(
                     text = title ?: "Attachment",
                     style = MaterialTheme.typography.titleMedium,
@@ -181,6 +215,63 @@ private fun ViewerChrome(
                         color = Color.White.copy(alpha = 0.7f),
                     )
                 }
+            }
+            if (onShare != null) {
+                IconButton(onClick = onShare) {
+                    Icon(
+                        imageVector = Icons.Filled.Share,
+                        contentDescription = "Share attachment",
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalAttachmentActions(
+    name: String?,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp),
+    ) {
+        Surface(
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = Color.White.copy(alpha = 0.12f),
+            modifier = Modifier.size(72.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+        Text(
+            text = name ?: "Attachment",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
+        )
+        Row {
+            Button(onClick = onOpen) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                Text("Open", modifier = Modifier.padding(start = 6.dp))
+            }
+            Button(
+                onClick = onShare,
+                modifier = Modifier.padding(start = 10.dp),
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = null)
+                Text("Share", modifier = Modifier.padding(start = 6.dp))
             }
         }
     }
