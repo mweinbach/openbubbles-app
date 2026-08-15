@@ -1,8 +1,10 @@
 package app.openbubbles.core.intake
 
+import app.openbubbles.core.model.DeleteMessageCommand
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageSummaryPartList
 import app.openbubbles.core.model.addMessageSummaryPart
+import app.openbubbles.core.model.decodeDeleteMessageCommand
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -142,6 +144,9 @@ class MessageIngestor(
                 m.wasDeliveredQuietly = false
                 messageBox.put(m)
             }
+            is UMessage.MoveToRecycleBin -> return handleMoveToRecycleBin(inst, msg, myHandles)
+            is UMessage.RecoverChat -> return handleRecoverChat(inst, msg, myHandles)
+            is UMessage.PermanentDelete -> return handlePermanentDelete(inst, msg, myHandles)
             // MessageReadOnDevice / EnableSmsActivation / profile & extension
             // updates / deletions ride on later batches.
             else -> Unit
@@ -303,6 +308,144 @@ class MessageIngestor(
         )
         messageBox.put(target)
         return target.chat.target
+    }
+
+    private fun handleMoveToRecycleBin(
+        inst: UMessageInst,
+        move: UMessage.MoveToRecycleBin,
+        myHandles: Set<String>,
+    ): Chat? {
+        if (inst.verificationFailed) return null
+        val command = decodeDeleteMessageCommand(move.json)
+        val deletedAt = java.util.Date(command.recoverableDeleteDateMs ?: inst.sentTimestamp.toLong())
+        if (command.messageGuids.isNotEmpty()) {
+            val affected = linkedSetOf<Chat>()
+            store.runInTx {
+                command.messageGuids.forEach { guid ->
+                    findMessageByGuidOrStaging(guid)?.let { message ->
+                        message.dateDeleted = deletedAt
+                        messageBox.put(message)
+                        message.chat.target?.let(affected::add)
+                    }
+                }
+                affected.forEach(::refreshChatLatest)
+            }
+            return affected.firstOrNull()
+        }
+
+        val chat = findOperatedChat(command, myHandles) ?: return null
+        store.runInTx {
+            chat.dateDeleted = deletedAt
+            chat.hasUnreadMessage = false
+            chat.messages.forEach { message ->
+                message.dateDeleted = deletedAt
+                messageBox.put(message)
+            }
+            refreshChatLatest(chat)
+        }
+        return chat
+    }
+
+    private fun handleRecoverChat(
+        inst: UMessageInst,
+        recover: UMessage.RecoverChat,
+        myHandles: Set<String>,
+    ): Chat? {
+        if (inst.verificationFailed) return null
+        val chat = findOperatedChat(decodeDeleteMessageCommand(recover.json), myHandles) ?: return null
+        store.runInTx {
+            chat.dateDeleted = null
+            chat.messages.forEach { message ->
+                message.dateDeleted = null
+                messageBox.put(message)
+            }
+            refreshChatLatest(chat)
+        }
+        return chat
+    }
+
+    private fun handlePermanentDelete(
+        inst: UMessageInst,
+        delete: UMessage.PermanentDelete,
+        myHandles: Set<String>,
+    ): Chat? {
+        if (inst.verificationFailed) return null
+        val command = decodeDeleteMessageCommand(delete.json)
+        if (command.messageGuids.isNotEmpty()) {
+            val affected = linkedSetOf<Chat>()
+            store.runInTx {
+                command.messageGuids.forEach { guid ->
+                    findMessageByGuidOrStaging(guid)?.let { message ->
+                        message.chat.target?.let(affected::add)
+                        message.dbAttachments.toList().forEach(attachmentBox::remove)
+                        messageBox.remove(message)
+                    }
+                }
+                affected.forEach(::refreshChatLatest)
+            }
+            return affected.firstOrNull()
+        }
+
+        val chat = findOperatedChat(command, myHandles) ?: return null
+        store.runInTx {
+            if (chat.dateDeleted != null) {
+                chat.messages.toList().forEach { message ->
+                    message.dbAttachments.toList().forEach(attachmentBox::remove)
+                    messageBox.remove(message)
+                }
+                chatBox.remove(chat)
+            } else {
+                chat.messages.filter { it.dateDeleted != null }.forEach { message ->
+                    message.dbAttachments.toList().forEach(attachmentBox::remove)
+                    messageBox.remove(message)
+                }
+                refreshChatLatest(chat)
+            }
+        }
+        return chat
+    }
+
+    private fun findOperatedChat(command: DeleteMessageCommand, myHandles: Set<String>): Chat? {
+        command.chatGuid?.let { guid ->
+            chatBox.query().equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }?.let { return it }
+        }
+        command.groupId?.let { groupId ->
+            chatBox.query()
+                .containsElement(Chat_.guidRefs, groupId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }?.let { return it }
+        }
+        if (command.participants.isEmpty()) return null
+        val rustParticipants = command.participants.map { participant ->
+            if (participant.startsWith("tel:") || participant.startsWith("mailto:")) {
+                participant
+            } else {
+                MessageMapper.toRustHandle(participant)
+            }
+        }
+        return findByRust(
+            UConversation(
+                participants = rustParticipants,
+                cvName = null,
+                senderGuid = command.groupId,
+                afterGuid = null,
+            ),
+            if (command.chatGuid?.startsWith("SMS") == true) "SMS" else "iMessage",
+            myHandles,
+            createIfMissing = false,
+        )
+    }
+
+    private fun refreshChatLatest(chat: Chat) {
+        val latest = messageBox.query()
+            .equal(Message_.chatId, chat.id)
+            .isNull(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .build().use { it.findFirst() }
+        chat.dbLatestMessage.target = latest
+        chat.dbOnlyLatestMessageDate = latest?.dateCreated
+        if (latest == null) chat.hasUnreadMessage = false
+        chatBox.put(chat)
     }
 
     private fun handleSendConfirm(uuid: String, error: String?) {

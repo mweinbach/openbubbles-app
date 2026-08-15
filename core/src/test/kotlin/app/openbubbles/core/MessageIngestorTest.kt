@@ -726,6 +726,72 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `recycle and recover events update transcript and latest message`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("older", friend, "older", timestamp = 1_700_000_000_000uL)), myHandles)
+        ingestor.ingest(push(textInst("newer", friend, "newer", timestamp = 1_700_000_100_000uL)), myHandles)
+        val chat = chatBox().all.single()
+        val recycle = UMessageInst(
+            id = "recycle-event",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.MoveToRecycleBin(
+                """{"MoveToRecycleBin":{"target":{"Messages":["newer"]},"recoverable_delete_date":1700000200000}}""",
+            ),
+            sentTimestamp = 1_700_000_200_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(recycle), myHandles)
+
+        assertNotNull(messageByGuid("newer")?.dateDeleted)
+        assertEquals(listOf("older"), messageRepo.messages(chat.id).map { it.guid })
+        assertEquals("older", chatBox().get(chat.id).dbLatestMessage.target?.guid)
+
+        chatBox().get(chat.id).let { recycledChat ->
+            recycledChat.dateDeleted = java.util.Date(1_700_000_200_000L)
+            chatBox().put(recycledChat)
+        }
+        val recover = UMessageInst(
+            id = "recover-event",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.RecoverChat(
+                """{"RecoverChat":{"ptcpts":["friend@icloud.com"],"groupID":"${chat.guid}","guid":"${chat.guid}"}}""",
+            ),
+            sentTimestamp = 1_700_000_300_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(recover), myHandles)
+
+        assertNull(chatBox().get(chat.id).dateDeleted)
+        assertNull(messageByGuid("newer")?.dateDeleted)
+        assertEquals("newer", chatBox().get(chat.id).dbLatestMessage.target?.guid)
+    }
+
+    @Test
+    fun `permanent delete removes selected message`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("delete-me", friend, "gone")), myHandles)
+        val delete = UMessageInst(
+            id = "permanent-event",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.PermanentDelete(
+                """{"PermanentDelete":{"target":{"Messages":["delete-me"]},"is_scheduled":false}}""",
+            ),
+            sentTimestamp = 1_700_000_400_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(delete), myHandles)
+
+        assertNull(messageByGuid("delete-me"))
+    }
+
+    @Test
     fun `markRead clears unread and count`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("msg-1", friend, "unread one", timestamp = 1_700_000_000_000uL)), myHandles)
         ingestor.ingest(push(textInst("msg-2", friend, "unread two", timestamp = 1_700_000_500_000uL)), myHandles)
