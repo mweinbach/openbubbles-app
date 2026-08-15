@@ -56,10 +56,14 @@ jobs:
       - name: Point the native build at the SDK
         run: echo "sdk.dir=$ANDROID_HOME" > native/local.properties
 
-      - name: DB tests + model parity + APK
+      - name: Rust library tests
+        run: cargo test --manifest-path rustpush/Cargo.toml --lib --locked
+
+      - name: Native JVM tests + model parity + APK
         run: |
           cd native
-          ./gradlew :db:test :db:checkModelParity :app-native:assembleDebug --console=plain
+          ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+            :db:checkModelParity :app-native:assembleDebug --console=plain
 
       - uses: actions/upload-artifact@v4
         with:

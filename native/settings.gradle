@@ -1,7 +1,4 @@
 // Gradle root for the native (no-Dart) OpenBubbles clients: Android + desktop.
-// Deliberately a separate build from android/ (the Flutter app) so the two
-// coexist without the Flutter Gradle plugin touching these modules; they share
-// only the rust/ crate and the Android SDK.
 pluginManagement {
     repositories {
         google()
@@ -27,6 +24,13 @@ plugins {
     id "org.jetbrains.kotlin.plugin.compose" version "2.1.0" apply false
     id "org.jetbrains.compose" version "1.8.2" apply false
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+if (JavaVersion.current() != JavaVersion.VERSION_21) {
+    throw new GradleException(
+        "OpenBubbles native builds require JDK 21; current runtime is ${JavaVersion.current()}. " +
+        "Set JAVA_HOME to a JDK 21 installation and retry."
+    )
 }
 
 include ":shared"
