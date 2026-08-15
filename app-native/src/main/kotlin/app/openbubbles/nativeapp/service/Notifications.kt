@@ -81,6 +81,7 @@ object Notifications {
         title: String,
         text: String,
         isGroup: Boolean,
+        senderName: String? = null,
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
@@ -147,7 +148,9 @@ object Notifications {
                     // message is always appended as the newest message.
                     history = if (hide) emptyList() else readHistory(chatId, text),
                     currentText = shownText,
-                    currentSenderPerson = null, // incoming: the chat person renders it
+                    currentSenderPerson = senderName?.takeIf { isGroup }?.let {
+                        Person.Builder().setName(it).build()
+                    },
                     currentFromMe = false,
                 ),
             )

@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CoroutineScope
@@ -205,7 +206,7 @@ class NativePushService : Service(), MsgReceiver {
             chatGuid = guid,
             title = title,
             text = body,
-            isGroup = chat.handles.size > 2,
+            isGroup = chat.isGroupConversation(),
         )
     }
 
@@ -232,17 +233,36 @@ class NativePushService : Service(), MsgReceiver {
             getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
         ) return
 
+        val isGroup = target.isGroupConversation()
+        val senderName = target.handles
+            .firstOrNull { handle ->
+                handle.address == inst.sender
+                    ?.removePrefix("tel:")
+                    ?.removePrefix("mailto:")
+            }
+            ?.let { it.formattedAddress ?: it.address }
+            ?: inst.sender?.removePrefix("tel:")?.removePrefix("mailto:")
+        val chatTitle = if (isGroup) {
+            target.displayName
+                ?: target.apnTitle
+                ?: target.title
+                ?: target.handles.joinToString(", ") { it.formattedAddress ?: it.address }
+                    .ifBlank { "Group" }
+        } else {
+            target.displayName
+                ?: target.handles.firstOrNull()?.let { it.formattedAddress ?: it.address }
+                ?: senderName
+                ?: "Message"
+        }
+
         Notifications.postIncoming(
             context = this,
             chatId = target.id,
             chatGuid = target.guid ?: return,
-            title = if (target.handles.size > 2) {
-                inst.sender ?: "Message"
-            } else {
-                target.displayName ?: inst.sender ?: "Message"
-            },
+            title = chatTitle,
             text = body,
-            isGroup = target.handles.size > 2,
+            isGroup = isGroup,
+            senderName = senderName,
         )
     }
 
