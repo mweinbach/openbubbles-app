@@ -751,12 +751,12 @@ private object CoreSender : Sender {
         val chatBox = store.boxFor(Chat::class.java)
         val messageBox = store.boxFor(Message::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
-        val conversation = sendConversation(store, chat)
 
         val pushState = PushStateHolder.state
         val myHandle = sendingHandle(chat)
             ?: if (pushState == null) chat.usingHandle else null
             ?: error("no registered sending handle")
+        val conversation = sendConversation(store, chat, myHandle)
 
         val tempGuid = MessageIngestor.tempGuid()
         graphMessageStage(store, chat.guid, myHandle, text, tempGuid).let { staged ->
@@ -881,7 +881,7 @@ private object CoreMessageActions : MessageActions {
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
         check(chat.isRpSms != true) { "iMessage actions are unavailable for SMS" }
         val sender = sendingHandle(chat) ?: error("no registered sending handle")
-        return MessageActionContext(state, sendConversation(store, chat), sender, ingestor)
+        return MessageActionContext(state, sendConversation(store, chat, sender), sender, ingestor)
     }
 }
 
@@ -915,16 +915,17 @@ internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.my
  * latest confirmed message anchor on every send. Without these fields Rust
  * creates a new sender guid, which can split group conversations.
  */
-internal fun sendConversation(chat: Chat, afterGuid: String?): UConversation = UConversation(
-    participants = chat.handles
-        .map { MessageMapper.toRustHandle(it.address) }
-        .distinct(),
+internal fun sendConversation(chat: Chat, afterGuid: String?, sender: String? = null): UConversation = UConversation(
+    participants = buildList {
+        addAll(chat.handles.map { MessageMapper.toRustHandle(it.address) })
+        sender?.let { add(MessageMapper.toRustHandle(MessageMapper.normalizeAddress(it))) }
+    }.distinct(),
     cvName = chat.apnTitle ?: chat.displayName,
     senderGuid = chat.guid,
     afterGuid = afterGuid ?: chat.guid,
 )
 
-private fun sendConversation(store: BoxStore, chat: Chat): UConversation {
+private fun sendConversation(store: BoxStore, chat: Chat, sender: String? = null): UConversation {
     val anchor = store.boxFor(Message::class.java)
         .query()
         .equal(Message_.chatId, chat.id)
@@ -935,7 +936,7 @@ private fun sendConversation(store: BoxStore, chat: Chat): UConversation {
                 it.contains("temp") || it.contains("error")
             }
         }
-    return sendConversation(chat, anchor)
+    return sendConversation(chat, anchor, sender)
 }
 
 /** Unused today; reserved for the login flow (M1.e) to name new sessions. */
@@ -955,7 +956,7 @@ internal object CoreGroupOps {
             val chat = st.boxFor(Chat::class.java).get(chatId)
                 ?: error("no chat $chatId")
             val myHandle = sendingHandle(chat) ?: error("no registered sending handle")
-            val conversation = sendConversation(st, chat)
+            val conversation = sendConversation(st, chat, myHandle)
             pushState.leaveChat(
                 conversation,
                 myHandle,
@@ -1006,12 +1007,12 @@ internal object CoreAttachmentSender : AttachmentSender {
         val messageBox = store.boxFor(Message::class.java)
         val attachmentBox = store.boxFor(Attachment::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
-        val conversation = sendConversation(store, chat)
 
         val pushState = PushStateHolder.state
         val myHandle = sendingHandle(chat)
             ?: if (pushState == null) chat.usingHandle else null
             ?: error("no registered sending handle")
+        val conversation = sendConversation(store, chat, myHandle)
 
         val tempGuid = MessageIngestor.tempGuid()
         val attachmentGuid = "${tempGuid}_att0"

@@ -45,6 +45,21 @@ class SendRoutingTest {
     }
 
     @Test
+    fun `conversation includes the registered sending handle`() {
+        val chat = Chat().apply {
+            guid = "stable-group-guid"
+            handles.add(Handle().apply { address = "friend@icloud.com" })
+        }
+
+        val conversation = sendConversation(chat, "latest-message-guid", "mailto:me@icloud.com")
+
+        assertEquals(
+            listOf("mailto:friend@icloud.com", "mailto:me@icloud.com"),
+            conversation.participants,
+        )
+    }
+
+    @Test
     fun `conversation falls back to chat guid when history is empty`() {
         val chat = Chat().apply { guid = "new-chat-guid" }
 
