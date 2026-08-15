@@ -36,16 +36,32 @@ class RustLoginHandle(
             session ?: createLoginSession(path, Delegate()).also { session = it }
         }
 
+    /**
+     * A failed Rust call may have panicked mid-step and poisoned the session
+     * lock ("login session lock poisoned" on every retry). Drop the session
+     * after any failure so the next attempt starts fresh from disk state.
+     */
+    private fun <T> withSession(block: (ULoginSession) -> T): T {
+        val current = session()
+        return try {
+            block(current)
+        } catch (e: Throwable) {
+            runCatching { current.close() }
+            synchronized(lock) { session = null }
+            throw e
+        }
+    }
+
     override suspend fun savedUsername(): String? = savedLoginUsername(path)
 
     override suspend fun login(username: String?, password: String?): LoginUiState =
-        session().login(username, password).toUiState()
+        withSession { it.login(username, password) }.toUiState()
 
     override suspend fun submitDeviceCode(code: String): LoginUiState =
-        session().submit2faCode(code).toUiState()
+        withSession { it.submit2faCode(code) }.toUiState()
 
     override suspend fun smsPhoneOptions(): List<SmsPhoneOption> =
-        session().getSmsPhoneOptions().map { phone ->
+        withSession { it.getSmsPhoneOptions() }.map { phone ->
             SmsPhoneOption(
                 id = phone.id,
                 label = "Phone ending in ${phone.lastTwoDigits}",
@@ -53,18 +69,18 @@ class RustLoginHandle(
         }
 
     override suspend fun chooseSmsPhone(id: UInt): LoginUiState =
-        session().chooseSmsPhone(id).toUiState()
+        withSession { it.chooseSmsPhone(id) }.toUiState()
 
     override suspend fun requestSmsFallback(): LoginUiState =
-        session().requestSmsFallback().toUiState()
+        withSession { it.requestSmsFallback() }.toUiState()
 
-    override suspend fun updateAccountPage(): String = session().getUpdateAccountPage()
+    override suspend fun updateAccountPage(): String = withSession { it.getUpdateAccountPage() }
 
     override suspend fun completeUpdateAccount(): LoginUiState =
-        session().completeUpdateAccount().toUiState()
+        withSession { it.completeUpdateAccount() }.toUiState()
 
     override suspend fun register(): RegisterResult =
-        when (val result = session().register()) {
+        when (val result = withSession { it.register() }) {
             URegistrationResult.Registered -> RegisterResult.Registered
             is URegistrationResult.AppleBlocked -> RegisterResult.Blocked(
                 title = result.title,
