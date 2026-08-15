@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -302,6 +303,7 @@ class NativePushService : Service(), MsgReceiver {
     private fun notifyIncoming(decoded: UPushMessage, chat: app.openbubbles.db.Chat?) {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
+        if (inst.message is UMessage.React && !NotifPrefs(this).notifyReactions) return
         val body = notificationPreview(inst) ?: return
         val target = chat ?: return
         if (app.openbubbles.core.model.ChatMute.shouldMute(

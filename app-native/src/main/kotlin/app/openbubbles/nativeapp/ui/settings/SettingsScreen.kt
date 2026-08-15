@@ -497,6 +497,7 @@ fun SettingsScreen(
                 val notifPrefs = remember { NotifPrefs(context) }
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
+                var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
                 SwitchSettingRow(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
@@ -515,6 +516,16 @@ fun SettingsScreen(
                     onCheckedChange = { enabled ->
                         replyEnabled = enabled
                         notifPrefs.replyEnabled = enabled
+                    },
+                )
+                SwitchSettingRow(
+                    title = "Reaction notifications",
+                    supporting = "Notify when someone reacts to a message",
+                    icon = Icons.Filled.NotificationsActive,
+                    checked = notifyReactions,
+                    onCheckedChange = { enabled ->
+                        notifyReactions = enabled
+                        notifPrefs.notifyReactions = enabled
                     },
                 )
             }

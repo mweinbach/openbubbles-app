@@ -26,6 +26,8 @@ already-completed mechanical cutover.
 - [x] Opening a chat, notification reply, and notification mark-read clear the
       local unread state and emit correctly routed private/public Apple read
       receipts according to the user's privacy setting.
+- [x] Incoming tapbacks/custom reactions post readable notifications and honor
+      the reaction-notification preference.
 
 ## Android device acceptance
 

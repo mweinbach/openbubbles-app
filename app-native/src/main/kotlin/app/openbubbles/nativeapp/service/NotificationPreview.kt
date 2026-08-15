@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.service
 
+import app.openbubbles.core.model.MessageMapper
 import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UMessageInst
 import uniffi.rust_lib_bluebubbles.UPart
@@ -12,7 +13,8 @@ import uniffi.rust_lib_bluebubbles.UPart
  * matching the old app for multipart messages.
  */
 internal fun notificationPreview(inst: UMessageInst): String? {
-    val normal = inst.message as? UMessage.Normal ?: return null
+    val normal = inst.message as? UMessage.Normal
+        ?: return (inst.message as? UMessage.React)?.let(::reactionPreview)
     val attachments = normal.parts.mapNotNull { indexed ->
         (indexed.part as? UPart.Attachment)
             ?.takeUnless { it.iris || it.mime == "application/smil" }
@@ -27,6 +29,45 @@ internal fun notificationPreview(inst: UMessageInst): String? {
             is UPart.Object -> ""
         }
     }.trim().ifEmpty { null }
+}
+
+/** Legacy-style tapback summary used by reaction notifications. */
+private fun reactionPreview(reaction: UMessage.React): String? {
+    val (rawType, emoji) = MessageMapper.parseReaction(reaction.reactionJson)
+    val type = rawType ?: return null
+    if (type == "meta") return null
+    val removed = type.startsWith("-")
+    val base = type.removePrefix("-")
+    val verb = if (removed) {
+        when (base) {
+            MessageMapper.REACTION_LOVE -> "Removed a heart from"
+            MessageMapper.REACTION_LIKE -> "Removed a like from"
+            MessageMapper.REACTION_DISLIKE -> "Removed a dislike from"
+            MessageMapper.REACTION_LAUGH -> "Removed a laugh from"
+            MessageMapper.REACTION_EMPHASIZE -> "Removed an exclamation from"
+            MessageMapper.REACTION_QUESTION -> "Removed a question mark from"
+            MessageMapper.REACTION_EMOJI -> "Removed ${emoji.orEmpty()} from"
+            MessageMapper.REACTION_STICKER,
+            MessageMapper.REACTION_STICKERBACK,
+            -> "Removed a sticker from"
+            else -> return null
+        }
+    } else {
+        when (base) {
+            MessageMapper.REACTION_LOVE -> "Loved"
+            MessageMapper.REACTION_LIKE -> "Liked"
+            MessageMapper.REACTION_DISLIKE -> "Disliked"
+            MessageMapper.REACTION_LAUGH -> "Laughed at"
+            MessageMapper.REACTION_EMPHASIZE -> "Emphasized"
+            MessageMapper.REACTION_QUESTION -> "Questioned"
+            MessageMapper.REACTION_EMOJI -> "Reacted ${emoji.orEmpty()} to"
+            MessageMapper.REACTION_STICKER,
+            MessageMapper.REACTION_STICKERBACK,
+            -> "Reacted with a sticker to"
+            else -> return null
+        }
+    }
+    return "$verb “${reaction.toText}”"
 }
 
 private fun attachmentSummary(attachments: List<UPart.Attachment>): String {

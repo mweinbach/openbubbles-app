@@ -65,6 +65,24 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `tapback notification names the reaction and target text`() {
+        assertEquals(
+            "Liked “the new photo”",
+            notificationPreview(reaction("{\"React\":{\"reaction\":\"Like\",\"enable\":true}}")),
+        )
+    }
+
+    @Test
+    fun `removed custom emoji notification remains readable`() {
+        assertEquals(
+            "Removed 🔥 from “the new photo”",
+            notificationPreview(
+                reaction("{\"React\":{\"reaction\":{\"Emoji\":\"🔥\"},\"enable\":false}}"),
+            ),
+        )
+    }
+
+    @Test
     fun `history removes matching newest row and preserves oldest`() {
         val rows = listOf("oldest", "middle", "current")
 
@@ -98,6 +116,21 @@ class NotificationPreviewTest {
             isSms = false,
             appJson = null,
             linkJson = null,
+        ),
+        sentTimestamp = 1_700_000_000_000uL,
+        sendDelivered = false,
+        verificationFailed = false,
+    )
+
+    private fun reaction(json: String) = UMessageInst(
+        id = "reaction-id",
+        sender = "mailto:friend@icloud.com",
+        conversation = null,
+        message = UMessage.React(
+            toUuid = "message-id",
+            toPart = null,
+            reactionJson = json,
+            toText = "the new photo",
         ),
         sentTimestamp = 1_700_000_000_000uL,
         sendDelivered = false,
