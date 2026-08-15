@@ -111,6 +111,26 @@ class MessageRepo(
         }
     }
 
+    /**
+     * Resolves a staged send into a visible retryable failure. There is no
+     * durable outbound queue in the native rewrite, so leaving a row in
+     * SENDING when the live push state is absent would strand it forever.
+     */
+    fun failOutgoing(stagingGuid: String, errorText: String): Message? = store.callInTx {
+        val message = messageBox.query()
+            .equal(Message_.guid, stagingGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?: messageBox.query()
+                .equal(Message_.stagingGuid, stagingGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+            ?: return@callInTx null
+        message.sendingServiceId = null
+        message.error = 1L
+        message.errorMessage = errorText.take(200)
+        messageBox.put(message)
+        message
+    }
+
     /** Delivery status for a bubble, mirroring `Message.indicatorToShow`. */
     fun statusOf(message: Message): MessageStatus {
         if (message.guid.startsWith("error") || message.error != null || message.errorMessage != null) {

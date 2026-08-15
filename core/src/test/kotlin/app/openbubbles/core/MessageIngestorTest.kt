@@ -332,6 +332,25 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `unavailable push state resolves staged send as failed`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "cannot send",
+            stagingGuid = "stg-offline",
+        )
+
+        val failed = messageRepo.failOutgoing("stg-offline", "Not connected to Apple push")
+
+        assertNotNull(failed)
+        assertNull(failed.sendingServiceId)
+        assertEquals(1L, failed.error)
+        assertEquals("Not connected to Apple push", failed.errorMessage)
+        assertEquals(app.openbubbles.core.model.MessageStatus.FAILED, messageRepo.statusOf(failed))
+    }
+
+    @Test
     fun `sms confirm promotes staging guid`() = runBlocking<Unit> {
         // Dart-convention staged row: temp guid + rust staging guid.
         val chat = chatForFixture()

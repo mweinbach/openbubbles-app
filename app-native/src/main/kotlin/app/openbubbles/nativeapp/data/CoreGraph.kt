@@ -689,17 +689,16 @@ private object CoreSender : Sender {
     override suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
-        val repo = graph.messages as? CoreMessageListRepository
-            ?: error("core message repo unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
 
         val chatBox = store.boxFor(Chat::class.java)
         val messageBox = store.boxFor(Message::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
 
-        val myHandle = PushStateHolder.myHandles.firstOrNull()
-            ?: chat.usingHandle
-            ?: "unknown-sender"
+        val pushState = PushStateHolder.state
+        val myHandle = sendingHandle(chat)
+            ?: if (pushState == null) chat.usingHandle else null
+            ?: error("no registered sending handle")
 
         val tempGuid = MessageIngestor.tempGuid()
         graphMessageStage(store, chat.guid, myHandle, text, tempGuid).let { staged ->
@@ -711,13 +710,13 @@ private object CoreSender : Sender {
             }
         }
 
-        val pushState = PushStateHolder.state
         if (pushState == null) {
-            // No live push state (not logged in): leave the bubble SENDING;
-            // the queue/SendConfirm path will resolve it once connected.
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(tempGuid, "Not connected to Apple push")
             return
         }
 
+        var failureLookupGuid = tempGuid
         try {
             val inst = runInterruptible(Dispatchers.IO) {
                 pushState.sendText(
@@ -733,6 +732,7 @@ private object CoreSender : Sender {
                     null, null, effectId, null,
                 )
             }
+            failureLookupGuid = inst.id
             // Promote the staged row to the Rust staging guid so the echo and
             // SendConfirm receipts find it (same swap Dart performs).
             store.runInTx {
@@ -748,17 +748,8 @@ private object CoreSender : Sender {
             }
             ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
         } catch (t: Throwable) {
-            store.runInTx {
-                val staged = messageBox.query()
-                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }
-                staged?.apply {
-                    sendingServiceId = null
-                    error = 1
-                    errorMessage = t.message?.take(200)
-                    messageBox.put(this)
-                }
-            }
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(failureLookupGuid, t.message ?: t.javaClass.simpleName)
         }
     }
 
@@ -781,6 +772,18 @@ private object CoreGraphStageHolder {
         repos.computeIfAbsent(store) { MessageRepo(it) }
 }
 
+/** Prefer the sender explicitly associated with this chat (legacy ensureHandle). */
+internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.myHandles): String? {
+    val preferred = chat.usingHandle
+    if (preferred != null) {
+        handles.firstOrNull { candidate ->
+            candidate == preferred ||
+                MessageMapper.normalizeAddress(candidate) == MessageMapper.normalizeAddress(preferred)
+        }?.let { return it }
+    }
+    return handles.firstOrNull()
+}
+
 /** Unused today; reserved for the login flow (M1.e) to name new sessions. */
 @Suppress("unused")
 private fun newStagingGuid(): String = UUID.randomUUID().toString().uppercase()
@@ -794,11 +797,10 @@ internal object CoreGroupOps {
         val st = CoreGraph.store ?: return Result.failure(IllegalStateException("store unavailable"))
         val pushState = PushStateHolder.state
             ?: return Result.failure(IllegalStateException("not connected"))
-        val myHandle = PushStateHolder.myHandles.firstOrNull()
-            ?: return Result.failure(IllegalStateException("no handles"))
         return runCatching {
             val chat = st.boxFor(Chat::class.java).get(chatId)
                 ?: error("no chat $chatId")
+            val myHandle = sendingHandle(chat) ?: error("no registered sending handle")
             val conversation = uniffi.rust_lib_bluebubbles.UConversation(
                 participants = chat.handles.map { it.address }.distinct(),
                 cvName = chat.displayName,
@@ -856,9 +858,10 @@ internal object CoreAttachmentSender : AttachmentSender {
         val attachmentBox = store.boxFor(Attachment::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
 
-        val myHandle = PushStateHolder.myHandles.firstOrNull()
-            ?: chat.usingHandle
-            ?: "unknown-sender"
+        val pushState = PushStateHolder.state
+        val myHandle = sendingHandle(chat)
+            ?: if (pushState == null) chat.usingHandle else null
+            ?: error("no registered sending handle")
 
         val tempGuid = MessageIngestor.tempGuid()
         val attachmentGuid = "${tempGuid}_att0"
@@ -901,13 +904,14 @@ internal object CoreAttachmentSender : AttachmentSender {
         }
         UploadProgressBoard.update(attachmentGuid, 0L to payload.length())
 
-        val pushState = PushStateHolder.state
         if (pushState == null) {
-            // Not connected: leave the bubble SENDING (same as CoreSender);
-            // the queue/SendConfirm path resolves it once connected.
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(tempGuid, "Not connected to Apple push")
+            UploadProgressBoard.clear(attachmentGuid)
             return
         }
 
+        var failureLookupGuid = tempGuid
         try {
             val inst = runInterruptible(Dispatchers.IO) {
                 pushState.sendAttachment(
@@ -934,6 +938,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                     },
                 )
             }
+            failureLookupGuid = inst.id
             // Promote to the Rust staging guid so the echo and SendConfirm
             // receipts find the row (same swap Dart performs).
             store.runInTx {
@@ -958,17 +963,8 @@ internal object CoreAttachmentSender : AttachmentSender {
                 disk.promoteLocalDirectory(attachmentGuid, realAttachmentGuid)
             }
         } catch (t: Throwable) {
-            store.runInTx {
-                messageBox.query()
-                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }
-                    ?.apply {
-                        sendingServiceId = null
-                        error = 1
-                        errorMessage = t.message?.take(200)
-                        messageBox.put(this)
-                    }
-            }
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(failureLookupGuid, t.message ?: t.javaClass.simpleName)
         } finally {
             UploadProgressBoard.clear(attachmentGuid)
         }

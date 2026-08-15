@@ -56,7 +56,7 @@ class ReplyReceiver : BroadcastReceiver() {
         val store = CoreGraph.store ?: return
         val pushState = PushStateHolder.state ?: return
         val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull() ?: return
-        val sender = PushStateHolder.myHandles.firstOrNull() ?: chat.usingHandle ?: return
+        val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: return
 
         val sent = runCatching {
             val inst = pushState.sendText(
