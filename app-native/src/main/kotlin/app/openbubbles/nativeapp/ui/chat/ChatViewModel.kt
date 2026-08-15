@@ -275,13 +275,14 @@ class ChatViewModel(
         if (wasEditing) input.value = ""
     }
 
-    fun react(message: MessageItem, reactionIndex: Int, emoji: String? = null) {
+    fun react(message: MessageItem, part: Long, reactionIndex: Int, emoji: String? = null) {
         viewModelScope.launch {
             runCatching {
                 messageActions.react(
                     chatId = chatId,
                     messageGuid = message.guid,
                     messageText = message.text,
+                    messagePart = part,
                     reactionIndex = reactionIndex,
                     emoji = emoji,
                 )

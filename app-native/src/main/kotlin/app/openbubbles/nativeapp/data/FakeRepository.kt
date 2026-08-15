@@ -404,6 +404,7 @@ object FakeMessageActions : MessageActions {
         chatId: Long,
         messageGuid: String,
         messageText: String,
+        messagePart: Long,
         reactionIndex: Int,
         emoji: String?,
         enable: Boolean,

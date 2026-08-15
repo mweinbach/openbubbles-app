@@ -122,12 +122,13 @@ class ChatViewModelTest {
         model.beginEdit(target)
         model.onInputChange("after")
         model.sendMessage()
-        model.react(target, 3)
+        model.react(target, 2L, 3)
         model.unsend(target)
         advanceUntilIdle()
 
         assertEquals(Triple(7L, "target", "after"), actions.edit)
         assertEquals(Triple("target", 3, "before"), actions.reaction)
+        assertEquals(2L, actions.reactionPart)
         assertEquals(7L to "target", actions.unsend)
     }
 
@@ -239,17 +240,22 @@ private class RecordingSender : Sender {
 private class RecordingActions : MessageActions {
     var edit: Triple<Long, String, String>? = null
     var reaction: Triple<String, Int, String>? = null
+    var reactionPart: Long? = null
+    var reactionEmoji: String? = null
     var unsend: Pair<Long, String>? = null
 
     override suspend fun react(
         chatId: Long,
         messageGuid: String,
         messageText: String,
+        messagePart: Long,
         reactionIndex: Int,
         emoji: String?,
         enable: Boolean,
     ) {
         reaction = Triple(messageGuid, reactionIndex, messageText)
+        reactionPart = messagePart
+        reactionEmoji = emoji
     }
 
     override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {

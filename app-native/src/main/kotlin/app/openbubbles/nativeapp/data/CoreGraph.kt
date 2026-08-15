@@ -993,18 +993,20 @@ private object CoreMessageActions : MessageActions {
         chatId: Long,
         messageGuid: String,
         messageText: String,
+        messagePart: Long,
         reactionIndex: Int,
         emoji: String?,
         enable: Boolean,
     ) {
         require(reactionIndex in 0..6) { "invalid reaction" }
+        require(reactionIndex != 6 || !emoji.isNullOrBlank()) { "custom reaction requires an emoji" }
         val (state, conversation, sender, ingestor) = actionContext(chatId)
         val inst = runInterruptible(Dispatchers.IO) {
             state.sendReaction(
                 conversation,
                 sender,
                 messageGuid,
-                0uL,
+                messagePart.toULong(),
                 reactionIndex.toULong(),
                 emoji,
                 messageText,

@@ -49,6 +49,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
@@ -69,6 +70,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,6 +108,7 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
@@ -130,6 +133,50 @@ private val ConversationContentMaxWidth = 840.dp
 
 /** iMessage tapback set, in the order the protocol indexes them. */
 private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
+private val CustomReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
+
+/** Accept one emoji grapheme, including flags, skin tones, and ZWJ families. */
+internal fun normalizeCustomReaction(raw: String): String? {
+    val value = raw.trim()
+    if (value.isEmpty() || value.any(Char::isWhitespace)) return null
+    val codePoints = value.codePoints().toArray()
+    if (codePoints.isEmpty() || codePoints.size > 16) return null
+    val regional = codePoints.all { it in 0x1F1E6..0x1F1FF }
+    if (regional) return value.takeIf { codePoints.size == 2 }
+
+    var bases = 0
+    var expectingBase = true
+    var joined = false
+    val hasKeycap = codePoints.any { it == 0x20E3 }
+    codePoints.forEach { codePoint ->
+        when {
+            codePoint == 0x200D -> {
+                if (expectingBase || bases == 0) return null
+                expectingBase = true
+                joined = true
+            }
+            codePoint == 0xFE0E || codePoint == 0xFE0F ||
+                codePoint in 0x1F3FB..0x1F3FF ||
+                codePoint in 0xE0020..0xE007F ||
+                codePoint == 0x20E3 -> {
+                if (expectingBase || bases == 0) return null
+            }
+            else -> {
+                val isEmojiBase = codePoint in 0x1F000..0x1FAFF ||
+                    codePoint in 0x2600..0x27BF ||
+                    codePoint in 0x2190..0x23FF ||
+                    codePoint == 0x00A9 || codePoint == 0x00AE || codePoint == 0x2122 ||
+                    (hasKeycap && (codePoint == '#'.code || codePoint == '*'.code ||
+                        codePoint in '0'.code..'9'.code))
+                if (!isEmojiBase || (!expectingBase && !joined)) return null
+                bases += 1
+                expectingBase = false
+                joined = false
+            }
+        }
+    }
+    return value.takeIf { !expectingBase && bases >= 1 }
+}
 
 private data class SelectedMessageAction(val message: MessageItem, val part: Long)
 
@@ -245,7 +292,7 @@ fun ChatScreen(
     onReplyFromThread: (MessageItem, Long) -> Unit = { _, _ -> },
     onSendSticker: (MessageItem, Long, OutgoingAttachment, StickerTransform) -> Unit = { _, _, _, _ -> },
     onEdit: (MessageItem) -> Unit = {},
-    onReact: (MessageItem, Int, String?) -> Unit = { _, _, _ -> },
+    onReact: (MessageItem, Long, Int, String?) -> Unit = { _, _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
@@ -365,8 +412,7 @@ fun ChatScreen(
         if (nearTop) onLoadOlder()
     }
 
-    val backgroundPath = uiState.chat?.customBackgroundPath
-        ?: uiState.chat?.transcriptBackgroundPath
+    val backgroundPath = uiState.chat?.effectiveBackgroundPath()
     val backgroundFile = remember(backgroundPath) {
         backgroundPath?.let(::File)?.takeIf { it.isFile }
     }
@@ -565,7 +611,7 @@ fun ChatScreen(
             isSms = uiState.chat?.isSms == true,
             onReact = { index, emoji ->
                 selectedAction = null
-                onReact(message, index, emoji)
+                onReact(message, selection.part, index, emoji)
             },
             onReply = {
                 selectedAction = null
@@ -651,6 +697,9 @@ private fun MessageActionSheet(
     onUnsend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var showCustomReaction by remember(message.guid) { mutableStateOf(false) }
+    var customReaction by remember(message.guid) { mutableStateOf("") }
+    val normalizedCustomReaction = normalizeCustomReaction(customReaction)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         if (!isSms) {
             // Connected group of tapbacks: they are alternatives within one set,
@@ -684,6 +733,13 @@ private fun MessageActionSheet(
                     }
                 }
             }
+            TextButton(
+                onClick = { showCustomReaction = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            ) {
+                Icon(Icons.Filled.AddReaction, contentDescription = null)
+                Text("Custom reaction", modifier = Modifier.fillMaxWidth().padding(start = 12.dp))
+            }
         }
         TextButton(
             onClick = onReply,
@@ -705,6 +761,48 @@ private fun MessageActionSheet(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             ) { Text("Unsend", modifier = Modifier.fillMaxWidth()) }
         }
+    }
+    if (showCustomReaction) {
+        AlertDialog(
+            onDismissRequest = { showCustomReaction = false },
+            title = { Text("Custom reaction") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Choose or enter one emoji.")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        CustomReactionSuggestions.forEach { emoji ->
+                            FilledTonalIconButton(onClick = { customReaction = emoji }) {
+                                Text(emoji)
+                            }
+                        }
+                    }
+                    TextField(
+                        value = customReaction,
+                        onValueChange = { customReaction = it },
+                        singleLine = true,
+                        label = { Text("Emoji") },
+                        isError = customReaction.isNotEmpty() && normalizedCustomReaction == null,
+                        supportingText = if (customReaction.isNotEmpty() && normalizedCustomReaction == null) {
+                            { Text("Enter a single emoji") }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = normalizedCustomReaction != null,
+                    onClick = { onReact(6, requireNotNull(normalizedCustomReaction)) },
+                ) { Text("React") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomReaction = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 

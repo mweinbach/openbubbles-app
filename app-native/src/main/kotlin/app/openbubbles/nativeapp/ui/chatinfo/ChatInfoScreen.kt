@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
@@ -378,7 +379,7 @@ private fun BackgroundSection(
     onChoose: () -> Unit,
     onClear: () -> Unit,
 ) {
-    val path = chat?.customBackgroundPath ?: chat?.transcriptBackgroundPath
+    val path = chat?.effectiveBackgroundPath()
     val file = remember(path) { path?.let(::File)?.takeIf { it.isFile } }
     val decoded = rememberDecodedImage(file, maxDimensionPx = 720)
     Surface(

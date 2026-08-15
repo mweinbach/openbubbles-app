@@ -1,6 +1,7 @@
 package app.openbubbles.core
 
 import app.openbubbles.core.intake.MessageIngestor
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.db.Attachment
@@ -724,6 +725,39 @@ class MessageIngestorTest {
             """{"React":{"reaction":"Like","enable":false}}""",
         )
         assertEquals("-like", type)
+    }
+
+    @Test
+    fun `custom emoji reaction retains its glyph`() {
+        assertEquals(
+            MessageMapper.REACTION_EMOJI to "🔥",
+            MessageMapper.parseReaction(
+                """{"React":{"reaction":{"Emoji":"🔥"},"enable":true}}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `transcript background event affects its chat without creating a notification row`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("root", friend, "hello")), myHandles)
+        val existingChat = chatRepo.chats().single()
+        val beforeCount = messageBox().count()
+        val background = textInst("background", friend, "unused").copy(
+            conversation = conversation(me, friend, senderGuid = existingChat.guid),
+            message = UMessage.SetTranscriptBackground(
+                json = "{}",
+                version = 4uL,
+                chatId = existingChat.guid,
+                remove = true,
+                mmcsXml = null,
+            ),
+        )
+
+        val result = ingestor.ingestWithResult(push(background), myHandles)
+
+        assertEquals(existingChat.id, result.chat?.id)
+        assertFalse(result.isNewIncomingMessage)
+        assertEquals(beforeCount, messageBox().count())
     }
 
     @Test

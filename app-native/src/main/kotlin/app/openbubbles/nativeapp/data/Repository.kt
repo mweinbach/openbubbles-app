@@ -40,6 +40,10 @@ data class ChatListItem(
     val transcriptBackgroundVersion: Long? = null,
 )
 
+/** Device-local wallpaper intentionally overrides the Apple-synced poster. */
+fun ChatListItem.effectiveBackgroundPath(): String? =
+    customBackgroundPath ?: transcriptBackgroundPath
+
 /** Display metadata for an attachment shown in the transcript. */
 data class AttachmentMeta(
     /** Stable attachment GUID (used for the viewer route and file lookup). */
@@ -190,6 +194,7 @@ interface MessageActions {
         chatId: Long,
         messageGuid: String,
         messageText: String,
+        messagePart: Long,
         reactionIndex: Int,
         emoji: String? = null,
         enable: Boolean = true,
