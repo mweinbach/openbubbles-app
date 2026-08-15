@@ -11,12 +11,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
-import app.openbubbles.nativeapp.facetime.FtConstants
-
 import app.openbubbles.nativeapp.R
-import app.openbubbles.nativeapp.facetime.FaceTimeActivity
-import app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver
-import app.openbubbles.nativeapp.facetime.getAdaptiveIconFromByteArray
 
 /** Parameter bundle replacing the Flutter method-channel arguments. */
 data class FtIncomingCall(
@@ -104,9 +99,9 @@ object CreateIncomingFaceTimeNotification {
             notificationId + FtConstants.PENDING_INTENT_DECLINE_OFFSET,
             Intent(context, FaceTimeActionReceiver::class.java)
                 .putExtras(extras)
-                .putExtra("notificationId", notificationId.toString())
-                .setType("DeclineFaceTime"),
-            PendingIntent.FLAG_IMMUTABLE
+                .putExtra(FaceTimeActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                .setAction(FaceTimeActionReceiver.ACTION_DECLINE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notificationBuilder = NotificationCompat.Builder(context, channelId)

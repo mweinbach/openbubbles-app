@@ -188,6 +188,19 @@ fun interface ReadReceiptSender {
     suspend fun markRead(chatId: Long, messageGuid: String?)
 }
 
+/** Fully prepared outgoing call; the UI only has to launch the call activity. */
+data class FaceTimeLaunch(
+    val link: String,
+    val displayName: String,
+    val description: String,
+    val callUuid: String,
+)
+
+/** Validates participants and creates an on-device FaceTime session. */
+fun interface FaceTimeCaller {
+    suspend fun start(chatId: Long): FaceTimeLaunch
+}
+
 /** Message mutations supported by the on-device iMessage engine. */
 interface MessageActions {
     suspend fun react(

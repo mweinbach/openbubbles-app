@@ -31,14 +31,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.marginTop
 import androidx.core.view.updateLayoutParams
-import app.openbubbles.nativeapp.facetime.FtConstants
 import app.openbubbles.nativeapp.R
 import app.openbubbles.nativeapp.databinding.ActivityFaceTimeBinding
-import app.openbubbles.nativeapp.facetime.CreateIncomingFaceTimeNotification
-import app.openbubbles.nativeapp.data.PushStateHolder
-import app.openbubbles.nativeapp.data.APNClient
-import app.openbubbles.nativeapp.data.APNService
-import app.openbubbles.nativeapp.facetime.getStreamMinVolumeCompat
+import app.openbubbles.nativeapp.service.FaceTimeDispatch
 import kotlin.math.roundToInt
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
@@ -61,6 +56,13 @@ class FaceTimeActivity : Activity() {
 
     private lateinit var webView: WebView
     private var initialMediaVolume: Int? = null;
+    private val callTimeoutHandler = Handler(Looper.getMainLooper())
+    private var connected = false
+    private val outgoingCallTimeout = Runnable {
+        if (!isCall && !connected) {
+            dispatchCallAction(FaceTimeActionReceiver.ACTION_END)
+        }
+    }
 
     companion object {
         var activeFaceTimeActivity: FaceTimeActivity? = null
@@ -69,6 +71,28 @@ class FaceTimeActivity : Activity() {
 
     fun endCall() {
         webView.loadUrl("javascript:document.getElementById(\"callcontrols-leave-button-session-banner\").click()")
+    }
+
+    /** Close visual call state after a remote response or a receiver action. */
+    fun closeCallUi() {
+        runOnUiThread { finishAndRemoveTask() }
+    }
+
+    fun markConnected() {
+        runOnUiThread {
+            connected = true
+            callTimeoutHandler.removeCallbacks(outgoingCallTimeout)
+        }
+    }
+
+    private fun dispatchCallAction(action: String) {
+        val guid = callUuid ?: return
+        sendBroadcast(
+            Intent(this, FaceTimeActionReceiver::class.java)
+                .setAction(action)
+                .putExtra(FaceTimeActionReceiver.EXTRA_CALL_UUID, guid)
+                .putExtra(FaceTimeActionReceiver.EXTRA_NOTIFICATION_ID, notificationId),
+        )
     }
 
     private fun hideControlsForPIP() {
@@ -90,17 +114,7 @@ class FaceTimeActivity : Activity() {
         if (notificationId != 0) {
             runCatching { getSystemService(android.app.NotificationManager::class.java)?.cancel(FtConstants.NEW_FACE_TIME_NOTIFICATION_TAG, notificationId) }
         }
-        callUuid?.let { callUuid ->
-            val client = APNClient(applicationContext)
-            client.bind { service: APNService ->
-                try {
-                    service.pushState?.declineFacetime(callUuid)
-                } finally {
-                    client.destroy()
-                }
-            }
-        }
-        finishAndRemoveTask()
+        dispatchCallAction(FaceTimeActionReceiver.ACTION_DECLINE)
     }
 
     private fun invLerp(a: Int, b: Int, x: Int): Float {
@@ -233,7 +247,9 @@ class FaceTimeActivity : Activity() {
             val intentWithData = Intent(
                 this,
                 FaceTimeActionReceiver::class.java
-            )
+            ).setAction(FaceTimeActionReceiver.ACTION_END)
+                .putExtra(FaceTimeActionReceiver.EXTRA_CALL_UUID, callUuid)
+                .putExtra(FaceTimeActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
 
             setPictureInPictureParams(
                 PictureInPictureParams.Builder()
@@ -243,8 +259,12 @@ class FaceTimeActivity : Activity() {
                             Icon.createWithResource(this, R.drawable.call_end),
                             "End Call",
                             "End this FaceTime Call",
-                            PendingIntent.getBroadcast(this, 1, intentWithData,
-                                PendingIntent.FLAG_IMMUTABLE)
+                            PendingIntent.getBroadcast(
+                                this,
+                                callUuid.hashCode(),
+                                intentWithData,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                            )
                         )
                     ))
                     .setSourceRectHint(sourceRectHint)
@@ -293,8 +313,10 @@ class FaceTimeActivity : Activity() {
     }
 
     override fun onDestroy() {
+        callTimeoutHandler.removeCallbacks(outgoingCallTimeout)
+        callUuid?.let(FaceTimeDispatch::clearActiveCall)
         webView.destroy()
-        activeFaceTimeActivity = null
+        if (activeFaceTimeActivity === this) activeFaceTimeActivity = null
 
         val intent = Intent(this, FaceTimeInCallService::class.java)
         stopService(intent)
@@ -365,7 +387,7 @@ class FaceTimeActivity : Activity() {
         }
 
         cached.endTask = {
-            finishAndRemoveTask()
+            dispatchCallAction(FaceTimeActionReceiver.ACTION_END)
         }
         mirrorReady = cached.mirrorReady
         cached.mirrorReadyCall = {
@@ -385,6 +407,7 @@ class FaceTimeActivity : Activity() {
         val isAnsweringCall = extras.containsKey("answer")
         notificationId = extras.getString("notificationId")?.toInt() ?: 0
         callUuid = extras.getString("callUuid")
+        callUuid?.let(FaceTimeDispatch::activateCall)
 
         if (CreateIncomingFaceTimeNotification.avatarCache.containsKey(callUuid)) {
             val bitmap = CreateIncomingFaceTimeNotification.avatarCache.remove(callUuid)!!
@@ -419,6 +442,7 @@ class FaceTimeActivity : Activity() {
                 window.setBackgroundBlurRadius(0)
             }
             handlePermissionRequests()
+            callTimeoutHandler.postDelayed(outgoingCallTimeout, 30_000)
         }
     }
 }

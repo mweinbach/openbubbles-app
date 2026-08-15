@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import android.content.Intent
 import android.net.Uri
 import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -109,6 +111,7 @@ import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
+import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
@@ -296,6 +299,8 @@ fun ChatScreen(
     onUnsend: (MessageItem) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
+    onStartFaceTime: () -> Unit = {},
+    onFaceTimeLaunchConsumed: () -> Unit = {},
     onOpenChatInfo: () -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -340,6 +345,18 @@ fun ChatScreen(
         val error = uiState.actionError ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(error)
         onActionErrorShown()
+    }
+
+    LaunchedEffect(uiState.faceTimeLaunch) {
+        val launch = uiState.faceTimeLaunch ?: return@LaunchedEffect
+        context.startActivity(
+            Intent(context, FaceTimeActivity::class.java)
+                .putExtra("link", launch.link)
+                .putExtra("name", launch.displayName)
+                .putExtra("desc", launch.description)
+                .putExtra("callUuid", launch.callUuid),
+        )
+        onFaceTimeLaunchConsumed()
     }
 
     // Pending effect staged from the picker for the next send (id only, so it
@@ -456,6 +473,20 @@ fun ChatScreen(
                         if (showBackButton) {
                             FilledTonalIconButton(onClick = onBack) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        }
+                    },
+                    actions = {
+                        if (uiState.chat?.isSms == false) {
+                            FilledTonalIconButton(
+                                onClick = onStartFaceTime,
+                                enabled = !uiState.faceTimeStarting,
+                            ) {
+                                if (uiState.faceTimeStarting) {
+                                    LoadingIndicator(modifier = Modifier.size(24.dp))
+                                } else {
+                                    Icon(Icons.Filled.VideoCall, contentDescription = "Start FaceTime call")
+                                }
                             }
                         }
                     },

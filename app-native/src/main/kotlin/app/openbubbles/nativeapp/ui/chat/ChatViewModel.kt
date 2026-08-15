@@ -8,6 +8,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
+import app.openbubbles.nativeapp.data.FaceTimeCaller
+import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
@@ -50,6 +52,9 @@ data class ChatUiState(
     val editingMessage: MessageItem? = null,
     /** Visible operation failure; cleared after the screen presents it. */
     val actionError: String? = null,
+    val faceTimeStarting: Boolean = false,
+    /** One-shot handoff to the Android call activity. */
+    val faceTimeLaunch: FaceTimeLaunch? = null,
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
@@ -109,6 +114,7 @@ class ChatViewModel(
     private val messageRepository: MessageListRepository,
     private val sender: Sender,
     private val messageActions: MessageActions,
+    private val faceTimeCaller: FaceTimeCaller,
     private val attachmentSender: AttachmentSender,
     private val stickerSender: StickerSender,
     typingRepository: TypingRepository,
@@ -130,6 +136,8 @@ class ChatViewModel(
     private val replyThread = MutableStateFlow<ReplyThreadState?>(null)
     private val editingMessage = MutableStateFlow<MessageItem?>(null)
     private val actionError = MutableStateFlow<String?>(null)
+    private val faceTimeStarting = MutableStateFlow(false)
+    private val faceTimeLaunch = MutableStateFlow<FaceTimeLaunch?>(null)
     private var endReached = false
 
     /** Message ids whose send effect has already been played (once each). */
@@ -184,6 +192,10 @@ class ChatViewModel(
             state.copy(editingMessage = editing)
         }.combine(actionError) { state, error ->
             state.copy(actionError = error)
+        }.combine(faceTimeStarting) { state, starting ->
+            state.copy(faceTimeStarting = starting)
+        }.combine(faceTimeLaunch) { state, launch ->
+            state.copy(faceTimeLaunch = launch)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
@@ -306,6 +318,23 @@ class ChatViewModel(
         actionError.value = null
     }
 
+    fun startFaceTime() {
+        if (faceTimeStarting.value) return
+        faceTimeStarting.value = true
+        viewModelScope.launch {
+            runCatching { faceTimeCaller.start(chatId) }
+                .onSuccess { faceTimeLaunch.value = it }
+                .onFailure { failure ->
+                    actionError.value = failure.message ?: "Could not start FaceTime"
+                }
+            faceTimeStarting.value = false
+        }
+    }
+
+    fun consumeFaceTimeLaunch() {
+        faceTimeLaunch.value = null
+    }
+
     /**
      * Sends a picked attachment; whatever is typed becomes the caption (the
      * input is consumed either way).
@@ -375,6 +404,9 @@ class ChatViewModel(
             stickerSender: StickerSender,
             typingRepository: TypingRepository,
             readReceiptSender: ReadReceiptSender,
+            faceTimeCaller: FaceTimeCaller = FaceTimeCaller {
+                error("FaceTime requires an active Apple push connection")
+            },
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatViewModel(
@@ -383,6 +415,7 @@ class ChatViewModel(
                     messageRepository,
                     sender,
                     messageActions,
+                    faceTimeCaller,
                     attachmentSender,
                     stickerSender,
                     typingRepository,

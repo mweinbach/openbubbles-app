@@ -156,6 +156,9 @@ object CoreGraph {
     val messageActions: MessageActions by lazy {
         if (store != null) CoreMessageActions else FakeMessageActions
     }
+    val faceTimeCaller: FaceTimeCaller by lazy {
+        if (store != null) CoreFaceTimeCaller else FakeFaceTimeCaller
+    }
     val attachments: AttachmentProvider by lazy {
         store?.let { st -> CoreAttachmentProvider(st, { attachmentFiles }) } ?: FakeAttachmentProvider
     }
@@ -1056,6 +1059,39 @@ private data class MessageActionContext(
     val sender: String,
     val ingestor: MessageIngestor,
 )
+
+private object CoreFaceTimeCaller : FaceTimeCaller {
+    override suspend fun start(chatId: Long): FaceTimeLaunch {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val state = PushStateHolder.state ?: error("not connected to Apple push")
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+        check(chat.isRpSms != true) { "FaceTime is unavailable for SMS conversations" }
+        val sender = sendingHandle(chat) ?: error("no registered FaceTime handle")
+        val normalizedSender = MessageMapper.normalizeAddress(sender)
+        val participantAddresses = chat.handles
+            .map { MessageMapper.normalizeAddress(it.address) }
+            .filterNot { it == normalizedSender }
+            .distinct()
+        require(participantAddresses.isNotEmpty()) { "This conversation has no FaceTime participants" }
+        val participants = participantAddresses.map(MessageMapper::toRustHandle)
+        val callUuid = UUID.randomUUID().toString().uppercase()
+        val link = runInterruptible(Dispatchers.IO) {
+            state.startFacetimeCall(callUuid, sender, participants)
+        }
+        val participantNames = participantAddresses.map { address ->
+            CoreGraph.contactDisplayInfo(address)?.first?.takeIf(String::isNotBlank) ?: address
+        }
+        val description = chat.displayName?.takeIf(String::isNotBlank)
+            ?: chat.title?.takeIf(String::isNotBlank)
+            ?: participantNames.joinToString(" & ")
+        return FaceTimeLaunch(
+            link = link,
+            displayName = normalizedSender,
+            description = description,
+            callUuid = callUuid,
+        )
+    }
+}
 
 private object CoreGraphStageHolder {
     private val repos = java.util.concurrent.ConcurrentHashMap<BoxStore, MessageRepo>()

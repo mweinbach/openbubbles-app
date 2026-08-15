@@ -96,7 +96,7 @@
         <receiver
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver"
             android:enabled="true"
-            android:exported="true" />
+            android:exported="false" />
 
         <!-- SIM SMS/MMS receive + send-status (blocks adapted from the Flutter
              app's SMSReceiver registration; data-SMS/OTP receivers stay with

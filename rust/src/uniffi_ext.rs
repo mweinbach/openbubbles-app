@@ -2803,16 +2803,51 @@ impl NativePushState {
             .map_err(|e| UError::Failed { reason: e.to_string() })
     }
 
-    /// Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
-    /// incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+    /// Dart rotateIncomingLink parity: preserve the current link as old,
+    /// promote nextincomingcall to current, then mint a fresh next link.
     pub fn rotate_incoming_links(&self) -> Result<(), UError> {
         let client = &self.shared().ft_client;
         RUNTIME
             .block_on(async {
-                api::use_link_for(client, "nextincomingcall".to_string(), "incomingcall".to_string()).await?;
                 api::use_link_for(client, "incomingcall".to_string(), "incomingcall-old".to_string()).await?;
+                api::use_link_for(client, "nextincomingcall".to_string(), "incomingcall".to_string()).await?;
                 api::get_ft_link(client, "nextincomingcall".to_string()).await?;
                 Ok(())
+            })
+            .map_err(|e: anyhow::Error| UError::Failed { reason: e.to_string() })
+    }
+
+    /// Validate every peer, reserve the next FaceTime link, rotate it into
+    /// the active slot, and create the outgoing session as one native action.
+    /// Returning the reserved link prevents Kotlin from racing link rotation
+    /// against session creation.
+    pub fn start_facetime_call(
+        &self,
+        uuid: String,
+        handle: String,
+        participants: Vec<String>,
+    ) -> Result<String, UError> {
+        if participants.is_empty() {
+            return Err(UError::InvalidArgument { reason: "FaceTime needs at least one participant".to_string() });
+        }
+        let shared = self.shared();
+        RUNTIME
+            .block_on(async {
+                let supported = api::validate_targets_facetime(
+                    &shared.client,
+                    participants.clone(),
+                    handle.clone(),
+                ).await?;
+                if supported.len() != participants.len() {
+                    anyhow::bail!("One or more participants do not support FaceTime");
+                }
+
+                let link = api::get_ft_link(&shared.ft_client, "next".to_string()).await?;
+                api::use_link_for(&shared.ft_client, "current".to_string(), "current-old".to_string()).await?;
+                api::use_link_for(&shared.ft_client, "next".to_string(), "current".to_string()).await?;
+                api::get_ft_link(&shared.ft_client, "next".to_string()).await?;
+                api::create_facetime(&shared.ft_client, uuid, handle, participants).await?;
+                Ok(link)
             })
             .map_err(|e: anyhow::Error| UError::Failed { reason: e.to_string() })
     }

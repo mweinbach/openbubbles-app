@@ -3,6 +3,8 @@ package app.openbubbles.nativeapp.ui.chat
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
+import app.openbubbles.nativeapp.data.FaceTimeCaller
+import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
@@ -22,7 +24,9 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -157,11 +161,32 @@ class ChatViewModelTest {
         file.delete()
     }
 
+    @Test
+    fun `facetime launch is exposed once and can be consumed`() = runTest(dispatcher) {
+        val launch = FaceTimeLaunch("https://call.example", "me@example.com", "Test", "CALL-ID")
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            faceTimeCaller = FaceTimeCaller { launch },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+
+        model.startFaceTime()
+        advanceUntilIdle()
+
+        assertEquals(launch, model.uiState.value.faceTimeLaunch)
+        assertEquals(false, model.uiState.value.faceTimeStarting)
+        model.consumeFaceTimeLaunch()
+        advanceUntilIdle()
+        assertEquals(null, model.uiState.value.faceTimeLaunch)
+    }
+
     private fun model(
         sender: Sender,
         actions: MessageActions,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
+        faceTimeCaller: FaceTimeCaller = FaceTimeCaller { error("not used") },
         smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
@@ -170,6 +195,7 @@ class ChatViewModelTest {
         messageRepository = StaticMessages,
         sender = sender,
         messageActions = actions,
+        faceTimeCaller = faceTimeCaller,
         attachmentSender = attachmentSender,
         stickerSender = stickerSender,
         typingRepository = NoopTyping,

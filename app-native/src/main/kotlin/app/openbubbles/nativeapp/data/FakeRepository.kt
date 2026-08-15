@@ -420,6 +420,11 @@ object FakeMessageActions : MessageActions {
         FakeChatData.unsend(chatId, messageGuid)
 }
 
+object FakeFaceTimeCaller : FaceTimeCaller {
+    override suspend fun start(chatId: Long): FaceTimeLaunch =
+        error("FaceTime requires an active Apple push connection")
+}
+
 /** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
 object FakeAttachmentSender : AttachmentSender {
     override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) =
@@ -475,6 +480,7 @@ object AppGraph {
     val sender: Sender get() = CoreGraph.sender
     val readReceipts: ReadReceiptSender get() = CoreGraph.readReceipts
     val messageActions: MessageActions get() = CoreGraph.messageActions
+    val faceTimeCaller: FaceTimeCaller get() = CoreGraph.faceTimeCaller
     val attachmentSender: AttachmentSender get() = CoreGraph.attachmentSender
     val stickerSender: StickerSender get() = CoreGraph.stickerSender
     val typing: TypingRepository get() = CoreGraph.typing

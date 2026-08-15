@@ -1550,7 +1550,8 @@ pub async fn answer_ft_request(facetime: &Arc<FTClient>, request: LetMeInRequest
 
 pub async fn decline_facetime(facetime: &Arc<FTClient>, guid: String) -> anyhow::Result<()> {
     let mut lock = facetime.state.write().await;
-    let state = lock.sessions.get_mut(&guid).expect("state");
+    let state = lock.sessions.get_mut(&guid)
+        .ok_or_else(|| anyhow!("FaceTime session {guid} not found"))?;
     facetime.ensure_allocations(state, &[]).await?;
     facetime.decline_invite(state).await?;
     Ok(())
@@ -1563,7 +1564,8 @@ pub async fn create_facetime(facetime: &Arc<FTClient>, uuid: String, handle: Str
 
 pub async fn cancel_facetime(facetime: &Arc<FTClient>, guid: String) -> anyhow::Result<()> {
     let mut lock = facetime.state.write().await;
-    let state = lock.sessions.get_mut(&guid).expect("state");
+    let state = lock.sessions.get_mut(&guid)
+        .ok_or_else(|| anyhow!("FaceTime session {guid} not found"))?;
     facetime.unprop_conv(state).await?;
     Ok(())
 }

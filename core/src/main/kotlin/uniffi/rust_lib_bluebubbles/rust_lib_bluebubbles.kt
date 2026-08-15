@@ -1452,6 +1452,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1666,6 +1668,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
 ): Short
@@ -2050,6 +2054,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: 
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -2666,7 +2672,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 37145.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 58611.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 710.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 10762.toShort()) {
@@ -2700,6 +2706,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for() != 30326.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call() != 15830.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
@@ -6042,8 +6051,8 @@ public interface NativePushStateInterface {
     fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
     
     /**
-     * Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
-     * incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+     * Dart rotateIncomingLink parity: preserve the current link as old,
+     * promote nextincomingcall to current, then mint a fresh next link.
      */
     fun `rotateIncomingLinks`()
     
@@ -6115,6 +6124,14 @@ public interface NativePushStateInterface {
      * `refresh` forces an IDS re-lookup.
      */
     fun `smsTargetsFor`(`handle`: kotlin.String, `refresh`: kotlin.Boolean): List<USmsTarget>
+    
+    /**
+     * Validate every peer, reserve the next FaceTime link, rotate it into
+     * the active slot, and create the outgoing session as one native action.
+     * Returning the reserved link prevents Kotlin from racing link rotation
+     * against session creation.
+     */
+    fun `startFacetimeCall`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>): kotlin.String
     
     fun `startLoop`(`handler`: MsgReceiver)
     
@@ -6931,8 +6948,8 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
     
     /**
-     * Dart rotateIncomingLink parity: nextincomingcall -> incomingcall,
-     * incomingcall -> incomingcall-old, then mint a fresh nextincomingcall.
+     * Dart rotateIncomingLink parity: preserve the current link as old,
+     * promote nextincomingcall to current, then mint a fresh next link.
      */
     @Throws(UException::class)override fun `rotateIncomingLinks`()
         = 
@@ -7127,6 +7144,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(
         it, FfiConverterString.lower(`handle`),FfiConverterBoolean.lower(`refresh`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Validate every peer, reserve the next FaceTime link, rotate it into
+     * the active slot, and create the outgoing session as one native action.
+     * Returning the reserved link prevents Kotlin from racing link rotation
+     * against session creation.
+     */
+    @Throws(UException::class)override fun `startFacetimeCall`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(
+        it, FfiConverterString.lower(`uuid`),FfiConverterString.lower(`handle`),FfiConverterSequenceString.lower(`participants`),_status)
 }
     }
     )
