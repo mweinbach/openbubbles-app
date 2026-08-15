@@ -107,8 +107,10 @@ import app.openbubbles.nativeapp.ui.effects.SendEffectPickerSheet
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** List model for the conversation LazyColumn. */
 sealed interface ConversationEntry {
@@ -297,8 +299,12 @@ fun ChatScreen(
             .filter { !it.isFromMe && it.senderAddress != null }
             .mapNotNull { it.senderAddress }
             .distinct()
-        addresses.forEach { address ->
-            val name = resolver(address)?.first ?: return@forEach
+        val names = withContext(Dispatchers.IO) {
+            addresses.mapNotNull { address ->
+                resolver(address)?.first?.let { address to it }
+            }
+        }
+        names.forEach { (address, name) ->
             senderNames[address] = name
         }
     }

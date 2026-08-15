@@ -559,8 +559,12 @@ fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
     val resolved = remember { mutableStateMapOf<String, Pair<String?, String?>>() }
     LaunchedEffect(addresses) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
-        addresses.distinct().forEach { address ->
-            val info = resolver(address) ?: return@forEach
+        val contacts = withContext(Dispatchers.IO) {
+            addresses.distinct().mapNotNull { address ->
+                resolver(address)?.let { address to it }
+            }
+        }
+        contacts.forEach { (address, info) ->
             resolved[address] = info
         }
     }

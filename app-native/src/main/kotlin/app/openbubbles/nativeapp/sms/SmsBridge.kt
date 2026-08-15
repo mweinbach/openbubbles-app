@@ -2,7 +2,7 @@ package app.openbubbles.nativeapp.sms
 
 import android.util.Log
 import app.openbubbles.db.Chat
-import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.SmsSender
@@ -38,7 +38,7 @@ object SmsBridge {
      */
     val sender: SmsSender
         get() {
-            val context = NativeMainActivity.appContext
+            val context = AppContext.current
             return if (context != null && CoreGraph.store != null) SmsManagerSender(context)
             else UnavailableSmsSender
         }
@@ -77,7 +77,7 @@ object SmsBridge {
         val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull()
             ?: return@withContext false
         if (chat.isRpSms != true) return@withContext false
-        val context = NativeMainActivity.appContext
+        val context = AppContext.current
             ?: error("MMS sender unavailable - app context missing")
         MmsManagerSender(context).send(chatId, attachment, caption)
         true

@@ -35,6 +35,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -104,7 +105,7 @@ fun OpenBubblesApp(
     }
 
     // First-run gate: full-screen onboarding until sign-in completes once.
-    val context = NativeMainActivity.appContext
+    val context = AppContext.current
     val onboardingPrefs = remember(context) {
         context?.getSharedPreferences("native_setup", android.content.Context.MODE_PRIVATE)
     }
@@ -282,7 +283,7 @@ fun OpenBubblesApp(
                 )
             }
             composable(Routes.LOGIN) {
-                val context = NativeMainActivity.appContext
+                val context = AppContext.current
                 val confDir = context?.filesDir?.absolutePath ?: ""
                 var provisioned by androidx.compose.runtime.saveable.rememberSaveable(confDir) {
                     androidx.compose.runtime.mutableStateOf(false)

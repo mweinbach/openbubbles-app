@@ -19,13 +19,12 @@ import app.openbubbles.db.Db
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
-import app.openbubbles.nativeapp.NativeMainActivity
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,10 +41,9 @@ import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UPushMessage
-import uniffi.rust_lib_bluebubbles.readQueuedJournal
-import uniffi.rust_lib_bluebubbles.markJournalAttempt
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /**
@@ -63,7 +61,7 @@ object CoreGraph {
             // getApplicationDocumentsDirectory = /data/data/<pkg>/app_flutter)
             // so the in-place upgrade at cutover opens the existing store.
             // See tools/CUTOVER.md before changing this.
-            val ctx = NativeMainActivity.appContext ?: return@lazy null
+            val ctx = AppContext.current ?: return@lazy null
             Db.build(File(ctx.dataDir, "app_flutter"))
         }.getOrNull()
     }
@@ -80,7 +78,7 @@ object CoreGraph {
     val attachmentManager: AttachmentManager? by lazy {
         val st = store ?: return@lazy null
         val root = File(
-            NativeMainActivity.appContext?.dataDir ?: return@lazy null,
+            AppContext.current?.dataDir ?: return@lazy null,
             "app_flutter",
         )
         runCatching {
@@ -284,7 +282,7 @@ object CoreGraph {
     private fun attachmentStore(): AttachmentStore? {
         val st = store ?: return null
         val root = File(
-            NativeMainActivity.appContext?.dataDir ?: return null,
+            AppContext.current?.dataDir ?: return null,
             "app_flutter",
         )
         return AttachmentStore(st, root)
@@ -319,28 +317,6 @@ object CoreGraph {
         }
     }
 
-    fun startQueueDrainer() {
-        val ing = ingestor ?: return
-        scope.launch {
-            while (true) {
-                val state = PushStateHolder.state
-                val handles = PushStateHolder.myHandles
-                if (state == null || handles.isEmpty()) {
-                    delay(5_000)
-                    continue
-                }
-                try {
-                    val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() }
-                    if (entry == null) { delay(2_000); continue }
-                    ing.ingest(entry.message, handles)
-                    runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
-                } catch (t: Throwable) {
-                    delay(5_000)
-                }
-            }
-        }
-    }
-
     // ---------------------------------------------------------------------------
     // Backup / restore — additive zone
     // ---------------------------------------------------------------------------
@@ -352,7 +328,7 @@ object CoreGraph {
      */
     val backupManager: BackupManager? by lazy {
         val st = store ?: return@lazy null
-        val ctx = NativeMainActivity.appContext ?: return@lazy null
+        val ctx = AppContext.current ?: return@lazy null
         if (st.isClosed) return@lazy null
         val version = runCatching {
             ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
@@ -388,7 +364,7 @@ object CoreGraph {
     fun restoreFrom(stream: java.io.InputStream): Result<BackupManager.BackupInfo> {
         val manager = backupManager
             ?: return Result.failure(IllegalStateException("backup unavailable — store not open"))
-        val ctx = NativeMainActivity.appContext
+        val ctx = AppContext.current
             ?: return Result.failure(IllegalStateException("no app context"))
         return manager.restore(stream, File(ctx.dataDir, "app_flutter"))
     }
@@ -429,8 +405,7 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         _lastError.value = null
-        CoreGraph.startQueueDrainer()
-        NativeMainActivity.appContext?.let { CloudSyncWiring.onStateInstalled(it, state) }
+        AppContext.current?.let { CloudSyncWiring.onStateInstalled(it, state) }
     }
 
     fun reportError(message: String) {
@@ -670,32 +645,63 @@ private class CoreChatListRepository(
 
     override fun delete(id: Long) {
         val recordId = repo.softDelete(id) ?: return
-        NativeMainActivity.appContext?.let { CloudSyncWiring.queueChatDelete(it, recordId) }
+        AppContext.current?.let { CloudSyncWiring.queueChatDelete(it, recordId) }
     }
 }
 
-private class CoreMessageListRepository(
+@OptIn(ExperimentalCoroutinesApi::class)
+internal class CoreMessageListRepository(
     private val repo: MessageRepo,
     private val store: BoxStore?,
 ) : MessageListRepository {
-    // Growable newest-first window so loadMore widens the reactive page,
-    // matching the Room-style contract the UI was built against.
-    private val window = MutableStateFlow(50)
+    private class PagingWindow(initialLimit: Int) {
+        val size = MutableStateFlow(initialLimit)
 
-    override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
-        window.flatMapLatest { size ->
+        @Volatile
+        var newestId: Long? = null
+    }
+
+    /** Independent bounded window per open conversation. */
+    private val windows = ConcurrentHashMap<Long, PagingWindow>()
+
+    private fun window(chatId: Long, initialLimit: Int): PagingWindow =
+        windows.computeIfAbsent(chatId) { PagingWindow(initialLimit) }
+
+    override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> {
+        val paging = window(chatId, limit)
+        return paging.size.flatMapLatest { size ->
             // Combined with the upload board so progress ticks re-emit the page.
             combine(
                 repo.observeMessages(chatId, size.coerceAtLeast(limit)),
                 UploadProgressBoard.progress,
             ) { page, _ ->
-                enrichWithEntityDetails(page.map(::coreMessageToUi), store)
+                val previousNewest = paging.newestId
+                if (page.isNotEmpty()) {
+                    paging.newestId = page.first().id
+                    val newlyPrepended = previousNewest?.let { previous ->
+                        page.indexOfFirst { it.id == previous }
+                    } ?: 0
+                    if (newlyPrepended > 0) {
+                        // Keep already-loaded older rows when new messages land.
+                        paging.size.value += newlyPrepended
+                    }
+                }
+                enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
             }.flowOn(Dispatchers.IO)
         }
+    }
 
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
-        window.value = window.value + count
-        return enrichWithEntityDetails(repo.messages(chatId, limit = window.value).map(::coreMessageToUi), store)
+        val cursor = before ?: return emptyList()
+        val older = repo.messagesBefore(chatId, beforeId = cursor, limit = count)
+        if (older.isNotEmpty()) {
+            window(chatId, count).size.value += older.size
+        }
+        return enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
+    }
+
+    override fun release(chatId: Long) {
+        windows.remove(chatId)
     }
 }
 
@@ -857,7 +863,7 @@ private object CoreReadReceiptSender : ReadReceiptSender {
                     }
                 }
                 ?: return
-        val globalReceipts = NativeMainActivity.appContext
+        val globalReceipts = AppContext.current
             ?.let { MessagingPrefs(it).sendReadReceipts }
             ?: false
         val notifyOthers = chat.autoSendReadReceipts || globalReceipts
@@ -1180,7 +1186,7 @@ internal object CoreAttachmentSender : AttachmentSender {
         // 2. Placeholder attachment metadata + payload in the canonical
         //    layout so the bubble renders (and image-previews) right away.
         val root = File(
-            NativeMainActivity.appContext?.dataDir ?: error("no files dir"),
+            AppContext.current?.dataDir ?: error("no files dir"),
             "app_flutter",
         )
         val disk = AttachmentStore(store, root)

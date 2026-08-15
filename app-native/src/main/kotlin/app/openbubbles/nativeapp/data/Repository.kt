@@ -99,6 +99,9 @@ interface ChatListRepository {
 interface MessageListRepository {
     fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>>
     fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem>
+
+    /** Releases per-conversation paging state when its ViewModel is cleared. */
+    fun release(chatId: Long) = Unit
 }
 
 interface Sender {

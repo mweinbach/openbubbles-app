@@ -24,7 +24,6 @@ class NativeMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        appContext = applicationContext
 
         // Notification deep link: only a fresh launch carries a new tap
         // (config-change recreations would re-fire the original intent and
@@ -93,10 +92,6 @@ class NativeMainActivity : ComponentActivity() {
     companion object {
         /** Deep-link extra carrying the tapped notification's chat guid. */
         const val EXTRA_CHAT_GUID = "chat_guid"
-
-        /** Application context for the composition root (set in onCreate). */
-        @Volatile
-        var appContext: android.content.Context? = null
 
         /**
          * Chat guid requested by a notification tap, consumed once by

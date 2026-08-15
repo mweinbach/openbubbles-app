@@ -2,11 +2,14 @@ package app.openbubbles.nativeapp.ui.common
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import app.openbubbles.nativeapp.data.MemoryCaches
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -17,6 +20,33 @@ data class DecodedImage(
     val image: ImageBitmap,
     val aspectRatio: Float,
 )
+
+/** Size-bounded decoded bitmap cache shared by visible lazy-list rows. */
+object ImageDecodeCache {
+    private const val MAX_SIZE_KB = 24 * 1024
+
+    private val cache = object : LruCache<String, DecodedImage>(MAX_SIZE_KB) {
+        override fun sizeOf(key: String, value: DecodedImage): Int =
+            ((value.image.width.toLong() * value.image.height.toLong() * 4L) / 1024L)
+                .coerceAtLeast(1L)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+    }
+
+    init {
+        MemoryCaches.register(::clear)
+    }
+
+    fun get(key: String): DecodedImage? = cache.get(key)
+
+    fun put(key: String, image: DecodedImage) {
+        cache.put(key, image)
+    }
+
+    fun clear() {
+        cache.evictAll()
+    }
+}
 
 /** Fallback aspect ratio when the file's dimensions cannot be read. */
 const val FallbackAspectRatio = 4f / 3f
@@ -31,11 +61,19 @@ const val FallbackAspectRatio = 4f / 3f
 fun rememberDecodedImage(
     file: File?,
     maxDimensionPx: Int = 512,
-): DecodedImage? =
-    produceState<DecodedImage?>(initialValue = null, file, maxDimensionPx) {
-        if (file == null) return@produceState
-        value = withContext(Dispatchers.IO) {
+): DecodedImage? {
+    val cacheKey = remember(file?.absolutePath, file?.lastModified(), file?.length(), maxDimensionPx) {
+        file?.let { "file:${it.absolutePath}:${it.lastModified()}:${it.length()}:$maxDimensionPx" }
+    }
+    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        val key = cacheKey ?: return@produceState
+        ImageDecodeCache.get(key)?.let {
+            value = it
+            return@produceState
+        }
+        val decoded = withContext(Dispatchers.IO) {
             runCatching {
+                if (!file!!.isFile) return@runCatching null
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(file.absolutePath, bounds)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
@@ -55,7 +93,10 @@ fun rememberDecodedImage(
                 )
             }.getOrNull()
         }
+        if (decoded != null) ImageDecodeCache.put(key, decoded)
+        value = decoded
     }.value
+}
 
 /**
  * Decodes an image referenced by a string URI (contact photo URIs are
@@ -69,12 +110,19 @@ fun rememberDecodedUriImage(
     maxDimensionPx: Int = 256,
 ): DecodedImage? {
     val context = LocalContext.current
-    return produceState<DecodedImage?>(initialValue = null, uri, maxDimensionPx) {
-        if (uri.isNullOrBlank()) return@produceState
-        value = withContext(Dispatchers.IO) {
+    val cacheKey = remember(uri, maxDimensionPx) {
+        uri?.takeIf { it.isNotBlank() }?.let { "uri:$it:$maxDimensionPx" }
+    }
+    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        val key = cacheKey ?: return@produceState
+        ImageDecodeCache.get(key)?.let {
+            value = it
+            return@produceState
+        }
+        val decoded = withContext(Dispatchers.IO) {
             runCatching {
                 fun openStream() = when {
-                    uri.startsWith("content://") || uri.startsWith("file://") ->
+                    uri!!.startsWith("content://") || uri.startsWith("file://") ->
                         context.contentResolver.openInputStream(Uri.parse(uri))
                     else -> File(uri).takeIf { it.isFile }?.inputStream()
                 }
@@ -99,6 +147,8 @@ fun rememberDecodedUriImage(
                 )
             }.getOrNull()
         }
+        if (decoded != null) ImageDecodeCache.put(key, decoded)
+        value = decoded
     }.value
 }
 

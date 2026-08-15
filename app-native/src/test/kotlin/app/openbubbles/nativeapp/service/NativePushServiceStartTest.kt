@@ -37,4 +37,18 @@ class NativePushServiceStartTest {
         assertTrue(shouldInitializePush(bootStarted = false, action = null))
         assertFalse(shouldInitializePush(bootStarted = true, action = null))
     }
+
+    @Test
+    fun `reconnect backoff is bounded`() {
+        assertEquals(2_000L, reconnectDelayMs(0))
+        assertEquals(4_000L, reconnectDelayMs(1))
+        assertEquals(120_000L, reconnectDelayMs(20))
+    }
+
+    @Test
+    fun `journal retry delay only applies after failures`() {
+        assertEquals(2_000L, journalRetryDelayMs(0))
+        assertEquals(10_000L, journalRetryDelayMs(1))
+        assertEquals(10_000L, journalRetryDelayMs(5))
+    }
 }

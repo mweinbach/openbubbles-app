@@ -9,6 +9,8 @@ import app.openbubbles.db.Chat_
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
+import io.objectbox.query.Query
+import io.objectbox.query.QueryCondition
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -35,27 +37,46 @@ class MessageRepo(
 
     /** Newest-first page of messages for a chat ([offset] skips older rows). */
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
-        messageBox.query()
-            .equal(Message_.chatId, chatId)
-            .isNull(Message_.associatedMessageGuid)
-            .isNull(Message_.dateDeleted)
-            .orderDesc(Message_.dateCreated)
-            .build()
+        messageQuery(chatId)
             .use { it.find(offset.toLong(), limit.toLong()) }
             .map { toItem(it) }
 
-    /** Reactive newest-first page (re-emits on any Message-table change). */
+    /** Newest-first page strictly older than [beforeId]'s time/id cursor. */
+    fun messagesBefore(chatId: Long, beforeId: Long, limit: Int): List<MessageItem> {
+        val anchor = messageBox.get(beforeId) ?: return emptyList()
+        return messageQuery(chatId, anchor)
+            .use { it.find(0, limit.toLong()) }
+            .map { toItem(it) }
+    }
+
+    /**
+     * Reactive newest-first bounded page. The entity-type subscription is only
+     * an invalidation signal; every emission executes [messages] with a native
+     * ObjectBox limit instead of materializing the entire transcript first.
+     */
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
-        messageBox.query()
-            .equal(Message_.chatId, chatId)
-            .isNull(Message_.associatedMessageGuid)
-            .isNull(Message_.dateDeleted)
-            .orderDesc(Message_.dateCreated)
-            .build()
-            .subscribe()
+        store.subscribe(Message::class.java)
             .asFlow()
-            .map { page -> page.take(limit).map { toItem(it) } }
+            .map { messages(chatId, limit) }
             .flowOn(Dispatchers.IO)
+
+    private fun messageQuery(chatId: Long, before: Message? = null): Query<Message> {
+        var condition: QueryCondition<Message> = Message_.chatId.equal(chatId)
+            .and(Message_.associatedMessageGuid.isNull())
+            .and(Message_.dateDeleted.isNull())
+        if (before != null) {
+            val cursor = before.dateCreated?.let { date ->
+                Message_.dateCreated.less(date).or(
+                    Message_.dateCreated.equal(date).and(Message_.id.less(before.id)),
+                )
+            } ?: Message_.id.less(before.id)
+            condition = condition.and(cursor)
+        }
+        return messageBox.query(condition)
+            .orderDesc(Message_.dateCreated)
+            .orderDesc(Message_.id)
+            .build()
+    }
 
     fun messageByGuid(guid: String): Message? =
         messageBox.query()

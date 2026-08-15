@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.openbubbles.nativeapp.data.UiContacts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Two-letter initials for an avatar, e.g. "Alex Chen" -> "AC", "Family" -> "FA". */
 fun initialsFor(title: String): String {
@@ -39,7 +41,9 @@ fun initialsFor(title: String): String {
 fun rememberContactAvatarPath(address: String?): String? =
     produceState<String?>(initialValue = null, address) {
         if (address == null) return@produceState
-        value = runCatching { UiContacts.contactNames?.invoke(address)?.second }.getOrNull()
+        value = withContext(Dispatchers.IO) {
+            runCatching { UiContacts.contactNames?.invoke(address)?.second }.getOrNull()
+        }
     }.value
 
 /**

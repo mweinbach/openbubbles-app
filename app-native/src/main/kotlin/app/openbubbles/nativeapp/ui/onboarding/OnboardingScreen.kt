@@ -46,7 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.ProvisionScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
@@ -84,7 +84,7 @@ fun OnboardingScreen(
     var step by remember { mutableStateOf(OnboardingStep.Welcome) }
     var finished by remember { mutableStateOf(false) }
 
-    val appContext = NativeMainActivity.appContext
+    val appContext = AppContext.current
     val confDir = remember(appContext) { appContext?.filesDir?.absolutePath.orEmpty() }
     val loginHandle = remember(confDir) {
         confDir.takeIf { it.isNotBlank() }?.let { RustLoginHandle(path = it) }

@@ -3,7 +3,7 @@ package app.openbubbles.nativeapp.sms
 import android.content.Context
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.db.Chat
-import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.Notifications
@@ -84,8 +84,6 @@ internal object SmsIngest {
      * store path goes through this static, so make sure it is populated.
      */
     fun seedAppContext(context: Context) {
-        if (NativeMainActivity.appContext == null) {
-            NativeMainActivity.appContext = context.applicationContext
-        }
+        AppContext.initialize(context)
     }
 }

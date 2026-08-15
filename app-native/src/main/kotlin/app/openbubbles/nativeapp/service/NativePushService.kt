@@ -16,17 +16,23 @@ import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
+import uniffi.rust_lib_bluebubbles.markJournalAttempt
 import uniffi.rust_lib_bluebubbles.ptrToMessage
+import uniffi.rust_lib_bluebubbles.readQueuedJournal
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 import java.util.concurrent.atomic.AtomicInteger
 import java.io.File
@@ -52,6 +58,12 @@ class NativePushService : Service(), MsgReceiver {
 
     /** Invalidates late callbacks when a post-login reload supersedes restore. */
     private val initGeneration = AtomicInteger(0)
+
+    /** Journal consumption belongs to the service lifecycle, never a global polling loop. */
+    private val journalMutex = Mutex()
+
+    private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -90,7 +102,7 @@ class NativePushService : Service(), MsgReceiver {
                 PushStateHolder.reportError(
                     "Apple push initialization failed: ${error.message ?: error.javaClass.simpleName}",
                 )
-                if (generation == initGeneration.get()) stopUnavailableService()
+                scheduleReconnect(generation, "initialization failed")
             }
         }
     }
@@ -124,23 +136,14 @@ class NativePushService : Service(), MsgReceiver {
     // -- MsgReceiver (called on Rust threads — keep them light) -------------
 
     override fun receievedMsg(msg: kotlin.ULong, retry: kotlin.ULong) {
-        val ingestor = CoreGraph.ingestor ?: run {
-            Log.e(TAG, "incoming pointer $msg cannot be ingested: message store unavailable")
-            PushStateHolder.reportError("Incoming message could not be saved; waiting to retry")
-            return
-        }
         scope.launch {
             try {
                 val handles = PushStateHolder.myHandles
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
-                if (decoded != null) {
-                    if (FaceTimeDispatch.onPushMessage(this@NativePushService, decoded)) {
-                        runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
-                        return@launch
-                    }
-                    val chat = ingestor.ingest(decoded, handles)
-                    syncGroupIcon(decoded, chat)
-                    notifyIncoming(decoded, chat)
+                when (decoded) {
+                    null -> Unit
+                    UPushMessage.ProcessQueue -> drainMessageJournal(handles)
+                    else -> ingestAndNotify(decoded, handles)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
             } catch (error: Throwable) {
@@ -152,6 +155,36 @@ class NativePushService : Service(), MsgReceiver {
                 )
             }
         }
+    }
+
+    /**
+     * Rust journals iMessages before emitting [UPushMessage.ProcessQueue]. Drain
+     * that journal immediately and serially. Retries only exist after an actual
+     * failure, so an idle connection has no periodic coroutine wakeups.
+     */
+    private suspend fun drainMessageJournal(handles: Set<String>) = journalMutex.withLock {
+        while (true) {
+            val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
+            try {
+                ingestAndNotify(entry.message, handles)
+                runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
+            } catch (error: Throwable) {
+                Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
+                runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
+                if (entry.attempts.toUInt() < MAX_JOURNAL_RETRIES - 1u) {
+                    delay(journalRetryDelayMs(entry.attempts.toInt()))
+                }
+            }
+        }
+    }
+
+    private suspend fun ingestAndNotify(decoded: UPushMessage, handles: Set<String>) {
+        if (FaceTimeDispatch.onPushMessage(this, decoded)) return
+        val ingestor = CoreGraph.ingestor
+            ?: error("message store unavailable")
+        val chat = ingestor.ingest(decoded, handles)
+        syncGroupIcon(decoded, chat)
+        notifyIncoming(decoded, chat)
     }
 
     /** Download and persist group-photo changes carried by an incoming event. */
@@ -213,6 +246,9 @@ class NativePushService : Service(), MsgReceiver {
                 runPollOnce(live)
                 return@launch
             }
+            reconnectJob?.cancel()
+            reconnectJob = null
+            reconnectAttempt = 0
             PushStateHolder.install(live, handles)
             handlesError?.let {
                 PushStateHolder.reportError(
@@ -220,6 +256,9 @@ class NativePushService : Service(), MsgReceiver {
                 )
             }
             updateStatus(CONNECTED_STATUS)
+            // Recover any durable messages left by a process death without a
+            // timer. New ProcessQueue events use the same serialized drain.
+            launch { drainMessageJournal(handles) }
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop", it)
@@ -227,6 +266,7 @@ class NativePushService : Service(), MsgReceiver {
                         "Apple push loop failed: ${it.message ?: it.javaClass.simpleName}",
                     )
                     updateStatus(DISCONNECTED_STATUS)
+                    scheduleReconnect(generation, "loop start failed")
                 }
         }
     }
@@ -293,8 +333,24 @@ class NativePushService : Service(), MsgReceiver {
             }
             Log.w(TAG, "Apple push loop ended")
             PushStateHolder.clear()
-            PushStateHolder.reportError("Apple push disconnected; reopen OpenBubbles to reconnect")
+            PushStateHolder.reportError("Apple push disconnected; reconnecting automatically")
             updateStatus(DISCONNECTED_STATUS)
+            scheduleReconnect(generation, "loop ended")
+        }
+    }
+
+    private fun scheduleReconnect(generation: Int, reason: String) {
+        if (pollMode || generation != initGeneration.get()) return
+        reconnectJob?.cancel()
+        val attempt = reconnectAttempt++
+        val delayMs = reconnectDelayMs(attempt)
+        Log.w(TAG, "$reason; reconnecting in ${delayMs}ms")
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (!pollMode && generation == initGeneration.get()) {
+                updateStatus(CONNECTING_STATUS)
+                bootRust()
+            }
         }
     }
 
@@ -384,6 +440,7 @@ class NativePushService : Service(), MsgReceiver {
 
     override fun onDestroy() {
         initGeneration.incrementAndGet()
+        reconnectJob?.cancel()
         PushStateHolder.clear()
         scope.cancel()
         super.onDestroy()
@@ -397,6 +454,7 @@ class NativePushService : Service(), MsgReceiver {
         private const val CONNECTING_STATUS = "Connecting to Apple push"
         private const val CONNECTED_STATUS = "Connected to Apple push"
         private const val DISCONNECTED_STATUS = "Apple push disconnected"
+        private const val MAX_JOURNAL_RETRIES = 3u
         internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
         private const val TAG = "NativePushService"
 
@@ -446,3 +504,13 @@ internal fun shouldInitializePush(bootStarted: Boolean, action: String?): Boolea
 
 internal fun restartModeFor(pollMode: Boolean): Int =
     if (pollMode) Service.START_NOT_STICKY else Service.START_STICKY
+
+internal fun journalRetryDelayMs(attempt: Int): Long = when (attempt.coerceAtLeast(0)) {
+    0 -> 2_000L
+    else -> 10_000L
+}
+
+internal fun reconnectDelayMs(attempt: Int): Long {
+    val bounded = attempt.coerceIn(0, 6)
+    return (2_000L shl bounded).coerceAtMost(120_000L)
+}

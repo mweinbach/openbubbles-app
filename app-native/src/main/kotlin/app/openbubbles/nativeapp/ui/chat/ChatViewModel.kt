@@ -17,7 +17,6 @@ import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -261,16 +260,19 @@ class ChatViewModel(
         if (loadingOlder.value || endReached) return
         val oldestId = messages.value.firstOrNull()?.id ?: return
         loadingOlder.value = true
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Brief delay so the "loading older" indicator is visible with fake data.
-                delay(250)
                 val older = messageRepository.loadMore(chatId, before = oldestId, count = PAGE_SIZE)
-                if (older.isEmpty()) endReached = true
+                if (older.size < PAGE_SIZE) endReached = true
             } finally {
                 loadingOlder.value = false
             }
         }
+    }
+
+    override fun onCleared() {
+        messageRepository.release(chatId)
+        super.onCleared()
     }
 
     companion object {
