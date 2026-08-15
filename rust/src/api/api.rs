@@ -2201,7 +2201,7 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
     let Some(pet) = account.get_pet() else { return Err(anyhow!("No pet!")) };
     let Some(spd) = &account.spd else { return Err(anyhow!("No spd!")) };
 
-    debug!("Got spd {:?}", spd);
+    debug!("Received Apple account service data");
     let acname = spd.get("acname").ok_or(anyhow!("No acname!"))?.as_string().unwrap().to_string();
     let dsid = spd.get("DsPrsId").ok_or(anyhow!("No dsid!"))?.as_unsigned_integer().unwrap().to_string();
     let adsid = spd.get("adsid").ok_or(anyhow!("No adsid!"))?.as_string().unwrap();

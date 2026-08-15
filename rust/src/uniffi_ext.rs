@@ -835,6 +835,11 @@ pub fn create_login_session(path: String, delegate: Arc<dyn ULoginDelegate>) -> 
             reason: format!("no hardware config at {path} (hw_info.plist missing); provision a device config first"),
         });
     };
+    if matches!(hw.os_config, api::JoinedOSConfig::MacOS(_)) {
+        return Err(UError::NotReady {
+            reason: "Raw Mac validation data requires the private OpenAbsinthe implementation, which is not included in this build. Re-run device setup with a relay activation code.".to_string(),
+        });
+    }
     let identity = api::decode_identity(&hw.identity)
         .map_err(|e| UError::NotReady { reason: format!("failed to decode stored identity: {e}") })?;
     Ok(Arc::new(ULoginSession {
@@ -2309,16 +2314,10 @@ pub fn provision_from_validation_data(
     data: Vec<u8>,
     extra: UHwExtra,
 ) -> Result<(), UError> {
-    let hw_extra = api::HwExtra {
-        version: extra.version,
-        protocol_version: extra.protocol_version,
-        device_id: extra.device_id,
-        icloud_ua: extra.icloud_ua,
-        aoskit_version: extra.aoskit_version,
-    };
-    let config = api::config_from_validation_data(data, hw_extra)
-        .map_err(|e| UError::InvalidArgument { reason: e.to_string() })?;
-    provision(config, dir)
+    let _ = (dir, data, extra);
+    Err(UError::NotReady {
+        reason: "Raw Mac validation data is not supported by this build. Use a relay activation code instead.".to_string(),
+    })
 }
 
 /// Provision from an encoded HwInfo blob — the QR pairing payload after
@@ -2326,9 +2325,10 @@ pub fn provision_from_validation_data(
 /// full config incl. version strings, so no HwExtra needed.
 #[uniffi::export]
 pub fn provision_from_encoded(dir: String, encoded: Vec<u8>) -> Result<(), UError> {
-    let config = api::config_from_encoded(encoded)
-        .map_err(|e| UError::InvalidArgument { reason: e.to_string() })?;
-    provision(config, dir)
+    let _ = (dir, encoded);
+    Err(UError::NotReady {
+        reason: "Raw Mac pairing data is not supported by this build. Scan or enter a relay activation code instead.".to_string(),
+    })
 }
 
 /// Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
@@ -2345,11 +2345,15 @@ pub fn provision_from_relay(
     provision(config, dir)
 }
 
-/// True when hw_info.plist exists and parses — gates the login UI's
-/// provisioning step.
+/// True when a relay-backed hardware config exists and parses. The public
+/// build deliberately treats raw Mac configs as unprovisioned because its
+/// OpenAbsinthe dependency is a nonfunctional placeholder.
 #[uniffi::export]
 pub fn has_hardware_config(dir: String) -> bool {
-    api::read_hardware(dir).is_some()
+    matches!(
+        api::read_hardware(dir).map(|state| state.os_config),
+        Some(api::JoinedOSConfig::Relay(_)),
+    )
 }
 
 // ---------------------------------------------------------------------------

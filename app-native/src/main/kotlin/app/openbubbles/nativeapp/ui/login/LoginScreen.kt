@@ -136,23 +136,13 @@ fun LoginScreenBody(
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             when (state) {
-                is LoginScreen.Form -> FormStep(state, events)
+                is LoginScreen.Form -> FormStep(state, events, onRedoSetup)
                 is LoginScreen.DeviceCode -> DeviceCodeStep(state, events)
                 is LoginScreen.SmsPhoneChooser -> SmsPhoneChooserStep(state, events)
                 is LoginScreen.SmsCode -> SmsCodeStep(state, events)
                 is LoginScreen.ExtraStep -> ExtraStepScreen(state, events)
                 is LoginScreen.Done -> DoneStep(state, onFinished)
                 is LoginScreen.Blocked -> BlockedStep(state)
-            }
-            if (state is LoginScreen.Form && onRedoSetup != null && !state.isBusy()) {
-                TextButton(
-                    onClick = onRedoSetup,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                ) {
-                    Text("Use a different device setup method")
-                }
             }
         }
     }
@@ -161,7 +151,11 @@ fun LoginScreenBody(
 // ---------------------------------------------------------------------- steps
 
 @Composable
-private fun FormStep(state: LoginScreen.Form, events: LoginEvents) {
+private fun FormStep(
+    state: LoginScreen.Form,
+    events: LoginEvents,
+    onRedoSetup: (() -> Unit)?,
+) {
     var username by rememberSaveable(state.savedUsername) {
         mutableStateOf(state.savedUsername.orEmpty())
     }
@@ -234,6 +228,15 @@ private fun FormStep(state: LoginScreen.Form, events: LoginEvents) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Continue as ${state.savedUsername}")
+            }
+        }
+        if (onRedoSetup != null && !state.isBusy()) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onRedoSetup,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Use a different device setup method")
             }
         }
     }

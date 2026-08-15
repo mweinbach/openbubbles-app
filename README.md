@@ -68,6 +68,11 @@ Important remaining work includes real-device login/2FA verification, message
 action UI (reactions, replies, edit, unsend), richer group controls, non-image
 attachment playback/opening, desktop parity, and store-ready release packaging.
 
+The public build requires a relay activation code during device setup. Raw Mac
+validation blobs and `OABS` hardware QR payloads depend on the private
+OpenAbsinthe implementation and are rejected before login rather than invoking
+the nonfunctional placeholder included in the public repository.
+
 ## Data compatibility
 
 Android retains the shipping application ID, `com.openbubbles.messaging`, and
