@@ -75,6 +75,7 @@ internal object SmsIngest {
             text = text,
             isGroup = isGroup,
             senderName = sender.removePrefix("tel:").removePrefix("mailto:"),
+            messageGuid = inst.id,
         )
     }
 

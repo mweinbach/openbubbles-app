@@ -42,6 +42,7 @@ object Notifications {
     // the deep link in NativeMainActivity.
     const val EXTRA_CHAT_GUID = NativeMainActivity.EXTRA_CHAT_GUID
     const val EXTRA_CHAT_ID = "chat_id"
+    const val EXTRA_MESSAGE_GUID = "message_guid"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val EXTRA_CANCEL_NOTIFICATIONS = "cancel_notifications"
     const val EXTRA_IS_SUMMARY = "is_summary"
@@ -82,9 +83,14 @@ object Notifications {
         text: String,
         isGroup: Boolean,
         senderName: String? = null,
+        messageGuid: String? = null,
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
+        if (messageGuid != null && nm.activeNotifications.any {
+                it.notification.extras.getString(EXTRA_MESSAGE_GUID) == messageGuid
+            }
+        ) return
 
         val prefs = NotifPrefs(context)
         val hide = prefs.hidePreviews
@@ -96,7 +102,7 @@ object Notifications {
 
         // Unique per message (chatId-hash + timestamp) — reused as the
         // notification id and as the PendingIntent request-code base.
-        val requestCode = "$chatId:${System.currentTimeMillis()}".hashCode()
+        val requestCode = "$chatId:${messageGuid ?: System.currentTimeMillis()}".hashCode()
         val notificationId = requestCode
 
         val contentIntent = PendingIntent.getActivity(
@@ -130,6 +136,7 @@ object Notifications {
         val extras = Bundle().apply {
             putString(EXTRA_CHAT_GUID, chatGuid)
             putLong(EXTRA_CHAT_ID, chatId)
+            messageGuid?.let { putString(EXTRA_MESSAGE_GUID, it) }
             putString(EXTRA_CONVERSATION_ID, chatGuid)
             putString(EXTRA_SEARCH_KEY, chatGuid)
         }

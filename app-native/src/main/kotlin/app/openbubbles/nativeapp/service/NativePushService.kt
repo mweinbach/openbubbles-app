@@ -263,6 +263,7 @@ class NativePushService : Service(), MsgReceiver {
             text = body,
             isGroup = isGroup,
             senderName = senderName,
+            messageGuid = inst.id,
         )
     }
 
