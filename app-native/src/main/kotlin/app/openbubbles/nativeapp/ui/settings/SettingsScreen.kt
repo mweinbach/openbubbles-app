@@ -750,7 +750,11 @@ fun SettingsScreen(
             onDismissRequest = { newRecoveryCode = null },
             title = { Text("iCloud Keychain joined") },
             text = {
-                Text("This device's iCloud Keychain recovery code is $code. It is saved in Settings and may be needed to recover encrypted iCloud data from another device. History sync is now running.")
+                Text(
+                    "This device generated and saved a local iCloud Keychain recovery code: $code. " +
+                        "The join used your trusted Apple device's existing escrow record. " +
+                        "History sync is now running.",
+                )
             },
             confirmButton = {
                 TextButton(onClick = { newRecoveryCode = null }) { Text("Done") }
