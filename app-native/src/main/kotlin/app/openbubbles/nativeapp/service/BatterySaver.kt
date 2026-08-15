@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -26,6 +28,7 @@ object BatterySaver {
     private const val PREFS = "native_setup"
     private const val KEY_ENABLED = "battery_saver"
     private const val WORK_NAME = "openbubbles-poll"
+    private const val RESTART_WORK_NAME = "openbubbles-push-restart"
 
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -59,6 +62,39 @@ object BatterySaver {
             ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
+    }
+
+    internal fun schedulePushRestart(context: Context) {
+        val request = OneTimeWorkRequestBuilder<PushRestartWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build(),
+            )
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            RESTART_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+}
+
+/** Retries an OEM- or platform-deferred foreground-service start safely. */
+class PushRestartWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val context = applicationContext
+        if (!uniffi.rust_lib_bluebubbles.hasHardwareConfig(context.filesDir.absolutePath)) {
+            return Result.success()
+        }
+        if (BatterySaver.isEnabled(context)) {
+            BatterySaver.schedule(context)
+            return Result.success()
+        }
+        return if (NativePushService.start(context)) Result.success() else Result.retry()
     }
 }
 

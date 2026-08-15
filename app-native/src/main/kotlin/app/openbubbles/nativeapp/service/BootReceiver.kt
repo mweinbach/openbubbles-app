@@ -20,8 +20,8 @@ class BootReceiver : BroadcastReceiver() {
         if (!uniffi.rust_lib_bluebubbles.hasHardwareConfig(context.filesDir.absolutePath)) return
         if (BatterySaver.isEnabled(context)) {
             BatterySaver.schedule(context)
-        } else {
-            NativePushService.start(context)
+        } else if (!NativePushService.start(context)) {
+            BatterySaver.schedulePushRestart(context)
         }
     }
 }

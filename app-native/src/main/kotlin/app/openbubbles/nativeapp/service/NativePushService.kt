@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -239,8 +240,26 @@ class NativePushService : Service(), MsgReceiver {
         @Volatile
         private var booted = false
 
-        fun start(context: Context) {
-            context.startForegroundService(Intent(context, NativePushService::class.java))
+        fun start(context: Context): Boolean {
+            return try {
+                context.startForegroundService(Intent(context, NativePushService::class.java))
+                true
+            } catch (error: SecurityException) {
+                Log.w("NativePushService", "foreground start denied", error)
+                false
+            } catch (error: RuntimeException) {
+                // The exception class was added in API 31 while our minSdk is
+                // 26, so identify it without introducing an older-device class
+                // loading dependency.
+                if (error.javaClass.name ==
+                    "android.app.ForegroundServiceStartNotAllowedException"
+                ) {
+                    Log.w("NativePushService", "foreground start deferred by Android", error)
+                    false
+                } else {
+                    throw error
+                }
+            }
         }
     }
 }
