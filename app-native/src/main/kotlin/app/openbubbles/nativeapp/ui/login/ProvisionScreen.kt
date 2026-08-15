@@ -19,20 +19,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.rust_lib_bluebubbles.UHwExtra
 import uniffi.rust_lib_bluebubbles.hasHardwareConfig
-import uniffi.rust_lib_bluebubbles.provisionFromRelay
+import uniffi.rust_lib_bluebubbles.provisionFromEncoded
+import uniffi.rust_lib_bluebubbles.provisionFromValidationData
 import java.util.Base64
+import java.util.UUID
 
 /**
- * One-time hardware provisioning (writes hw_info.plist) — the native
- * counterpart of the Flutter app's hw_inp setup page. The public build uses
- * a hosted relay slot because the repository only contains the nonfunctional
- * OpenAbsinthe placeholder for processing raw Mac validation data.
+ * One-time self-hosted hardware provisioning. A Mac exports either a complete
+ * `OABS` hardware payload or raw validation data; the resulting Mac config is
+ * stored locally so OpenAbsinthe can generate future registration data on this
+ * Android device without an OpenBubbles-hosted relay.
  */
 @Composable
 fun ProvisionScreen(
@@ -45,25 +47,39 @@ fun ProvisionScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
+    var activationPayload by remember { mutableStateOf("") }
 
-    var relayCode by remember { mutableStateOf("") }
-    var relayHost by remember { mutableStateOf(DEFAULT_RELAY_HOST) }
-    var relayToken by remember { mutableStateOf("") }
-
-    /** QR result: relay URLs/codes prefill; raw `OABS` payloads are rejected. */
-    fun handleScan(bytes: ByteArray?, text: String?) {
-        when (val input = classifyProvisioningInput(bytes, text, relayHost)) {
-            ProvisioningInput.Invalid -> {
-                error = "Couldn't read a relay activation code from that QR code."
+    fun provision(input: ProvisioningInput) {
+        if (input is ProvisioningInput.Invalid) {
+            error = "Use the OABS QR code or activation payload exported by your Mac."
+            return
+        }
+        busy = true
+        error = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    when (input) {
+                        is ProvisioningInput.Encoded -> provisionFromEncoded(
+                            dir = confDir,
+                            encoded = input.payload,
+                        )
+                        is ProvisioningInput.ValidationData -> provisionFromValidationData(
+                            dir = confDir,
+                            data = input.payload,
+                            extra = defaultHwExtra(),
+                        )
+                        ProvisioningInput.Invalid -> error("invalid activation payload")
+                    }
+                }
             }
-            ProvisioningInput.UnsupportedRaw -> {
-                error = "Raw Mac pairing data cannot finish sign-in in this build. Use a relay activation code instead."
-            }
-            is ProvisioningInput.Relay -> {
-                relayCode = input.code
-                relayHost = input.host
-                error = null
-            }
+            busy = false
+            result.fold(
+                onSuccess = { onProvisioned() },
+                onFailure = { failure ->
+                    error = failure.message ?: "Local hardware provisioning failed."
+                },
+            )
         }
     }
 
@@ -71,7 +87,7 @@ fun ProvisionScreen(
         QrScannerSheet(
             onResult = { bytes, text ->
                 scanning = false
-                handleScan(bytes, text)
+                provision(classifyProvisioningInput(bytes, text))
             },
             onClose = { scanning = false },
         )
@@ -84,62 +100,47 @@ fun ProvisionScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Device setup", style = MaterialTheme.typography.headlineSmall)
+        Text("Self-hosted device setup", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Apple requires Mac-derived validation data before this device " +
-                "can register with iMessage. Enter a relay " +
-                "activation code (Settings → Share Activation Code in your " +
-                "other OpenBubbles install); the relay completes validation " +
-                "server-side without sending your Apple ID password.",
+            "Scan the hardware QR code generated on your Mac, or paste its " +
+                "exported activation payload. After this one-time transfer, " +
+                "Apple validation runs locally on this Android device; the " +
+                "OpenBubbles hosted relay is not used.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            "Developer builds still need the production OpenAbsinthe engine " +
+                "to complete Apple registration. The public source checkout " +
+                "contains a safe nonfunctional stub.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
-        OutlinedTextField(
-            value = relayCode,
-            onValueChange = { relayCode = it },
-            label = { Text("Relay code") },
+        Button(
+            enabled = !busy,
+            onClick = { scanning = true },
             modifier = Modifier.fillMaxWidth(),
-        )
+        ) {
+            Text("Scan Mac hardware QR code")
+        }
         OutlinedTextField(
-            value = relayHost,
-            onValueChange = { relayHost = it },
-            label = { Text("Relay host") },
+            value = activationPayload,
+            onValueChange = { activationPayload = it },
+            label = { Text("Mac activation payload") },
+            supportingText = { Text("OABS base64 or 517-byte validation data") },
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-            ),
-        )
-        OutlinedTextField(
-            value = relayToken,
-            onValueChange = { relayToken = it },
-            label = { Text("Access token (optional)") },
-            modifier = Modifier.fillMaxWidth(),
+            minLines = 4,
         )
         Button(
-            enabled = !busy && relayCode.isNotBlank() && relayHost.isNotBlank(),
+            enabled = !busy && activationPayload.isNotBlank(),
             onClick = {
-                busy = true; error = null
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching {
-                            provisionFromRelay(
-                                dir = confDir,
-                                code = relayCode,
-                                host = relayHost,
-                                token = relayToken.ifBlank { null },
-                            )
-                        }
-                    }
-                    busy = false
-                    result.fold(
-                        onSuccess = { onProvisioned() },
-                        onFailure = { failure -> error = failure.message },
-                    )
-                }
+                provision(classifyProvisioningInput(bytes = null, text = activationPayload))
             },
-        ) { Text("Connect relay") }
-        TextButton(onClick = { scanning = true }) { Text("Scan relay QR / URL instead") }
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Use local Mac hardware")
+        }
 
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let {
@@ -153,40 +154,43 @@ fun ProvisionScreen(
     }
 }
 
-private const val DEFAULT_RELAY_HOST = "https://hw.openbubbles.app"
-
 internal sealed interface ProvisioningInput {
-    data class Relay(val code: String, val host: String) : ProvisioningInput
-    data object UnsupportedRaw : ProvisioningInput
+    data class Encoded(val payload: ByteArray) : ProvisioningInput
+    data class ValidationData(val payload: ByteArray) : ProvisioningInput
     data object Invalid : ProvisioningInput
 }
 
 internal fun classifyProvisioningInput(
     bytes: ByteArray?,
     text: String?,
-    currentHost: String = DEFAULT_RELAY_HOST,
 ): ProvisioningInput {
-    val payload = bytes ?: text?.toByteArray(Charsets.UTF_8)
-    if (payload != null && payload.size > 5 &&
-        String(payload.copyOfRange(0, 4), Charsets.US_ASCII) == "OABS"
-    ) {
-        return ProvisioningInput.UnsupportedRaw
-    }
+    parseProvisioningBytes(bytes)?.let { return it }
 
     val value = text?.trim().orEmpty()
     if (value.isEmpty()) return ProvisioningInput.Invalid
-    if (value.startsWith("http://") || value.startsWith("https://")) {
-        val url = runCatching { java.net.URI(value) }.getOrNull()
-            ?: return ProvisioningInput.Invalid
-        val hostName = url.host ?: return ProvisioningInput.Invalid
-        val code = url.path.trim('/').split('/').lastOrNull { it.isNotBlank() }
-            ?: return ProvisioningInput.Invalid
-        val host = "${url.scheme}://$hostName${if (url.port != -1) ":${url.port}" else ""}"
-        return ProvisioningInput.Relay(code, host)
-    }
-    if ((decodeBlob(value)?.size ?: 0) >= 256) return ProvisioningInput.UnsupportedRaw
-    return ProvisioningInput.Relay(value, currentHost)
+    return parseProvisioningBytes(decodeBlob(value)) ?: ProvisioningInput.Invalid
 }
+
+private fun parseProvisioningBytes(payload: ByteArray?): ProvisioningInput? {
+    if (payload == null) return null
+    if (payload.size > OABS_HEADER_SIZE &&
+        String(payload.copyOfRange(0, 4), Charsets.US_ASCII) == OABS_MAGIC
+    ) {
+        return ProvisioningInput.Encoded(payload.copyOfRange(OABS_HEADER_SIZE, payload.size))
+    }
+    if (payload.size == VALIDATION_DATA_SIZE && payload.firstOrNull() == 0x02.toByte()) {
+        return ProvisioningInput.ValidationData(payload)
+    }
+    return null
+}
+
+private fun defaultHwExtra() = UHwExtra(
+    version = "13.6.4",
+    protocolVersion = 1660u,
+    deviceId = UUID.randomUUID().toString(),
+    icloudUa = "com.apple.iCloudHelper/282 CFNetwork/1408.0.4 Darwin/22.5.0",
+    aoskitVersion = "com.apple.AOSKit/282 (com.apple.accountsd/113)",
+)
 
 private fun decodeBlob(text: String): ByteArray? {
     val cleaned = text.trim().replace("\\s".toRegex(), "")
@@ -200,12 +204,16 @@ private fun hexToBytes(hex: String): ByteArray? {
     if (hex.length % 2 != 0 || hex.isEmpty()) return null
     val out = ByteArray(hex.length / 2)
     for (i in out.indices) {
-        val b = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return null
-        out[i] = b.toByte()
+        val byte = hex.substring(i * 2, i * 2 + 2).toIntOrNull(16) ?: return null
+        out[i] = byte.toByte()
     }
     return out
 }
 
-/** Provisioned gate: true only for relay-backed hardware state supported here. */
+private const val OABS_MAGIC = "OABS"
+private const val OABS_HEADER_SIZE = 5
+private const val VALIDATION_DATA_SIZE = 517
+
+/** Provisioned gate: true when a local hardware config exists for [confDir]. */
 suspend fun isProvisioned(confDir: String): Boolean =
     withContext(Dispatchers.IO) { runCatching { hasHardwareConfig(confDir) }.getOrDefault(false) }

@@ -68,10 +68,11 @@ Important remaining work includes real-device login/2FA verification, message
 action UI (reactions, replies, edit, unsend), richer group controls, non-image
 attachment playback/opening, desktop parity, and store-ready release packaging.
 
-The public build requires a relay activation code during device setup. Raw Mac
-validation blobs and `OABS` hardware QR payloads depend on the private
-OpenAbsinthe implementation and are rejected before login rather than invoking
-the nonfunctional placeholder included in the public repository.
+The native rewrite targets the self-hosted flow: scan or paste an `OABS` Mac
+hardware payload once, then generate Apple validation data locally on the
+Android device. It does not depend on the OpenBubbles hosted hardware relay.
+Production builds must supply the private OpenAbsinthe implementation; the
+public repository intentionally includes only a nonfunctional development stub.
 
 ## Data compatibility
 

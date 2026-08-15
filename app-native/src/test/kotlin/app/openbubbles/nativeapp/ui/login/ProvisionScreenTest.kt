@@ -2,53 +2,57 @@ package app.openbubbles.nativeapp.ui.login
 
 import java.util.Base64
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class ProvisionScreenTest {
 
     @Test
-    fun `relay URL extracts host and activation code`() {
+    fun `binary OABS QR extracts encoded hardware payload`() {
+        val encoded = byteArrayOf(9, 8, 7, 6)
         val result = classifyProvisioningInput(
-            bytes = null,
-            text = "https://relay.example:8443/share/ABC-123",
-        )
-
-        val relay = assertIs<ProvisioningInput.Relay>(result)
-        assertEquals("ABC-123", relay.code)
-        assertEquals("https://relay.example:8443", relay.host)
-    }
-
-    @Test
-    fun `plain activation code keeps configured host`() {
-        val result = classifyProvisioningInput(
-            bytes = null,
-            text = "ABC-123",
-            currentHost = "https://relay.example",
-        )
-
-        val relay = assertIs<ProvisioningInput.Relay>(result)
-        assertEquals("ABC-123", relay.code)
-        assertEquals("https://relay.example", relay.host)
-    }
-
-    @Test
-    fun `OABS pairing payload is rejected`() {
-        val result = classifyProvisioningInput(
-            bytes = "OABS".toByteArray() + byteArrayOf(1) + "private-mac-payload".toByteArray(),
+            bytes = "OABS".toByteArray() + byteArrayOf(1) + encoded,
             text = null,
         )
 
-        assertEquals(ProvisioningInput.UnsupportedRaw, result)
+        assertContentEquals(encoded, assertIs<ProvisioningInput.Encoded>(result).payload)
     }
 
     @Test
-    fun `large base64 validation payload is rejected`() {
-        val encoded = Base64.getEncoder().encodeToString(ByteArray(517) { it.toByte() })
+    fun `base64 OABS payload is accepted offline`() {
+        val encoded = byteArrayOf(5, 4, 3, 2)
+        val oabs = "OABS".toByteArray() + byteArrayOf(0) + encoded
+        val result = classifyProvisioningInput(
+            bytes = null,
+            text = Base64.getEncoder().encodeToString(oabs),
+        )
 
+        assertContentEquals(encoded, assertIs<ProvisioningInput.Encoded>(result).payload)
+    }
+
+    @Test
+    fun `raw validation payload is accepted locally`() {
+        val validationData = ByteArray(517) { index -> index.toByte() }.also { it[0] = 0x02 }
+        val result = classifyProvisioningInput(
+            bytes = null,
+            text = Base64.getEncoder().encodeToString(validationData),
+        )
+
+        assertContentEquals(
+            validationData,
+            assertIs<ProvisioningInput.ValidationData>(result).payload,
+        )
+    }
+
+    @Test
+    fun `hosted relay URL is not accepted as local hardware`() {
         assertEquals(
-            ProvisioningInput.UnsupportedRaw,
-            classifyProvisioningInput(bytes = null, text = encoded),
+            ProvisioningInput.Invalid,
+            classifyProvisioningInput(
+                bytes = null,
+                text = "https://hw.openbubbles.app/ticket/hosted-code",
+            ),
         )
     }
 

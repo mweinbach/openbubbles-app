@@ -16,12 +16,13 @@ already-completed mechanical cutover.
 - [x] Android lint and release-variant AAB compilation run in native CI.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.
-- [x] Public builds reject raw Mac/OpenAbsinthe provisioning before login and
-      require relay-backed validation instead of reaching the placeholder.
+- [x] The OpenAbsinthe development stub returns explicit errors instead of
+      panicking at login or provisioning boundaries.
+- [ ] Production native builds include the real on-device OpenAbsinthe engine.
 
 ## Android device acceptance
 
-- [ ] Fresh relay provisioning succeeds using an activation code.
+- [ ] Fresh self-hosted provisioning succeeds using an `OABS` Mac QR/payload.
 - [ ] Apple ID password login succeeds on the release candidate.
 - [ ] Trusted-device 2FA succeeds and registration writes usable account state.
 - [ ] SMS 2FA fallback, phone selection, and code submission succeed.
