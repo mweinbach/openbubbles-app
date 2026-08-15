@@ -65,6 +65,7 @@ dependencies {
     implementation project(":shared")
     implementation project(":db")
     implementation project(":core")
+    implementation project(":android-smsmms")
 
     // ObjectBox native runtime for Android (entities live in :db)
     implementation "io.objectbox:objectbox-android:4.3.0"

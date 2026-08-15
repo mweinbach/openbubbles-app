@@ -9,6 +9,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import io.objectbox.query.QueryBuilder
+import java.io.File
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,6 +26,7 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val guid = intent.getStringExtra(EXTRA_GUID) ?: return
+        val transport = intent.getStringExtra(EXTRA_TRANSPORT) ?: "SMS"
         SmsIngest.seedAppContext(context) // cold-started broadcasts have no activity
         val store = CoreGraph.store ?: return
 
@@ -46,7 +48,7 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
                         }
                         else -> {
                             row.error = 1L
-                            row.errorMessage = "SMS send failed (code $resultCode)"
+                            row.errorMessage = "$transport send failed (code $resultCode)"
                             row.sendingServiceId = null
                             box.put(row)
                         }
@@ -59,6 +61,10 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
             } catch (t: Throwable) {
                 Log.w(TAG, "SMS status update failed", t)
             } finally {
+                if (transport == "MMS") {
+                    intent.getStringExtra(com.klinker.android.send_message.MmsSentReceiver.EXTRA_FILE_PATH)
+                        ?.let { path -> runCatching { File(path).delete() } }
+                }
                 pending.finish()
             }
         }
@@ -69,6 +75,7 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
         const val ACTION_DELIVERED = "app.openbubbles.nativeapp.sms.SMS_DELIVERED"
         const val EXTRA_GUID = "sms_staged_guid"
         const val EXTRA_PART_INDEX = "sms_part_index"
+        const val EXTRA_TRANSPORT = "message_transport"
 
         private const val TAG = "SmsSendStatusReceiver"
     }

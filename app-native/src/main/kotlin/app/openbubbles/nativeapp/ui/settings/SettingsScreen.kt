@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -81,6 +82,7 @@ import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
+import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
@@ -267,6 +269,13 @@ fun SettingsScreen(
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
             .getOrNull()
+    }
+
+    var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }
+    val smsRoleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        isDefaultSmsApp = SmsRole.isHeld(context)
     }
 
     // ------------------------------------------------------------------
@@ -507,6 +516,27 @@ fun SettingsScreen(
                         notifPrefs.replyEnabled = enabled
                     },
                 )
+            }
+
+            SectionCard(title = "SMS & MMS") {
+                SettingRow(
+                    title = if (isDefaultSmsApp) "Default SMS app" else "Finish SMS setup",
+                    supporting = if (isDefaultSmsApp) {
+                        "OpenBubbles can receive carrier SMS, MMS, photos, and group messages"
+                    } else {
+                        "Set OpenBubbles as the default SMS app for reliable incoming MMS and media"
+                    },
+                    icon = Icons.Filled.Sms,
+                    multiline = true,
+                )
+                if (!isDefaultSmsApp) {
+                    FilledTonalButton(
+                        onClick = {
+                            SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Set as default SMS app") }
+                }
             }
 
             SectionCard(title = "Location") {

@@ -4,6 +4,7 @@ import android.util.Log
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.SmsSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,26 @@ object SmsBridge {
             // into the UI coroutine scope.
             Log.w("SmsBridge", "SMS send failed for chat $chatId", t)
         }
+        true
+    }
+
+    /**
+     * MMS twin of [routeIfSmsChat]. Media selected in a SIM conversation is
+     * composed and sent by Android's carrier MMS service instead of entering
+     * the iMessage/MMCS uploader.
+     */
+    suspend fun routeAttachmentIfSmsChat(
+        chatId: Long,
+        attachment: OutgoingAttachment,
+        caption: String?,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val store = CoreGraph.store ?: return@withContext false
+        val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull()
+            ?: return@withContext false
+        if (chat.isRpSms != true) return@withContext false
+        val context = NativeMainActivity.appContext
+            ?: error("MMS sender unavailable - app context missing")
+        MmsManagerSender(context).send(chatId, attachment, caption)
         true
     }
 }

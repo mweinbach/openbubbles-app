@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.content.ContentUris
 import android.provider.Telephony
 import android.util.Log
 import app.openbubbles.core.attachment.AttachmentStore
@@ -22,13 +23,12 @@ import kotlinx.coroutines.launch
  * the message in the telephony provider, then ingests the decoded row — text
  * parts as body, media parts persisted straight into the attachment store.
  *
- * Why no PDU download here: downloading the notification's content-location
- * ourselves would require carrier MMSC/APN routing (the `android-smsmms`
- * transaction stack). Non-default SMS apps on modern Android cannot do that
- * reliably; relying on the provider row keeps this dependency-free. When no
- * default SMS app exists (or READ_SMS is not granted) the poll finds nothing
- * and the message is skipped — see the task report (deferred: direct MMSC
- * download + MMS sending).
+ * When OpenBubbles holds Android's default-SMS role, [MmsPushReceiver] uses the
+ * carrier transaction stack to download and persist the PDU, then
+ * [CarrierMmsReceivedReceiver] calls [ingestProviderMms] directly. This
+ * receiver remains as the non-default fallback: Google Messages downloads the
+ * PDU and this process polls the shared telephony row when the public push
+ * broadcast arrives.
  */
 class MmsReceiver : BroadcastReceiver() {
 
@@ -78,6 +78,16 @@ class MmsReceiver : BroadcastReceiver() {
         return ingested
     }
 
+    /** Ingests the exact provider row persisted by the carrier MMS callback. */
+    internal suspend fun ingestProviderMms(context: Context, uri: Uri): Boolean {
+        val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return false
+        if (SmsBridge.seenMmsIds.contains(id)) return true
+        val row = queryMmsRow(context, uri) ?: return false
+        return ingestOne(context, row).also { ingested ->
+            if (ingested) SmsBridge.seenMmsIds.add(id)
+        }
+    }
+
     private data class MmsRow(val id: Long, val threadId: Long, val dateMs: Long)
 
     private fun queryNewMmsRows(context: Context, sinceMs: Long): List<MmsRow>? = runCatching {
@@ -101,6 +111,23 @@ class MmsReceiver : BroadcastReceiver() {
                     )
                 }
             }
+        }
+    }.getOrNull()
+
+    private fun queryMmsRow(context: Context, uri: Uri): MmsRow? = runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(Telephony.Mms._ID, Telephony.Mms.THREAD_ID, Telephony.Mms.DATE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            MmsRow(
+                id = cursor.getLong(0),
+                threadId = cursor.getLong(1),
+                dateMs = cursor.getLong(2) * 1000L,
+            )
         }
     }.getOrNull()
 

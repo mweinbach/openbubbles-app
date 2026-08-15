@@ -15,6 +15,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -72,15 +73,46 @@ class ChatViewModelTest {
         assertEquals(7L to "target", actions.unsend)
     }
 
-    private fun model(sender: Sender, actions: MessageActions) = ChatViewModel(
+    @Test
+    fun `attachment in sms chat never enters imessage uploader`() = runTest(dispatcher) {
+        val attachmentSender = RecordingAttachmentSender()
+        var routed: Triple<Long, String, String?>? = null
+        val model = model(
+            sender = RecordingSender(),
+            actions = RecordingActions(),
+            attachmentSender = attachmentSender,
+            smsAttachmentRouter = { chatId, attachment, caption ->
+                routed = Triple(chatId, attachment.mime, caption)
+                true
+            },
+        )
+        val file = File.createTempFile("mms-route", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val attachment = OutgoingAttachment(file, "image/jpeg", "public.jpeg", "photo.jpg", file.length())
+
+        model.onInputChange("caption")
+        model.sendAttachment(attachment)
+        advanceUntilIdle()
+
+        assertEquals(Triple(7L, "image/jpeg", "caption"), routed)
+        assertEquals(0, attachmentSender.calls)
+        file.delete()
+    }
+
+    private fun model(
+        sender: Sender,
+        actions: MessageActions,
+        attachmentSender: AttachmentSender = NoopAttachmentSender,
+        smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
+    ) = ChatViewModel(
         chatId = 7L,
         chatListRepository = StaticChats,
         messageRepository = StaticMessages,
         sender = sender,
         messageActions = actions,
-        attachmentSender = NoopAttachmentSender,
+        attachmentSender = attachmentSender,
         typingRepository = NoopTyping,
         smsRouter = { _, _ -> false },
+        smsAttachmentRouter = smsAttachmentRouter,
     )
 
     private fun message(
@@ -156,6 +188,14 @@ private class RecordingActions : MessageActions {
 
 private object NoopAttachmentSender : AttachmentSender {
     override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) = Unit
+}
+
+private class RecordingAttachmentSender : AttachmentSender {
+    var calls = 0
+
+    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+        calls++
+    }
 }
 
 private object NoopTyping : TypingRepository {

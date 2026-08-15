@@ -105,6 +105,7 @@ class SmsManagerSender(private val context: Context) : SmsSender {
             .setAction(action)
             .putExtra(SmsSendStatusReceiver.EXTRA_GUID, guid)
             .putExtra(SmsSendStatusReceiver.EXTRA_PART_INDEX, partIndex)
+            .putExtra(SmsSendStatusReceiver.EXTRA_TRANSPORT, "SMS")
         // Unique request code per (guid, action, part) so multipart parts do
         // not collapse into one PendingIntent.
         val requestCode = (guid.hashCode() * 31 + action.hashCode() * 7 + partIndex)

@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.sms.SmsRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -98,7 +99,9 @@ internal fun PermissionsStep(
     val contactsGranted = remember(context, revision) {
         context.hasPermission(Manifest.permission.READ_CONTACTS)
     }
-    val smsGranted = remember(context, revision) { context.hasSmsPermissions() }
+    val smsPermissionsGranted = remember(context, revision) { context.hasSmsPermissions() }
+    val smsRoleHeld = remember(context, revision) { SmsRole.isHeld(context) }
+    val smsGranted = smsPermissionsGranted && smsRoleHeld
 
     // One contact sync as soon as (and only once after) access is granted;
     // re-runs if it was interrupted mid-flight by leaving the step.
@@ -120,6 +123,9 @@ internal fun PermissionsStep(
     val contactsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { _ -> revision++ }
+    val smsRoleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { _ -> revision++ }
     val smsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
@@ -128,6 +134,7 @@ internal fun PermissionsStep(
             smsOptIn = false
         } else {
             smsDenied = false
+            SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
         }
         revision++
     }
@@ -190,9 +197,17 @@ internal fun PermissionsStep(
                 tag = "Optional",
                 rationale = "Send and receive green-bubble SMS through this phone's SIM.",
                 granted = smsGranted,
-                onRequest = { smsLauncher.launch(SmsPermissionSet.toTypedArray()) },
+                onRequest = {
+                    if (smsPermissionsGranted) {
+                        SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
+                    } else {
+                        smsLauncher.launch(SmsPermissionSet.toTypedArray())
+                    }
+                },
                 subtitle = when {
                     smsGranted -> null
+                    smsPermissionsGranted && !smsRoleHeld ->
+                        "Choose OpenBubbles as the default SMS app to receive MMS and group media."
                     smsDenied -> "Not enabled — you can turn it on later in system Settings."
                     else -> null
                 },
@@ -205,7 +220,11 @@ internal fun PermissionsStep(
                             onCheckedChange = { want ->
                                 smsOptIn = want
                                 if (want) {
-                                    smsLauncher.launch(SmsPermissionSet.toTypedArray())
+                                    if (smsPermissionsGranted) {
+                                        SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
+                                    } else {
+                                        smsLauncher.launch(SmsPermissionSet.toTypedArray())
+                                    }
                                 } else {
                                     smsDenied = false
                                 }

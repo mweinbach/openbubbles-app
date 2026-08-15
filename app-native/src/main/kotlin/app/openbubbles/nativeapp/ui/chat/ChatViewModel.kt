@@ -79,6 +79,8 @@ class ChatViewModel(
     private val attachmentSender: AttachmentSender,
     typingRepository: TypingRepository,
     private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
+    private val smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean =
+        SmsBridge::routeAttachmentIfSmsChat,
 ) : ViewModel() {
 
     init {
@@ -236,7 +238,15 @@ class ChatViewModel(
         val caption = input.value.trim()
         input.value = ""
         viewModelScope.launch {
-            runCatching { attachmentSender.send(chatId, attachment, caption.ifEmpty { null }) }
+            runCatching {
+                val value = caption.ifEmpty { null }
+                if (!smsAttachmentRouter(chatId, attachment, value)) {
+                    attachmentSender.send(chatId, attachment, value)
+                }
+            }.onFailure { failure ->
+                input.value = caption
+                actionError.value = failure.message ?: "Could not send attachment"
+            }
         }
     }
 
