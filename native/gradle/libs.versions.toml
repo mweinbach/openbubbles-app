@@ -13,11 +13,10 @@
 
 [versions]
 # --- toolchain -------------------------------------------------------------
-# AGP 8.13.2 is the last AGP 8. AGP 9 additionally requires Gradle 9.1+, a
-# rewrite of cargokit-standalone.gradle (removed variant API), and a patch to
-# the telephony_plus submodule (compileSdkVersion 25 / lintOptions). Tracked
-# separately; see docs.
-agp = "8.13.2"
+# Kept in sync with native/settings.gradle, which declares the plugin versions
+# literally: a version catalog cannot be consumed by the settings `plugins`
+# block that declares it.
+agp = "9.3.1"
 kotlin = "2.4.10"
 composeMultiplatform = "1.11.1"
 
@@ -50,6 +49,7 @@ coroutines = "1.11.0"
 okhttp = "4.12.0"
 cbor = "4.5.2"
 mlkitBarcode = "17.3.0"
+screenshotValidation = "0.0.1-alpha16"
 
 [libraries]
 # --- compose platform ------------------------------------------------------
@@ -115,6 +115,8 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 cbor = { module = "com.upokecenter:cbor", version.ref = "cbor" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test" }
+# Provides @PreviewTest, which marks which previews the screenshot plugin runs.
+screenshot-validation-api = { module = "com.android.tools.screenshot:screenshot-validation-api", version.ref = "screenshotValidation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

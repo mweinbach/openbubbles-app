@@ -4,6 +4,9 @@ plugins {
     id "org.jetbrains.kotlin.android"
     id "org.jetbrains.kotlin.plugin.compose"
     id "org.jetbrains.kotlin.plugin.serialization"
+    // Compose Preview Screenshot Testing: renders @PreviewTest previews and
+    // diffs them against recorded goldens. The only UI regression net here.
+    id "com.android.compose.screenshot"
 }
 
 android {
@@ -66,6 +69,9 @@ android {
             "-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
         ]
     }
+    // The screenshot plugin requires this here as well as in gradle.properties.
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
+
     buildFeatures {
         compose true
         viewBinding true
@@ -136,6 +142,8 @@ dependencies {
     // JVM unit tests for the sms/ receive->ingest builders (same objectbox
     // desktop runtime :db/:core tests use, so the ingest integration can open
     // a real store without a device).
+    screenshotTestImplementation libs.screenshot.validation.api
+
     testImplementation libs.kotlin.test
     testImplementation libs.objectbox.java
     testImplementation libs.kotlinx.coroutines.core
