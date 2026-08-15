@@ -47,7 +47,7 @@ already-completed mechanical cutover.
 - [x] Send reactions/tapbacks, threaded replies, edits, and unsend from Android UI.
 - [x] Rename groups, edit group photos, and add/remove participants.
 - [x] Pin, archive, delete, and mute conversation controls.
-- [ ] Add timed-unmute presets and expiry scheduling.
+- [x] Add temporary mute presets with legacy-compatible expiry evaluation.
 - [x] Open/share downloaded video, audio, and generic files with Android handlers.
 - [ ] Add dedicated in-app audio/video playback controls.
 - [ ] Instrumentation or journey coverage for login, service, worker, receiver,

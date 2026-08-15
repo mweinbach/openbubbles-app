@@ -63,6 +63,9 @@ class ChatListViewModel(
 
     fun toggleMuted(chat: ChatListItem) = repository.setMuted(chat.id, !chat.muted)
 
+    fun muteFor(chat: ChatListItem, durationMs: Long) =
+        repository.setMutedUntil(chat.id, System.currentTimeMillis() + durationMs)
+
     fun toggleArchived(chat: ChatListItem) = repository.setArchived(chat.id, !chat.archived)
 
     fun delete(chat: ChatListItem) = repository.delete(chat.id)

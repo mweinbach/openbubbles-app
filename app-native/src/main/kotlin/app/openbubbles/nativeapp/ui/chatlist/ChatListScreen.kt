@@ -79,6 +79,7 @@ fun ChatListScreen(
     onNewChat: () -> Unit = {},
     onTogglePinned: (ChatListItem) -> Unit = {},
     onToggleMuted: (ChatListItem) -> Unit = {},
+    onMuteFor: (ChatListItem, Long) -> Unit = { _, _ -> },
     onToggleArchived: (ChatListItem) -> Unit = {},
     onDelete: (ChatListItem) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -150,6 +151,10 @@ fun ChatListScreen(
             onToggleMuted = {
                 selectedChat = null
                 onToggleMuted(chat)
+            },
+            onMuteFor = { durationMs ->
+                selectedChat = null
+                onMuteFor(chat, durationMs)
             },
             onToggleArchived = {
                 selectedChat = null
@@ -336,6 +341,7 @@ private fun ChatListActionSheet(
     chat: ChatListItem,
     onTogglePinned: () -> Unit,
     onToggleMuted: () -> Unit,
+    onMuteFor: (Long) -> Unit,
     onToggleArchived: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -353,11 +359,29 @@ private fun ChatListActionSheet(
             icon = Icons.Filled.PushPin,
             onClick = onTogglePinned,
         )
-        ChatActionButton(
-            text = if (chat.muted) "Show alerts" else "Hide alerts",
-            icon = Icons.Filled.NotificationsOff,
-            onClick = onToggleMuted,
-        )
+        if (chat.muted) {
+            ChatActionButton(
+                text = "Show alerts",
+                icon = Icons.Filled.NotificationsOff,
+                onClick = onToggleMuted,
+            )
+        } else {
+            ChatActionButton(
+                text = "Mute for 1 hour",
+                icon = Icons.Filled.NotificationsOff,
+                onClick = { onMuteFor(60 * 60 * 1_000L) },
+            )
+            ChatActionButton(
+                text = "Mute for 8 hours",
+                icon = Icons.Filled.NotificationsOff,
+                onClick = { onMuteFor(8 * 60 * 60 * 1_000L) },
+            )
+            ChatActionButton(
+                text = "Hide alerts",
+                icon = Icons.Filled.NotificationsOff,
+                onClick = onToggleMuted,
+            )
+        }
         ChatActionButton(
             text = if (chat.archived) "Unarchive" else "Archive",
             icon = Icons.Filled.Archive,

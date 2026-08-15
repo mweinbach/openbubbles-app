@@ -659,6 +659,8 @@ private class CoreChatListRepository(
 
     override fun setMuted(id: Long, muted: Boolean) = repo.setMuted(id, muted)
 
+    override fun setMutedUntil(id: Long, untilEpochMs: Long) = repo.setMutedUntil(id, untilEpochMs)
+
     override fun setArchived(id: Long, archived: Boolean) = repo.setArchived(id, archived)
 
     override fun delete(id: Long) {

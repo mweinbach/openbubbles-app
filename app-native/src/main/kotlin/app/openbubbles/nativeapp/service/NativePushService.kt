@@ -304,9 +304,12 @@ class NativePushService : Service(), MsgReceiver {
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
         val body = notificationPreview(inst) ?: return
         val target = chat ?: return
-        // Per-chat mute (Flutter parity: muteType set -> no notification).
-        // Time-based auto-unmute (muteArgs) lands with chat settings UI.
-        if (!target.muteType.isNullOrEmpty()) return
+        if (app.openbubbles.core.model.ChatMute.shouldMute(
+                target,
+                senderAddress = inst.sender,
+                messageText = body,
+            )
+        ) return
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
         ) return

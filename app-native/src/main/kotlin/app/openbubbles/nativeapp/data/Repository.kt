@@ -91,6 +91,7 @@ interface ChatListRepository {
     fun markRead(id: Long)
     fun setPinned(id: Long, pinned: Boolean)
     fun setMuted(id: Long, muted: Boolean)
+    fun setMutedUntil(id: Long, untilEpochMs: Long) = setMuted(id, true)
     fun setArchived(id: Long, archived: Boolean)
     fun delete(id: Long)
 }

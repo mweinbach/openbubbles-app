@@ -58,7 +58,7 @@ internal object SmsIngest {
         val inst = (push as? UPushMessage.IMessage)?.inst ?: return
         val sender = inst.sender ?: return
         if (sender in PushStateHolder.myHandles) return
-        if (!chat.muteType.isNullOrEmpty()) return
+        if (app.openbubbles.core.model.ChatMute.shouldMute(chat, sender, text)) return
         val guid = chat.guid ?: return
         val isGroup = chat.isGroupConversation()
         Notifications.postIncoming(

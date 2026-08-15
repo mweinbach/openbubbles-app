@@ -163,6 +163,7 @@ fun OpenBubblesApp(
                     onNewChat = { navController.navigate(Routes.NEW_CHAT) },
                     onTogglePinned = viewModel::togglePinned,
                     onToggleMuted = viewModel::toggleMuted,
+                    onMuteFor = viewModel::muteFor,
                     onToggleArchived = viewModel::toggleArchived,
                     onDelete = viewModel::delete,
                     footer = { DebugStatusFooter(debugLines) },

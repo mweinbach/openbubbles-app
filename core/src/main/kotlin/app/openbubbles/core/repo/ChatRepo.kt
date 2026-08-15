@@ -2,6 +2,7 @@ package app.openbubbles.core.repo
 
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.ChatListItem
+import app.openbubbles.core.model.ChatMute
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.db.Chat
@@ -148,6 +149,13 @@ class ChatRepo(private val store: BoxStore) {
         chatBox.put(chat)
     }
 
+    fun setMutedUntil(chatId: Long, untilEpochMs: Long) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.muteType = "temporary_mute"
+        chat.muteArgs = java.time.Instant.ofEpochMilli(untilEpochMs).toString()
+        chatBox.put(chat)
+    }
+
     fun setArchived(chatId: Long, archived: Boolean) {
         val chat = chatBox.get(chatId) ?: return
         chat.isArchived = archived
@@ -203,7 +211,7 @@ class ChatRepo(private val store: BoxStore) {
             hasUnread = chat.hasUnreadMessage,
             unreadCount = unreadCount(chat),
             pinned = chat.isPinned,
-            muted = chat.muteType == "mute",
+            muted = ChatMute.shouldMute(chat),
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
             participantCount = chat.handles.size,
