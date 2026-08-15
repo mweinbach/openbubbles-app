@@ -74,6 +74,19 @@ Android device. It does not depend on the OpenBubbles hosted hardware relay.
 Production builds must supply the private OpenAbsinthe implementation; the
 public repository intentionally includes only a nonfunctional development stub.
 
+For local ABI investigation, a debug build can package a user-supplied copy of
+the production APK's Rust library without adding it to the repository:
+
+```bash
+cd native
+OPENBUBBLES_OFFICIAL_RUST_LIB=/path/to/librust_lib_bluebubbles.so \
+  ./gradlew :app-native:assembleDebug
+```
+
+The library is renamed and probed separately from the native rewrite's Rust
+library. This is a compatibility diagnostic only: the production binary exports
+its Flutter and UniFFI bridges, but not a standalone OpenAbsinthe validation ABI.
+
 ## Data compatibility
 
 Android retains the shipping application ID, `com.openbubbles.messaging`, and

@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.OfficialEngineProbe
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.shared.Hello
@@ -53,6 +54,12 @@ class NativeMainActivity : ComponentActivity() {
             "uniffi ok — isLocked=${isLocked()}"
         } catch (t: Throwable) {
             "rust load failed: ${t.message}"
+        }
+
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                android.util.Log.i("OfficialEngineProbe", OfficialEngineProbe.probe().summary())
+            }
         }
 
         setContent {
