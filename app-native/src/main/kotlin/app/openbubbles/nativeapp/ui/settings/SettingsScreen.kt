@@ -62,7 +62,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -370,12 +372,17 @@ fun SettingsScreen(
         }
     }
 
+    // Top-level destination with a headline worth collapsing, so it gets the
+    // flexible bar. Transient detail screens (Chat Info, New Message) keep the
+    // small bar, which is what Material specifies for dense/pushed layouts.
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            MediumFlexibleTopAppBar(
                 title = { Text("Settings") },
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     if (showBackButton) {
                         IconButton(onClick = onBack) {
