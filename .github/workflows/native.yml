@@ -59,16 +59,22 @@ jobs:
       - name: Rust library tests
         run: cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 
-      - name: Native JVM tests + model parity + APK
+      - name: Native JVM tests + model parity + lint + Android artifacts
         run: |
           cd native
           ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-            :db:checkModelParity :app-native:assembleDebug --console=plain
+            :db:checkModelParity :app-native:lintDebug \
+            :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
           name: native-alpha-debug-apk
           path: build-native/app-native/outputs/apk/debug/app-native-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-alpha-release-aab-debug-signed
+          path: build-native/app-native/outputs/bundle/release/app-native-release.aab
 
   desktop-windows:
     name: Native Desktop (Windows)

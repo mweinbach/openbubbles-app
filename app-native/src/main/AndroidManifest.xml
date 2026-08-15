@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -9,6 +10,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
@@ -22,6 +24,10 @@
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
 
+    <!-- Camera and telephony features are optional so tablets, Chromebooks,
+         and Wi-Fi-only devices remain installable. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
         android:label="OpenBubbles"
@@ -114,12 +120,14 @@
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialCreateActivity"
             android:taskAffinity=".CredentialCreate"
-            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
+            tools:targetApi="34" />
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialGetActivity"
             android:taskAffinity=".CredentialGet"
-            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
+            tools:targetApi="34" />
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
@@ -132,7 +140,8 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="iCloud Keychain"
-            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE"
+            tools:targetApi="34">
             <intent-filter>
                 <action android:name="android.service.credentials.CredentialProviderService" />
             </intent-filter>
@@ -145,7 +154,8 @@
             android:name="app.openbubbles.nativeapp.credentials.OBAutofillService"
             android:exported="true"
             android:label="iCloud Keychain"
-            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            tools:targetApi="27">
             <intent-filter>
                 <action android:name="android.service.autofill.AutofillService" />
             </intent-filter>

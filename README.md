@@ -38,11 +38,16 @@ Initialize submodules, provide `native/local.properties` with `sdk.dir`, then ru
 ```bash
 cd native
 ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain
+  :db:checkModelParity :app-native:lintDebug \
+  :app-native:assembleDebug :app-native:bundleRelease --console=plain
 ```
 
 The APK is written to
 `build-native/app-native/outputs/apk/debug/app-native-debug.apk`.
+The release-variant AAB is written to
+`build-native/app-native/outputs/bundle/release/app-native-release.aab`. Without
+a usable `android/key.properties` and referenced keystore, it is debug-signed
+for compilation/testing only and must not be submitted to a store.
 
 Run the clean-checkout Rust gate separately:
 

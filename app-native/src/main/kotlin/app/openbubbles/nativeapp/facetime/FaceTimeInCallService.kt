@@ -47,8 +47,13 @@ class FaceTimeInCallService: Service() {
             }
         }
 
-        // Notification ID cannot be 0.
-        startForeground(3884786, notification, type)
+        // The service-type overload was added in Android 10. Android 8/9 still
+        // require the two-argument call even though they support foreground services.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(3884786, notification, type)
+        } else {
+            startForeground(3884786, notification)
+        }
     }
 
     override fun onCreate() {

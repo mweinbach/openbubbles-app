@@ -176,7 +176,7 @@ class MmsReceiver : BroadcastReceiver() {
 
     private fun queryMmsParts(context: Context, mmsId: Long): List<MmsPart> = runCatching {
         context.contentResolver.query(
-            Telephony.Mms.Part.CONTENT_URI,
+            Uri.parse("content://mms/part"),
             arrayOf(Telephony.Mms.Part._ID, Telephony.Mms.Part.CONTENT_TYPE, Telephony.Mms.Part.NAME, Telephony.Mms.Part.TEXT),
             "${Telephony.Mms.Part.MSG_ID} = ?",
             arrayOf(mmsId.toString()),

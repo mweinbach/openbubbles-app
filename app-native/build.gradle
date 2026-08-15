@@ -28,19 +28,24 @@ android {
     if (keystorePropertiesFile.exists()) {
         keystorePropertiesFile.withReader('UTF-8') { keystoreProperties.load(it) }
     }
+    def releaseStoreFile = keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+    def hasReleaseSigning = keystorePropertiesFile.exists() && releaseStoreFile?.exists()
     signingConfigs {
         release {
             keyAlias keystoreProperties['keyAlias']
             keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storeFile releaseStoreFile
             storePassword keystoreProperties['storePassword']
         }
     }
     buildTypes {
         release {
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
         }
+    }
+    if (!hasReleaseSigning) {
+        logger.lifecycle("Production keystore unavailable; release variants will be debug-signed.")
     }
 
     compileOptions {

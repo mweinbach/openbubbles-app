@@ -13,6 +13,7 @@ already-completed mechanical cutover.
 - [x] Database, core, and Android JVM tests run in native CI.
 - [x] Fixture-free `rustpush` library tests run in native CI.
 - [x] Debug APK assembles for arm64 and x86_64.
+- [x] Android lint and release-variant AAB compilation run in native CI.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.
 
@@ -56,7 +57,7 @@ already-completed mechanical cutover.
 
 - [ ] Build and install the signed release APK/AAB using the production key.
 - [ ] Verify version-code continuity and in-place upgrade signature.
-- [ ] Add release artifact and lint gates to CI.
+- [x] Add release-variant artifact and lint gates to CI (CI AAB is debug-signed).
 - [ ] Measure and reduce release package size where practical.
 - [ ] Complete store listing, privacy disclosure, signing backup, and rollback plan.
 
