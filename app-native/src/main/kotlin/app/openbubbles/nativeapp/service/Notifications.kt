@@ -118,14 +118,14 @@ object Notifications {
         val deleteIntent = PendingIntent.getBroadcast(
             context,
             requestCode + 1,
-            markReadIntent(context, chatId, cancelNotifications = false),
+            markReadIntent(context, chatId, messageGuid, cancelNotifications = false),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
         val markReadIntent = PendingIntent.getBroadcast(
             context,
             requestCode + 2,
-            markReadIntent(context, chatId, cancelNotifications = true),
+            markReadIntent(context, chatId, messageGuid, cancelNotifications = true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val markReadAction = NotificationCompat.Action.Builder(0, "Mark As Read", markReadIntent)
@@ -188,6 +188,7 @@ object Notifications {
                 Intent(context, ReplyReceiver::class.java)
                     .putExtra(EXTRA_CHAT_ID, chatId)
                     .putExtra(EXTRA_CHAT_GUID, chatGuid)
+                    .putExtra(EXTRA_MESSAGE_GUID, messageGuid)
                     .putExtra(EXTRA_NOTIFICATION_ID, notificationId),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
             )
@@ -249,7 +250,7 @@ object Notifications {
         val deleteIntent = PendingIntent.getBroadcast(
             context,
             requestCode + 1,
-            markReadIntent(context, chatId, cancelNotifications = false),
+            markReadIntent(context, chatId, messageGuid = null, cancelNotifications = false),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -477,9 +478,15 @@ object Notifications {
     // Internals
     // ------------------------------------------------------------------
 
-    private fun markReadIntent(context: Context, chatId: Long, cancelNotifications: Boolean) =
+    private fun markReadIntent(
+        context: Context,
+        chatId: Long,
+        messageGuid: String?,
+        cancelNotifications: Boolean,
+    ) =
         Intent(context, MarkReadReceiver::class.java)
             .putExtra(EXTRA_CHAT_ID, chatId)
+            .putExtra(EXTRA_MESSAGE_GUID, messageGuid)
             .putExtra(EXTRA_CANCEL_NOTIFICATIONS, cancelNotifications)
 
     /**

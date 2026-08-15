@@ -22,12 +22,13 @@ class MarkReadReceiver : BroadcastReceiver() {
         if (chatId <= 0L) return
         val cancelNotifications =
             intent.getBooleanExtra(Notifications.EXTRA_CANCEL_NOTIFICATIONS, true)
+        val messageGuid = intent.getStringExtra(Notifications.EXTRA_MESSAGE_GUID)
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 runCatching {
-                    CoreGraph.readReceipts.markRead(chatId)
+                    CoreGraph.readReceipts.markRead(chatId, messageGuid)
                 }
                 if (cancelNotifications) Notifications.cancelForChat(context, chatId)
             } finally {

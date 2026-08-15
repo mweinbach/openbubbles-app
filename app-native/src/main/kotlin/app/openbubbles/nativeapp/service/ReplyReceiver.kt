@@ -33,13 +33,14 @@ class ReplyReceiver : BroadcastReceiver() {
 
         val chatId = intent.getLongExtra(Notifications.EXTRA_CHAT_ID, 0L)
         val chatGuid = intent.getStringExtra(Notifications.EXTRA_CHAT_GUID)
+        val messageGuid = intent.getStringExtra(Notifications.EXTRA_MESSAGE_GUID)
         val notificationId = intent.getIntExtra(Notifications.EXTRA_NOTIFICATION_ID, -1)
         if (chatId <= 0L) return
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                sendReply(context, chatId, chatGuid, notificationId, replyText)
+                sendReply(context, chatId, chatGuid, messageGuid, notificationId, replyText)
             } finally {
                 pendingResult.finish()
             }
@@ -50,6 +51,7 @@ class ReplyReceiver : BroadcastReceiver() {
         context: Context,
         chatId: Long,
         chatGuid: String?,
+        messageGuid: String?,
         notificationId: Int,
         text: String,
     ) {
@@ -111,7 +113,7 @@ class ReplyReceiver : BroadcastReceiver() {
             PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
         }
 
-        runCatching { CoreGraph.readReceipts.markRead(chatId) }
+        runCatching { CoreGraph.readReceipts.markRead(chatId, messageGuid ?: afterGuid) }
         Notifications.cancelForChat(context, chatId)
         Notifications.postReplySent(
             context,

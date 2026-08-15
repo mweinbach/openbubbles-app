@@ -150,7 +150,9 @@ object CoreGraph {
         if (store != null) CoreSender else FakeSender
     }
     val readReceipts: ReadReceiptSender by lazy {
-        if (store != null) CoreReadReceiptSender else ReadReceiptSender(chats::markRead)
+        if (store != null) CoreReadReceiptSender else ReadReceiptSender { chatId, _ ->
+            chats.markRead(chatId)
+        }
     }
     val messageActions: MessageActions by lazy {
         if (store != null) CoreMessageActions else FakeMessageActions
@@ -833,34 +835,36 @@ private object CoreSender : Sender {
 
 /** Local unread-state update plus the legacy iMessage read-receipt routing. */
 private object CoreReadReceiptSender : ReadReceiptSender {
-    override suspend fun markRead(chatId: Long) {
+    override suspend fun markRead(chatId: Long, messageGuid: String?) {
         val store = CoreGraph.store ?: return
         ChatRepo(store).markRead(chatId)
 
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: return
         val state = PushStateHolder.state ?: return
         val sender = sendingHandle(chat) ?: return
-        val messageGuid = store.boxFor(Message::class.java)
-            .query()
-            .equal(Message_.chatId, chatId)
-            .isNull(Message_.dateDeleted)
-            .orderDesc(Message_.dateCreated)
-            .build().use { query ->
-                query.find(0, 10).firstNotNullOfOrNull { message ->
-                    (message.stagingGuid ?: message.guid)?.takeUnless {
-                        it.contains("temp") || it.contains("error")
+        val receiptGuid = messageGuid?.takeUnless {
+            it.contains("temp") || it.contains("error")
+        } ?: store.boxFor(Message::class.java)
+                .query()
+                .equal(Message_.chatId, chatId)
+                .isNull(Message_.dateDeleted)
+                .orderDesc(Message_.dateCreated)
+                .build().use { query ->
+                    query.find(0, 10).firstNotNullOfOrNull { message ->
+                        (message.stagingGuid ?: message.guid)?.takeUnless {
+                            it.contains("temp") || it.contains("error")
+                        }
                     }
                 }
-            }
-            ?: return
+                ?: return
         val globalReceipts = NativeMainActivity.appContext
             ?.let { MessagingPrefs(it).sendReadReceipts }
             ?: false
         val notifyOthers = chat.autoSendReadReceipts || globalReceipts
-        val conversation = readReceiptConversation(chat, sender, messageGuid, notifyOthers)
+        val conversation = readReceiptConversation(chat, sender, receiptGuid, notifyOthers)
         runCatching {
             runInterruptible(Dispatchers.IO) {
-                state.sendRead(conversation, sender, messageGuid)
+                state.sendRead(conversation, sender, receiptGuid)
             }
         }.onFailure { error ->
             PushStateHolder.reportError(

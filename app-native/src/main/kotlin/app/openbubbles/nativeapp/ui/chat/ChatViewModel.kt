@@ -88,7 +88,7 @@ class ChatViewModel(
     init {
         // Opening a conversation clears its unread badge and mirrors the
         // receipt to Apple/the user's other devices when connected.
-        viewModelScope.launch { readReceiptSender.markRead(chatId) }
+        viewModelScope.launch { readReceiptSender.markRead(chatId, null) }
     }
 
     private val input = MutableStateFlow("")

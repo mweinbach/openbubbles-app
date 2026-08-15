@@ -123,7 +123,7 @@ interface Sender {
 
 /** Marks a conversation read locally and mirrors the receipt through iMessage. */
 fun interface ReadReceiptSender {
-    suspend fun markRead(chatId: Long)
+    suspend fun markRead(chatId: Long, messageGuid: String?)
 }
 
 /** Message mutations supported by the on-device iMessage engine. */

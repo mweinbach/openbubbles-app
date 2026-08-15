@@ -104,7 +104,7 @@ class ChatViewModelTest {
         actions: MessageActions,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
-        readReceiptSender: ReadReceiptSender = ReadReceiptSender { },
+        readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
         chatId = 7L,
         chatListRepository = StaticChats,
