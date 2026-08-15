@@ -867,6 +867,23 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `focus status updates matching direct chat`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+
+        ingestor.ingest(
+            UPushMessage.StatusUpdate(friend, "com.apple.focus", allowed = false),
+            myHandles,
+        )
+        assertTrue(chatBox().get(chat.id).notifsSilenced)
+
+        ingestor.ingest(
+            UPushMessage.StatusUpdate(friend, null, allowed = true),
+            myHandles,
+        )
+        assertFalse(chatBox().get(chat.id).notifsSilenced)
+    }
+
+    @Test
     fun `flows emit current state and updates`() = runBlocking<Unit> {
         val initial = chatRepo.observeChats().first()
         assertEquals(0, initial.size)

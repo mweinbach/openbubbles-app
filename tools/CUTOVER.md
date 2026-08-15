@@ -28,6 +28,8 @@ already-completed mechanical cutover.
       receipts according to the user's privacy setting.
 - [x] Incoming tapbacks/custom reactions post readable notifications and honor
       the reaction-notification preference.
+- [x] Incoming Focus status updates preserve each direct recipient's
+      notification-silenced state.
 
 ## Android device acceptance
 

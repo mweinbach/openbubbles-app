@@ -15239,8 +15239,12 @@ sealed class UPushMessage {
         companion object
     }
     
-    object StatusUpdate : UPushMessage()
-    
+    data class StatusUpdate(
+        val `user`: kotlin.String, 
+        val `mode`: kotlin.String?, 
+        val `allowed`: kotlin.Boolean) : UPushMessage() {
+        companion object
+    }
     
     data class Idms(
         val `debug`: kotlin.String) : UPushMessage() {
@@ -15290,7 +15294,11 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
             5 -> UPushMessage.FaceTime(
                 FfiConverterTypeUFtMessage.read(buf),
                 )
-            6 -> UPushMessage.StatusUpdate
+            6 -> UPushMessage.StatusUpdate(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
             7 -> UPushMessage.Idms(
                 FfiConverterString.read(buf),
                 )
@@ -15348,6 +15356,9 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterString.allocationSize(value.`user`)
+                + FfiConverterOptionalString.allocationSize(value.`mode`)
+                + FfiConverterBoolean.allocationSize(value.`allowed`)
             )
         }
         is UPushMessage.Idms -> {
@@ -15416,6 +15427,9 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
             }
             is UPushMessage.StatusUpdate -> {
                 buf.putInt(6)
+                FfiConverterString.write(value.`user`, buf)
+                FfiConverterOptionalString.write(value.`mode`, buf)
+                FfiConverterBoolean.write(value.`allowed`, buf)
                 Unit
             }
             is UPushMessage.Idms -> {

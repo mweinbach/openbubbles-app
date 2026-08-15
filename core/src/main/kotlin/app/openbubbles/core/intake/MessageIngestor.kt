@@ -109,11 +109,30 @@ class MessageIngestor(
                 handleSendConfirm(push.uuid, push.error)
                 null
             }
-            // RegistrationState / StatusUpdate / FaceTime / Idms / photostreams /
+            is UPushMessage.StatusUpdate -> handleStatusUpdate(push.user, push.allowed)
+            // RegistrationState / FaceTime / Idms / photostreams /
             // beacons carry UI-only or not-yet-typed payloads — the service
             // layer listens for them directly. Nothing to persist.
             else -> null
         }
+    }
+
+    /** Mirror a recipient's Focus/notification-silencing status onto its DM. */
+    private fun handleStatusUpdate(user: String, allowed: Boolean): Chat? {
+        val chat = findByRust(
+            conversation = UConversation(
+                participants = listOf(user),
+                cvName = null,
+                senderGuid = null,
+                afterGuid = null,
+            ),
+            service = "iMessage",
+            myHandles = emptySet(),
+            createIfMissing = false,
+        ) ?: return null
+        chat.notifsSilenced = !allowed
+        chatBox.put(chat)
+        return chat
     }
 
     // ------------------------------------------------------------------
