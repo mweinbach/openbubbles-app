@@ -65,6 +65,17 @@ class MessageIngestor(
     private val store: BoxStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
+    /**
+     * Persistence result used by notification consumers. [isNewIncomingMessage]
+     * is true only when this call inserted a previously unseen incoming message
+     * or reaction. Replayed journal entries, edits, receipts, and history that
+     * already exists in ObjectBox must never produce another notification.
+     */
+    data class IngestResult(
+        val chat: Chat?,
+        val isNewIncomingMessage: Boolean,
+    )
+
     companion object {
         /** How long a typing indicator survives without a refresh (Dart uses 1 minute). */
         private const val TYPING_TIMEOUT_MS = 60_000L
@@ -94,10 +105,26 @@ class MessageIngestor(
      * Ingest one push message. Returns the affected [Chat] for message-type
      * pushes (so callers can notify with real chat context), null otherwise.
      */
-    suspend fun ingest(msg: UPushMessage, myHandles: Set<String>): Chat? {
+    suspend fun ingest(msg: UPushMessage, myHandles: Set<String>): Chat? =
+        ingestWithResult(msg, myHandles).chat
+
+    /** Ingest with the deduplication signal required by the push service. */
+    suspend fun ingestWithResult(msg: UPushMessage, myHandles: Set<String>): IngestResult {
         return withContext(Dispatchers.IO) {
             mutex.withLock {
-                ingestLocked(msg, myHandles)
+                val inst = (msg as? UPushMessage.IMessage)?.inst
+                val notifiableType = inst?.message is UMessage.Normal || inst?.message is UMessage.React
+                val existedBefore = inst?.id?.let(::findMessageByGuidOrStaging) != null
+                val chat = ingestLocked(msg, myHandles)
+                IngestResult(
+                    chat = chat,
+                    isNewIncomingMessage = chat != null &&
+                        notifiableType &&
+                        !existedBefore &&
+                        inst?.sender != null &&
+                        inst.sender !in myHandles &&
+                        !inst.verificationFailed,
+                )
             }
         }
     }

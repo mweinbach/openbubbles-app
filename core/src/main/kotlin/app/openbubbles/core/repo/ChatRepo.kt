@@ -15,6 +15,7 @@ import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
@@ -41,22 +42,26 @@ class ChatRepo(private val store: BoxStore) {
             .order(Chat_.pinIndex)
             .orderDesc(Chat_.dbOnlyLatestMessageDate)
             .build()
-        val found = if (limit > 0) query.find(0, limit.toLong()) else query.find()
-        query.close()
-        return found.map { toItem(it) }
+        return query.use {
+            val found = if (limit > 0) it.find(0, limit.toLong()) else it.find()
+            // Project while the query and its creator thread are still alive;
+            // relation reads in toItem must not escape to a collector thread.
+            found.map(::toItem)
+        }
     }
 
-    /** Reactive version of [chats] backed by ObjectBox's DataObserver. */
+    /**
+     * Reactive version of [chats]. The entity subscription is only an
+     * invalidation signal: query subscriptions hand entity lists backed by a
+     * read transaction to another coroutine, which is unsafe under a busy
+     * history import. Conflation also drops obsolete refreshes while a page is
+     * being committed instead of queueing one full chat projection per write.
+     */
     fun observeChats(): Flow<List<ChatListItem>> =
-        chatBox.query()
-            .isNull(Chat_.dateDeleted)
-            .orderDesc(Chat_.isPinned)
-            .order(Chat_.pinIndex)
-            .orderDesc(Chat_.dbOnlyLatestMessageDate)
-            .build()
-            .subscribe()
+        store.subscribe(Chat::class.java)
             .asFlow()
-            .map { chats -> chats.map { toItem(it) } }
+            .conflate()
+            .map { chats() }
             .flowOn(Dispatchers.IO)
 
     fun chatByGuid(guid: String): Chat? =

@@ -166,9 +166,11 @@ class MessageIngestorTest {
 
     @Test
     fun `duplicate delivery is deduped`() = runBlocking<Unit> {
-        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
-        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val first = ingestor.ingestWithResult(push(textInst("msg-1", friend, "hi")), myHandles)
+        val replay = ingestor.ingestWithResult(push(textInst("msg-1", friend, "hi")), myHandles)
         assertEquals(1, messageBox().count())
+        assertTrue(first.isNewIncomingMessage)
+        assertTrue(!replay.isNewIncomingMessage)
     }
 
     @Test

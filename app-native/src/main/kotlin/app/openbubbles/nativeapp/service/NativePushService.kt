@@ -142,8 +142,8 @@ class NativePushService : Service(), MsgReceiver {
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
                 when (decoded) {
                     null -> Unit
-                    UPushMessage.ProcessQueue -> drainMessageJournal(handles)
-                    else -> ingestAndNotify(decoded, handles)
+                    UPushMessage.ProcessQueue -> drainMessageJournal(handles, allowNotifications = true)
+                    else -> ingestAndNotify(decoded, handles, allowNotifications = true)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
             } catch (error: Throwable) {
@@ -162,11 +162,14 @@ class NativePushService : Service(), MsgReceiver {
      * that journal immediately and serially. Retries only exist after an actual
      * failure, so an idle connection has no periodic coroutine wakeups.
      */
-    private suspend fun drainMessageJournal(handles: Set<String>) = journalMutex.withLock {
+    private suspend fun drainMessageJournal(
+        handles: Set<String>,
+        allowNotifications: Boolean,
+    ) = journalMutex.withLock {
         while (true) {
             val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
             try {
-                ingestAndNotify(entry.message, handles)
+                ingestAndNotify(entry.message, handles, allowNotifications)
                 runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
             } catch (error: Throwable) {
                 Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
@@ -178,13 +181,20 @@ class NativePushService : Service(), MsgReceiver {
         }
     }
 
-    private suspend fun ingestAndNotify(decoded: UPushMessage, handles: Set<String>) {
+    private suspend fun ingestAndNotify(
+        decoded: UPushMessage,
+        handles: Set<String>,
+        allowNotifications: Boolean,
+    ) {
         if (FaceTimeDispatch.onPushMessage(this, decoded)) return
         val ingestor = CoreGraph.ingestor
             ?: error("message store unavailable")
-        val chat = ingestor.ingest(decoded, handles)
+        val result = ingestor.ingestWithResult(decoded, handles)
+        val chat = result.chat
         syncGroupIcon(decoded, chat)
-        notifyIncoming(decoded, chat)
+        if (allowNotifications && result.isNewIncomingMessage) {
+            notifyIncoming(decoded, chat)
+        }
     }
 
     /** Download and persist group-photo changes carried by an incoming event. */
@@ -256,9 +266,11 @@ class NativePushService : Service(), MsgReceiver {
                 )
             }
             updateStatus(CONNECTED_STATUS)
-            // Recover any durable messages left by a process death without a
-            // timer. New ProcessQueue events use the same serialized drain.
-            launch { drainMessageJournal(handles) }
+            // Recover durable messages left by a process death before starting
+            // the live loop. They may overlap history sync or already-rendered
+            // rows, so this startup catch-up is deliberately silent. New
+            // ProcessQueue events use the same drain with notifications enabled.
+            drainMessageJournal(handles, allowNotifications = false)
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop", it)
