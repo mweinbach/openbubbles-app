@@ -55,6 +55,7 @@ object RustBoot {
         }
     }
 
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.P)
     fun unlockKeystore(
         promptContext: android.content.Context,
         title: String,
