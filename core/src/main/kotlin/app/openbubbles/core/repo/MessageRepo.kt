@@ -95,12 +95,13 @@ class MessageRepo(
         val replies = messageBox.query()
             .equal(Message_.chatId, chatId)
             .equal(Message_.threadOriginatorGuid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .equal(Message_.threadOriginatorPart, part.toString(), QueryBuilder.StringOrder.CASE_SENSITIVE)
             .isNull(Message_.associatedMessageGuid)
             .isNull(Message_.dateDeleted)
             .order(Message_.dateCreated)
             .order(Message_.id)
-            .build().use { it.find() }
+            .build().use { query ->
+                query.find().filter { MessageMapper.replyPartIndex(it.threadOriginatorPart) == part }
+            }
         return buildList {
             if (root != null) add(toItem(root))
             addAll(replies.map(::toItem))
@@ -221,7 +222,9 @@ class MessageRepo(
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
             threadOriginatorGuid = message.threadOriginatorGuid,
-            threadOriginatorPart = message.threadOriginatorPart?.toLongOrNull(),
+            threadOriginatorPart = MessageMapper.replyPartIndex(message.threadOriginatorPart),
+            threadOriginatorLocator = message.threadOriginatorPart,
+            replyPartLocators = MessageMapper.decodeReplyPartLocators(message.dbAttributedBody),
             associatedMessageGuid = message.associatedMessageGuid,
             expressiveSendStyleId = message.expressiveSendStyleId,
             stickers = activeReactions.flatMap(::stickerPlacements),

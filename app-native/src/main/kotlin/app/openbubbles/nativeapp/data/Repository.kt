@@ -105,6 +105,10 @@ data class MessageItem(
     val replyToGuid: String? = null,
     /** Part index on the root message used by this thread. */
     val replyToPart: Long? = null,
+    /** Full Apple run locator (`part:start:length`) used by this reply. */
+    val replyToPartLocator: String? = null,
+    /** Apple run locators for parts that can be selected on this message. */
+    val replyPartLocators: Map<Long, String> = emptyMap(),
     /** Parent-part summary resolved independently of the progressive page. */
     val replyPreviewText: String? = null,
     /** Positional stickers layered over this message. */
@@ -138,7 +142,7 @@ interface Sender {
     suspend fun send(chatId: Long, text: String)
 
     /** Sends a text reply rooted at [replyGuid]. */
-    suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
+    suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPartLocator: String) {
         send(chatId, text)
     }
 

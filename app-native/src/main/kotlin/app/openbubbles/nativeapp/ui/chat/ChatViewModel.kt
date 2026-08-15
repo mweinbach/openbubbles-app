@@ -58,6 +58,7 @@ data class ReplyTarget(
     val message: MessageItem,
     val rootGuid: String,
     val part: Long,
+    val partLocator: String,
 )
 
 data class ReplyThreadState(
@@ -86,6 +87,21 @@ object PendingSendEffect {
 
 private const val INITIAL_LIMIT = 30
 private const val PAGE_SIZE = 20
+
+/**
+ * Legacy/cloud rows may not carry reconstructed attributed-body runs yet.
+ * Plain text and single attachments still have an unambiguous whole-run
+ * range, so keep those replies protocol-correct while newer rows use the
+ * exact locator persisted by MessageMapper.
+ */
+private fun fallbackReplyPartLocator(message: MessageItem, part: Long): String {
+    val runLength = if (message.attachmentMetas.any { it.partIndex == part }) {
+        1
+    } else {
+        message.text.length.coerceAtLeast(1)
+    }
+    return "$part:0:$runLength"
+}
 
 class ChatViewModel(
     private val chatId: Long,
@@ -194,7 +210,7 @@ class ChatViewModel(
                         chatId,
                         text,
                         reply.rootGuid,
-                        reply.part,
+                        reply.partLocator,
                     )
                     effectId == null -> sender.send(chatId, text)
                     else -> sender.sendWithEffect(chatId, text, effectId)
@@ -211,10 +227,14 @@ class ChatViewModel(
 
     fun beginReply(message: MessageItem, part: Long = 0L) {
         editingMessage.value = null
+        val rootPart = message.replyToPart ?: part
         replyingTo.value = ReplyTarget(
             message = message,
             rootGuid = message.replyToGuid ?: message.guid,
-            part = message.replyToPart ?: part,
+            part = rootPart,
+            partLocator = message.replyToPartLocator
+                ?: message.replyPartLocators[rootPart]
+                ?: fallbackReplyPartLocator(message, rootPart),
         )
     }
 

@@ -88,6 +88,10 @@ data class MessageItem(
     val threadOriginatorGuid: String?,
     /** Part index on the thread originator that this reply is attached to. */
     val threadOriginatorPart: Long?,
+    /** Full Apple reply run locator (`part:start:length`) when this is a reply. */
+    val threadOriginatorLocator: String?,
+    /** Apple reply run locators keyed by the selectable part on this message. */
+    val replyPartLocators: Map<Long, String> = emptyMap(),
     /** GUID of the message this reaction is attached to (reactions only). */
     val associatedMessageGuid: String?,
     /** Expressive send style (screen effects), e.g. "com.apple.MobileSMS.expressivesend.gentle". */

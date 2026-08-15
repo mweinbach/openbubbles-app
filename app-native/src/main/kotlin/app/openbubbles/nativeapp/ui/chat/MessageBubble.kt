@@ -177,16 +177,11 @@ fun MessageBubble(
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
+    val attachmentParts = attachments.mapTo(hashSetOf()) { it.partIndex }
+    val textPart = message.replyPartLocators.keys.firstOrNull { it !in attachmentParts } ?: 0L
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (onLongPressPart != null) {
-                    Modifier.combinedClickable(onClick = {}, onLongClick = { onLongPressPart(0L) })
-                } else {
-                    Modifier
-                },
-            )
             .padding(horizontal = 12.dp, vertical = 3.dp),
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
@@ -266,7 +261,13 @@ fun MessageBubble(
             if (message.text.isNotBlank()) {
                 Box {
                     if (isInvisibleInk(message.expressiveSendStyleId)) {
-                        InvisibleInkBubble(message = message, shape = shape)
+                        InvisibleInkBubble(
+                            message = message,
+                            shape = shape,
+                            onLongPress = onLongPressPart?.let { callback ->
+                                { callback(textPart) }
+                            },
+                        )
                     } else {
                         Surface(
                             shape = shape,
@@ -279,6 +280,14 @@ fun MessageBubble(
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
                                 MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = if (onLongPressPart != null) {
+                                Modifier.combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { onLongPressPart(textPart) },
+                                )
+                            } else {
+                                Modifier
                             },
                         ) {
                             Text(
@@ -329,11 +338,13 @@ fun MessageBubble(
  * Invisible-ink bubble (com.apple.MobileSMS.expressivesend.invisibleink): the
  * text renders blurred until tapped, then reveals for 3s and re-hides.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InvisibleInkBubble(
     message: MessageItem,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null,
 ) {
     var revealed by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(revealed, message.id) {
@@ -354,13 +365,21 @@ private fun InvisibleInkBubble(
         } else {
             MaterialTheme.colorScheme.onSurface
         },
-        modifier = modifier,
+        modifier = modifier.then(
+            if (onLongPress != null) {
+                Modifier.combinedClickable(
+                    onClick = { revealed = !revealed },
+                    onLongClick = onLongPress,
+                )
+            } else {
+                Modifier.clickable { revealed = !revealed }
+            },
+        ),
     ) {
         Text(
             text = message.text,
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier
-                .clickable { revealed = !revealed }
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .then(
                     // RenderEffect blur is a no-op below Android 12.

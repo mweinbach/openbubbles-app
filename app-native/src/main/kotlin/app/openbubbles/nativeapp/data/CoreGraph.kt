@@ -514,6 +514,8 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     guid = item.guid,
     replyToGuid = item.threadOriginatorGuid,
     replyToPart = item.threadOriginatorPart,
+    replyToPartLocator = item.threadOriginatorLocator,
+    replyPartLocators = item.replyPartLocators,
     stickers = item.stickers.map { sticker ->
         StickerPlacement(
             reactionGuid = sticker.reactionGuid,
@@ -547,7 +549,9 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
     sizeBytes = attachment.totalBytes,
     isImage = isImageAttachment(attachment.mimeType, attachment.uti),
     downloaded = attachment.isDownloaded,
-    partIndex = attachment.guid?.substringAfterLast('_')?.toLongOrNull() ?: 0L,
+    partIndex = (attachment.metadata?.get("messagePart") as? Number)?.toLong()
+        ?: attachment.guid?.substringAfterLast('_')?.toLongOrNull()
+        ?: 0L,
 )
 
 /** Non-empty retracted-part array inside a dbMessageSummaryInfo JSON blob. */
@@ -606,7 +610,8 @@ private fun enrichWithEntityDetails(
                 expressiveSendStyleId = entity.expressiveSendStyleId,
                 replyPreviewText = entity.threadOriginatorGuid?.let { guid ->
                     val target = replyTargets[guid]
-                    val part = entity.threadOriginatorPart?.toLongOrNull() ?: 0L
+                    val part = app.openbubbles.core.model.MessageMapper
+                        .replyPartIndex(entity.threadOriginatorPart) ?: 0L
                     val attachment = target?.dbAttachments?.firstOrNull { row ->
                         row.guid?.substringAfterLast('_')?.toLongOrNull() == part
                     }
@@ -844,8 +849,13 @@ private object CoreSender : Sender {
         sendInternal(chatId, text, effectId, null)
     }
 
-    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
-        sendInternal(chatId, text, null, replyGuid, replyPart)
+    override suspend fun sendReply(
+        chatId: Long,
+        text: String,
+        replyGuid: String,
+        replyPartLocator: String,
+    ) {
+        sendInternal(chatId, text, null, replyGuid, replyPartLocator)
     }
 
     private suspend fun sendInternal(
@@ -853,7 +863,7 @@ private object CoreSender : Sender {
         text: String,
         effectId: String?,
         replyGuid: String?,
-        replyPart: Long = 0L,
+        replyPartLocator: String? = null,
     ) {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
@@ -879,7 +889,7 @@ private object CoreSender : Sender {
             }
             if (replyGuid != null) {
                 staged.threadOriginatorGuid = replyGuid
-                staged.threadOriginatorPart = replyPart.toString()
+                staged.threadOriginatorPart = replyPartLocator
                 messageBox.put(staged)
             }
         }
@@ -898,7 +908,7 @@ private object CoreSender : Sender {
                     myHandle,
                     text,
                     // replyGuid, replyPart, effect, subject
-                    replyGuid, replyGuid?.let { replyPart.toString() }, effectId, null,
+                    replyGuid, replyPartLocator, effectId, null,
                 )
             }
             failureLookupGuid = inst.id

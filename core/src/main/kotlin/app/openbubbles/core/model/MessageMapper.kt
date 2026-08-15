@@ -31,6 +31,8 @@ import kotlin.text.Regex
  *   rows with positional metadata retained in `Attachment.metadata`.
  */
 object MessageMapper {
+    private const val REPLY_RUNS_PREFIX = "openbubbles.reply-runs.v1|"
+
 
     // Tapback type strings — 1:1 with lib/helpers/ui/reaction_helpers.dart
     // (ReactionTypes). A leading '-' means the tapback was removed.
@@ -78,14 +80,21 @@ object MessageMapper {
     fun mapParts(parts: List<UIndexedPart>, msgId: String, isOutgoing: Boolean): Pair<String, List<Attachment>> {
         val text = StringBuilder()
         val attachments = ArrayList<Attachment>()
+        var bodyRunCount = 0L
         for (indexed in parts) {
+            val fieldIdx = indexed.idx?.toLong() ?: attachments.size.toLong()
             when (val part = indexed.part) {
-                is UPart.Text -> text.append(part.text)
-                is UPart.Mention -> text.append(part.text)
+                is UPart.Text -> {
+                    text.append(part.text)
+                    bodyRunCount += 1
+                }
+                is UPart.Mention -> {
+                    text.append(part.text)
+                    bodyRunCount += 1
+                }
                 is UPart.Attachment -> {
                     if (part.iris) continue // live-photo companion, folded into the primary
                     if (part.mime == "application/smil") continue // MMS layout, no display value
-                    val fieldIdx = indexed.idx ?: attachments.size.toULong()
                     attachments += Attachment().apply {
                         guid = "${msgId}_$fieldIdx"
                         uti = part.uti
@@ -96,8 +105,14 @@ object MessageMapper {
                         // Persist the serialized rustpush Attachment so the
                         // transfer layer can restore + download it later
                         // (Dart stored this as metadata["rustpush"]).
-                        if (part.xml.isNotEmpty()) {
-                            metadata = linkedMapOf<String, Any>("rustpush" to part.xml).apply {
+                        metadata = linkedMapOf<String, Any>(
+                            // The old attributed-body decoder used the run's
+                            // ordinal for attachment reply targeting, which
+                            // can differ from the transfer GUID suffix.
+                            "messagePart" to bodyRunCount,
+                        ).apply {
+                            if (part.xml.isNotEmpty()) put("rustpush", part.xml)
+                            if (part.xml.isNotEmpty()) {
                                 indexed.extJson?.let { extension ->
                                     extractJsonNumber(extension, "spw")?.let { put("sticker.msgWidth", it) }
                                     extractJsonNumber(extension, "sro")?.let { put("sticker.rotation", it) }
@@ -114,12 +129,58 @@ object MessageMapper {
                         }
                     }
                     text.append(' ')
+                    bodyRunCount += 1
                 }
                 is UPart.Object -> Unit // handled via appJson payload, not body text
             }
         }
         return text.toString() to attachments
     }
+
+    /**
+     * Reconstructs the NSAttributedString runs Apple addresses in `tg` reply
+     * metadata. Kotlin `String.length` is UTF-16 code units, matching NSRange
+     * and the Dart implementation this native port replaces.
+     */
+    fun encodeReplyPartLocators(parts: List<UIndexedPart>): String? {
+        val locators = linkedMapOf<Long, String>()
+        var bodyOffset = 0
+        var bodyRunCount = 0L
+        var attachmentCount = 0L
+        for (indexed in parts) {
+            val fieldIdx = indexed.idx?.toLong() ?: attachmentCount
+            val (messagePart, runLength) = when (val part = indexed.part) {
+                is UPart.Text -> fieldIdx to part.text.length
+                is UPart.Mention -> fieldIdx to part.text.length
+                is UPart.Attachment -> {
+                    if (part.iris || part.mime == "application/smil") continue
+                    bodyRunCount to 1
+                }
+                is UPart.Object -> continue
+            }
+            locators.putIfAbsent(messagePart, "$messagePart:$bodyOffset:$runLength")
+            bodyOffset += runLength
+            bodyRunCount += 1
+            if (indexed.part is UPart.Attachment) attachmentCount += 1
+        }
+        return locators.values.takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = ";", prefix = REPLY_RUNS_PREFIX)
+    }
+
+    fun decodeReplyPartLocators(encoded: String?): Map<Long, String> {
+        if (encoded?.startsWith(REPLY_RUNS_PREFIX) != true) return emptyMap()
+        return encoded.removePrefix(REPLY_RUNS_PREFIX)
+            .split(';')
+            .mapNotNull { locator ->
+                val fields = locator.split(':')
+                if (fields.size != 3 || fields.any { it.toLongOrNull() == null }) return@mapNotNull null
+                fields[0].toLong() to locator
+            }
+            .toMap(linkedMapOf())
+    }
+
+    fun replyPartIndex(locator: String?): Long? =
+        locator?.substringBefore(':')?.toLongOrNull()
 
     /** Rust `MessageParts::raw_text` equivalent (used for the empty-message guard). */
     fun rawText(parts: List<UIndexedPart>): String =
@@ -153,6 +214,7 @@ object MessageMapper {
             subject = normal.subject
             threadOriginatorGuid = normal.replyGuid
             threadOriginatorPart = normal.replyPart
+            dbAttributedBody = encodeReplyPartLocators(normal.parts)
             expressiveSendStyleId = normal.effect
             hasAttachments = attachments.isNotEmpty()
             // App balloons / link previews: keep the raw JSON the rust layer

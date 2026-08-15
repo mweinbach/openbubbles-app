@@ -228,6 +228,11 @@ class MessageIngestorTest {
         assertEquals("public.png", att.uti)
         assertEquals("pic.png", att.transferName)
         assertTrue(!att.isOutgoing)
+        assertEquals(1L, (att.metadata["messagePart"] as Number).toLong())
+        assertEquals(
+            mapOf(0L to "0:0:12", 1L to "1:12:1"),
+            app.openbubbles.core.model.MessageMapper.decodeReplyPartLocators(row.dbAttributedBody),
+        )
     }
 
     @Test
@@ -695,15 +700,22 @@ class MessageIngestorTest {
             )
         }
 
-        reply("part-three-one", "3", 1_700_000_100_000uL)
-        reply("part-four", "4", 1_700_000_200_000uL)
-        reply("part-three-two", "3", 1_700_000_300_000uL)
+        reply("part-three-one", "3:0:4", 1_700_000_100_000uL)
+        reply("part-four", "4:7:2", 1_700_000_200_000uL)
+        reply("part-three-two", "3:0:4", 1_700_000_300_000uL)
 
         val chatId = chatRepo.chats().single().id
         assertEquals(
             listOf("thread-root", "part-three-one", "part-three-two"),
             messageRepo.threadMessages(chatId, "thread-root", 3L).map { it.guid },
         )
+        val replyItem = messageRepo.messages(chatId, limit = 10)
+            .first { it.guid == "part-three-one" }
+        assertEquals(3L, replyItem.threadOriginatorPart)
+        assertEquals("3:0:4", replyItem.threadOriginatorLocator)
+        val rootItem = messageRepo.messages(chatId, limit = 10)
+            .first { it.guid == "thread-root" }
+        assertEquals("0:0:4", rootItem.replyPartLocators[0L])
     }
 
     @Test

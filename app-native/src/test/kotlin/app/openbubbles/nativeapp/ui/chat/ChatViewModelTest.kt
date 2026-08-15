@@ -48,7 +48,12 @@ class ChatViewModelTest {
         val sender = RecordingSender()
         val actions = RecordingActions()
         val model = model(sender, actions)
-        val reply = message(guid = "child", replyToGuid = "root", replyToPart = 4L)
+        val reply = message(
+            guid = "child",
+            replyToGuid = "root",
+            replyToPart = 4L,
+            replyToPartLocator = "4:7:3",
+        )
 
         model.beginReply(reply)
         model.onInputChange("thread reply")
@@ -56,21 +61,37 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(Triple(7L, "thread reply", "root"), sender.reply)
-        assertEquals(4L, sender.replyPart)
+        assertEquals("4:7:3", sender.replyPartLocator)
     }
 
     @Test
-    fun `reply to a root message preserves the selected part`() = runTest(dispatcher) {
+    fun `reply to a root message sends its full selected run locator`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val model = model(sender, RecordingActions())
 
-        model.beginReply(message(guid = "root"), part = 3L)
+        model.beginReply(
+            message(guid = "root", replyPartLocators = mapOf(3L to "3:7:5")),
+            part = 3L,
+        )
         model.onInputChange("part reply")
         model.sendMessage()
         advanceUntilIdle()
 
         assertEquals(Triple(7L, "part reply", "root"), sender.reply)
-        assertEquals(3L, sender.replyPart)
+        assertEquals("3:7:5", sender.replyPartLocator)
+    }
+
+    @Test
+    fun `legacy plain text reply gets a utf16 whole-run locator`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val model = model(sender, RecordingActions())
+
+        model.beginReply(message(guid = "root", text = "Hi 👋"))
+        model.onInputChange("reply")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals("0:0:5", sender.replyPartLocator)
     }
 
     @Test
@@ -161,6 +182,8 @@ class ChatViewModelTest {
         text: String = "hello",
         replyToGuid: String? = null,
         replyToPart: Long? = null,
+        replyToPartLocator: String? = null,
+        replyPartLocators: Map<Long, String> = emptyMap(),
     ) = MessageItem(
         id = 1L,
         text = text,
@@ -172,6 +195,8 @@ class ChatViewModelTest {
         guid = guid,
         replyToGuid = replyToGuid,
         replyToPart = replyToPart,
+        replyToPartLocator = replyToPartLocator,
+        replyPartLocators = replyPartLocators,
     )
 }
 
@@ -196,13 +221,18 @@ private object StaticMessages : MessageListRepository {
 
 private class RecordingSender : Sender {
     var reply: Triple<Long, String, String>? = null
-    var replyPart: Long? = null
+    var replyPartLocator: String? = null
 
     override suspend fun send(chatId: Long, text: String) = Unit
 
-    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPart: Long) {
+    override suspend fun sendReply(
+        chatId: Long,
+        text: String,
+        replyGuid: String,
+        replyPartLocator: String,
+    ) {
         reply = Triple(chatId, text, replyGuid)
-        this.replyPart = replyPart
+        this.replyPartLocator = replyPartLocator
     }
 }
 
