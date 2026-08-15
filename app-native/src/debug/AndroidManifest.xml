@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name="app.openbubbles.nativeapp.data.NacRoundTripReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.openbubbles.DEBUG_NAC_ROUND_TRIP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

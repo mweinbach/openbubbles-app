@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 class OfficialEngineProbeTest {
     @Test
-    fun `bridge-only library is not treated as direct validation engine`() {
+    fun `bridge-only library is not treated as compatible validation engine`() {
         val result = OfficialEngineProbe.evaluate { symbol ->
             symbol == "frb_pde_ffi_dispatcher_primary" ||
                 symbol == "uniffi_rust_lib_bluebubbles_fn_func_init_native"
@@ -15,15 +15,15 @@ class OfficialEngineProbeTest {
         assertTrue(result.loaded)
         assertTrue(result.flutterDispatcherExported)
         assertTrue(result.nativeStateExported)
-        assertFalse(result.directValidationAvailable)
+        assertFalse(result.onDeviceValidationAvailable)
     }
 
     @Test
-    fun `all required nac exports make direct validation available`() {
+    fun `pinned contract anchor makes on-device validation available`() {
         val result = OfficialEngineProbe.evaluate { symbol ->
-            symbol in OfficialEngineProbeResult.REQUIRED_VALIDATION_EXPORTS
+            symbol == "ffi_rust_lib_bluebubbles_uniffi_contract_version"
         }
 
-        assertTrue(result.directValidationAvailable)
+        assertTrue(result.onDeviceValidationAvailable)
     }
 }
