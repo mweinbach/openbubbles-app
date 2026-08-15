@@ -1295,6 +1295,25 @@ impl NativePushState {
             .map_err(|e| UError::Failed { reason: e.to_string() })
     }
 
+    /// Authenticated headers for the account's iCloud CardDAV endpoint. This
+    /// reuses the on-device Apple session; Kotlin never receives the password
+    /// or long-lived account credentials, only the short-lived request values
+    /// the original OpenBubbles CardDAV client used.
+    pub fn get_contacts_headers(&self) -> Result<std::collections::HashMap<String, String>, UError> {
+        let state = self.shared();
+        let services = state.icloud_services.as_ref().ok_or_else(|| {
+            UError::NotReady { reason: "iCloud contacts unavailable: no Apple account".to_string() }
+        })?;
+        RUNTIME
+            .block_on(api::get_contacts_headers(
+                state.conf_dir.clone(),
+                &state.anisette,
+                &services.token_provider,
+                &state.os_config,
+            ))
+            .map_err(|e| UError::Failed { reason: format!("iCloud contacts authentication failed: {e}") })
+    }
+
     /// Only the tel: handles registered for this account.
     pub fn get_my_phone_handles(&self) -> Result<Vec<String>, UError> {
         RUNTIME

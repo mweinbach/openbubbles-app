@@ -166,6 +166,24 @@ class ContactSyncTest {
         assertNull(resolved[store.boxFor(Handle::class.java).all.first { it.address == "nobody@icloud.com" }.id])
     }
 
+    @Test
+    fun `remove contacts applies tombstones without touching other sources`() {
+        val removedHandle = seedHandle("removed@icloud.com")
+        val keptHandle = seedHandle("kept@icloud.com")
+        sync.upsertContacts(
+            listOf(
+                raw("icloud:removed", addresses = listOf("removed@icloud.com")),
+                raw("android:kept", addresses = listOf("kept@icloud.com")),
+            ),
+        )
+
+        assertEquals(1, sync.removeContacts(listOf("icloud:removed", "icloud:missing")))
+        assertNull(contactByNativeId("icloud:removed"))
+        assertNotNull(contactByNativeId("android:kept"))
+        assertNull(sync.contactsForHandles()[removedHandle.id])
+        assertEquals("android:kept", sync.contactsForHandles()[keptHandle.id]?.nativeContactId)
+    }
+
     // ------------------------------------------------------------------
     // Display info
     // ------------------------------------------------------------------

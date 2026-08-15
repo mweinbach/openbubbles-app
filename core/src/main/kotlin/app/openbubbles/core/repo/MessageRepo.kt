@@ -14,6 +14,7 @@ import io.objectbox.query.QueryCondition
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -37,16 +38,18 @@ class MessageRepo(
 
     /** Newest-first page of messages for a chat ([offset] skips older rows). */
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
-        messageQuery(chatId)
-            .use { it.find(offset.toLong(), limit.toLong()) }
-            .map { toItem(it) }
+        messageQuery(chatId).use { query ->
+            // Relation-backed fields are projected while the query's native
+            // read transaction is scoped to this worker thread.
+            query.find(offset.toLong(), limit.toLong()).map(::toItem)
+        }
 
     /** Newest-first page strictly older than [beforeId]'s time/id cursor. */
     fun messagesBefore(chatId: Long, beforeId: Long, limit: Int): List<MessageItem> {
         val anchor = messageBox.get(beforeId) ?: return emptyList()
-        return messageQuery(chatId, anchor)
-            .use { it.find(0, limit.toLong()) }
-            .map { toItem(it) }
+        return messageQuery(chatId, anchor).use { query ->
+            query.find(0, limit.toLong()).map(::toItem)
+        }
     }
 
     /**
@@ -57,6 +60,7 @@ class MessageRepo(
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
         store.subscribe(Message::class.java)
             .asFlow()
+            .conflate()
             .map { messages(chatId, limit) }
             .flowOn(Dispatchers.IO)
 

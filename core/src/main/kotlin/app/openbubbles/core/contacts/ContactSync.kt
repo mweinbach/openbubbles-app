@@ -80,6 +80,25 @@ class ContactSync(private val store: BoxStore) {
         rawContacts.map { raw -> upsertOne(raw, emailHandles, phoneHandles) }
     }
 
+    /**
+     * Removes contacts by their platform-stable ids. This is intentionally
+     * separate from [upsertContacts]: Android exposes a complete snapshot,
+     * while CardDAV exposes explicit tombstones and collection resets.
+     */
+    fun removeContacts(nativeContactIds: Collection<String>): Int = store.callInTx {
+        nativeContactIds.asSequence().distinct().mapNotNull { nativeId ->
+            contactBox.query()
+                .equal(ContactV2_.nativeContactId, nativeId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+        }.count { contact ->
+            // Flush the ToMany change before deleting the source row so no
+            // stale handle relation can survive a CardDAV tombstone.
+            contact.handles.clear()
+            contactBox.put(contact)
+            contactBox.remove(contact.id)
+        }
+    }
+
     private fun upsertOne(
         raw: RawContact,
         emailHandles: Map<String, Set<Handle>>,

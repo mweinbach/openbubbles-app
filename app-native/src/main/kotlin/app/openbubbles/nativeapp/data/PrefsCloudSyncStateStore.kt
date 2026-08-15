@@ -24,6 +24,7 @@ private const val KEY_ATTACHMENT_CURSOR = "attachmentSyncToken"
 private const val KEY_CHAT_DELETES = "chatDeletionIds"
 private const val KEY_MESSAGE_DELETES = "messageDeletionIds"
 private const val KEY_ATTACHMENT_DELETES = "attachmentDeletionIds"
+private const val KEY_HISTORY_SYNC_COMPLETE = "historySyncComplete"
 
 object CloudSyncWiring {
 
@@ -42,8 +43,25 @@ object CloudSyncWiring {
         if (autoSync) {
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching { managerRef.get()?.sync(SyncMode.INCREMENTAL) }
+                    .getOrNull()
+                    ?.takeIf { it.error == null && !it.cancelled }
+                    ?.let { markHistorySyncComplete(context) }
             }
         }
+    }
+
+    /**
+     * A poll may alert only after one complete CloudKit pass. Without this
+     * durable gate, a fresh install interprets every historical unread chat
+     * as a newly arrived message and floods the notification shade.
+     */
+    fun hasCompletedHistorySync(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_HISTORY_SYNC_COMPLETE, false)
+
+    fun markHistorySyncComplete(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_HISTORY_SYNC_COMPLETE, true).apply()
     }
 
     fun clear() {

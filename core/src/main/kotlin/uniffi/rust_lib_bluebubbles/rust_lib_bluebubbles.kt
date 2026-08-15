@@ -1448,6 +1448,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1598,6 +1600,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_auth_code(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_groups(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_contacts_headers(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_devices(
 ): Short
@@ -1978,6 +1982,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: P
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_contacts_headers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2592,6 +2598,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items() != 27025.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_contacts_headers() != 37658.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_devices() != 11917.toShort()) {
@@ -5924,6 +5933,14 @@ public interface NativePushStateInterface {
     fun `getBeaconItems`(): List<UFmItem>
     
     /**
+     * Authenticated headers for the account's iCloud CardDAV endpoint. This
+     * reuses the on-device Apple session; Kotlin never receives the password
+     * or long-lived account credentials, only the short-lived request values
+     * the original OpenBubbles CardDAV client used.
+     */
+    fun `getContactsHeaders`(): Map<kotlin.String, kotlin.String>
+    
+    /**
      * Devices on this Apple ID, from cache (creates the client on first
      * call — its constructor already fetches the device list).
      */
@@ -6579,6 +6596,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Authenticated headers for the account's iCloud CardDAV endpoint. This
+     * reuses the on-device Apple session; Kotlin never receives the password
+     * or long-lived account credentials, only the short-lived request values
+     * the original OpenBubbles CardDAV client used.
+     */
+    @Throws(UException::class)override fun `getContactsHeaders`(): Map<kotlin.String, kotlin.String> {
+            return FfiConverterMapStringString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_contacts_headers(
         it, _status)
 }
     }

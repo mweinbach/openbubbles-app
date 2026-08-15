@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CoroutineScope
@@ -266,6 +267,13 @@ class NativePushService : Service(), MsgReceiver {
                 )
             }
             updateStatus(CONNECTED_STATUS)
+            // Contact sync is independent of Messages-in-iCloud history and
+            // uses the same self-hosted Apple session. Keep it off the APNs
+            // owner coroutine so a slow CardDAV collection never delays the
+            // live receive loop.
+            scope.launch {
+                ICloudContactSync.sync(applicationContext, live)
+            }
             // Recover durable messages left by a process death before starting
             // the live loop. They may overlap history sync or already-rendered
             // rows, so this startup catch-up is deliberately silent. New

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
@@ -78,6 +79,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.ICloudContactSync
+import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -95,7 +98,9 @@ import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UViableBottle
 import java.security.SecureRandom
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** One-shot connection snapshot for the Connection section. */
@@ -138,6 +143,10 @@ fun SettingsScreen(
         ?: remember { mutableStateOf(null) }
     var syncing by remember { mutableStateOf(false) }
     var syncResult by remember { mutableStateOf<String?>(null) }
+    var contactSyncing by remember { mutableStateOf(false) }
+    var contactStatus by remember {
+        mutableStateOf(ICloudContactSync.status(context))
+    }
 
     var cliqueRefresh by remember { mutableStateOf(0) }
     var inClique by remember(pushState) { mutableStateOf<Boolean?>(null) }
@@ -181,11 +190,22 @@ fun SettingsScreen(
             syncResult = if (summary.error != null) {
                 "Sync failed: ${summary.error}"
             } else {
+                CloudSyncWiring.markHistorySyncComplete(context)
                 "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages, " +
                     "${summary.totalAttachments} attachments " +
                     "(${summary.chatTombstones + summary.messageTombstones + summary.attachmentTombstones} removed) " +
                     "in ${summary.durationMs / 1000}s"
             }
+        }
+    }
+
+    fun syncICloudContacts() {
+        val live = pushState ?: return
+        if (contactSyncing) return
+        contactSyncing = true
+        scope.launch {
+            contactStatus = ICloudContactSync.sync(context, live)
+            contactSyncing = false
         }
     }
 
@@ -472,6 +492,14 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                SettingActionRow(
+                    title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
+                    supporting = contactSyncStatusText(contactStatus, pushState != null),
+                    icon = Icons.Filled.Contacts,
+                    enabled = pushState != null && !contactSyncing,
+                    onClick = ::syncICloudContacts,
+                )
             }
 
             SectionCard(title = "Power") {
@@ -868,6 +896,18 @@ fun SettingsScreen(
 private fun UViableBottle.displayName(): String = buildString {
     append(deviceName.ifBlank { "Trusted device" })
     if (modelClass.isNotBlank()) append(" · $modelClass")
+}
+
+private fun contactSyncStatusText(status: ICloudContactSyncStatus, connected: Boolean): String = when {
+    !connected -> "Connect your Apple account to sync contact names from iCloud"
+    status.error != null -> "Last sync failed: ${status.error}"
+    status.lastSuccessMs == 0L -> "Sync names, phone numbers, emails, and photos directly from iCloud"
+    else -> {
+        val whenSynced = Instant.ofEpochMilli(status.lastSuccessMs)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("MMM d, h:mm a"))
+        "Last synced $whenSynced · ${status.imported} updated, ${status.removed} removed"
+    }
 }
 
 /** iOS-style inset grouped card: small header above a rounded surface. */

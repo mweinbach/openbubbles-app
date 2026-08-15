@@ -191,36 +191,49 @@ object CoreGraph {
     ) {
         val st = store ?: return
         val chatBox = st.boxFor(Chat::class.java)
+        val allowNotifications = CloudSyncWiring.hasCompletedHistorySync(context)
         val before: Map<Long, Boolean> = chatBox.query()
             .equal(Chat_.hasUnreadMessage, true)
             .build().use { q -> q.find().associate { it.id to true } }
 
         CloudSyncWiring.onStateInstalled(context, state, autoSync = false)
-        val manager = CloudSyncWiring.manager
-        kotlinx.coroutines.runBlocking {
-            manager?.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
-        }
-
-        chatBox.query()
-            .equal(Chat_.hasUnreadMessage, true)
-            .build().use { q ->
-                q.find().forEach { chat ->
-                    if (!before.containsKey(chat.id)) {
-                        val latest = chat.dbLatestMessage.target
-                        onNewUnread(
-                            chat.id,
-                            chat.displayName ?: chat.guid,
-                            latest?.text?.takeIf { it.isNotBlank() } ?: "New message",
-                        )
-                    }
-                }
+        try {
+            val manager = CloudSyncWiring.manager
+            val summary = kotlinx.coroutines.runBlocking {
+                manager?.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
             }
-        CloudSyncWiring.clear()
+            if (summary?.error == null && summary?.cancelled == false) {
+                CloudSyncWiring.markHistorySyncComplete(context)
+            }
+
+            if (allowNotifications) {
+                chatBox.query()
+                    .equal(Chat_.hasUnreadMessage, true)
+                    .build().use { q ->
+                        q.find().forEach { chat ->
+                            if (!before.containsKey(chat.id)) {
+                                val latest = chat.dbLatestMessage.target
+                                onNewUnread(
+                                    chat.id,
+                                    chat.displayName ?: chat.guid,
+                                    latest?.text?.takeIf { it.isNotBlank() } ?: "New message",
+                                )
+                            }
+                        }
+                    }
+            }
+        } finally {
+            CloudSyncWiring.clear()
+        }
     }
 
     /** Upsert device contacts + invalidate the handle→contact index. */
     fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
         CoreContacts.syncFromDevice(raw)
+
+    /** Apply CardDAV contact tombstones + invalidate cached name lookups. */
+    fun removeContacts(nativeContactIds: Collection<String>): Int =
+        CoreContacts.remove(nativeContactIds)
 
     /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
@@ -548,8 +561,14 @@ private object CoreContacts {
 
     /** Upsert device contacts (called after READ_CONTACTS is granted). */
     fun syncFromDevice(raw: List<app.openbubbles.core.contacts.RawContact>) {
-        runCatching { sync?.upsertContacts(raw) }
+        sync?.upsertContacts(raw)
         handleIndex = null // force rebuild so fresh linkages resolve
+    }
+
+    fun remove(nativeContactIds: Collection<String>): Int {
+        val removed = sync?.removeContacts(nativeContactIds) ?: 0
+        if (removed > 0) handleIndex = null
+        return removed
     }
 
     @Volatile
