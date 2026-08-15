@@ -92,13 +92,25 @@ private val DarkColors = darkColorScheme(
     surfaceTint = Color(0xFFA8C8FF),
 )
 
-/** Expressive 8–48dp shape scale (message bubbles override locally). */
+/**
+ * The Material 3 Expressive corner-radius scale, at the canonical token values.
+ *
+ * This previously ran one step high across the bottom half of the scale
+ * (extraSmall 8, small 12, medium 16, large 20), which made every themed
+ * surface rounder than Material intends and flattened the shape-contrast lever:
+ * when everything is soft, a soft shape cannot signal anything. The three
+ * larger tokens — largeIncreased, extraLargeIncreased and extraExtraLarge — are
+ * the Expressive additions and were already correct.
+ *
+ * Message bubbles deliberately override this locally (see MessageBubble), where
+ * corner radius encodes author grouping rather than surface hierarchy.
+ */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(20.dp),
-    largeIncreased = RoundedCornerShape(24.dp),
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    largeIncreased = RoundedCornerShape(20.dp),
     extraLarge = RoundedCornerShape(28.dp),
     extraLargeIncreased = RoundedCornerShape(32.dp),
     extraExtraLarge = RoundedCornerShape(48.dp),
