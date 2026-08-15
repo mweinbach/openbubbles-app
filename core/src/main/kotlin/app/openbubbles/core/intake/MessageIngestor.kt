@@ -1,6 +1,8 @@
 package app.openbubbles.core.intake
 
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.MessageSummaryPartList
+import app.openbubbles.core.model.addMessageSummaryPart
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -126,6 +128,8 @@ class MessageIngestor(
             is UMessage.Delivered -> handleReceipt(inst, myHandles, read = false)
             is UMessage.Read -> handleReceipt(inst, myHandles, read = true)
             is UMessage.Typing -> handleTyping(inst, msg.typing, myHandles)
+            is UMessage.Unsend -> return handleUnsend(inst, msg)
+            is UMessage.Edit -> return handleEdit(inst, msg)
             is UMessage.SmsConfirmSent -> handleSmsConfirmSent(inst, msg.status)
             is UMessage.Error -> handleErrorReceipt(inst, msg, myHandles)
             is UMessage.MarkUnread -> {
@@ -138,10 +142,8 @@ class MessageIngestor(
                 m.wasDeliveredQuietly = false
                 messageBox.put(m)
             }
-            // Edit / Unsend need MessageSummaryInfo bookkeeping (edited-content
-            // history) that is out of MVP scope; MessageReadOnDevice /
-            // EnableSmsActivation / profile & extension updates / deletions
-            // ride on later batches.
+            // MessageReadOnDevice / EnableSmsActivation / profile & extension
+            // updates / deletions ride on later batches.
             else -> Unit
         }
         return null
@@ -267,6 +269,40 @@ class MessageIngestor(
         } else {
             clearTyping(chat.guid, MessageMapper.normalizeAddress(sender))
         }
+    }
+
+    private fun handleUnsend(inst: UMessageInst, unsend: UMessage.Unsend): Chat? {
+        val target = findMessageByGuidOrStaging(unsend.tuuid) ?: return null
+        target.verificationFailed = inst.verificationFailed
+        target.dateEdited = MessageMapper.dateFromMs(inst.sentTimestamp)
+        target.dbMessageSummaryInfo = addMessageSummaryPart(
+            target.dbMessageSummaryInfo,
+            MessageSummaryPartList.RETRACTED,
+            unsend.editPart,
+        )
+        // The flattened native model can safely clear a single text part.
+        // Multipart attachment messages retain their visible content until
+        // attributed-run parity lands, avoiding accidental whole-message loss.
+        if (!target.hasAttachments && unsend.editPart == 0uL) target.text = ""
+        messageBox.put(target)
+        return target.chat.target
+    }
+
+    private fun handleEdit(inst: UMessageInst, edit: UMessage.Edit): Chat? {
+        val target = findMessageByGuidOrStaging(edit.tuuid) ?: return null
+        val replacementText = MessageMapper.mapParts(edit.parts, target.guid, target.isFromMe).first
+        if (edit.editPart == 0uL || !target.hasAttachments) {
+            target.text = replacementText
+        }
+        target.verificationFailed = inst.verificationFailed
+        target.dateEdited = MessageMapper.dateFromMs(inst.sentTimestamp)
+        target.dbMessageSummaryInfo = addMessageSummaryPart(
+            target.dbMessageSummaryInfo,
+            MessageSummaryPartList.EDITED,
+            edit.editPart,
+        )
+        messageBox.put(target)
+        return target.chat.target
     }
 
     private fun handleSendConfirm(uuid: String, error: String?) {

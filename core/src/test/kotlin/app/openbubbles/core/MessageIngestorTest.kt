@@ -478,6 +478,55 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `edit event replaces text and records edited part`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("editable", friend, "before")), myHandles)
+        val edit = UMessageInst(
+            id = "edit-event",
+            sender = friend,
+            conversation = conversation(me, friend),
+            message = UMessage.Edit(
+                tuuid = "editable",
+                editPart = 0uL,
+                parts = listOf(UIndexedPart(UPart.Text("after", ""), 0uL)),
+            ),
+            sentTimestamp = 1_700_000_500_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(edit), myHandles)
+
+        val updated = messageByGuid("editable")
+        assertNotNull(updated)
+        assertEquals("after", updated.text)
+        assertEquals(1_700_000_500_000L, updated.dateEdited?.time)
+        assertTrue(updated.dbMessageSummaryInfo!!.contains("\"editedParts\":[0]"))
+        assertEquals(1, messageBox().all.count { it.guid == "editable" })
+    }
+
+    @Test
+    fun `unsend event retracts single text part`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("retractable", friend, "remove me")), myHandles)
+        val unsend = UMessageInst(
+            id = "unsend-event",
+            sender = friend,
+            conversation = conversation(me, friend),
+            message = UMessage.Unsend(tuuid = "retractable", editPart = 0uL),
+            sentTimestamp = 1_700_000_600_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(unsend), myHandles)
+
+        val updated = messageByGuid("retractable")
+        assertNotNull(updated)
+        assertEquals("", updated.text)
+        assertEquals(1_700_000_600_000L, updated.dateEdited?.time)
+        assertTrue(updated.dbMessageSummaryInfo!!.contains("\"retractedParts\":[0]"))
+    }
+
+    @Test
     fun `error receipt marks failed`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("msg-e1", me, "outgoing")), myHandles)
         ingestor.ingest(
