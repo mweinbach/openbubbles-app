@@ -140,6 +140,32 @@ class ChatRepo(private val store: BoxStore) {
         chatBox.put(chat)
     }
 
+    fun setMuted(chatId: Long, muted: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.muteType = if (muted) "mute" else null
+        chat.muteArgs = null
+        chatBox.put(chat)
+    }
+
+    fun setArchived(chatId: Long, archived: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.isArchived = archived
+        if (archived) {
+            chat.isPinned = false
+            chat.pinIndex = null
+        }
+        chatBox.put(chat)
+    }
+
+    /** Soft-delete so a genuinely new incoming message can restore the chat. */
+    fun softDelete(chatId: Long): String? {
+        val chat = chatBox.get(chatId) ?: return null
+        chat.dateDeleted = java.util.Date()
+        chat.hasUnreadMessage = false
+        chatBox.put(chat)
+        return chat.ckRecordId
+    }
+
     /**
      * Unread message count: incoming, non-reaction messages newer than the
      * last-read message (all incoming messages when nothing was read yet).
@@ -176,6 +202,8 @@ class ChatRepo(private val store: BoxStore) {
             hasUnread = chat.hasUnreadMessage,
             unreadCount = unreadCount(chat),
             pinned = chat.isPinned,
+            muted = chat.muteType == "mute",
+            archived = chat.isArchived,
             isSms = chat.isRpSms == true,
             participantCount = chat.handles.size,
         )

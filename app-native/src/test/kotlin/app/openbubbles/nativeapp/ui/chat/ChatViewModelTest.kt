@@ -106,6 +106,10 @@ private object StaticChats : ChatListRepository {
     )
 
     override fun markRead(id: Long) = Unit
+    override fun setPinned(id: Long, pinned: Boolean) = Unit
+    override fun setMuted(id: Long, muted: Boolean) = Unit
+    override fun setArchived(id: Long, archived: Boolean) = Unit
+    override fun delete(id: Long) = Unit
 }
 
 private object StaticMessages : MessageListRepository {

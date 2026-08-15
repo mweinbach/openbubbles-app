@@ -1,7 +1,8 @@
 package app.openbubbles.nativeapp.ui.chatlist
 
 import android.content.res.Configuration
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,25 +21,35 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,9 +77,15 @@ fun ChatListScreen(
     onChatClick: (ChatListItem) -> Unit,
     onOpenSettings: () -> Unit = {},
     onNewChat: () -> Unit = {},
+    onTogglePinned: (ChatListItem) -> Unit = {},
+    onToggleMuted: (ChatListItem) -> Unit = {},
+    onToggleArchived: (ChatListItem) -> Unit = {},
+    onDelete: (ChatListItem) -> Unit = {},
     modifier: Modifier = Modifier,
     footer: @Composable ColumnScope.() -> Unit = {},
 ) {
+    var selectedChat by remember { mutableStateOf<ChatListItem?>(null) }
+    var confirmDelete by remember { mutableStateOf<ChatListItem?>(null) }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -113,10 +130,56 @@ fun ChatListScreen(
                     onNewChat = onNewChat,
                     modifier = Modifier.fillMaxSize(),
                 )
-                else -> ChatSections(uiState = uiState, onChatClick = onChatClick)
+                else -> ChatSections(
+                    uiState = uiState,
+                    onChatClick = onChatClick,
+                    onChatLongClick = { selectedChat = it },
+                )
             }
             footer()
         }
+    }
+
+    selectedChat?.let { chat ->
+        ChatListActionSheet(
+            chat = chat,
+            onTogglePinned = {
+                selectedChat = null
+                onTogglePinned(chat)
+            },
+            onToggleMuted = {
+                selectedChat = null
+                onToggleMuted(chat)
+            },
+            onToggleArchived = {
+                selectedChat = null
+                onToggleArchived(chat)
+            },
+            onDelete = {
+                selectedChat = null
+                confirmDelete = chat
+            },
+            onDismiss = { selectedChat = null },
+        )
+    }
+
+    confirmDelete?.let { chat ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete conversation?") },
+            text = { Text("This removes ${chat.title} and its synced history from this account.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = null
+                        onDelete(chat)
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -124,6 +187,7 @@ fun ChatListScreen(
 private fun ChatSections(
     uiState: ChatListUiState,
     onChatClick: (ChatListItem) -> Unit,
+    onChatLongClick: (ChatListItem) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -136,6 +200,7 @@ private fun ChatSections(
                 ChatListRow(
                     chat = chat,
                     onClick = onChatClick,
+                    onLongClick = onChatLongClick,
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -146,6 +211,18 @@ private fun ChatSections(
                 ChatListRow(
                     chat = chat,
                     onClick = onChatClick,
+                    onLongClick = onChatLongClick,
+                    modifier = Modifier.animateItem(),
+                )
+            }
+        }
+        if (uiState.archived.isNotEmpty()) {
+            item(key = "header-archived") { SectionHeader("Archived") }
+            items(uiState.archived, key = { "chat-${it.id}" }) { chat ->
+                ChatListRow(
+                    chat = chat,
+                    onClick = onChatClick,
+                    onLongClick = onChatLongClick,
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -164,10 +241,12 @@ private fun SectionHeader(label: String) {
 }
 
 /** One iMessage-style rounded conversation row. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListRow(
     chat: ChatListItem,
     onClick: (ChatListItem) -> Unit,
+    onLongClick: (ChatListItem) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
@@ -180,7 +259,10 @@ fun ChatListRow(
         },
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick(chat) },
+            .combinedClickable(
+                onClick = { onClick(chat) },
+                onLongClick = { onLongClick(chat) },
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -233,10 +315,70 @@ fun ChatListRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (chat.muted) {
+                Icon(
+                    imageVector = Icons.Filled.NotificationsOff,
+                    contentDescription = "Muted",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
             if (unread) {
                 UnreadBadge(count = chat.unread)
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatListActionSheet(
+    chat: ChatListItem,
+    onTogglePinned: () -> Unit,
+    onToggleMuted: () -> Unit,
+    onToggleArchived: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = chat.title,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        )
+        ChatActionButton(
+            text = if (chat.pinned) "Unpin" else "Pin",
+            icon = Icons.Filled.PushPin,
+            onClick = onTogglePinned,
+        )
+        ChatActionButton(
+            text = if (chat.muted) "Show alerts" else "Hide alerts",
+            icon = Icons.Filled.NotificationsOff,
+            onClick = onToggleMuted,
+        )
+        ChatActionButton(
+            text = if (chat.archived) "Unarchive" else "Archive",
+            icon = Icons.Filled.Archive,
+            onClick = onToggleArchived,
+        )
+        ChatActionButton(text = "Delete", icon = Icons.Filled.Delete, onClick = onDelete)
+    }
+}
+
+@Composable
+private fun ChatActionButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        Text(text, modifier = Modifier.fillMaxWidth().padding(start = 12.dp))
     }
 }
 

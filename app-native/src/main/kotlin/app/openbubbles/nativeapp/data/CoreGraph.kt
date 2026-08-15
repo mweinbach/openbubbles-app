@@ -461,6 +461,8 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     pinned = item.pinned,
     avatarColor = avatarColorFor(item.guid),
     isSms = item.isSms,
+    muted = item.muted,
+    archived = item.archived,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -650,6 +652,17 @@ private class CoreChatListRepository(
             .flowOn(Dispatchers.IO)
 
     override fun markRead(id: Long) = repo.markRead(id)
+
+    override fun setPinned(id: Long, pinned: Boolean) = repo.setPinned(id, pinned)
+
+    override fun setMuted(id: Long, muted: Boolean) = repo.setMuted(id, muted)
+
+    override fun setArchived(id: Long, archived: Boolean) = repo.setArchived(id, archived)
+
+    override fun delete(id: Long) {
+        val recordId = repo.softDelete(id) ?: return
+        NativeMainActivity.appContext?.let { CloudSyncWiring.queueChatDelete(it, recordId) }
+    }
 }
 
 private class CoreMessageListRepository(

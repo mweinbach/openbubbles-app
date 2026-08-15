@@ -49,6 +49,14 @@ object CloudSyncWiring {
     fun clear() {
         managerRef.set(null)
     }
+
+    /** Queue a local chat deletion so the next sync flushes it before pulling. */
+    fun queueChatDelete(context: Context, recordId: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getStringSet(KEY_CHAT_DELETES, emptySet()).orEmpty().toMutableSet()
+        pending += recordId
+        prefs.edit().putStringSet(KEY_CHAT_DELETES, pending).apply()
+    }
 }
 
 private class PrefsCloudSyncStateStore(

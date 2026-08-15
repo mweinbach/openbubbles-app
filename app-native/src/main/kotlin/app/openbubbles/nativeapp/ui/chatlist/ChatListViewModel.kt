@@ -18,8 +18,9 @@ data class ChatListUiState(
     val query: String = "",
     val pinned: List<ChatListItem> = emptyList(),
     val chats: List<ChatListItem> = emptyList(),
+    val archived: List<ChatListItem> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = !loading && pinned.isEmpty() && chats.isEmpty()
+    val isEmpty: Boolean get() = !loading && pinned.isEmpty() && chats.isEmpty() && archived.isEmpty()
 }
 
 class ChatListViewModel(
@@ -42,8 +43,9 @@ class ChatListViewModel(
             ChatListUiState(
                 loading = false,
                 query = rawQuery,
-                pinned = filtered.filter { it.pinned }.sortedByDescending { it.date },
-                chats = filtered.filterNot { it.pinned }.sortedByDescending { it.date },
+                pinned = filtered.filter { it.pinned && !it.archived }.sortedByDescending { it.date },
+                chats = filtered.filter { !it.pinned && !it.archived }.sortedByDescending { it.date },
+                archived = filtered.filter { it.archived }.sortedByDescending { it.date },
             )
         }.stateIn(
             scope = viewModelScope,
@@ -56,6 +58,14 @@ class ChatListViewModel(
     }
 
     fun markRead(id: Long) = repository.markRead(id)
+
+    fun togglePinned(chat: ChatListItem) = repository.setPinned(chat.id, !chat.pinned)
+
+    fun toggleMuted(chat: ChatListItem) = repository.setMuted(chat.id, !chat.muted)
+
+    fun toggleArchived(chat: ChatListItem) = repository.setArchived(chat.id, !chat.archived)
+
+    fun delete(chat: ChatListItem) = repository.delete(chat.id)
 
     companion object {
         fun factory(repository: ChatListRepository): ViewModelProvider.Factory = viewModelFactory {

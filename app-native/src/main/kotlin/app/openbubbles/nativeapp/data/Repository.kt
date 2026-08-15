@@ -28,6 +28,8 @@ data class ChatListItem(
     val avatarAddress: String? = null,
     /** True when this conversation uses the local SIM SMS path. */
     val isSms: Boolean = false,
+    val muted: Boolean = false,
+    val archived: Boolean = false,
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -84,6 +86,10 @@ enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
 interface ChatListRepository {
     fun chats(): Flow<List<ChatListItem>>
     fun markRead(id: Long)
+    fun setPinned(id: Long, pinned: Boolean)
+    fun setMuted(id: Long, muted: Boolean)
+    fun setArchived(id: Long, archived: Boolean)
+    fun delete(id: Long)
 }
 
 interface MessageListRepository {

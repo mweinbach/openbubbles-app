@@ -27,6 +27,10 @@ data class ChatListItem(
     val unreadCount: Int,
     /** True when the user pinned this chat. */
     val pinned: Boolean,
+    /** True when notifications are fully muted for this chat. */
+    val muted: Boolean,
+    /** True when the chat is in the archived section. */
+    val archived: Boolean,
     /** True for SMS-relay chats (RP SMS). */
     val isSms: Boolean,
     /** Number of participants (excluding me) — 1 means DM. */

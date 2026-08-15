@@ -29,6 +29,7 @@ import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -730,6 +731,26 @@ class MessageIngestorTest {
         list = chatRepo.chats()
         assertEquals("older", list[0].snippet) // pinned jumps to the front
         assertTrue(list[0].pinned)
+    }
+
+    @Test
+    fun `chat lifecycle updates mute archive and soft delete`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("msg-1", friend, "hello")), myHandles)
+        val chat = chatBox().all.single()
+
+        chatRepo.setPinned(chat.id, true)
+        chatRepo.setMuted(chat.id, true)
+        chatRepo.setArchived(chat.id, true)
+
+        val archived = chatRepo.chats().single()
+        assertTrue(archived.muted)
+        assertTrue(archived.archived)
+        assertFalse(archived.pinned)
+
+        chat.ckRecordId = "cloud-chat-1"
+        chatBox().put(chat)
+        assertEquals("cloud-chat-1", chatRepo.softDelete(chat.id))
+        assertTrue(chatRepo.chats().isEmpty())
     }
 
     @Test

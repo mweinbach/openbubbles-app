@@ -84,6 +84,29 @@ internal object FakeChatData {
         _chats.update { chats -> chats.map { if (it.id == chatId) it.copy(unread = 0) else it } }
     }
 
+    fun setPinned(chatId: Long, pinned: Boolean) {
+        _chats.update { chats -> chats.map { if (it.id == chatId) it.copy(pinned = pinned) else it } }
+    }
+
+    fun setMuted(chatId: Long, muted: Boolean) {
+        _chats.update { chats -> chats.map { if (it.id == chatId) it.copy(muted = muted) else it } }
+    }
+
+    fun setArchived(chatId: Long, archived: Boolean) {
+        _chats.update { chats ->
+            chats.map {
+                if (it.id == chatId) it.copy(archived = archived, pinned = if (archived) false else it.pinned)
+                else it
+            }
+        }
+    }
+
+    fun delete(chatId: Long) {
+        _chats.update { chats -> chats.filterNot { it.id == chatId } }
+        history.remove(chatId)
+        _windows.update { it - chatId }
+    }
+
     suspend fun send(chatId: Long, text: String) {
         val message = MessageItem(
             id = nextMessageId.incrementAndGet(),
@@ -353,6 +376,10 @@ internal object FakeChatData {
 class FakeChatListRepository : ChatListRepository {
     override fun chats(): Flow<List<ChatListItem>> = FakeChatData.chatsFlow()
     override fun markRead(id: Long) = FakeChatData.markRead(id)
+    override fun setPinned(id: Long, pinned: Boolean) = FakeChatData.setPinned(id, pinned)
+    override fun setMuted(id: Long, muted: Boolean) = FakeChatData.setMuted(id, muted)
+    override fun setArchived(id: Long, archived: Boolean) = FakeChatData.setArchived(id, archived)
+    override fun delete(id: Long) = FakeChatData.delete(id)
 }
 
 /** Fake [MessageListRepository] backed by [FakeChatData]. */
