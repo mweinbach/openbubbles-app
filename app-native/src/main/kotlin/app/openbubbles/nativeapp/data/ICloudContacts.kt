@@ -482,8 +482,10 @@ object ICloudContactSync {
 private fun secureXml(text: String): Document {
     val factory = DocumentBuilderFactory.newInstance().apply {
         isNamespaceAware = true
-        isXIncludeAware = false
-        setExpandEntityReferences(false)
+        // Android's bundled parser reports an "Unknown 0.0" specification
+        // for optional JAXP capabilities instead of accepting the no-op.
+        runCatching { isXIncludeAware = false }
+        runCatching { setExpandEntityReferences(false) }
         runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
         runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
         runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
