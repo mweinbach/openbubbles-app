@@ -1,0 +1,15 @@
+{
+  "name": "openbubbles-project",
+  "owner": {
+    "name": "OpenBubbles"
+  },
+  "description": "Project-local agent plugins used while developing OpenBubbles",
+  "plugins": [
+    {
+      "name": "m3-expressive",
+      "source": "./.claude/plugins/m3-expressive",
+      "description": "Material 3 Expressive guidance for Android and Jetpack Compose",
+      "version": "0.2.0"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "openbubbles-project": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "m3-expressive@openbubbles-project": true
+  }
+}
