@@ -550,7 +550,7 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
                 title = chat.title,
                 avatarColor = chat.avatarColor,
                 size = 34.dp,
-                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
+                avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
             Text(
                 text = chat.title,

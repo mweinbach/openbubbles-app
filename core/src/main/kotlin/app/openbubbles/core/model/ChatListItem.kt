@@ -35,4 +35,8 @@ data class ChatListItem(
     val isSms: Boolean,
     /** Number of participants (excluding me) — 1 means DM. */
     val participantCount: Int,
+    /** Locally cached custom group photo, when present. */
+    val avatarPath: String?,
+    /** Group semantics, including one-other-participant groups with group style. */
+    val isGroup: Boolean,
 )

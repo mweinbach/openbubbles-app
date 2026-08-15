@@ -30,6 +30,9 @@ data class ChatListItem(
     val isSms: Boolean = false,
     val muted: Boolean = false,
     val archived: Boolean = false,
+    /** Locally cached custom group photo. */
+    val avatarPath: String? = null,
+    val isGroup: Boolean = false,
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -212,4 +215,14 @@ object UiContacts {
 interface ChatInfoRepository {
     /** Participant handle addresses of the conversation (excluding me). */
     fun participantAddresses(chatId: Long): List<String>
+}
+
+/** Mutating group operations backed by the on-device iMessage engine. */
+interface ChatInfoActions {
+    suspend fun rename(chatId: Long, name: String)
+    suspend fun addParticipant(chatId: Long, address: String)
+    suspend fun removeParticipant(chatId: Long, address: String)
+    suspend fun setGroupIcon(chatId: Long, file: File)
+    suspend fun removeGroupIcon(chatId: Long)
+    suspend fun leave(chatId: Long)
 }

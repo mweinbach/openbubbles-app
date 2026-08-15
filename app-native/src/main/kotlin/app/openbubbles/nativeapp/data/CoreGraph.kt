@@ -155,9 +155,6 @@ object CoreGraph {
     val attachments: AttachmentProvider by lazy {
         store?.let { st -> CoreAttachmentProvider(st, { attachmentFiles }) } ?: FakeAttachmentProvider
     }
-    /** Leave a group chat via the Rust group ops. */
-    fun leaveChat(chatId: Long): Result<Unit> = CoreGroupOps.leaveChat(chatId)
-
     /**
      * Read-only chat id lookup by guid (notification deep links resolve the
      * tapped chat before navigating). Null when unknown or store unavailable.
@@ -293,6 +290,9 @@ object CoreGraph {
 
     val chatInfo: ChatInfoRepository by lazy {
         store?.let { st -> CoreChatInfoRepository(st) } ?: FakeChatInfoRepository
+    }
+    val chatInfoActions: ChatInfoActions by lazy {
+        if (store != null) CoreChatInfoActions else FakeChatInfoActions
     }
 
     /**
@@ -463,6 +463,8 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     isSms = item.isSms,
     muted = item.muted,
     archived = item.archived,
+    avatarPath = item.avatarPath,
+    isGroup = item.isGroup,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -943,28 +945,114 @@ private fun sendConversation(store: BoxStore, chat: Chat, sender: String? = null
 @Suppress("unused")
 private fun newStagingGuid(): String = UUID.randomUUID().toString().uppercase()
 
-// ---------------------------------------------------------------------------
-// Group operations (leave chat) — wired to the Rust group ops from M2.a
-// ---------------------------------------------------------------------------
+/** Group details mutations with immediate echo ingestion. */
+private object CoreChatInfoActions : ChatInfoActions {
+    override suspend fun rename(chatId: Long, name: String) {
+        require(name.isNotBlank()) { "conversation name cannot be empty" }
+        val context = context(chatId)
+        val inst = runInterruptible(Dispatchers.IO) {
+            context.state.renameChat(context.conversation, context.sender, name.trim())
+        }
+        context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
 
-internal object CoreGroupOps {
-    fun leaveChat(chatId: Long): Result<Unit> {
-        val st = CoreGraph.store ?: return Result.failure(IllegalStateException("store unavailable"))
-        val pushState = PushStateHolder.state
-            ?: return Result.failure(IllegalStateException("not connected"))
-        return runCatching {
-            val chat = st.boxFor(Chat::class.java).get(chatId)
-                ?: error("no chat $chatId")
-            val myHandle = sendingHandle(chat) ?: error("no registered sending handle")
-            val conversation = sendConversation(st, chat, myHandle)
-            pushState.leaveChat(
-                conversation,
-                myHandle,
-                ((chat.groupVersion ?: -1L) + 1L).toULong(),
+    override suspend fun addParticipant(chatId: Long, address: String) {
+        require(address.isNotBlank()) { "participant address cannot be empty" }
+        val context = context(chatId)
+        val participant = MessageMapper.toRustHandle(MessageMapper.normalizeAddress(address.trim()))
+        require(participant !in context.conversation.participants) { "participant is already in this group" }
+        changeParticipants(context, (context.conversation.participants + participant).distinct())
+    }
+
+    override suspend fun removeParticipant(chatId: Long, address: String) {
+        val context = context(chatId)
+        val normalized = MessageMapper.normalizeAddress(address)
+        val participants = context.conversation.participants.filterNot {
+            MessageMapper.normalizeAddress(it) == normalized
+        }
+        require(participants.size >= 2) { "a group needs at least two participants" }
+        changeParticipants(context, participants)
+    }
+
+    override suspend fun setGroupIcon(chatId: Long, file: File) {
+        require(file.isFile) { "group photo is unavailable" }
+        val context = context(chatId)
+        val version = nextGroupVersion(context.chat)
+        val inst = runInterruptible(Dispatchers.IO) {
+            context.state.setGroupIcon(
+                context.conversation,
+                context.sender,
+                file.absolutePath,
+                version,
+                null,
             )
         }
+        context.chat.customAvatarPath = file.absolutePath
+        context.chat.photoAttachmentGuid = inst.id
+        context.chat.groupVersion = version.toLong()
+        CoreGraph.store?.boxFor(Chat::class.java)?.put(context.chat)
+        context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
+
+    override suspend fun removeGroupIcon(chatId: Long) {
+        val context = context(chatId)
+        val version = nextGroupVersion(context.chat)
+        val inst = runInterruptible(Dispatchers.IO) {
+            context.state.removeGroupIcon(context.conversation, context.sender, version)
+        }
+        context.chat.customAvatarPath?.let { runCatching { File(it).delete() } }
+        context.chat.customAvatarPath = null
+        context.chat.photoAttachmentGuid = null
+        context.chat.groupVersion = version.toLong()
+        CoreGraph.store?.boxFor(Chat::class.java)?.put(context.chat)
+        context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    override suspend fun leave(chatId: Long) {
+        val context = context(chatId)
+        val inst = runInterruptible(Dispatchers.IO) {
+            context.state.leaveChat(
+                context.conversation,
+                context.sender,
+                nextGroupVersion(context.chat),
+            )
+        }
+        context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    private suspend fun changeParticipants(context: GroupActionContext, participants: List<String>) {
+        val version = nextGroupVersion(context.chat)
+        val inst = runInterruptible(Dispatchers.IO) {
+            context.state.changeParticipants(
+                context.conversation,
+                context.sender,
+                participants,
+                version,
+            )
+        }
+        context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    private fun context(chatId: Long): GroupActionContext {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val state = PushStateHolder.state ?: error("not connected to Apple push")
+        val ingestor = CoreGraph.ingestor ?: error("ingestor unavailable")
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+        check(chat.isRpSms != true) { "group changes are unavailable for SMS" }
+        val sender = sendingHandle(chat) ?: error("no registered sending handle")
+        return GroupActionContext(chat, state, sendConversation(store, chat, sender), sender, ingestor)
+    }
+
+    private fun nextGroupVersion(chat: Chat): ULong = ((chat.groupVersion ?: -1L) + 1L).toULong()
 }
+
+private data class GroupActionContext(
+    val chat: Chat,
+    val state: NativePushState,
+    val conversation: UConversation,
+    val sender: String,
+    val ingestor: MessageIngestor,
+)
 
 // ---------------------------------------------------------------------------
 // Attachment sending (M2 polish) — additive zone

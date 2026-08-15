@@ -21,12 +21,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
 import uniffi.rust_lib_bluebubbles.ptrToMessage
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 import java.util.concurrent.atomic.AtomicInteger
+import java.io.File
 
 /**
  * Foreground service owning the live Rust push state for the native app —
@@ -136,6 +138,7 @@ class NativePushService : Service(), MsgReceiver {
                         return@launch
                     }
                     val chat = ingestor.ingest(decoded, handles)
+                    syncGroupIcon(decoded, chat)
                     notifyIncoming(decoded, chat)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
@@ -148,6 +151,38 @@ class NativePushService : Service(), MsgReceiver {
                 )
             }
         }
+    }
+
+    /** Download and persist group-photo changes carried by an incoming event. */
+    private suspend fun syncGroupIcon(decoded: UPushMessage, chat: app.openbubbles.db.Chat?) {
+        val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
+        val icon = inst.message as? UMessage.IconChange ?: return
+        val target = chat ?: return
+        val box = CoreGraph.store?.boxFor(app.openbubbles.db.Chat::class.java) ?: return
+        val version = GROUP_VERSION.find(icon.json)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        val iconXml = icon.iconXml
+        if (iconXml == null) {
+            target.customAvatarPath?.let { runCatching { File(it).delete() } }
+            target.customAvatarPath = null
+            target.photoAttachmentGuid = null
+            if (version != null) target.groupVersion = version
+            box.put(target)
+            return
+        }
+
+        val state = PushStateHolder.state ?: return
+        val iconDir = File(filesDir, "group_icons").apply { mkdirs() }
+        val destination = File(iconDir, "${target.id}-${inst.id.hashCode()}.png")
+        runInterruptible(Dispatchers.IO) {
+            state.downloadMmcs(iconXml, destination.absolutePath, null)
+        }
+        target.customAvatarPath?.takeIf { it != destination.absolutePath }?.let {
+            runCatching { File(it).delete() }
+        }
+        target.customAvatarPath = destination.absolutePath
+        target.photoAttachmentGuid = inst.id
+        if (version != null) target.groupVersion = version
+        box.put(target)
     }
 
     override fun nativeReady(state: NativePushState?) {
@@ -350,6 +385,7 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     companion object {
+        private val GROUP_VERSION = Regex("\"(?:group_version|groupVersion)\"\\s*:\\s*(\\d+)")
         private const val CHANNEL_STATUS = "push-status"
         private const val CHANNEL_MESSAGES = "messages"
         private const val STATUS_NOTIFICATION_ID = 1001

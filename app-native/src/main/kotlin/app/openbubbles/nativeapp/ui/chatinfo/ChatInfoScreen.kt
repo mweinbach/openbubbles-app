@@ -1,6 +1,12 @@
 package app.openbubbles.nativeapp.ui.chatinfo
 
+import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -22,26 +28,36 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -54,8 +70,11 @@ import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 
 /** One participant row model: raw address plus the resolved contact info. */
 data class ParticipantRow(
@@ -66,9 +85,7 @@ data class ParticipantRow(
 )
 
 /**
- * Conversation details: avatar + title (read-only for now; editing lands with
- * a later milestone), participant list with contact names, and a leave-chat
- * action wired through [onLeaveChat].
+ * Conversation details and group mutations backed by the on-device engine.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,12 +93,53 @@ fun ChatInfoScreen(
     chat: ChatListItem?,
     participants: List<ParticipantRow>,
     onBack: () -> Unit,
-    onLeaveChat: () -> Unit = {},
+    onRename: suspend (String) -> Unit = {},
+    onAddParticipant: suspend (String) -> Unit = {},
+    onRemoveParticipant: suspend (String) -> Unit = {},
+    onSetGroupIcon: suspend (File) -> Unit = {},
+    onRemoveGroupIcon: suspend () -> Unit = {},
+    onLeaveChat: suspend () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var error by remember { mutableStateOf<String?>(null) }
+    var renameDialog by remember { mutableStateOf(false) }
+    var addDialog by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    var renameText by remember(chat?.title) { mutableStateOf(chat?.title.orEmpty()) }
+    var participantText by remember { mutableStateOf("") }
+    val isGroup = chat?.isGroup == true && !chat.isSms
+
+    fun launchAction(action: suspend () -> Unit, onSuccess: () -> Unit = {}) {
+        scope.launch {
+            runCatching { action() }
+                .onSuccess { onSuccess() }
+                .onFailure { error = it.message ?: "Conversation update failed" }
+        }
+    }
+
+    LaunchedEffect(error) {
+        val message = error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        error = null
+    }
+
+    val pickGroupPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val file = runCatching { prepareGroupIcon(context, uri) }
+                .onFailure { error = it.message ?: "Could not read group photo" }
+                .getOrNull() ?: return@launch
+            launchAction({ onSetGroupIcon(file) })
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Conversation Details") },
@@ -108,6 +166,26 @@ fun ChatInfoScreen(
                 participantCount = participants.size,
                 posterFile = posterFile,
             )
+            if (isGroup) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = { renameDialog = true }, modifier = Modifier.weight(1f)) {
+                        Text("Rename")
+                    }
+                    OutlinedButton(
+                        onClick = { pickGroupPhoto.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Group photo") }
+                }
+                if (chat?.avatarPath != null) {
+                    TextButton(
+                        onClick = { launchAction(onRemoveGroupIcon) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Remove group photo") }
+                }
+            }
             if (participants.isNotEmpty()) {
                 Text(
                     text = "PARTICIPANTS",
@@ -121,7 +199,22 @@ fun ChatInfoScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(participants, key = { it.address }) { participant ->
-                        ParticipantListRow(participant = participant)
+                        ParticipantListRow(
+                            participant = participant,
+                            onRemove = if (isGroup) {
+                                { launchAction(action = { onRemoveParticipant(participant.address) }) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                    if (isGroup) {
+                        item(key = "add-participant") {
+                            OutlinedButton(
+                                onClick = { addDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Add participant") }
+                        }
                     }
                 }
             } else {
@@ -133,28 +226,77 @@ fun ChatInfoScreen(
                     )
                 }
             }
-            OutlinedButton(
-                onClick = onLeaveChat,
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .navigationBarsPadding(),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Logout,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = "Leave this conversation",
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+            if (isGroup) {
+                OutlinedButton(
+                    onClick = { confirmLeave = true },
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .navigationBarsPadding(),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Leave this conversation",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         }
+    }
+
+    if (renameDialog) {
+        TextInputDialog(
+            title = "Rename conversation",
+            value = renameText,
+            onValueChange = { renameText = it },
+            confirmLabel = "Rename",
+            onConfirm = {
+                renameDialog = false
+                launchAction(action = { onRename(renameText) })
+            },
+            onDismiss = { renameDialog = false },
+        )
+    }
+    if (addDialog) {
+        TextInputDialog(
+            title = "Add participant",
+            value = participantText,
+            onValueChange = { participantText = it },
+            confirmLabel = "Add",
+            onConfirm = {
+                val address = participantText.trim()
+                addDialog = false
+                participantText = ""
+                launchAction(action = { onAddParticipant(address) })
+            },
+            onDismiss = { addDialog = false },
+        )
+    }
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text("Leave conversation?") },
+            text = { Text("You will stop receiving new messages from this group.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLeave = false
+                        launchAction(onLeaveChat, onBack)
+                    },
+                ) { Text("Leave") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeave = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -184,7 +326,7 @@ private fun HeaderSection(chat: ChatListItem?, participantCount: Int, posterFile
                 title = chat.title,
                 avatarColor = chat.avatarColor,
                 size = 96.dp,
-                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
+                avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
             Text(
                 text = chat.title,
@@ -309,7 +451,7 @@ private fun rememberPosterFile(address: String?): File? =
     }.value
 
 @Composable
-private fun ParticipantListRow(participant: ParticipantRow) {
+private fun ParticipantListRow(participant: ParticipantRow, onRemove: (() -> Unit)? = null) {
     val displayName = participant.name ?: participant.address
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -327,7 +469,7 @@ private fun ParticipantListRow(participant: ParticipantRow) {
                 size = 40.dp,
                 avatarPath = participant.avatarPath,
             )
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.bodyLarge,
@@ -344,8 +486,58 @@ private fun ParticipantListRow(participant: ParticipantRow) {
                     )
                 }
             }
+            if (onRemove != null) {
+                TextButton(onClick = onRemove) { Text("Remove") }
+            }
         }
     }
+}
+
+@Composable
+private fun TextInputDialog(
+    title: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = value.isNotBlank()) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Decode, center-crop, and persist the 570px PNG expected by iMessage group icons. */
+private suspend fun prepareGroupIcon(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
+    val source = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+        ?: error("could not decode group photo")
+    val side = minOf(source.width, source.height)
+    val left = (source.width - side) / 2
+    val top = (source.height - side) / 2
+    val square = Bitmap.createBitmap(source, left, top, side, side)
+    val scaled = Bitmap.createScaledBitmap(square, 570, 570, true)
+    val directory = File(context.filesDir, "group_icons").apply { mkdirs() }
+    val destination = File(directory, "outgoing-${UUID.randomUUID()}.png")
+    FileOutputStream(destination).use { output ->
+        check(scaled.compress(Bitmap.CompressFormat.PNG, 100, output)) { "could not encode group photo" }
+    }
+    if (scaled !== square) scaled.recycle()
+    if (square !== source) square.recycle()
+    source.recycle()
+    destination
 }
 
 /** Stable avatar color for an address (same palette idea as the chat list). */

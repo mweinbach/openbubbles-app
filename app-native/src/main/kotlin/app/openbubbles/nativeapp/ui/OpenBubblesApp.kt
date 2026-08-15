@@ -237,7 +237,14 @@ fun OpenBubblesApp(
                 val chats by remember(chatId) { AppGraph.chats.chats() }
                     .collectAsStateWithLifecycle(initialValue = emptyList())
                 val chat = chats.firstOrNull { it.id == chatId }
-                val addresses by produceState<List<String>>(initialValue = emptyList(), chatId) {
+                var participantRevision by remember(chatId) {
+                    androidx.compose.runtime.mutableIntStateOf(0)
+                }
+                val addresses by produceState<List<String>>(
+                    initialValue = emptyList(),
+                    chatId,
+                    participantRevision,
+                ) {
                     value = withContext(Dispatchers.IO) { AppGraph.chatInfo.participantAddresses(chatId) }
                 }
                 val participants = rememberParticipantRows(addresses)
@@ -245,10 +252,20 @@ fun OpenBubblesApp(
                     chat = chat,
                     participants = participants,
                     onBack = { navController.popBackStack() },
-                    onLeaveChat = {
-                        app.openbubbles.nativeapp.data.CoreGraph.leaveChat(chatId)
-                        navController.popBackStack()
+                    onRename = { name ->
+                        AppGraph.chatInfoActions.rename(chatId, name)
                     },
+                    onAddParticipant = { address ->
+                        AppGraph.chatInfoActions.addParticipant(chatId, address)
+                        participantRevision++
+                    },
+                    onRemoveParticipant = { address ->
+                        AppGraph.chatInfoActions.removeParticipant(chatId, address)
+                        participantRevision++
+                    },
+                    onSetGroupIcon = { file -> AppGraph.chatInfoActions.setGroupIcon(chatId, file) },
+                    onRemoveGroupIcon = { AppGraph.chatInfoActions.removeGroupIcon(chatId) },
+                    onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
                 )
             }
             composable(

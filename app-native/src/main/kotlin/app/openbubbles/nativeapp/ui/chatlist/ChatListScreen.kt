@@ -272,7 +272,7 @@ fun ChatListRow(
             ChatAvatar(
                 title = chat.title,
                 avatarColor = chat.avatarColor,
-                avatarPath = rememberContactAvatarPath(chat.avatarAddress),
+                avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

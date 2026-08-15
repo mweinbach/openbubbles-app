@@ -229,7 +229,10 @@ internal object FakeChatData {
 
     private fun seedChats(): List<ChatListItem> {
         fun chat(index: Int, id: Long, title: String, snippet: String?, date: Long, unread: Int, pinned: Boolean) =
-            ChatListItem(id, title, snippet, date, unread, pinned, AvatarColors[index % AvatarColors.size])
+            ChatListItem(
+                id, title, snippet, date, unread, pinned, AvatarColors[index % AvatarColors.size],
+                isGroup = id == 1L || id == 3L || id == 8L,
+            )
 
         return listOf(
             chat(0, 1, "Family", "Emma: dessert's on me 🍰", minutesAgo(25), unread = 3, pinned = true),
@@ -455,6 +458,15 @@ object FakeChatInfoRepository : ChatInfoRepository {
         if (chatId == 1L) listOf("mom@icloud.com", "dad@icloud.com", "emma@icloud.com") else emptyList()
 }
 
+object FakeChatInfoActions : ChatInfoActions {
+    override suspend fun rename(chatId: Long, name: String) = Unit
+    override suspend fun addParticipant(chatId: Long, address: String) = Unit
+    override suspend fun removeParticipant(chatId: Long, address: String) = Unit
+    override suspend fun setGroupIcon(chatId: Long, file: File) = Unit
+    override suspend fun removeGroupIcon(chatId: Long) = Unit
+    override suspend fun leave(chatId: Long) = Unit
+}
+
 /** Composition root. Real core-backed bindings; fakes only as fallback. */
 object AppGraph {
     val chats: ChatListRepository get() = CoreGraph.chats
@@ -465,6 +477,7 @@ object AppGraph {
     val typing: TypingRepository get() = CoreGraph.typing
     val attachments: AttachmentProvider get() = CoreGraph.attachments
     val chatInfo: ChatInfoRepository get() = CoreGraph.chatInfo
+    val chatInfoActions: ChatInfoActions get() = CoreGraph.chatInfoActions
 
     /** Fire-and-forget attachment download (no-op on the fake path). */
     fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)

@@ -3,6 +3,7 @@ package app.openbubbles.core.repo
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.ChatListItem
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Handle
@@ -206,6 +207,8 @@ class ChatRepo(private val store: BoxStore) {
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
             participantCount = chat.handles.size,
+            avatarPath = chat.customAvatarPath,
+            isGroup = chat.isGroupConversation(),
         )
     }
 
