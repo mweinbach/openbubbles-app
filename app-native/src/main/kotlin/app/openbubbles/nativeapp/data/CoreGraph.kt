@@ -139,7 +139,7 @@ object CoreGraph {
     }
 
     val chats: ChatListRepository by lazy {
-        chatRepo?.let { repo -> CoreChatListRepository(repo, store) } ?: FakeChatListRepository()
+        chatRepo?.let(::CoreChatListRepository) ?: FakeChatListRepository()
     }
     val messages: MessageListRepository by lazy {
         messageRepo?.let { repo -> CoreMessageListRepository(repo, store) } ?: FakeMessageListRepository()
@@ -461,6 +461,7 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     isSms = item.isSms,
     muted = item.muted,
     archived = item.archived,
+    avatarAddress = item.avatarAddress,
     avatarPath = item.avatarPath,
     isGroup = item.isGroup,
 )
@@ -568,11 +569,15 @@ private object CoreContacts {
     fun syncFromDevice(raw: List<app.openbubbles.core.contacts.RawContact>) {
         sync?.upsertContacts(raw)
         handleIndex = null // force rebuild so fresh linkages resolve
+        displayInfoIndex = null
     }
 
     fun remove(nativeContactIds: Collection<String>): Int {
         val removed = sync?.removeContacts(nativeContactIds) ?: 0
-        if (removed > 0) handleIndex = null
+        if (removed > 0) {
+            handleIndex = null
+            displayInfoIndex = null
+        }
         return removed
     }
 
@@ -581,6 +586,7 @@ private object CoreContacts {
         // History may have added handles even when every existing relation
         // was already correct, so always rebuild the address lookup too.
         handleIndex = null
+        displayInfoIndex = null
         return result
     }
 
@@ -589,6 +595,9 @@ private object CoreContacts {
 
     @Volatile
     private var indexBuiltAt: Long = 0L
+
+    @Volatile
+    private var displayInfoIndex: Map<Long, app.openbubbles.core.contacts.HandleDisplayInfo>? = null
 
     @Synchronized
     private fun rebuildIndex(store: BoxStore): Map<String, Handle> {
@@ -629,40 +638,26 @@ private object CoreContacts {
     fun displayInfo(address: String): Pair<String?, String?>? {
         val contactSync = sync ?: return null
         val handle = handleFor(address) ?: return null
-        return runCatching {
-            val info = contactSync.displayInfoFor(handle)
-            info.name to info.avatar
-        }.getOrNull()
-    }
-
-    /** Chat-list title for DMs whose single participant has a contact. */
-    fun chatTitle(item: ChatListItem, store: BoxStore): ChatListItem {
-        val contactSync = sync ?: return item
-        val chat = runCatching { store.boxFor(Chat::class.java).get(item.id) }.getOrNull()
-            ?: return item
-        if (chat.displayName != null || chat.handles.size != 1) return item
-        val handle = chat.handles.firstOrNull() ?: return item
-        // DMs keep the participant address so the UI can resolve a photo avatar.
-        val withAvatar = item.copy(avatarAddress = handle.formattedAddress ?: handle.address)
-        if (runCatching { handle.contactsV2.isEmpty() }.getOrDefault(true)) return withAvatar
-        val name = runCatching { contactSync.displayInfoFor(handle).name }.getOrNull()
-            ?: return withAvatar
-        if (name.isBlank() || name == withAvatar.title) return withAvatar
-        return withAvatar.copy(title = name)
+        var infoByHandle = displayInfoIndex
+        if (infoByHandle == null) {
+            synchronized(this) {
+                infoByHandle = displayInfoIndex
+                if (infoByHandle == null) {
+                    infoByHandle = contactSync.displayInfoByHandleId()
+                    displayInfoIndex = infoByHandle
+                }
+            }
+        }
+        return infoByHandle?.get(handle.id)?.let { info -> info.name to info.avatar }
     }
 }
 
 private class CoreChatListRepository(
     private val repo: ChatRepo,
-    private val store: BoxStore?,
 ) : ChatListRepository {
     override fun chats(): Flow<List<ChatListItem>> =
         repo.observeChats()
-            .map { list ->
-                list.map(::coreChatToUi).map { item ->
-                    if (store == null) item else CoreContacts.chatTitle(item, store)
-                }
-            }
+            .map { list -> list.map(::coreChatToUi) }
             .flowOn(Dispatchers.IO)
 
     override fun markRead(id: Long) = repo.markRead(id)

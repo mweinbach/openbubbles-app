@@ -238,6 +238,7 @@ class ChatRepo(private val store: BoxStore) {
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
             participantCount = chat.handles.size,
+            avatarAddress = chat.handles.singleOrNull()?.let { it.formattedAddress ?: it.address },
             avatarPath = chat.customAvatarPath,
             isGroup = chat.isGroupConversation(),
         )
