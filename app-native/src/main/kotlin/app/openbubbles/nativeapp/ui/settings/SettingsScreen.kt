@@ -190,6 +190,7 @@ fun SettingsScreen(
             syncResult = if (summary.error != null) {
                 "Sync failed: ${summary.error}"
             } else {
+                CoreGraph.relinkContacts()
                 CloudSyncWiring.markHistorySyncComplete(context)
                 "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages, " +
                     "${summary.totalAttachments} attachments " +

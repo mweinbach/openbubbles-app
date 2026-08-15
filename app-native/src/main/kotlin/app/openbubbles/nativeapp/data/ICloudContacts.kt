@@ -447,6 +447,15 @@ object ICloudContactSync {
             if (!force && previous.lastSuccessMs > 0L &&
                 System.currentTimeMillis() - previous.lastSuccessMs < AUTO_SYNC_FRESHNESS_MS
             ) {
+                // A fresh CardDAV snapshot can still predate handles created
+                // by the concurrently running CloudKit history import.
+                CoreGraph.relinkContacts()?.let { result ->
+                    Log.i(
+                        "ICloudContactSync",
+                        "iCloud Contacts relinked: ${result.linkedContacts}/${result.contacts} contacts, " +
+                            "${result.linkedHandles}/${result.handles} handles, ${result.changedContacts} changed",
+                    )
+                }
                 return@withContext previous
             }
             runCatching {
@@ -492,13 +501,24 @@ object ICloudContactSync {
                         .putStringSet(knownKey(result.book.url), knownAfter)
                         .apply()
                 }
+                val relink = CoreGraph.relinkContacts()
                 prefs.edit()
                     .putLong("last_success_ms", System.currentTimeMillis())
                     .putInt("last_imported", imported)
                     .putInt("last_removed", removed)
                     .remove("last_error")
                     .apply()
-                Log.i("ICloudContactSync", "iCloud Contacts synced: $imported updated, $removed removed")
+                Log.i(
+                    "ICloudContactSync",
+                    "iCloud Contacts synced: $imported updated, $removed removed; " +
+                        if (relink == null) {
+                            "linkage unavailable"
+                        } else {
+                            "${relink.linkedContacts}/${relink.contacts} contacts linked to " +
+                                "${relink.linkedHandles}/${relink.handles} handles " +
+                                "(${relink.changedContacts} changed)"
+                        },
+                )
             }.onFailure { error ->
                 val message = error.message ?: error.javaClass.simpleName
                 prefs.edit().putString("last_error", message).apply()

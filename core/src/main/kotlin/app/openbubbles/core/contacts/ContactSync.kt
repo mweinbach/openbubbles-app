@@ -34,6 +34,15 @@ data class HandleDisplayInfo(
     val avatar: String?,
 )
 
+/** Result of rebuilding contact -> handle relations after new handles arrive. */
+data class ContactRelinkResult(
+    val contacts: Int,
+    val handles: Int,
+    val changedContacts: Int,
+    val linkedContacts: Int,
+    val linkedHandles: Int,
+)
+
 /**
  * Contact integration — the Kotlin port of Dart's
  * `ContactV2Actions.syncContactsToHandles` + `Handle.displayName` /
@@ -65,19 +74,49 @@ class ContactSync(private val store: BoxStore) {
      * Returns the persisted rows in input order.
      */
     fun upsertContacts(rawContacts: List<RawContact>): List<ContactV2> = store.callInTx {
-        // Handle lookup maps over the whole table, built once per sync
-        // (mirrors the Dart email/phone handle maps).
-        val emailHandles = mutableMapOf<String, MutableSet<Handle>>()
-        val phoneHandles = mutableMapOf<String, MutableSet<Handle>>()
-        handleBox.all.forEach { handle ->
-            indexHandleAddress(handle.address, handle, emailHandles, phoneHandles)
-            val formatted = handle.formattedAddress
-            if (!formatted.isNullOrEmpty()) {
-                indexHandleAddress(formatted, handle, emailHandles, phoneHandles)
-            }
-        }
+        val (emailHandles, phoneHandles) = buildHandleIndexes()
 
         rawContacts.map { raw -> upsertOne(raw, emailHandles, phoneHandles) }
+    }
+
+    /**
+     * Rebuilds every stored contact relation against the current handle table.
+     *
+     * Contact providers and CloudKit history are independent streams. On a
+     * fresh install CardDAV can finish first, leaving contacts correctly
+     * stored but unable to name handles that history creates later. Running
+     * this after a history pass (and even after an unchanged CardDAV pass)
+     * closes that ordering gap without downloading contacts again.
+     */
+    fun relinkContacts(): ContactRelinkResult = store.callInTx {
+        val handles = handleBox.all
+        val (emailHandles, phoneHandles) = buildHandleIndexes(handles)
+        val contacts = contactBox.all
+        var changedContacts = 0
+        var linkedContacts = 0
+        val linkedHandleIds = HashSet<Long>()
+
+        contacts.forEach { contact ->
+            val matched = matchedHandles(contact.addresses, emailHandles, phoneHandles)
+            val existingIds = contact.handles.mapTo(HashSet()) { it.id }
+            val matchedIds = matched.mapTo(HashSet()) { it.id }
+            if (existingIds != matchedIds) {
+                contact.handles.clear()
+                contact.handles.addAll(matched)
+                contactBox.put(contact)
+                changedContacts++
+            }
+            if (matched.isNotEmpty()) linkedContacts++
+            matched.forEach { linkedHandleIds += it.id }
+        }
+
+        ContactRelinkResult(
+            contacts = contacts.size,
+            handles = handles.size,
+            changedContacts = changedContacts,
+            linkedContacts = linkedContacts,
+            linkedHandles = linkedHandleIds.size,
+        )
     }
 
     /**
@@ -119,16 +158,7 @@ class ContactSync(private val store: BoxStore) {
         contact.isNative = true
 
         // Re-link handles from the (normalized) address list.
-        val matched = LinkedHashSet<Handle>()
-        for (address in contact.addresses) {
-            if (address.contains('@')) {
-                emailHandles[address]?.let { matched += it }
-            } else {
-                phoneNumberVariants(address).forEach { variant ->
-                    phoneHandles[variant]?.let { matched += it }
-                }
-            }
-        }
+        val matched = matchedHandles(contact.addresses, emailHandles, phoneHandles)
         contact.handles.clear()
         contact.handles.addAll(matched)
 
@@ -138,6 +168,39 @@ class ContactSync(private val store: BoxStore) {
             // Lost a race against a concurrent sync with the same id.
         }
         return contact
+    }
+
+    private fun buildHandleIndexes(
+        handles: List<Handle> = handleBox.all,
+    ): Pair<Map<String, Set<Handle>>, Map<String, Set<Handle>>> {
+        val emailHandles = mutableMapOf<String, MutableSet<Handle>>()
+        val phoneHandles = mutableMapOf<String, MutableSet<Handle>>()
+        handles.forEach { handle ->
+            indexHandleAddress(handle.address, handle, emailHandles, phoneHandles)
+            handle.formattedAddress?.takeIf { it.isNotEmpty() }?.let { formatted ->
+                indexHandleAddress(formatted, handle, emailHandles, phoneHandles)
+            }
+        }
+        return emailHandles to phoneHandles
+    }
+
+    private fun matchedHandles(
+        addresses: List<String>,
+        emailHandles: Map<String, Set<Handle>>,
+        phoneHandles: Map<String, Set<Handle>>,
+    ): LinkedHashSet<Handle> {
+        val matched = LinkedHashSet<Handle>()
+        addresses.forEach { rawAddress ->
+            val address = normalizeAddress(rawAddress)
+            if (address.contains('@')) {
+                emailHandles[address]?.let { matched += it }
+            } else {
+                phoneNumberVariants(address).forEach { variant ->
+                    phoneHandles[variant]?.let { matched += it }
+                }
+            }
+        }
+        return matched
     }
 
     private fun indexHandleAddress(
@@ -161,13 +224,32 @@ class ContactSync(private val store: BoxStore) {
      * handle, matching Dart's `contactsV2.firstOrNull` reads).
      */
     fun contactsForHandles(): Map<Long, ContactV2> {
-        val resolved = HashMap<Long, ContactV2>()
-        contactBox.all.forEach { contact ->
+        return store.callInReadTx {
+            val resolved = HashMap<Long, ContactV2>()
+            contactBox.all.sortedByDescending { it.isNative }.forEach { contact ->
+                contact.handles.forEach { handle ->
+                    resolved.getOrPut(handle.id) { contact }
+                }
+            }
+            resolved
+        }
+    }
+
+    /**
+     * One read-transaction projection for list rendering. This avoids opening
+     * a lazy backlink transaction per chat row (which is both slower and can
+     * keep ObjectBox transactions alive until finalization under heavy sync).
+     */
+    fun displayInfoByHandleId(): Map<Long, HandleDisplayInfo> = store.callInReadTx {
+        val resolved = HashMap<Long, HandleDisplayInfo>()
+        contactBox.all.sortedByDescending { it.isNative }.forEach { contact ->
+            val name = computedDisplayName(contact).takeIf { it.isNotEmpty() }
+            val info = HandleDisplayInfo(name = name, avatar = contact.avatarPath)
             contact.handles.forEach { handle ->
-                resolved.getOrPut(handle.id) { contact }
+                resolved.putIfAbsent(handle.id, info)
             }
         }
-        return resolved
+        resolved
     }
 
     /**
@@ -190,15 +272,31 @@ class ContactSync(private val store: BoxStore) {
     }
 
     companion object {
+        private fun withoutAddressScheme(address: String): String {
+            val trimmed = address.trim()
+            return when {
+                trimmed.startsWith("mailto:", ignoreCase = true) -> trimmed.substring(7)
+                trimmed.startsWith("tel:", ignoreCase = true) -> trimmed.substring(4)
+                else -> trimmed
+            }
+        }
+
         /** Lower-cased, trimmed — `ContactV2.normalizeEmail`. */
-        fun normalizeEmail(email: String): String = email.trim().lowercase()
+        fun normalizeEmail(email: String): String = withoutAddressScheme(email).lowercase()
 
         /** Digits and `+` only — `ContactV2.normalizePhoneNumber`. */
-        fun normalizePhoneNumber(phone: String): String = phone.replace(Regex("[^\\d+]"), "")
+        fun normalizePhoneNumber(phone: String): String =
+            withoutAddressScheme(phone).replace(Regex("[^\\d+]"), "")
 
         /** Emails lower-cased; phones digit/plus-normalized. */
-        fun normalizeAddress(address: String): String =
-            if (address.contains('@')) normalizeEmail(address) else normalizePhoneNumber(address)
+        fun normalizeAddress(address: String): String {
+            val withoutScheme = withoutAddressScheme(address)
+            return if (withoutScheme.contains('@')) {
+                normalizeEmail(withoutScheme)
+            } else {
+                normalizePhoneNumber(withoutScheme)
+            }
+        }
 
         /**
          * Normalized phone variants for matching — the port of Dart's

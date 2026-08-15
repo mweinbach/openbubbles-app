@@ -1,5 +1,7 @@
 package app.openbubbles.core.repo
 
+import app.openbubbles.core.contacts.ContactSync
+import app.openbubbles.core.contacts.HandleDisplayInfo
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.ChatListItem
 import app.openbubbles.core.model.ChatMute
@@ -7,6 +9,7 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
@@ -16,8 +19,10 @@ import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 
 /**
  * ObjectBox-backed repository for the chat list.
@@ -33,6 +38,7 @@ class ChatRepo(private val store: BoxStore) {
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
     private val handleBox = store.boxFor(Handle::class.java)
+    private val contactSync = ContactSync(store)
 
     /** Chat DTO projection of active chats, ordered for the list UI. */
     fun chats(limit: Int = 0): List<ChatListItem> {
@@ -44,9 +50,10 @@ class ChatRepo(private val store: BoxStore) {
             .build()
         return query.use {
             val found = if (limit > 0) it.find(0, limit.toLong()) else it.find()
+            val contactInfo = contactSync.displayInfoByHandleId()
             // Project while the query and its creator thread are still alive;
             // relation reads in toItem must not escape to a collector thread.
-            found.map(::toItem)
+            found.map { chat -> toItem(chat, contactInfo) }
         }
     }
 
@@ -58,8 +65,13 @@ class ChatRepo(private val store: BoxStore) {
      * being committed instead of queueing one full chat projection per write.
      */
     fun observeChats(): Flow<List<ChatListItem>> =
-        store.subscribe(Chat::class.java)
-            .asFlow()
+        merge(
+            store.subscribe(Chat::class.java).asFlow().map { Unit },
+            // Contact imports/relinks do not mutate Chat rows. Include their
+            // invalidations so an open chat list replaces raw addresses with
+            // names immediately instead of waiting for the next message.
+            store.subscribe(ContactV2::class.java).asFlow().drop(1).map { Unit },
+        )
             .conflate()
             .map { chats() }
             .flowOn(Dispatchers.IO)
@@ -205,12 +217,18 @@ class ChatRepo(private val store: BoxStore) {
     // DTO projection
     // ------------------------------------------------------------------
 
-    internal fun toItem(chat: Chat): ChatListItem {
+    internal fun toItem(chat: Chat): ChatListItem =
+        toItem(chat, contactSync.displayInfoByHandleId())
+
+    private fun toItem(
+        chat: Chat,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+    ): ChatListItem {
         val latest = chat.dbLatestMessage.target
         return ChatListItem(
             id = chat.id,
             guid = chat.guid,
-            title = deriveTitle(chat),
+            title = deriveTitle(chat, contactInfo),
             snippet = latest?.let { snippet(it) },
             date = latest?.dateCreated ?: chat.dbOnlyLatestMessageDate,
             hasUnread = chat.hasUnreadMessage,
@@ -269,24 +287,42 @@ class ChatRepo(private val store: BoxStore) {
         }
     }
 
-    /**
-     * Port of `Chat.getChatCreatorSubtitle` with the contact lookup reduced to
-     * handle fields (ContactV2 integration lands with the contacts batch).
-     */
-    internal fun deriveTitle(chat: Chat): String {
+    /** Port of `Chat.getChatCreatorSubtitle`, including linked contacts. */
+    internal fun deriveTitle(chat: Chat): String =
+        deriveTitle(chat, contactSync.displayInfoByHandleId())
+
+    private fun deriveTitle(
+        chat: Chat,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+    ): String {
         if (!chat.displayName.isNullOrEmpty()) return chat.displayName
         val handles = chat.handles
         return when {
             handles.isEmpty() ->
                 if (chat.chatIdentifier?.startsWith("urn:biz") == true) "Business Chat"
                 else chat.chatIdentifier ?: "Unnamed chat"
-            handles.size == 1 -> handleDisplayName(handles[0])
+            handles.size == 1 -> handleDisplayName(handles[0], contactInfo)
             handles.size <= 4 -> handles.dropLast(1)
-                .joinToString(", ") { handleShortName(it) } + " & " + handleShortName(handles.last())
-            else -> handles.take(3).joinToString(", ") { handleShortName(it) } +
+                .joinToString(", ") { handleShortName(it, contactInfo) } +
+                " & " + handleShortName(handles.last(), contactInfo)
+            else -> handles.take(3).joinToString(", ") { handleShortName(it, contactInfo) } +
                 " & ${handles.size - 3} others"
         }
     }
+
+    private fun handleDisplayName(
+        handle: Handle,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+    ): String = contactInfo[handle.id]?.name
+        ?.takeIf { it.isNotBlank() }
+        ?: handle.formattedAddress
+        ?: handle.address
+
+    private fun handleShortName(
+        handle: Handle,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+    ): String = handleDisplayName(handle, contactInfo).split(' ', limit = 2).firstOrNull()
+        ?: handleDisplayName(handle, contactInfo)
 
     internal fun handleDisplayName(handle: Handle): String =
         handle.formattedAddress ?: handle.address

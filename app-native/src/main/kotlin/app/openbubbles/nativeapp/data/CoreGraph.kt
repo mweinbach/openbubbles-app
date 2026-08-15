@@ -203,6 +203,7 @@ object CoreGraph {
                 manager?.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
             }
             if (summary?.error == null && summary?.cancelled == false) {
+                relinkContacts()
                 CloudSyncWiring.markHistorySyncComplete(context)
             }
 
@@ -234,6 +235,10 @@ object CoreGraph {
     /** Apply CardDAV contact tombstones + invalidate cached name lookups. */
     fun removeContacts(nativeContactIds: Collection<String>): Int =
         CoreContacts.remove(nativeContactIds)
+
+    /** Re-match stored contacts after CloudKit creates additional handles. */
+    fun relinkContacts(): app.openbubbles.core.contacts.ContactRelinkResult? =
+        CoreContacts.relink()
 
     /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
@@ -569,6 +574,14 @@ private object CoreContacts {
         val removed = sync?.removeContacts(nativeContactIds) ?: 0
         if (removed > 0) handleIndex = null
         return removed
+    }
+
+    fun relink(): app.openbubbles.core.contacts.ContactRelinkResult? {
+        val result = sync?.relinkContacts() ?: return null
+        // History may have added handles even when every existing relation
+        // was already correct, so always rebuild the address lookup too.
+        handleIndex = null
+        return result
     }
 
     @Volatile

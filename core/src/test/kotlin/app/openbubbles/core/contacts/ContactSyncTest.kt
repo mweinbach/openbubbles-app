@@ -134,6 +134,23 @@ class ContactSyncTest {
     }
 
     @Test
+    fun `relink connects contacts imported before history creates handles`() {
+        sync.upsertContacts(
+            listOf(raw("icloud:early", displayName = "Early Contact", addresses = listOf("late@icloud.com"))),
+        )
+        assertTrue(contactByNativeId("icloud:early")!!.handles.isEmpty())
+
+        val lateHandle = seedHandle("mailto:Late@iCloud.com")
+        val result = sync.relinkContacts()
+
+        assertEquals(1, result.changedContacts)
+        assertEquals(1, result.linkedContacts)
+        assertEquals(1, result.linkedHandles)
+        assertTrue(contactByNativeId("icloud:early")!!.handles.any { it.id == lateHandle.id })
+        assertEquals("Early Contact", sync.displayInfoFor(lateHandle).name)
+    }
+
+    @Test
     fun `removing an address unlinks its handle`() {
         val phoneHandle = seedHandle("+15551234567")
         seedHandle("friend@icloud.com")
@@ -248,5 +265,11 @@ class ContactSyncTest {
         assertTrue("+1234567890" in fromBare)
         assertTrue("234567890" in fromBare)
         assertTrue("+234567890" in fromBare)
+    }
+
+    @Test
+    fun `normalization removes rust address schemes case insensitively`() {
+        assertEquals("friend@icloud.com", ContactSync.normalizeAddress("MAILTO:Friend@iCloud.com"))
+        assertEquals("+15551234567", ContactSync.normalizeAddress("TEL:+1 (555) 123-4567"))
     }
 }

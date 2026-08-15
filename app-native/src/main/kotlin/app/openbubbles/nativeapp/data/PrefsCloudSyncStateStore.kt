@@ -45,7 +45,13 @@ object CloudSyncWiring {
                 runCatching { managerRef.get()?.sync(SyncMode.INCREMENTAL) }
                     .getOrNull()
                     ?.takeIf { it.error == null && !it.cancelled }
-                    ?.let { markHistorySyncComplete(context) }
+                    ?.let {
+                        // CardDAV commonly finishes before initial history;
+                        // bind the newly created handles before exposing the
+                        // completed chat list.
+                        CoreGraph.relinkContacts()
+                        markHistorySyncComplete(context)
+                    }
             }
         }
     }
