@@ -2,6 +2,7 @@ package app.openbubbles.core.intake
 
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Attachment
+import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Handle
@@ -510,15 +511,7 @@ class MessageIngestor(
                 return@runInTx // duplicate delivery racing us; nothing to do
             }
 
-            // Attachment metadata rows (message.target wired on put).
-            mapped.attachments.forEach { attachment ->
-                attachment.message.target = saved
-                try {
-                    attachmentBox.put(attachment)
-                } catch (_: UniqueViolationException) {
-                    // Already persisted by a parallel delivery.
-                }
-            }
+            persistAttachments(mapped.attachments, saved)
 
             // Reaction bookkeeping (Message.save): flag the target message.
             if (saved.associatedMessageGuid != null && saved.associatedMessageType != null) {
@@ -552,6 +545,70 @@ class MessageIngestor(
             }
             chatBox.put(chat)
         }
+    }
+
+    /**
+     * Persists attachment metadata and promotes outgoing temp rows in place.
+     * The send UI writes local payloads under `temp-…_attN`; the Rust echo
+     * names the same parts `<message-id>_N`. Keeping the existing ObjectBox id
+     * preserves the message backlink while the Android layer renames the
+     * matching on-disk directory.
+     */
+    private fun persistAttachments(incoming: List<Attachment>, saved: Message) {
+        if (incoming.isEmpty()) return
+        val staged = attachmentBox.query()
+            .equal(Attachment_.messageId, saved.id)
+            .build()
+            .use { it.find() }
+            .filter { it.isOutgoing && it.guid?.startsWith("temp-") == true }
+            .sortedBy { it.guid }
+            .toMutableList()
+
+        incoming.forEach { replacement ->
+            val replacementGuid = replacement.guid ?: return@forEach
+            val alreadyPresent = attachmentBox.query()
+                .equal(Attachment_.guid, replacementGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build()
+                .use { it.findFirst() }
+            val stagedRow = staged.removeFirstOrNull()
+            val target = alreadyPresent ?: stagedRow ?: replacement
+            mergeAttachment(target, replacement, saved, promotedLocal = stagedRow === target)
+            try {
+                attachmentBox.put(target)
+                if (alreadyPresent != null && stagedRow != null && stagedRow.id != alreadyPresent.id) {
+                    attachmentBox.remove(stagedRow)
+                }
+            } catch (_: UniqueViolationException) {
+                // Another delivery inserted the real guid first. Keep that
+                // winner and remove only our stale temp row.
+                if (stagedRow != null && stagedRow.id != target.id) attachmentBox.remove(stagedRow)
+            }
+        }
+    }
+
+    private fun mergeAttachment(
+        target: Attachment,
+        replacement: Attachment,
+        saved: Message,
+        promotedLocal: Boolean,
+    ) {
+        target.guid = replacement.guid
+        target.originalROWID = replacement.originalROWID ?: target.originalROWID
+        target.uti = replacement.uti ?: target.uti
+        target.mimeType = replacement.mimeType ?: target.mimeType
+        target.isOutgoing = replacement.isOutgoing || target.isOutgoing
+        target.transferName = replacement.transferName ?: target.transferName
+        target.totalBytes = replacement.totalBytes ?: target.totalBytes
+        target.height = replacement.height ?: target.height
+        target.width = replacement.width ?: target.width
+        target.webUrl = replacement.webUrl ?: target.webUrl
+        target.dbMetadata = replacement.dbMetadata ?: target.dbMetadata
+        target.hasLivePhoto = replacement.hasLivePhoto || target.hasLivePhoto
+        target.ckRecordId = replacement.ckRecordId ?: target.ckRecordId
+        target.isDownloaded = promotedLocal || replacement.isDownloaded || target.isDownloaded
+        val mergedMetadata = (target.metadata ?: emptyMap()) + (replacement.metadata ?: emptyMap())
+        if (mergedMetadata.isNotEmpty()) target.metadata = mergedMetadata
+        target.message.target = saved
     }
 
     // ------------------------------------------------------------------

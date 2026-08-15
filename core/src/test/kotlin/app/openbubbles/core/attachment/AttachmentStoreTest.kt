@@ -74,6 +74,29 @@ class AttachmentStoreTest {
         assertTrue(File(dir, "movie.mov").let { f -> f.createNewFile() || f.isFile })
     }
 
+    @Test
+    fun `local directory is promoted from temp guid to real guid`() {
+        val oldDir = disk.directoryFor("temp-upload_att0").apply { mkdirs() }
+        val payload = File(oldDir, "photo.jpg").apply { writeText("image bytes") }
+
+        assertTrue(disk.promoteLocalDirectory("temp-upload_att0", "real-message_0"))
+        assertTrue(!oldDir.exists())
+        assertEquals(
+            "image bytes",
+            File(disk.directoryFor("real-message_0"), payload.name).readText(),
+        )
+    }
+
+    @Test
+    fun `local directory promotion never overwrites an existing real directory`() {
+        disk.directoryFor("temp-upload_att0").apply { mkdirs() }
+        val existing = disk.directoryFor("real-message_0").apply { mkdirs() }
+        File(existing, "keep.jpg").writeText("keep")
+
+        assertTrue(!disk.promoteLocalDirectory("temp-upload_att0", "real-message_0"))
+        assertEquals("keep", File(existing, "keep.jpg").readText())
+    }
+
     // ------------------------------------------------------------------
     // Sanitization + traversal guard
     // ------------------------------------------------------------------

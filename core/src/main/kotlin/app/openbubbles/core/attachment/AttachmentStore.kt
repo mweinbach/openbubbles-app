@@ -64,6 +64,20 @@ class AttachmentStore(
         File(attachmentsDir, sanitizeDirectoryName(attachmentGuid))
 
     /**
+     * Promotes a locally staged attachment directory to the guid returned by
+     * Rust after upload. This is the disk half of the legacy app's
+     * `replaceAttachmentAsync` flow.
+     */
+    fun promoteLocalDirectory(oldGuid: String, newGuid: String): Boolean {
+        if (oldGuid == newGuid) return true
+        val oldDir = directoryFor(oldGuid)
+        val newDir = directoryFor(newGuid)
+        if (!oldDir.isDirectory || newDir.exists()) return false
+        newDir.parentFile?.mkdirs()
+        return oldDir.renameTo(newDir)
+    }
+
+    /**
      * Canonical path for an attachment's payload file. Pure computation —
      * the file (and its parent directory) may not exist yet; callers create
      * them on download. Throws [IOException] if the resolved path would

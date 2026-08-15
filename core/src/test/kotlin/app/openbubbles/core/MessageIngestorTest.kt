@@ -3,6 +3,7 @@ package app.openbubbles.core
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Handle
@@ -381,6 +382,80 @@ class MessageIngestorTest {
         assertEquals("final text", row.text)
         assertNull(row.stagingGuid) // promoted
         assertNull(row.sendingServiceId)
+    }
+
+    @Test
+    fun `staged attachment is promoted in place by the echo`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "caption",
+            stagingGuid = "temp-attachment",
+        )
+        val stagedAttachment = Attachment().apply {
+            guid = "temp-attachment_att0"
+            uti = "public.jpeg"
+            mimeType = "image/jpeg"
+            isOutgoing = true
+            transferName = "photo.jpg"
+            totalBytes = 42L
+            isDownloaded = false
+            message.target = staged
+        }
+        store.boxFor(Attachment::class.java).put(stagedAttachment)
+        staged.hasAttachments = true
+        messageBox().put(staged)
+
+        // CoreAttachmentSender swaps the message guid to the Rust id before
+        // ingesting the reflected echo.
+        staged.guid = "real-attachment-message"
+        staged.stagingGuid = "real-attachment-message"
+        messageBox().put(staged)
+        val echo = UMessageInst(
+            id = "real-attachment-message",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.Normal(
+                parts = listOf(
+                    UIndexedPart(UPart.Text("caption", ""), null),
+                    UIndexedPart(
+                        UPart.Attachment(
+                            part = 0uL,
+                            uti = "public.jpeg",
+                            mime = "image/jpeg",
+                            name = "photo.jpg",
+                            iris = false,
+                            xml = "<plist>real metadata</plist>",
+                        ),
+                        0uL,
+                    ),
+                ),
+                effect = null,
+                replyGuid = null,
+                replyPart = null,
+                subject = null,
+                voice = false,
+                isSms = false,
+                appJson = null,
+                linkJson = null,
+            ),
+            sentTimestamp = 1_700_000_000_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(echo), myHandles)
+
+        val attachments = store.boxFor(Attachment::class.java).all
+        assertEquals(1, attachments.size)
+        val promoted = attachments.single()
+        assertEquals(stagedAttachment.id, promoted.id)
+        assertEquals("real-attachment-message_0", promoted.guid)
+        assertEquals(42L, promoted.totalBytes)
+        assertTrue(promoted.isDownloaded)
+        assertEquals("<plist>real metadata</plist>", promoted.metadata?.get("rustpush"))
+        assertEquals(staged.id, promoted.message.targetId)
     }
 
     @Test

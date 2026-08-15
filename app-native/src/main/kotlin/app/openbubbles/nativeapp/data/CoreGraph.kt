@@ -8,6 +8,7 @@ import app.openbubbles.core.backup.BackupManager
 import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.db.Attachment
@@ -888,7 +889,10 @@ internal object CoreAttachmentSender : AttachmentSender {
                     uti = attachment.uti
                     transferName = displayName
                     totalBytes = payload.length()
-                    isDownloaded = false
+                    // The payload is already in the canonical local store;
+                    // outgoing video/file bubbles must never offer to
+                    // download their own just-uploaded file.
+                    isDownloaded = true
                     message.target = staged
                 },
             )
@@ -943,6 +947,16 @@ internal object CoreAttachmentSender : AttachmentSender {
                     }
             }
             ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+            val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
+            val realAttachmentGuid = normal?.let {
+                MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.firstOrNull()?.guid
+            }
+            if (realAttachmentGuid != null) {
+                // Database promotion happens during ingest; move the local
+                // payload to the same real guid so the confirmed bubble keeps
+                // rendering without a redundant network download.
+                disk.promoteLocalDirectory(attachmentGuid, realAttachmentGuid)
+            }
         } catch (t: Throwable) {
             store.runInTx {
                 messageBox.query()
