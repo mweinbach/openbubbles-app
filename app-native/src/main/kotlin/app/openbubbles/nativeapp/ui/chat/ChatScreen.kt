@@ -228,6 +228,12 @@ fun ChatScreen(
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
+    /**
+     * False when this conversation renders as the detail pane beside its own
+     * list: there is nothing to navigate back to, and Material specifies that a
+     * detail pane in a list-detail layout does not show a back arrow.
+     */
+    showBackButton: Boolean = true,
     onSendAttachment: (OutgoingAttachment) -> Unit = {},
     onReply: (MessageItem, Long) -> Unit = { _, _ -> },
     onOpenReplyThread: (MessageItem) -> Unit = {},
@@ -397,8 +403,10 @@ fun ChatScreen(
                         Text(if (uiState.chat?.isSms == true) "SMS / MMS" else "iMessage")
                     },
                     navigationIcon = {
-                        FilledTonalIconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        if (showBackButton) {
+                            FilledTonalIconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
                         }
                     },
                 )

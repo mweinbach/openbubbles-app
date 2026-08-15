@@ -12,9 +12,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -30,16 +35,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
@@ -63,19 +67,21 @@ import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import uniffi.rust_lib_bluebubbles.hasSavedUsers
 
+/**
+ * Route strings are the persistence format shared with [NativeMainActivity],
+ * which stores the current route so the Compose tree can be released while the
+ * push service keeps running and rebuilt on the way back. The navigation model
+ * underneath is Navigation3, so these strings exist only at that boundary.
+ */
 object Routes {
     const val CHATS = "chats"
-    const val CHAT_PATTERN = "chat/{id}"
     const val LOGIN = "login"
     const val SETTINGS = "settings"
     const val FIND_MY = "findmy"
     const val NEW_CHAT = "newchat"
-    const val CHAT_INFO_PATTERN = "chatinfo/{id}"
-    const val ATTACHMENT_PATTERN = "attachment/{guid}"
-    const val CHAT_ARG = "id"
-    const val ATTACHMENT_ARG = "guid"
     fun chat(chatId: Long): String = "chat/$chatId"
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
 
@@ -83,19 +89,77 @@ object Routes {
     fun attachment(guid: String): String = "attachment/${Uri.encode(guid)}"
 }
 
+// --------------------------------------------------------------- destinations
+
+@Serializable
+data object ChatsKey : NavKey
+
+@Serializable
+data class ChatKey(val chatId: Long) : NavKey
+
+@Serializable
+data object SettingsKey : NavKey
+
+@Serializable
+data object FindMyKey : NavKey
+
+@Serializable
+data object NewChatKey : NavKey
+
+@Serializable
+data class ChatInfoKey(val chatId: Long) : NavKey
+
+@Serializable
+data class AttachmentKey(val guid: String) : NavKey
+
+@Serializable
+data object LoginKey : NavKey
+
+private fun NavKey.toRoute(): String = when (this) {
+    is ChatsKey -> Routes.CHATS
+    is ChatKey -> Routes.chat(chatId)
+    is SettingsKey -> Routes.SETTINGS
+    is FindMyKey -> Routes.FIND_MY
+    is NewChatKey -> Routes.NEW_CHAT
+    is ChatInfoKey -> Routes.chatInfo(chatId)
+    is AttachmentKey -> Routes.attachment(guid)
+    is LoginKey -> Routes.LOGIN
+    else -> Routes.CHATS
+}
+
+private fun routeToKey(route: String): NavKey? = when {
+    route == Routes.CHATS -> ChatsKey
+    route == Routes.SETTINGS -> SettingsKey
+    route == Routes.FIND_MY -> FindMyKey
+    route == Routes.NEW_CHAT -> NewChatKey
+    route == Routes.LOGIN -> LoginKey
+    route.startsWith("chat/") -> route.removePrefix("chat/").toLongOrNull()?.let(::ChatKey)
+    route.startsWith("chatinfo/") -> route.removePrefix("chatinfo/").toLongOrNull()?.let(::ChatInfoKey)
+    route.startsWith("attachment/") -> AttachmentKey(Uri.decode(route.removePrefix("attachment/")))
+    else -> null
+}
+
 private data class TopLevelDestination(
-    val route: String,
+    val key: NavKey,
     val label: String,
     val icon: ImageVector,
 )
 
 private val TopLevelDestinations = listOf(
-    TopLevelDestination(Routes.CHATS, "Chats", Icons.AutoMirrored.Filled.Chat),
-    TopLevelDestination(Routes.FIND_MY, "Find My", Icons.Filled.LocationOn),
-    TopLevelDestination(Routes.SETTINGS, "Settings", Icons.Filled.Settings),
+    TopLevelDestination(ChatsKey, "Chats", Icons.AutoMirrored.Filled.Chat),
+    TopLevelDestination(FindMyKey, "Find My", Icons.Filled.LocationOn),
+    TopLevelDestination(SettingsKey, "Settings", Icons.Filled.Settings),
 )
 
-/** Root scaffold: navigation between the chat list, conversations, viewer, info, and login. */
+/**
+ * Root scaffold.
+ *
+ * The chat list and a conversation are a list-detail pair: on a compact window
+ * they are separate full-screen destinations, and from medium width up they sit
+ * side by side, with conversation details taking the third pane. That behavior
+ * comes from [ListDetailSceneStrategy] reading pane metadata off the back stack
+ * rather than from any explicit width branching here.
+ */
 @Composable
 fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
@@ -106,28 +170,41 @@ fun OpenBubblesApp(
     onRouteChanged: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val navController = rememberNavController()
-    val backStack by navController.currentBackStackEntryAsState()
-    val route = backStack?.destination?.route
+    val backStack = rememberNavBackStack(ChatsKey)
+    val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+
+    // A conversation shown beside its list must not offer a back arrow, and the
+    // navigation container stays visible in that layout.
+    val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
+    val isMultiPane = directive.maxHorizontalPartitions > 1
+
+    fun navigateTo(key: NavKey) {
+        if (backStack.lastOrNull() == key) return
+        backStack.add(key)
+    }
+
+    fun popBack() {
+        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+    }
+
+    /** Top-level switches reset to a single-entry stack rooted at the chat list. */
+    fun navigateTopLevel(destination: TopLevelDestination) {
+        if (backStack.lastOrNull() == destination.key) return
+        backStack.clear()
+        backStack.add(ChatsKey)
+        if (destination.key != ChatsKey) backStack.add(destination.key)
+    }
 
     LaunchedEffect(resumeRoute, startChatGuid) {
         val target = resumeRoute?.takeIf { it != Routes.CHATS } ?: return@LaunchedEffect
-        if (startChatGuid == null && navController.currentDestination?.route == Routes.CHATS) {
-            navController.navigate(target) { launchSingleTop = true }
+        if (startChatGuid == null && backStack.lastOrNull() == ChatsKey) {
+            routeToKey(target)?.let(backStack::add)
         }
     }
 
-    LaunchedEffect(backStack) {
-        val entry = backStack
-        val actualRoute = when (entry?.destination?.route) {
-            Routes.CHAT_PATTERN -> entry.arguments?.getLong(Routes.CHAT_ARG)?.let(Routes::chat)
-            Routes.CHAT_INFO_PATTERN -> entry.arguments?.getLong(Routes.CHAT_ARG)?.let(Routes::chatInfo)
-            Routes.ATTACHMENT_PATTERN -> entry.arguments?.getString(Routes.ATTACHMENT_ARG)
-                ?.let(Routes::attachment)
-            else -> entry?.destination?.route
-        }
-        onRouteChanged(actualRoute)
+    LaunchedEffect(current) {
+        onRouteChanged(current?.toRoute())
     }
 
     // Deep link from a notification tap: resolve the guid to a chat id and
@@ -136,10 +213,8 @@ fun OpenBubblesApp(
     LaunchedEffect(startChatGuid) {
         val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
-        if (chatId != null && chatId > 0L &&
-            navController.currentDestination?.route != Routes.chat(chatId)
-        ) {
-            navController.navigate(Routes.chat(chatId))
+        if (chatId != null && chatId > 0L && backStack.lastOrNull() != ChatKey(chatId)) {
+            backStack.add(ChatKey(chatId))
         }
         NativeMainActivity.pendingChatGuid = null
     }
@@ -184,210 +259,217 @@ fun OpenBubblesApp(
         return
     }
 
-    fun navigateTopLevel(destination: TopLevelDestination) {
-        if (route == destination.route) return
-        navController.navigate(destination.route) {
-            popUpTo(Routes.CHATS) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
+    val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>()
 
     val appContent: @Composable () -> Unit = {
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavHost(
-            navController = navController,
-            startDestination = Routes.CHATS,
-            modifier = Modifier.weight(1f),
-        ) {
-            composable(Routes.CHATS) {
-                val viewModel: ChatListViewModel = viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
-                ChatListScreen(
-                    uiState = state,
-                    onQueryChange = viewModel::onQueryChange,
-                    onChatClick = { chat -> navController.navigate(Routes.chat(chat.id)) },
-                    onNewChat = { navController.navigate(Routes.NEW_CHAT) },
-                    onTogglePinned = viewModel::togglePinned,
-                    onToggleMuted = viewModel::toggleMuted,
-                    onMuteFor = viewModel::muteFor,
-                    onToggleArchived = viewModel::toggleArchived,
-                    onDelete = viewModel::delete,
-                    header = {
-                        if (pushState == null) {
-                            SignInBanner(onSignIn = { navController.navigate(Routes.LOGIN) })
-                        }
-                    },
-                    footer = { DebugStatusFooter(debugLines) },
-                )
-            }
-            composable(
-                route = Routes.CHAT_PATTERN,
-                arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.LongType }),
-            ) { backStackEntry ->
-                val chatId = backStackEntry.arguments?.getLong(Routes.CHAT_ARG) ?: 0L
-                val viewModel: ChatViewModel = viewModel(
-                    key = "chat-$chatId",
-                    factory = ChatViewModel.factory(
-                        chatId,
-                        AppGraph.chats,
-                        AppGraph.messages,
-                        AppGraph.sender,
-                        AppGraph.messageActions,
-                        AppGraph.attachmentSender,
-                        AppGraph.stickerSender,
-                        AppGraph.typing,
-                        AppGraph.readReceipts,
+        NavDisplay(
+            backStack = backStack,
+            onBack = { popBack() },
+            sceneStrategies = listOf(listDetailStrategy),
+            modifier = Modifier.fillMaxSize(),
+            entryProvider = entryProvider {
+                entry<ChatsKey>(
+                    metadata = ListDetailSceneStrategy.listPane(
+                        detailPlaceholder = { NoConversationSelected() },
                     ),
-                )
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
-                ChatScreen(
-                    uiState = state,
-                    onInputChange = viewModel::onInputChange,
-                    onSend = viewModel::sendMessage,
-                    onLoadOlder = viewModel::loadOlder,
-                    onSendAttachment = viewModel::sendAttachment,
-                    onReply = viewModel::beginReply,
-                    onOpenReplyThread = viewModel::openReplyThread,
-                    onCloseReplyThread = viewModel::closeReplyThread,
-                    onReplyFromThread = viewModel::replyFromThread,
-                    onSendSticker = viewModel::sendSticker,
-                    onEdit = viewModel::beginEdit,
-                    onReact = viewModel::react,
-                    onUnsend = viewModel::unsend,
-                    onCancelComposerAction = viewModel::cancelComposerAction,
-                    onActionErrorShown = viewModel::clearActionError,
-                    onBack = { navController.popBackStack() },
-                    onOpenChatInfo = { navController.navigate(Routes.chatInfo(chatId)) },
-                    onOpenAttachment = { guid -> navController.navigate(Routes.attachment(guid)) },
-                    onDownloadAttachment = { attachment -> AppGraph.requestAttachmentDownload(attachment.guid) },
-                    attachmentFile = AppGraph.attachments::localFile,
-                )
-            }
-            composable(Routes.NEW_CHAT) {
-                NewChatScreen(
-                    onChatOpened = { chatId ->
-                        navController.popBackStack(Routes.CHATS, inclusive = false)
-                        navController.navigate(Routes.chat(chatId))
-                    },
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable(Routes.SETTINGS) {
-                SettingsScreen(
-                    onBack = { navigateTopLevel(TopLevelDestinations.first()) },
-                    onOpenFindMy = { navController.navigate(Routes.FIND_MY) },
-                    showBackButton = false,
-                )
-            }
-            composable(Routes.FIND_MY) {
-                val viewModel: FindMyViewModel = viewModel(factory = FindMyViewModel.factory())
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
-                FindMyScreen(
-                    uiState = state,
-                    onRefresh = viewModel::refresh,
-                    onBack = { navigateTopLevel(TopLevelDestinations.first()) },
-                    showBackButton = false,
-                )
-            }
-            composable(
-                route = Routes.CHAT_INFO_PATTERN,
-                arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.LongType }),
-            ) { backStackEntry ->
-                val chatId = backStackEntry.arguments?.getLong(Routes.CHAT_ARG) ?: 0L
-                val chats by remember(chatId) { AppGraph.chats.chats() }
-                    .collectAsStateWithLifecycle(initialValue = emptyList())
-                val chat = chats.firstOrNull { it.id == chatId }
-                var participantRevision by remember(chatId) {
-                    androidx.compose.runtime.mutableIntStateOf(0)
-                }
-                val addresses by produceState<List<String>>(
-                    initialValue = emptyList(),
-                    chatId,
-                    participantRevision,
                 ) {
-                    value = withContext(Dispatchers.IO) { AppGraph.chatInfo.participantAddresses(chatId) }
+                    val viewModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    ChatListScreen(
+                        uiState = state,
+                        onQueryChange = viewModel::onQueryChange,
+                        onChatClick = { chat -> navigateTo(ChatKey(chat.id)) },
+                        onNewChat = { navigateTo(NewChatKey) },
+                        onTogglePinned = viewModel::togglePinned,
+                        onToggleMuted = viewModel::toggleMuted,
+                        onMuteFor = viewModel::muteFor,
+                        onToggleArchived = viewModel::toggleArchived,
+                        onDelete = viewModel::delete,
+                        header = {
+                            if (pushState == null) {
+                                SignInBanner(onSignIn = { navigateTo(LoginKey) })
+                            }
+                        },
+                        footer = { DebugStatusFooter(debugLines) },
+                    )
                 }
-                val participants = rememberParticipantRows(addresses)
-                ChatInfoScreen(
-                    chat = chat,
-                    participants = participants,
-                    onBack = { navController.popBackStack() },
-                    onRename = { name ->
-                        AppGraph.chatInfoActions.rename(chatId, name)
-                    },
-                    onAddParticipant = { address ->
-                        AppGraph.chatInfoActions.addParticipant(chatId, address)
-                        participantRevision++
-                    },
-                    onRemoveParticipant = { address ->
-                        AppGraph.chatInfoActions.removeParticipant(chatId, address)
-                        participantRevision++
-                    },
-                    onSetGroupIcon = { file -> AppGraph.chatInfoActions.setGroupIcon(chatId, file) },
-                    onRemoveGroupIcon = { AppGraph.chatInfoActions.removeGroupIcon(chatId) },
-                    onSetBackground = { file -> AppGraph.chatBackgroundActions.setLocalBackground(chatId, file) },
-                    onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
-                    onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
-                )
-            }
-            composable(
-                route = Routes.ATTACHMENT_PATTERN,
-                arguments = listOf(navArgument(Routes.ATTACHMENT_ARG) { type = NavType.StringType }),
-            ) { backStackEntry ->
-                val guid = backStackEntry.arguments?.getString(Routes.ATTACHMENT_ARG).orEmpty()
-                AttachmentViewerScreen(
-                    guid = guid,
-                    provider = AppGraph.attachments,
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable(Routes.LOGIN) {
-                val context = AppContext.current
-                val confDir = context?.filesDir?.absolutePath ?: ""
-                var provisioned by androidx.compose.runtime.saveable.rememberSaveable(confDir) {
-                    androidx.compose.runtime.mutableStateOf(false)
+
+                entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                    val chatId = key.chatId
+                    val viewModel: ChatViewModel = viewModel(
+                        key = "chat-$chatId",
+                        factory = ChatViewModel.factory(
+                            chatId,
+                            AppGraph.chats,
+                            AppGraph.messages,
+                            AppGraph.sender,
+                            AppGraph.messageActions,
+                            AppGraph.attachmentSender,
+                            AppGraph.stickerSender,
+                            AppGraph.typing,
+                            AppGraph.readReceipts,
+                        ),
+                    )
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    ChatScreen(
+                        uiState = state,
+                        onInputChange = viewModel::onInputChange,
+                        onSend = viewModel::sendMessage,
+                        onLoadOlder = viewModel::loadOlder,
+                        onSendAttachment = viewModel::sendAttachment,
+                        onReply = viewModel::beginReply,
+                        onOpenReplyThread = viewModel::openReplyThread,
+                        onCloseReplyThread = viewModel::closeReplyThread,
+                        onReplyFromThread = viewModel::replyFromThread,
+                        onSendSticker = viewModel::sendSticker,
+                        onEdit = viewModel::beginEdit,
+                        onReact = viewModel::react,
+                        onUnsend = viewModel::unsend,
+                        onCancelComposerAction = viewModel::cancelComposerAction,
+                        onActionErrorShown = viewModel::clearActionError,
+                        onBack = { popBack() },
+                        // Beside its own list there is nothing to go back to.
+                        showBackButton = !isMultiPane,
+                        onOpenChatInfo = { navigateTo(ChatInfoKey(chatId)) },
+                        onOpenAttachment = { guid -> navigateTo(AttachmentKey(guid)) },
+                        onDownloadAttachment = { attachment ->
+                            AppGraph.requestAttachmentDownload(attachment.guid)
+                        },
+                        attachmentFile = AppGraph.attachments::localFile,
+                    )
                 }
-                if (!provisioned) {
-                    androidx.compose.runtime.LaunchedEffect(confDir) {
-                        if (app.openbubbles.nativeapp.ui.login.isProvisioned(confDir)) {
-                            provisioned = true
+
+                entry<ChatInfoKey>(metadata = ListDetailSceneStrategy.extraPane()) { key ->
+                    val chatId = key.chatId
+                    val chats by remember(chatId) { AppGraph.chats.chats() }
+                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                    val chat = chats.firstOrNull { it.id == chatId }
+                    var participantRevision by remember(chatId) {
+                        androidx.compose.runtime.mutableIntStateOf(0)
+                    }
+                    val addresses by produceState<List<String>>(
+                        initialValue = emptyList(),
+                        chatId,
+                        participantRevision,
+                    ) {
+                        value = withContext(Dispatchers.IO) { AppGraph.chatInfo.participantAddresses(chatId) }
+                    }
+                    val participants = rememberParticipantRows(addresses)
+                    ChatInfoScreen(
+                        chat = chat,
+                        participants = participants,
+                        onBack = { popBack() },
+                        onRename = { name ->
+                            AppGraph.chatInfoActions.rename(chatId, name)
+                        },
+                        onAddParticipant = { address ->
+                            AppGraph.chatInfoActions.addParticipant(chatId, address)
+                            participantRevision++
+                        },
+                        onRemoveParticipant = { address ->
+                            AppGraph.chatInfoActions.removeParticipant(chatId, address)
+                            participantRevision++
+                        },
+                        onSetGroupIcon = { file -> AppGraph.chatInfoActions.setGroupIcon(chatId, file) },
+                        onRemoveGroupIcon = { AppGraph.chatInfoActions.removeGroupIcon(chatId) },
+                        onSetBackground = { file -> AppGraph.chatBackgroundActions.setLocalBackground(chatId, file) },
+                        onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
+                        onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
+                    )
+                }
+
+                entry<NewChatKey> {
+                    NewChatScreen(
+                        onChatOpened = { chatId ->
+                            // Drop the creator, then open the new conversation.
+                            popBack()
+                            navigateTo(ChatKey(chatId))
+                        },
+                        onBack = { popBack() },
+                    )
+                }
+
+                entry<SettingsKey> {
+                    SettingsScreen(
+                        onBack = { navigateTopLevel(TopLevelDestinations.first()) },
+                        onOpenFindMy = { navigateTo(FindMyKey) },
+                        showBackButton = false,
+                    )
+                }
+
+                entry<FindMyKey> {
+                    val viewModel: FindMyViewModel = viewModel(factory = FindMyViewModel.factory())
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    FindMyScreen(
+                        uiState = state,
+                        onRefresh = viewModel::refresh,
+                        onBack = { navigateTopLevel(TopLevelDestinations.first()) },
+                        showBackButton = false,
+                    )
+                }
+
+                entry<AttachmentKey> { key ->
+                    AttachmentViewerScreen(
+                        guid = key.guid,
+                        provider = AppGraph.attachments,
+                        onBack = { popBack() },
+                    )
+                }
+
+                entry<LoginKey> {
+                    val ctx = AppContext.current
+                    val confDir = ctx?.filesDir?.absolutePath ?: ""
+                    var provisioned by androidx.compose.runtime.saveable.rememberSaveable(confDir) {
+                        androidx.compose.runtime.mutableStateOf(false)
+                    }
+                    if (!provisioned) {
+                        LaunchedEffect(confDir) {
+                            if (app.openbubbles.nativeapp.ui.login.isProvisioned(confDir)) {
+                                provisioned = true
+                            }
                         }
                     }
-                }
 
-                if (provisioned) {
-                    LoginScreen(
-                        handle = RustLoginHandle(path = confDir),
-                        onFinished = { _ ->
-                            context?.let { ctx ->
-                                NativePushService.reloadAfterLogin(ctx)
-                                requestBatteryExemptionOnce(ctx)
-                            }
-                            navController.popBackStack(Routes.CHATS, inclusive = false)
-                        },
-                        onBack = { navController.popBackStack() },
-                        onRedoSetup = { provisioned = false },
-                    )
-                } else {
-                    app.openbubbles.nativeapp.ui.login.ProvisionScreen(
-                        confDir = confDir,
-                        onProvisioned = { provisioned = true },
-                        onBack = { navController.popBackStack() },
-                    )
+                    if (provisioned) {
+                        LoginScreen(
+                            handle = RustLoginHandle(path = confDir),
+                            onFinished = { _ ->
+                                ctx?.let { c ->
+                                    NativePushService.reloadAfterLogin(c)
+                                    requestBatteryExemptionOnce(c)
+                                }
+                                navigateTopLevel(TopLevelDestinations.first())
+                            },
+                            onBack = { popBack() },
+                            onRedoSetup = { provisioned = false },
+                        )
+                    } else {
+                        app.openbubbles.nativeapp.ui.login.ProvisionScreen(
+                            confDir = confDir,
+                            onProvisioned = { provisioned = true },
+                            onBack = { popBack() },
+                        )
+                    }
                 }
-            }
-        }
-    }
+            },
+        )
     }
 
-    if (TopLevelDestinations.any { it.route == route }) {
+    // The navigation container belongs on top-level destinations, and also
+    // alongside a conversation once the list stays on screen next to it.
+    val showNavigationSuite = TopLevelDestinations.any { it.key == current } ||
+        (isMultiPane && (current is ChatKey || current is ChatInfoKey))
+
+    if (showNavigationSuite) {
         NavigationSuiteScaffold(
             modifier = modifier,
             navigationSuiteItems = {
                 TopLevelDestinations.forEach { destination ->
+                    val selected = current == destination.key ||
+                        (destination.key == ChatsKey && (current is ChatKey || current is ChatInfoKey))
                     item(
-                        selected = route == destination.route,
+                        selected = selected,
                         onClick = { navigateTopLevel(destination) },
                         icon = {
                             Icon(
@@ -403,6 +485,48 @@ fun OpenBubblesApp(
         )
     } else {
         Box(modifier = modifier.fillMaxSize()) { appContent() }
+    }
+}
+
+/** Detail-pane placeholder shown on wide windows before a conversation is picked. */
+@Composable
+private fun NoConversationSelected() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.size(64.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+            Text(
+                text = "No conversation selected",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Text(
+                text = "Pick a conversation from the list to read it here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 
@@ -454,7 +578,7 @@ private fun SignInBanner(onSignIn: () -> Unit) {
     }
 }
 
-/** Small, always-visible smoke-test status (uniffi boot + shared greeting). */
+/** Small, always-visible smoke-test status (uniffi boot + core greeting). */
 @Composable
 private fun DebugStatusFooter(lines: List<String>) {
     if (lines.isEmpty()) return
