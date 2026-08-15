@@ -233,6 +233,7 @@ fun OpenBubblesApp(
                         AppGraph.sender,
                         AppGraph.messageActions,
                         AppGraph.attachmentSender,
+                        AppGraph.stickerSender,
                         AppGraph.typing,
                         AppGraph.readReceipts,
                     ),
@@ -245,6 +246,10 @@ fun OpenBubblesApp(
                     onLoadOlder = viewModel::loadOlder,
                     onSendAttachment = viewModel::sendAttachment,
                     onReply = viewModel::beginReply,
+                    onOpenReplyThread = viewModel::openReplyThread,
+                    onCloseReplyThread = viewModel::closeReplyThread,
+                    onReplyFromThread = viewModel::replyFromThread,
+                    onSendSticker = viewModel::sendSticker,
                     onEdit = viewModel::beginEdit,
                     onReact = viewModel::react,
                     onUnsend = viewModel::unsend,
@@ -319,6 +324,8 @@ fun OpenBubblesApp(
                     },
                     onSetGroupIcon = { file -> AppGraph.chatInfoActions.setGroupIcon(chatId, file) },
                     onRemoveGroupIcon = { AppGraph.chatInfoActions.removeGroupIcon(chatId) },
+                    onSetBackground = { file -> AppGraph.chatBackgroundActions.setLocalBackground(chatId, file) },
+                    onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
                     onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
                 )
             }

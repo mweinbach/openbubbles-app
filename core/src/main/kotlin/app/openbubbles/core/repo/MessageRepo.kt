@@ -243,8 +243,13 @@ class MessageRepo(
             .order(Message_.dateCreated)
             .build().use { it.find() }
         val bySender = linkedMapOf<String, Message>()
+        val stickers = mutableListOf<Message>()
         reactions.forEach { reaction ->
             val type = reaction.associatedMessageType ?: return@forEach
+            if (type.removePrefix("-") in STICKER_TYPES) {
+                if (!type.startsWith("-")) stickers += reaction
+                return@forEach
+            }
             val senderKey = if (reaction.isFromMe) {
                 "me"
             } else {
@@ -259,7 +264,7 @@ class MessageRepo(
                 bySender[senderKey] = reaction
             }
         }
-        return bySender.values.toList()
+        return bySender.values + stickers
     }
 
     private fun stickerPlacements(reaction: Message): List<StickerPlacement> {

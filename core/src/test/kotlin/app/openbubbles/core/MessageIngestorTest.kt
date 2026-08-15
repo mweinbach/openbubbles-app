@@ -625,6 +625,88 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `multiple positional stickers remain attached to the target part`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("sticker-target", friend, "decorate me")), myHandles)
+
+        suspend fun sticker(id: String, normalizedX: Double, timestamp: ULong) {
+            val extension =
+                """{"spw":320.0,"sro":0.25,"ssa":1.2,"sxs":$normalizedX,"sys":0.3,"stickerEffectType":2,"sid":"$id"}"""
+            ingestor.ingest(
+                push(
+                    UMessageInst(
+                        id = id,
+                        sender = friend,
+                        conversation = conversation(me, friend),
+                        message = UMessage.React(
+                            toUuid = "sticker-target",
+                            toPart = 2uL,
+                            reactionJson = """{"Extension":{"is_meta":false}}""",
+                            toText = "decorate me",
+                            parts = listOf(
+                                UIndexedPart(
+                                    UPart.Attachment(
+                                        part = 0uL,
+                                        uti = "public.png",
+                                        mime = "image/png",
+                                        name = "$id.png",
+                                        iris = false,
+                                        xml = "<plist/>",
+                                    ),
+                                    0uL,
+                                    extension,
+                                ),
+                            ),
+                        ),
+                        sentTimestamp = timestamp,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+        }
+
+        sticker("sticker-one", 0.2, 1_700_000_100_000uL)
+        sticker("sticker-two", 0.8, 1_700_000_200_000uL)
+
+        val target = messageRepo.messages(chatRepo.chats().single().id).single()
+        assertEquals(2, target.stickers.size)
+        assertEquals(listOf(0.2, 0.8), target.stickers.map { it.normalizedX })
+        assertTrue(target.stickers.all { it.targetPart == 2L })
+        assertEquals(listOf(320.0, 320.0), target.stickers.map { it.messageWidth })
+    }
+
+    @Test
+    fun `reply thread query keeps replies scoped to the selected part`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("thread-root", friend, "root")), myHandles)
+
+        suspend fun reply(id: String, part: String, timestamp: ULong) {
+            val inst = textInst(id, friend, id, timestamp)
+            ingestor.ingest(
+                push(
+                    inst.copy(
+                        message = (inst.message as UMessage.Normal).copy(
+                            replyGuid = "thread-root",
+                            replyPart = part,
+                        ),
+                    ),
+                ),
+                myHandles,
+            )
+        }
+
+        reply("part-three-one", "3", 1_700_000_100_000uL)
+        reply("part-four", "4", 1_700_000_200_000uL)
+        reply("part-three-two", "3", 1_700_000_300_000uL)
+
+        val chatId = chatRepo.chats().single().id
+        assertEquals(
+            listOf("thread-root", "part-three-one", "part-three-two"),
+            messageRepo.threadMessages(chatId, "thread-root", 3L).map { it.guid },
+        )
+    }
+
+    @Test
     fun `removed reaction carries the minus prefix`() {
         val (type, _) = app.openbubbles.core.model.MessageMapper.parseReaction(
             """{"React":{"reaction":"Like","enable":false}}""",

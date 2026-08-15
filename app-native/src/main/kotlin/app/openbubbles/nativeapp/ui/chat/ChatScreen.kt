@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -30,8 +31,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -40,6 +43,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,6 +61,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MaterialTheme.motionScheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -79,7 +84,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
@@ -88,16 +97,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.effects.PendingEffectChip
 import app.openbubbles.nativeapp.ui.effects.SendEffectCatalog
 import app.openbubbles.nativeapp.ui.effects.SendEffectOverlay
@@ -106,12 +118,16 @@ import app.openbubbles.nativeapp.ui.effects.SendEffectPickerSheet
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import java.time.ZoneId
+import kotlin.math.PI
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val ConversationContentMaxWidth = 840.dp
+
+private data class SelectedMessageAction(val message: MessageItem, val part: Long)
 
 /** List model for the conversation LazyColumn. */
 sealed interface ConversationEntry {
@@ -213,7 +229,11 @@ fun ChatScreen(
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
     onSendAttachment: (OutgoingAttachment) -> Unit = {},
-    onReply: (MessageItem) -> Unit = {},
+    onReply: (MessageItem, Long) -> Unit = { _, _ -> },
+    onOpenReplyThread: (MessageItem) -> Unit = {},
+    onCloseReplyThread: () -> Unit = {},
+    onReplyFromThread: (MessageItem, Long) -> Unit = { _, _ -> },
+    onSendSticker: (MessageItem, Long, OutgoingAttachment, StickerTransform) -> Unit = { _, _, _, _ -> },
     onEdit: (MessageItem) -> Unit = {},
     onReact: (MessageItem, Int, String?) -> Unit = { _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
@@ -229,8 +249,10 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedMessage by remember { mutableStateOf<MessageItem?>(null) }
+    var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
+    var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    var pendingSticker by remember { mutableStateOf<OutgoingAttachment?>(null) }
 
     // Group chats (two or more distinct other senders in the transcript)
     // label incoming runs with the sender's name.
@@ -290,6 +312,18 @@ fun ChatScreen(
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> dispatchAttachment(uri) }
+    val pickSticker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null || stickerTarget == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            pendingSticker = prepareOutgoingAttachment(context, uri)
+            if (pendingSticker == null) {
+                stickerTarget = null
+                snackbarHostState.showSnackbar("Could not read sticker image")
+            }
+        }
+    }
 
     // Contact names for group sender labels and "<name> unsent a message"
     // rows (best effort).
@@ -321,9 +355,34 @@ fun ChatScreen(
         if (nearTop) onLoadOlder()
     }
 
+    val backgroundPath = uiState.chat?.customBackgroundPath
+        ?: uiState.chat?.transcriptBackgroundPath
+    val backgroundFile = remember(backgroundPath) {
+        backgroundPath?.let(::File)?.takeIf { it.isFile }
+    }
+    val background = rememberDecodedImage(backgroundFile, maxDimensionPx = 1440)
+
     Box(modifier = modifier) {
+        background?.image?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    if (uiState.chat?.customBackgroundPath != null) {
+                        Color.Black.copy(alpha = 0.16f)
+                    } else {
+                        Color.Black.copy(alpha = 0.10f)
+                    },
+                ),
+            )
+        }
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            containerColor = if (background != null) Color.Transparent else MaterialTheme.colorScheme.background,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -367,8 +426,8 @@ fun ChatScreen(
                         uiState.replyingTo != null -> "Replying"
                         else -> null
                     },
-                    composerActionText = uiState.editingMessage?.text ?: uiState.replyingTo?.let { message ->
-                        message.text.ifBlank { message.attachmentMeta?.name ?: "Attachment" }
+                    composerActionText = uiState.editingMessage?.text ?: uiState.replyingTo?.let { target ->
+                        target.message.text.ifBlank { target.message.attachmentMeta?.name ?: "Attachment" }
                     },
                     onClearComposerAction = onCancelComposerAction,
                 )
@@ -417,15 +476,29 @@ fun ChatScreen(
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
                                     senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
-                                    replyPreview = entry.message.replyToGuid?.let { guid ->
-                                        messagesByGuid[guid]?.let { target ->
-                                            target.text.ifBlank { target.attachmentMeta?.name ?: "Attachment" }
-                                        }
+                                    replyPreview = entry.message.replyPreviewText
+                                        ?: entry.message.replyToGuid?.let { guid ->
+                                            messagesByGuid[guid]?.let { target ->
+                                                target.text.ifBlank { target.attachmentMeta?.name ?: "Attachment" }
+                                            }
+                                        },
+                                    onOpenReplyThread = { onOpenReplyThread(entry.message) },
+                                    onDownloadSticker = { guid ->
+                                        onDownloadAttachment(
+                                            AttachmentMeta(
+                                                guid = guid,
+                                                mime = "image/*",
+                                                name = "Sticker",
+                                                sizeBytes = null,
+                                                isImage = true,
+                                                downloaded = false,
+                                            ),
+                                        )
                                     },
-                                    onLongPress = if (entry.message.status == MessageStatus.SENDING) {
+                                    onLongPressPart = if (entry.message.status == MessageStatus.SENDING) {
                                         null
                                     } else {
-                                        { selectedMessage = entry.message }
+                                        { part -> selectedAction = SelectedMessageAction(entry.message, part) }
                                     },
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
                                 )
@@ -473,27 +546,64 @@ fun ChatScreen(
         )
     }
 
-    selectedMessage?.let { message ->
+    selectedAction?.let { selection ->
+        val message = selection.message
         MessageActionSheet(
             message = message,
             isSms = uiState.chat?.isSms == true,
             onReact = { index, emoji ->
-                selectedMessage = null
+                selectedAction = null
                 onReact(message, index, emoji)
             },
             onReply = {
-                selectedMessage = null
-                onReply(message)
+                selectedAction = null
+                onReply(message, selection.part)
+            },
+            onSticker = {
+                selectedAction = null
+                stickerTarget = selection
+                pickSticker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
             },
             onEdit = {
-                selectedMessage = null
+                selectedAction = null
                 onEdit(message)
             },
             onUnsend = {
-                selectedMessage = null
+                selectedAction = null
                 confirmUnsend = message
             },
-            onDismiss = { selectedMessage = null },
+            onDismiss = { selectedAction = null },
+        )
+    }
+
+    val placementTarget = stickerTarget
+    val sticker = pendingSticker
+    if (placementTarget != null && sticker != null) {
+        StickerPlacementSheet(
+            target = placementTarget.message,
+            sticker = sticker,
+            onConfirm = { transform ->
+                onSendSticker(placementTarget.message, placementTarget.part, sticker, transform)
+                pendingSticker = null
+                stickerTarget = null
+            },
+            onDismiss = {
+                pendingSticker = null
+                stickerTarget = null
+            },
+        )
+    }
+
+    uiState.replyThread?.let { thread ->
+        ReplyThreadSheet(
+            thread = thread,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
+            onDownloadAttachment = onDownloadAttachment,
+            onReply = { message -> onReplyFromThread(message, thread.part) },
+            onDismiss = onCloseReplyThread,
         )
     }
 
@@ -524,6 +634,7 @@ private fun MessageActionSheet(
     isSms: Boolean,
     onReact: (Int, String?) -> Unit,
     onReply: () -> Unit,
+    onSticker: () -> Unit,
     onEdit: () -> Unit,
     onUnsend: () -> Unit,
     onDismiss: () -> Unit,
@@ -550,6 +661,12 @@ private fun MessageActionSheet(
             onClick = onReply,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         ) { Text("Reply", modifier = Modifier.fillMaxWidth()) }
+        if (!isSms) {
+            TextButton(
+                onClick = onSticker,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            ) { Text("Add sticker", modifier = Modifier.fillMaxWidth()) }
+        }
         if (!isSms && message.isFromMe && message.text.isNotBlank() && !message.unsent) {
             TextButton(
                 onClick = onEdit,
@@ -559,6 +676,185 @@ private fun MessageActionSheet(
                 onClick = onUnsend,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             ) { Text("Unsend", modifier = Modifier.fillMaxWidth()) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StickerPlacementSheet(
+    target: MessageItem,
+    sticker: OutgoingAttachment,
+    onConfirm: (StickerTransform) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val decoded = rememberDecodedImage(sticker.file, maxDimensionPx = 512)
+    var normalizedX by remember { mutableStateOf(0.72f) }
+    var normalizedY by remember { mutableStateOf(0.18f) }
+    var stickerScale by remember { mutableStateOf(1f) }
+    var rotationDegrees by remember { mutableStateOf(0f) }
+    var previewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+
+    fun dismissAfter(action: () -> Unit) {
+        scope.launch {
+            sheetState.hide()
+            action()
+        }
+    }
+
+    ModalBottomSheet(
+        sheetState = sheetState,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Place sticker", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Pinch to resize, twist to rotate, and drag it into place.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().height(260.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { previewSize = it }
+                        .pointerInput(previewSize) {
+                            detectTransformGestures { _, pan, zoom, rotation ->
+                                if (previewSize.width > 0 && previewSize.height > 0) {
+                                    normalizedX = (normalizedX + pan.x / previewSize.width).coerceIn(0f, 1f)
+                                    normalizedY = (normalizedY + pan.y / previewSize.height).coerceIn(0f, 1f)
+                                }
+                                stickerScale = (stickerScale * zoom).coerceIn(0.35f, 2.5f)
+                                rotationDegrees = (rotationDegrees + rotation) % 360f
+                            }
+                        },
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (target.isFromMe) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        contentColor = if (target.isFromMe) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.align(Alignment.Center).widthIn(max = 260.dp),
+                    ) {
+                        Text(
+                            target.text.ifBlank { target.attachmentMeta?.name ?: "Attachment" },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    decoded?.image?.let { image ->
+                        Image(
+                            bitmap = image,
+                            contentDescription = "Sticker preview",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .size(92.dp)
+                                .offset {
+                                    IntOffset(
+                                        (normalizedX * previewSize.width - 46.dp.roundToPx()).roundToInt(),
+                                        (normalizedY * previewSize.height - 46.dp.roundToPx()).roundToInt(),
+                                    )
+                                }
+                                .graphicsLayer {
+                                    scaleX = stickerScale
+                                    scaleY = stickerScale
+                                    rotationZ = rotationDegrees
+                                },
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { dismissAfter(onDismiss) }) { Text("Cancel") }
+                TextButton(
+                    enabled = decoded != null,
+                    onClick = {
+                        val transform = StickerTransform(
+                            messageWidth = previewSize.width.coerceAtLeast(1).toDouble(),
+                            normalizedX = normalizedX.toDouble(),
+                            normalizedY = normalizedY.toDouble(),
+                            rotation = rotationDegrees.toDouble() * PI / 180.0,
+                            scale = stickerScale.toDouble(),
+                        )
+                        dismissAfter { onConfirm(transform) }
+                    },
+                ) { Text("Send sticker") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReplyThreadSheet(
+    thread: ReplyThreadState,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onReply: (MessageItem) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                "Replies",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            if (thread.loading) {
+                Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                    LoadingIndicator()
+                }
+            } else if (thread.messages.isEmpty()) {
+                Text(
+                    "No replies found for this message part.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(20.dp),
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
+                    items(thread.messages, key = { it.id }) { message ->
+                        MessageBubble(
+                            message = message,
+                            showStatus = false,
+                            attachmentFile = attachmentFile,
+                            onOpenAttachment = onOpenAttachment,
+                            onDownloadAttachment = onDownloadAttachment,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        TextButton(
+                            onClick = { onReply(message) },
+                            modifier = Modifier.padding(horizontal = 18.dp),
+                        ) { Text("Reply") }
+                    }
+                }
+            }
         }
     }
 }

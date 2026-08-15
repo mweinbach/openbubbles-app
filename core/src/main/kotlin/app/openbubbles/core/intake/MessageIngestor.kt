@@ -193,6 +193,7 @@ class MessageIngestor(
             is UMessage.MoveToRecycleBin -> return handleMoveToRecycleBin(inst, msg, myHandles)
             is UMessage.RecoverChat -> return handleRecoverChat(inst, msg, myHandles)
             is UMessage.PermanentDelete -> return handlePermanentDelete(inst, msg, myHandles)
+            is UMessage.SetTranscriptBackground -> return chatForInst(inst, myHandles)
             // MessageReadOnDevice / EnableSmsActivation / profile & extension
             // updates / deletions ride on later batches.
             else -> Unit

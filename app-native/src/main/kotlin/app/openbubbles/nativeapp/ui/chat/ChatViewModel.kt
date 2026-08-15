@@ -14,6 +14,8 @@ import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
+import app.openbubbles.nativeapp.data.StickerSender
+import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
 import kotlinx.coroutines.Dispatchers
@@ -40,8 +42,10 @@ data class ChatUiState(
      * re-fires for a later message.
      */
     val screenEffect: ScreenEffectTrigger? = null,
-    /** Message selected as the root of the next threaded reply. */
-    val replyingTo: MessageItem? = null,
+    /** Message part selected as the root of the next threaded reply. */
+    val replyingTo: ReplyTarget? = null,
+    /** Part-aware reply thread currently expanded in the conversation sheet. */
+    val replyThread: ReplyThreadState? = null,
     /** My text message currently being edited. */
     val editingMessage: MessageItem? = null,
     /** Visible operation failure; cleared after the screen presents it. */
@@ -49,6 +53,19 @@ data class ChatUiState(
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
+
+data class ReplyTarget(
+    val message: MessageItem,
+    val rootGuid: String,
+    val part: Long,
+)
+
+data class ReplyThreadState(
+    val rootGuid: String,
+    val part: Long,
+    val messages: List<MessageItem> = emptyList(),
+    val loading: Boolean = true,
+)
 
 /** Identifies the message whose send effect should play (once). */
 data class ScreenEffectTrigger(
@@ -77,6 +94,7 @@ class ChatViewModel(
     private val sender: Sender,
     private val messageActions: MessageActions,
     private val attachmentSender: AttachmentSender,
+    private val stickerSender: StickerSender,
     typingRepository: TypingRepository,
     private val readReceiptSender: ReadReceiptSender,
     private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
@@ -92,7 +110,8 @@ class ChatViewModel(
 
     private val input = MutableStateFlow("")
     private val loadingOlder = MutableStateFlow(false)
-    private val replyingTo = MutableStateFlow<MessageItem?>(null)
+    private val replyingTo = MutableStateFlow<ReplyTarget?>(null)
+    private val replyThread = MutableStateFlow<ReplyThreadState?>(null)
     private val editingMessage = MutableStateFlow<MessageItem?>(null)
     private val actionError = MutableStateFlow<String?>(null)
     private var endReached = false
@@ -143,6 +162,8 @@ class ChatViewModel(
             state.copy(screenEffect = effect)
         }.combine(replyingTo) { state, reply ->
             state.copy(replyingTo = reply)
+        }.combine(replyThread) { state, thread ->
+            state.copy(replyThread = thread)
         }.combine(editingMessage) { state, editing ->
             state.copy(editingMessage = editing)
         }.combine(actionError) { state, error ->
@@ -172,8 +193,8 @@ class ChatViewModel(
                     reply != null -> sender.sendReply(
                         chatId,
                         text,
-                        reply.replyToGuid ?: reply.guid,
-                        reply.replyToPart ?: 0L,
+                        reply.rootGuid,
+                        reply.part,
                     )
                     effectId == null -> sender.send(chatId, text)
                     else -> sender.sendWithEffect(chatId, text, effectId)
@@ -188,9 +209,36 @@ class ChatViewModel(
         }
     }
 
-    fun beginReply(message: MessageItem) {
+    fun beginReply(message: MessageItem, part: Long = 0L) {
         editingMessage.value = null
-        replyingTo.value = message
+        replyingTo.value = ReplyTarget(
+            message = message,
+            rootGuid = message.replyToGuid ?: message.guid,
+            part = message.replyToPart ?: part,
+        )
+    }
+
+    fun openReplyThread(message: MessageItem) {
+        val rootGuid = message.replyToGuid ?: message.guid
+        val part = message.replyToPart ?: 0L
+        replyThread.value = ReplyThreadState(rootGuid, part)
+        viewModelScope.launch(Dispatchers.IO) {
+            val messages = runCatching { messageRepository.thread(chatId, rootGuid, part) }
+                .getOrElse { failure ->
+                    actionError.value = failure.message ?: "Could not load replies"
+                    emptyList()
+                }
+            replyThread.value = ReplyThreadState(rootGuid, part, messages, loading = false)
+        }
+    }
+
+    fun closeReplyThread() {
+        replyThread.value = null
+    }
+
+    fun replyFromThread(message: MessageItem, part: Long) {
+        closeReplyThread()
+        beginReply(message, part)
     }
 
     fun beginEdit(message: MessageItem) {
@@ -257,6 +305,21 @@ class ChatViewModel(
         }
     }
 
+    fun sendSticker(
+        target: MessageItem,
+        part: Long,
+        sticker: OutgoingAttachment,
+        transform: StickerTransform,
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                stickerSender.send(chatId, target.guid, part, target.text, sticker, transform)
+            }.onFailure { failure ->
+                actionError.value = failure.message ?: "Could not send sticker"
+            }
+        }
+    }
+
     /**
      * Page in older history. Triggered when the user scrolls to the top of
      * the reversed message list; guarded so it runs one page at a time.
@@ -288,6 +351,7 @@ class ChatViewModel(
             sender: Sender,
             messageActions: MessageActions,
             attachmentSender: AttachmentSender,
+            stickerSender: StickerSender,
             typingRepository: TypingRepository,
             readReceiptSender: ReadReceiptSender,
         ): ViewModelProvider.Factory = viewModelFactory {
@@ -299,6 +363,7 @@ class ChatViewModel(
                     sender,
                     messageActions,
                     attachmentSender,
+                    stickerSender,
                     typingRepository,
                     readReceiptSender,
                 )

@@ -32,6 +32,7 @@ import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
 import uniffi.rust_lib_bluebubbles.markJournalAttempt
+import uniffi.rust_lib_bluebubbles.parsePoster
 import uniffi.rust_lib_bluebubbles.ptrToMessage
 import uniffi.rust_lib_bluebubbles.readQueuedJournal
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
@@ -193,8 +194,82 @@ class NativePushService : Service(), MsgReceiver {
         val result = ingestor.ingestWithResult(decoded, handles)
         val chat = result.chat
         syncGroupIcon(decoded, chat)
+        syncStickerAttachments(decoded)
+        syncTranscriptBackground(decoded, chat)
         if (allowNotifications && result.isNewIncomingMessage) {
             notifyIncoming(decoded, chat)
+        }
+    }
+
+    /** Sticker bodies are ordinary MMCS attachments; fetch them immediately so overlays render. */
+    private fun syncStickerAttachments(decoded: UPushMessage) {
+        val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
+        val reaction = inst.message as? UMessage.React ?: return
+        reaction.parts.forEachIndexed { fallbackIndex, indexed ->
+            val part = indexed.part as? uniffi.rust_lib_bluebubbles.UPart.Attachment
+                ?: return@forEachIndexed
+            if (part.iris || part.mime == "application/smil") return@forEachIndexed
+            val partIndex = indexed.idx?.toLong() ?: fallbackIndex.toLong()
+            CoreGraph.requestAttachmentDownload("${inst.id}_$partIndex")
+        }
+    }
+
+    /** Apply Apple's shared transcript wallpaper without producing a message notification. */
+    private suspend fun syncTranscriptBackground(
+        decoded: UPushMessage,
+        chat: app.openbubbles.db.Chat?,
+    ) {
+        val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
+        val background = inst.message as? UMessage.SetTranscriptBackground ?: return
+        val box = CoreGraph.store?.boxFor(app.openbubbles.db.Chat::class.java) ?: return
+        val target = chat ?: background.chatId?.let { guid ->
+            box.query()
+                .equal(
+                    app.openbubbles.db.Chat_.guid,
+                    guid,
+                    io.objectbox.query.QueryBuilder.StringOrder.CASE_SENSITIVE,
+                )
+                .build().use { it.findFirst() }
+        } ?: return
+        val incomingVersion = background.version.toLong()
+        if ((target.transcriptBackgroundVersion ?: Long.MIN_VALUE) >= incomingVersion) return
+
+        val directory = File(filesDir, "chat_backgrounds").apply { mkdirs() }
+        if (background.remove) {
+            deleteOwnedBackground(target.transcriptPosterPath, directory, null)
+            target.transcriptPosterPath = null
+            target.transcriptBackgroundVersion = incomingVersion
+            box.put(target)
+            return
+        }
+
+        val mmcsXml = background.mmcsXml ?: error("transcript background has no MMCS payload")
+        val state = PushStateHolder.state ?: error("push state unavailable for transcript background")
+        val payload = File.createTempFile("transcript-background-", ".zip", cacheDir)
+        try {
+            runInterruptible(Dispatchers.IO) {
+                state.downloadMmcs(mmcsXml, payload.absolutePath, null)
+            }
+            val image = runInterruptible(Dispatchers.IO) {
+                parsePoster(payload.readBytes()).use { poster -> poster.watch().backgroundImage }
+            }
+            check(image.isNotEmpty()) { "transcript background did not contain an image" }
+            val destination = File(directory, "shared-${target.id}-$incomingVersion.img")
+            runInterruptible(Dispatchers.IO) { destination.writeBytes(image) }
+            deleteOwnedBackground(target.transcriptPosterPath, directory, destination)
+            target.transcriptPosterPath = destination.absolutePath
+            target.transcriptBackgroundVersion = incomingVersion
+            box.put(target)
+        } finally {
+            runCatching { payload.delete() }
+        }
+    }
+
+    private fun deleteOwnedBackground(path: String?, directory: File, except: File?) {
+        val candidate = path?.let(::File)?.canonicalFile ?: return
+        val root = directory.canonicalFile.toPath()
+        if (candidate.toPath().startsWith(root) && candidate != except?.canonicalFile) {
+            runCatching { candidate.delete() }
         }
     }
 

@@ -475,10 +475,12 @@ object AppGraph {
     val readReceipts: ReadReceiptSender get() = CoreGraph.readReceipts
     val messageActions: MessageActions get() = CoreGraph.messageActions
     val attachmentSender: AttachmentSender get() = CoreGraph.attachmentSender
+    val stickerSender: StickerSender get() = CoreGraph.stickerSender
     val typing: TypingRepository get() = CoreGraph.typing
     val attachments: AttachmentProvider get() = CoreGraph.attachments
     val chatInfo: ChatInfoRepository get() = CoreGraph.chatInfo
     val chatInfoActions: ChatInfoActions get() = CoreGraph.chatInfoActions
+    val chatBackgroundActions: ChatBackgroundActions get() = CoreGraph.chatBackgroundActions
 
     /** Fire-and-forget attachment download (no-op on the fake path). */
     fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)

@@ -75,6 +75,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /** One participant row model: raw address plus the resolved contact info. */
 data class ParticipantRow(
@@ -98,6 +99,8 @@ fun ChatInfoScreen(
     onRemoveParticipant: suspend (String) -> Unit = {},
     onSetGroupIcon: suspend (File) -> Unit = {},
     onRemoveGroupIcon: suspend () -> Unit = {},
+    onSetBackground: suspend (File) -> Unit = {},
+    onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -133,6 +136,20 @@ fun ChatInfoScreen(
                 .onFailure { error = it.message ?: "Could not read group photo" }
                 .getOrNull() ?: return@launch
             launchAction({ onSetGroupIcon(file) })
+        }
+    }
+    val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val file = runCatching { prepareChatBackground(context, uri) }
+                .onFailure { error = it.message ?: "Could not read chat background" }
+                .getOrNull() ?: return@launch
+            try {
+                runCatching { onSetBackground(file) }
+                    .onFailure { error = it.message ?: "Could not set chat background" }
+            } finally {
+                file.delete()
+            }
         }
     }
 
@@ -186,6 +203,11 @@ fun ChatInfoScreen(
                     ) { Text("Remove group photo") }
                 }
             }
+            BackgroundSection(
+                chat = chat,
+                onChoose = { pickBackground.launch("image/*") },
+                onClear = { launchAction(onClearBackground) },
+            )
             if (participants.isNotEmpty()) {
                 Text(
                     text = "PARTICIPANTS",
@@ -346,6 +368,61 @@ private fun HeaderSection(chat: ChatListItem?, participantCount: Int, posterFile
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSection(
+    chat: ChatListItem?,
+    onChoose: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val path = chat?.customBackgroundPath ?: chat?.transcriptBackgroundPath
+    val file = remember(path) { path?.let(::File)?.takeIf { it.isFile } }
+    val decoded = rememberDecodedImage(file, maxDimensionPx = 720)
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (decoded != null) {
+                Image(
+                    bitmap = decoded.image,
+                    contentDescription = "Current chat background",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(2.4f).clip(RoundedCornerShape(24.dp)),
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = if (decoded == null) 14.dp else 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("Chat background", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when {
+                        chat?.customBackgroundPath != null -> "On this device"
+                        chat?.transcriptBackgroundPath != null -> "Synced from Apple"
+                        else -> "Use a photo behind this conversation"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    if (chat?.customBackgroundPath != null) {
+                        TextButton(onClick = onClear) {
+                            Text(if (chat.transcriptBackgroundPath != null) "Use synced background" else "Remove")
+                        }
+                    }
+                    TextButton(onClick = onChoose) {
+                        Text(if (path == null) "Choose photo" else "Change")
+                    }
+                }
+            }
         }
     }
 }
@@ -536,6 +613,32 @@ private suspend fun prepareGroupIcon(context: Context, uri: Uri): File = withCon
     }
     if (scaled !== square) scaled.recycle()
     if (square !== source) square.recycle()
+    source.recycle()
+    destination
+}
+
+private suspend fun prepareChatBackground(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
+    val source = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+        ?: error("could not decode chat background")
+    val maxSide = maxOf(source.width, source.height)
+    val scale = (1600f / maxSide.toFloat()).coerceAtMost(1f)
+    val outputBitmap = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            source,
+            (source.width * scale).roundToInt().coerceAtLeast(1),
+            (source.height * scale).roundToInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        source
+    }
+    val destination = File(context.cacheDir, "chat-background-${UUID.randomUUID()}.jpg")
+    FileOutputStream(destination).use { output ->
+        check(outputBitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)) {
+            "could not encode chat background"
+        }
+    }
+    if (outputBitmap !== source) outputBitmap.recycle()
     source.recycle()
     destination
 }

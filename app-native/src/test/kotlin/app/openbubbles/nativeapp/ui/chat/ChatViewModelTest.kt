@@ -10,6 +10,8 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
+import app.openbubbles.nativeapp.data.StickerSender
+import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TypingEntry
 import app.openbubbles.nativeapp.data.TypingRepository
 import kotlin.test.AfterTest
@@ -46,7 +48,7 @@ class ChatViewModelTest {
         val sender = RecordingSender()
         val actions = RecordingActions()
         val model = model(sender, actions)
-        val reply = message(guid = "child", replyToGuid = "root")
+        val reply = message(guid = "child", replyToGuid = "root", replyToPart = 4L)
 
         model.beginReply(reply)
         model.onInputChange("thread reply")
@@ -54,6 +56,40 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(Triple(7L, "thread reply", "root"), sender.reply)
+        assertEquals(4L, sender.replyPart)
+    }
+
+    @Test
+    fun `reply to a root message preserves the selected part`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val model = model(sender, RecordingActions())
+
+        model.beginReply(message(guid = "root"), part = 3L)
+        model.onInputChange("part reply")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(Triple(7L, "part reply", "root"), sender.reply)
+        assertEquals(3L, sender.replyPart)
+    }
+
+    @Test
+    fun `sticker placement reaches the native sticker sender unchanged`() = runTest(dispatcher) {
+        val stickerSender = RecordingStickerSender()
+        val model = model(RecordingSender(), RecordingActions(), stickerSender = stickerSender)
+        val file = File.createTempFile("sticker", ".png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val attachment = OutgoingAttachment(file, "image/png", "public.png", "sticker.png", file.length())
+        val transform = StickerTransform(320.0, 0.25, 0.75, 0.5, 1.4, effectType = 2L)
+
+        model.sendSticker(message(guid = "target", text = "decorate"), 2L, attachment, transform)
+        advanceUntilIdle()
+
+        assertEquals(7L, stickerSender.chatId)
+        assertEquals("target", stickerSender.targetGuid)
+        assertEquals(2L, stickerSender.targetPart)
+        assertEquals("decorate", stickerSender.targetText)
+        assertEquals(transform, stickerSender.transform)
+        file.delete()
     }
 
     @Test
@@ -103,6 +139,7 @@ class ChatViewModelTest {
         sender: Sender,
         actions: MessageActions,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
+        stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
         smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
@@ -112,6 +149,7 @@ class ChatViewModelTest {
         sender = sender,
         messageActions = actions,
         attachmentSender = attachmentSender,
+        stickerSender = stickerSender,
         typingRepository = NoopTyping,
         readReceiptSender = readReceiptSender,
         smsRouter = { _, _ -> false },
@@ -122,6 +160,7 @@ class ChatViewModelTest {
         guid: String,
         text: String = "hello",
         replyToGuid: String? = null,
+        replyToPart: Long? = null,
     ) = MessageItem(
         id = 1L,
         text = text,
@@ -132,6 +171,7 @@ class ChatViewModelTest {
         reactionEmoji = null,
         guid = guid,
         replyToGuid = replyToGuid,
+        replyToPart = replyToPart,
     )
 }
 
@@ -200,6 +240,29 @@ private class RecordingAttachmentSender : AttachmentSender {
 
     override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
         calls++
+    }
+}
+
+private class RecordingStickerSender : StickerSender {
+    var chatId: Long? = null
+    var targetGuid: String? = null
+    var targetPart: Long? = null
+    var targetText: String? = null
+    var transform: StickerTransform? = null
+
+    override suspend fun send(
+        chatId: Long,
+        targetGuid: String,
+        targetPart: Long,
+        targetText: String,
+        sticker: OutgoingAttachment,
+        transform: StickerTransform,
+    ) {
+        this.chatId = chatId
+        this.targetGuid = targetGuid
+        this.targetPart = targetPart
+        this.targetText = targetText
+        this.transform = transform
     }
 }
 

@@ -2,7 +2,9 @@ package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -37,20 +40,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.roundToInt
 
 /** Outer bubble radius (tail-free modern iMessage look). */
 private val BubbleCornerRadius = 20.dp
@@ -78,6 +90,39 @@ private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerS
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
 
+@Composable
+private fun StickerOverlay(
+    sticker: StickerPlacement,
+    contentSize: androidx.compose.ui.unit.IntSize,
+    attachmentFile: (String) -> File?,
+    onDownloadSticker: (String) -> Unit,
+) {
+    val file = remember(sticker.attachmentGuid, sticker.downloaded) {
+        attachmentFile(sticker.attachmentGuid)
+    }
+    LaunchedEffect(sticker.attachmentGuid, file) {
+        if (file == null) onDownloadSticker(sticker.attachmentGuid)
+    }
+    val decoded = rememberDecodedImage(file, maxDimensionPx = 384) ?: return
+    val scale = sticker.scale.toFloat().coerceIn(0.25f, 3f)
+    val size = 88.dp * scale
+    Image(
+        bitmap = decoded.image,
+        contentDescription = "Sticker",
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .size(size)
+            .offset {
+                IntOffset(
+                    (sticker.normalizedX * contentSize.width - size.roundToPx() / 2.0).roundToInt(),
+                    (sticker.normalizedY * contentSize.height - size.roundToPx() / 2.0).roundToInt(),
+                )
+            }
+            .graphicsLayer(rotationZ = (sticker.rotation * 180.0 / PI).toFloat())
+            .zIndex(4f),
+    )
+}
+
 /**
  * A single conversation row: message bubble (mine right / theirs left),
  * centered caption for group events, an italic row for unsent messages,
@@ -100,7 +145,9 @@ fun MessageBubble(
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     senderDisplayName: String? = null,
     replyPreview: String? = null,
-    onLongPress: (() -> Unit)? = null,
+    onOpenReplyThread: () -> Unit = {},
+    onDownloadSticker: (String) -> Unit = {},
+    onLongPressPart: ((Long) -> Unit)? = null,
 ) {
     when {
         message.isGroupEvent -> {
@@ -128,21 +175,25 @@ fun MessageBubble(
         modifier = modifier
             .fillMaxWidth()
             .then(
-                if (onLongPress != null) {
-                    Modifier.combinedClickable(onClick = {}, onLongClick = onLongPress)
+                if (onLongPressPart != null) {
+                    Modifier.combinedClickable(onClick = {}, onLongClick = { onLongPressPart(0L) })
                 } else {
                     Modifier
                 },
             )
             .padding(horizontal = 12.dp, vertical = 3.dp),
     ) {
-        Column(
-            horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+        var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        Box(
             modifier = Modifier
                 .widthIn(max = maxBubbleWidth)
-                .align(if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart),
+                .align(if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart)
+                .onSizeChanged { contentSize = it },
         ) {
+            Column(
+                horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
             if (showSenderName && !message.isFromMe) {
                 Text(
                     text = senderDisplayName ?: message.senderAddress.orEmpty(),
@@ -155,14 +206,21 @@ fun MessageBubble(
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.clickable(onClick = onOpenReplyThread),
                 ) {
-                    Text(
-                        text = "Reply to ${replyPreview?.ifBlank { "attachment" } ?: "message"}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.padding(start = 8.dp).size(width = 3.dp, height = 30.dp)
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp)),
+                        )
+                        Text(
+                            text = "Reply to ${replyPreview?.ifBlank { "attachment" } ?: "message"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
                 }
             }
             attachments.forEachIndexed { index, attachment ->
@@ -173,6 +231,14 @@ fun MessageBubble(
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
                         shape = attachmentShape,
+                        modifier = if (onLongPressPart != null) {
+                            Modifier.combinedClickable(
+                                onClick = { onOpenAttachment(attachment.guid) },
+                                onLongClick = { onLongPressPart(attachment.partIndex) },
+                            )
+                        } else {
+                            Modifier
+                        },
                     )
                     message.reactionEmoji?.takeIf { index == attachments.lastIndex }?.let { emoji ->
                         ReactionChip(
@@ -236,6 +302,15 @@ fun MessageBubble(
             }
             if (showStatus && message.isFromMe) {
                 MessageStatusRow(status = message.status)
+            }
+            }
+            message.stickers.forEach { sticker ->
+                StickerOverlay(
+                    sticker = sticker,
+                    contentSize = contentSize,
+                    attachmentFile = attachmentFile,
+                    onDownloadSticker = onDownloadSticker,
+                )
             }
         }
     }
