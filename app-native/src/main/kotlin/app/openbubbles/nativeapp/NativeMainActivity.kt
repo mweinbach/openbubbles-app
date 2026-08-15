@@ -31,6 +31,14 @@ class NativeMainActivity : ComponentActivity() {
         // intent extras).
         if (savedInstanceState == null) readPendingChatGuid(intent)
 
+        // Boot the Rust runtime (state dirs + keystore) before any UI can
+        // provision or sign in — onboarding reaches Rust before the push
+        // service ever starts.
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { app.openbubbles.nativeapp.data.RustBoot.ensureStarted(this@NativeMainActivity, filesDir.absolutePath) }
+                .onFailure { android.util.Log.e("RustBoot", "boot failed", it) }
+        }
+
         // Permission priming moved into the onboarding flow; returning users
         // (or taps into the signed-in app) just get a contact re-sync.
         if (DeviceContacts.hasPermission(this)) {
