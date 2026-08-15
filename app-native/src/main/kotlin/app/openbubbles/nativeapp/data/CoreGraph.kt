@@ -39,6 +39,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
+import uniffi.rust_lib_bluebubbles.UIndexedPart
+import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.readQueuedJournal
 import uniffi.rust_lib_bluebubbles.markJournalAttempt
@@ -146,6 +148,9 @@ object CoreGraph {
     }
     val sender: Sender by lazy {
         if (store != null) CoreSender else FakeSender
+    }
+    val messageActions: MessageActions by lazy {
+        if (store != null) CoreMessageActions else FakeMessageActions
     }
     val attachments: AttachmentProvider by lazy {
         store?.let { st -> CoreAttachmentProvider(st, { attachmentFiles }) } ?: FakeAttachmentProvider
@@ -455,6 +460,7 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     unread = item.unreadCount,
     pinned = item.pinned,
     avatarColor = avatarColorFor(item.guid),
+    isSms = item.isSms,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -475,6 +481,8 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     reactionEmoji = item.reactionEmoji
         ?: item.reactionType?.removePrefix("-")?.let { TAPBACK_EMOJI[it] },
     senderAddress = item.senderAddress,
+    guid = item.guid,
+    replyToGuid = item.threadOriginatorGuid,
 )
 
 /** True when the mime/uti pair clearly describes an image. */
@@ -710,6 +718,19 @@ private object CoreSender : Sender {
     override suspend fun send(chatId: Long, text: String) = sendWithEffect(chatId, text, null)
 
     override suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
+        sendInternal(chatId, text, effectId, null)
+    }
+
+    override suspend fun sendReply(chatId: Long, text: String, replyGuid: String) {
+        sendInternal(chatId, text, null, replyGuid)
+    }
+
+    private suspend fun sendInternal(
+        chatId: Long,
+        text: String,
+        effectId: String?,
+        replyGuid: String?,
+    ) {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
@@ -732,6 +753,11 @@ private object CoreSender : Sender {
                 staged.expressiveSendStyleId = effectId
                 messageBox.put(staged)
             }
+            if (replyGuid != null) {
+                staged.threadOriginatorGuid = replyGuid
+                staged.threadOriginatorPart = "0"
+                messageBox.put(staged)
+            }
         }
 
         if (pushState == null) {
@@ -748,7 +774,7 @@ private object CoreSender : Sender {
                     myHandle,
                     text,
                     // replyGuid, replyPart, effect, subject
-                    null, null, effectId, null,
+                    replyGuid, replyGuid?.let { "0" }, effectId, null,
                 )
             }
             failureLookupGuid = inst.id
@@ -784,6 +810,74 @@ private object CoreSender : Sender {
         return mRepo.stageOutgoingMessage(chatGuid, sender, text, tempGuid)
     }
 }
+
+/** Rust-backed tapback, edit, and undo-send operations with local echoes. */
+private object CoreMessageActions : MessageActions {
+    override suspend fun react(
+        chatId: Long,
+        messageGuid: String,
+        messageText: String,
+        reactionIndex: Int,
+        emoji: String?,
+        enable: Boolean,
+    ) {
+        require(reactionIndex in 0..6) { "invalid reaction" }
+        val (state, conversation, sender, ingestor) = actionContext(chatId)
+        val inst = runInterruptible(Dispatchers.IO) {
+            state.sendReaction(
+                conversation,
+                sender,
+                messageGuid,
+                0uL,
+                reactionIndex.toULong(),
+                emoji,
+                messageText,
+                enable,
+            )
+        }
+        ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {
+        require(newText.isNotBlank()) { "message cannot be empty" }
+        val (state, conversation, sender, ingestor) = actionContext(chatId)
+        val inst = runInterruptible(Dispatchers.IO) {
+            state.editMessage(
+                conversation,
+                sender,
+                messageGuid,
+                0uL,
+                listOf(UIndexedPart(UPart.Text(newText, ""), null)),
+            )
+        }
+        ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    override suspend fun unsend(chatId: Long, messageGuid: String) {
+        val (state, conversation, sender, ingestor) = actionContext(chatId)
+        val inst = runInterruptible(Dispatchers.IO) {
+            state.unsendMessage(conversation, sender, messageGuid, 0uL)
+        }
+        ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    private fun actionContext(chatId: Long): MessageActionContext {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val state = PushStateHolder.state ?: error("not connected to Apple push")
+        val ingestor = CoreGraph.ingestor ?: error("ingestor unavailable")
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+        check(chat.isRpSms != true) { "iMessage actions are unavailable for SMS" }
+        val sender = sendingHandle(chat) ?: error("no registered sending handle")
+        return MessageActionContext(state, sendConversation(store, chat), sender, ingestor)
+    }
+}
+
+private data class MessageActionContext(
+    val state: NativePushState,
+    val conversation: UConversation,
+    val sender: String,
+    val ingestor: MessageIngestor,
+)
 
 private object CoreGraphStageHolder {
     private val repos = java.util.concurrent.ConcurrentHashMap<BoxStore, MessageRepo>()

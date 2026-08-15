@@ -9,6 +9,7 @@ import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.Sender
@@ -39,6 +40,12 @@ data class ChatUiState(
      * re-fires for a later message.
      */
     val screenEffect: ScreenEffectTrigger? = null,
+    /** Message selected as the root of the next threaded reply. */
+    val replyingTo: MessageItem? = null,
+    /** My text message currently being edited. */
+    val editingMessage: MessageItem? = null,
+    /** Visible operation failure; cleared after the screen presents it. */
+    val actionError: String? = null,
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
@@ -68,8 +75,10 @@ class ChatViewModel(
     private val chatListRepository: ChatListRepository,
     private val messageRepository: MessageListRepository,
     private val sender: Sender,
+    private val messageActions: MessageActions,
     private val attachmentSender: AttachmentSender,
     typingRepository: TypingRepository,
+    private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
 ) : ViewModel() {
 
     init {
@@ -79,6 +88,9 @@ class ChatViewModel(
 
     private val input = MutableStateFlow("")
     private val loadingOlder = MutableStateFlow(false)
+    private val replyingTo = MutableStateFlow<MessageItem?>(null)
+    private val editingMessage = MutableStateFlow<MessageItem?>(null)
+    private val actionError = MutableStateFlow<String?>(null)
     private var endReached = false
 
     /** Message ids whose send effect has already been played (once each). */
@@ -125,6 +137,12 @@ class ChatViewModel(
             )
         }.combine(screenEffect) { state, effect ->
             state.copy(screenEffect = effect)
+        }.combine(replyingTo) { state, reply ->
+            state.copy(replyingTo = reply)
+        }.combine(editingMessage) { state, editing ->
+            state.copy(editingMessage = editing)
+        }.combine(actionError) { state, error ->
+            state.copy(actionError = error)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
@@ -139,16 +157,75 @@ class ChatViewModel(
         PendingSendEffect.effectId = null
         input.value = ""
         viewModelScope.launch {
-            // SIM-routed chats (isRpSms) send over the modem; everything else
-            // goes through the APNs iMessage sender.
-            if (!SmsBridge.routeIfSmsChat(chatId, text)) {
-                if (effectId == null) {
-                    sender.send(chatId, text)
-                } else {
-                    sender.sendWithEffect(chatId, text, effectId)
+            runCatching {
+                val editing = editingMessage.value
+                val reply = replyingTo.value
+                when {
+                    editing != null -> messageActions.edit(chatId, editing.guid, text)
+                    // SIM-routed chats (isRpSms) send over the modem; everything else
+                    // goes through the APNs iMessage sender.
+                    smsRouter(chatId, text) -> Unit
+                    reply != null -> sender.sendReply(chatId, text, reply.replyToGuid ?: reply.guid)
+                    effectId == null -> sender.send(chatId, text)
+                    else -> sender.sendWithEffect(chatId, text, effectId)
                 }
+            }.onSuccess {
+                editingMessage.value = null
+                replyingTo.value = null
+            }.onFailure { failure ->
+                input.value = text
+                actionError.value = failure.message ?: "Message operation failed"
             }
         }
+    }
+
+    fun beginReply(message: MessageItem) {
+        editingMessage.value = null
+        replyingTo.value = message
+    }
+
+    fun beginEdit(message: MessageItem) {
+        if (!message.isFromMe || message.text.isBlank() || message.unsent) return
+        replyingTo.value = null
+        editingMessage.value = message
+        input.value = message.text
+    }
+
+    fun cancelComposerAction() {
+        val wasEditing = editingMessage.value != null
+        replyingTo.value = null
+        editingMessage.value = null
+        if (wasEditing) input.value = ""
+    }
+
+    fun react(message: MessageItem, reactionIndex: Int, emoji: String? = null) {
+        viewModelScope.launch {
+            runCatching {
+                messageActions.react(
+                    chatId = chatId,
+                    messageGuid = message.guid,
+                    messageText = message.text,
+                    reactionIndex = reactionIndex,
+                    emoji = emoji,
+                )
+            }.onFailure { failure ->
+                actionError.value = failure.message ?: "Could not send reaction"
+            }
+        }
+    }
+
+    fun unsend(message: MessageItem) {
+        if (!message.isFromMe || message.unsent) return
+        viewModelScope.launch {
+            runCatching { messageActions.unsend(chatId, message.guid) }
+                .onFailure { failure ->
+                    actionError.value = failure.message ?: "Could not unsend message"
+                }
+        }
+    }
+
+    fun clearActionError() {
+        actionError.value = null
     }
 
     /**
@@ -189,11 +266,20 @@ class ChatViewModel(
             chatListRepository: ChatListRepository,
             messageRepository: MessageListRepository,
             sender: Sender,
+            messageActions: MessageActions,
             attachmentSender: AttachmentSender,
             typingRepository: TypingRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                ChatViewModel(chatId, chatListRepository, messageRepository, sender, attachmentSender, typingRepository)
+                ChatViewModel(
+                    chatId,
+                    chatListRepository,
+                    messageRepository,
+                    sender,
+                    messageActions,
+                    attachmentSender,
+                    typingRepository,
+                )
             }
         }
     }

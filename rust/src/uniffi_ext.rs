@@ -451,7 +451,7 @@ impl NativePushState {
         emoji: Option<String>,
         to_text: String,
         enable: bool,
-    ) -> Result<(), UError> {
+    ) -> Result<UMessageInst, UError> {
         let reaction = reaction_from_idx(reaction_idx, emoji).ok_or(UError::InvalidArgument { reason: "invalid reaction idx".to_string() })?;
         let react = ReactMessage {
             to_uuid,
@@ -465,7 +465,7 @@ impl NativePushState {
             sender,
             Message::React(react),
         ));
-        send_inst(self.shared(), inst).map(|_| ())
+        send_inst(self.shared(), inst)
     }
 }
 

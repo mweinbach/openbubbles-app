@@ -2024,7 +2024,7 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`:
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2660,7 +2660,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 55432.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 36838.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 30235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read() != 64189.toShort()) {
@@ -6040,7 +6040,7 @@ public interface NativePushStateInterface {
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
      * 5 question; 6 + `emoji` for custom emoji tapbacks.
      */
-    fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean)
+    fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean): UMessageInst
     
     fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String)
     
@@ -6935,15 +6935,16 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
      * 5 question; 6 + `emoji` for custom emoji tapbacks.
      */
-    @Throws(UException::class)override fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean)
-        = 
+    @Throws(UException::class)override fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterOptionalULong.lower(`toPart`),FfiConverterULong.lower(`reactionIdx`),FfiConverterOptionalString.lower(`emoji`),FfiConverterString.lower(`toText`),FfiConverterBoolean.lower(`enable`),_status)
 }
     }
-    
+    )
+    }
     
 
     

@@ -26,6 +26,8 @@ data class ChatListItem(
      * resolve a contact photo for the avatar (null for groups/unknown).
      */
     val avatarAddress: String? = null,
+    /** True when this conversation uses the local SIM SMS path. */
+    val isSms: Boolean = false,
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -71,6 +73,10 @@ data class MessageItem(
      * null when the message has no effect.
      */
     val expressiveSendStyleId: String? = null,
+    /** Stable iMessage GUID used by replies, tapbacks, edits, and unsends. */
+    val guid: String = id.toString(),
+    /** Root message GUID when this message is part of a reply thread. */
+    val replyToGuid: String? = null,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -88,6 +94,11 @@ interface MessageListRepository {
 interface Sender {
     suspend fun send(chatId: Long, text: String)
 
+    /** Sends a text reply rooted at [replyGuid]. */
+    suspend fun sendReply(chatId: Long, text: String, replyGuid: String) {
+        send(chatId, text)
+    }
+
     /**
      * Sends a text with an iMessage expressive-send effect id (e.g.
      * "com.apple.messages.effect.CKConfettiEffect" or
@@ -98,6 +109,22 @@ interface Sender {
     suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
         send(chatId, text)
     }
+}
+
+/** Message mutations supported by the on-device iMessage engine. */
+interface MessageActions {
+    suspend fun react(
+        chatId: Long,
+        messageGuid: String,
+        messageText: String,
+        reactionIndex: Int,
+        emoji: String? = null,
+        enable: Boolean = true,
+    )
+
+    suspend fun edit(chatId: Long, messageGuid: String, newText: String)
+
+    suspend fun unsend(chatId: Long, messageGuid: String)
 }
 
 /**

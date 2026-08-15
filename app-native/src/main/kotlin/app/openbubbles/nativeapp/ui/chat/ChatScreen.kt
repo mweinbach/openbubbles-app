@@ -52,13 +52,18 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -205,6 +210,12 @@ fun ChatScreen(
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
     onSendAttachment: (OutgoingAttachment) -> Unit = {},
+    onReply: (MessageItem) -> Unit = {},
+    onEdit: (MessageItem) -> Unit = {},
+    onReact: (MessageItem, Int, String?) -> Unit = { _, _, _ -> },
+    onUnsend: (MessageItem) -> Unit = {},
+    onCancelComposerAction: () -> Unit = {},
+    onActionErrorShown: () -> Unit = {},
     onOpenChatInfo: () -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -214,6 +225,9 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var selectedMessage by remember { mutableStateOf<MessageItem?>(null) }
+    var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
 
     // Group chats (two or more distinct other senders in the transcript)
     // label incoming runs with the sender's name.
@@ -226,6 +240,7 @@ fun ChatScreen(
     val entries = remember(uiState.messages, isGroupChat) {
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
+    val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
     val isTyping = uiState.typingSenders.isNotEmpty()
 
     // ---- Send screen effects -------------------------------------------------
@@ -237,6 +252,12 @@ fun ChatScreen(
         val trigger = uiState.screenEffect ?: return@LaunchedEffect
         delay(700)
         activeEffect = trigger
+    }
+
+    LaunchedEffect(uiState.actionError) {
+        val error = uiState.actionError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(error)
+        onActionErrorShown()
     }
 
     // Pending effect staged from the picker for the next send (id only, so it
@@ -297,6 +318,7 @@ fun ChatScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = {
@@ -330,6 +352,15 @@ fun ChatScreen(
                     pendingEffect = pendingOption,
                     onClearPendingEffect = { stagePendingEffect(null) },
                     onSendLongClick = { showEffectPicker = true },
+                    composerActionLabel = when {
+                        uiState.editingMessage != null -> "Editing message"
+                        uiState.replyingTo != null -> "Replying"
+                        else -> null
+                    },
+                    composerActionText = uiState.editingMessage?.text ?: uiState.replyingTo?.let { message ->
+                        message.text.ifBlank { message.attachmentMeta?.name ?: "Attachment" }
+                    },
+                    onClearComposerAction = onCancelComposerAction,
                 )
             },
         ) { padding ->
@@ -363,6 +394,16 @@ fun ChatScreen(
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
                                     senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
+                                    replyPreview = entry.message.replyToGuid?.let { guid ->
+                                        messagesByGuid[guid]?.let { target ->
+                                            target.text.ifBlank { target.attachmentMeta?.name ?: "Attachment" }
+                                        }
+                                    },
+                                    onLongPress = if (entry.message.status == MessageStatus.SENDING) {
+                                        null
+                                    } else {
+                                        { selectedMessage = entry.message }
+                                    },
                                 )
                                 is ConversationEntry.DaySeparator ->
                                     DaySeparatorRow(label = formatConversationDay(entry.epochMillis))
@@ -405,6 +446,95 @@ fun ChatScreen(
             },
             onDismiss = { showEffectPicker = false },
         )
+    }
+
+    selectedMessage?.let { message ->
+        MessageActionSheet(
+            message = message,
+            isSms = uiState.chat?.isSms == true,
+            onReact = { index, emoji ->
+                selectedMessage = null
+                onReact(message, index, emoji)
+            },
+            onReply = {
+                selectedMessage = null
+                onReply(message)
+            },
+            onEdit = {
+                selectedMessage = null
+                onEdit(message)
+            },
+            onUnsend = {
+                selectedMessage = null
+                confirmUnsend = message
+            },
+            onDismiss = { selectedMessage = null },
+        )
+    }
+
+    confirmUnsend?.let { message ->
+        AlertDialog(
+            onDismissRequest = { confirmUnsend = null },
+            title = { Text("Unsend message?") },
+            text = { Text("This removes the message for everyone in the conversation.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmUnsend = null
+                        onUnsend(message)
+                    },
+                ) { Text("Unsend") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmUnsend = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageActionSheet(
+    message: MessageItem,
+    isSms: Boolean,
+    onReact: (Int, String?) -> Unit,
+    onReply: () -> Unit,
+    onEdit: () -> Unit,
+    onUnsend: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        if (!isSms) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                listOf("❤️", "👍", "👎", "😂", "‼️", "❓").forEachIndexed { index, emoji ->
+                    Text(
+                        text = emoji,
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { onReact(index, null) }
+                            .padding(8.dp),
+                    )
+                }
+            }
+        }
+        TextButton(
+            onClick = onReply,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        ) { Text("Reply", modifier = Modifier.fillMaxWidth()) }
+        if (!isSms && message.isFromMe && message.text.isNotBlank() && !message.unsent) {
+            TextButton(
+                onClick = onEdit,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            ) { Text("Edit", modifier = Modifier.fillMaxWidth()) }
+            TextButton(
+                onClick = onUnsend,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            ) { Text("Unsend", modifier = Modifier.fillMaxWidth()) }
+        }
     }
 }
 
@@ -609,6 +739,9 @@ private fun MessageInputBar(
     pendingEffect: SendEffectOption? = null,
     onClearPendingEffect: () -> Unit = {},
     onSendLongClick: () -> Unit = {},
+    composerActionLabel: String? = null,
+    composerActionText: String? = null,
+    onClearComposerAction: () -> Unit = {},
 ) {
     val hasText = value.isNotBlank()
 
@@ -646,6 +779,36 @@ private fun MessageInputBar(
             .navigationBarsPadding()
             .imePadding(),
     ) {
+        AnimatedVisibility(
+            visible = composerActionLabel != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            if (composerActionLabel != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = composerActionLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        composerActionText?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    TextButton(onClick = onClearComposerAction) { Text("Cancel") }
+                }
+            }
+        }
         // Pending send-effect chip staged from the picker.
         AnimatedVisibility(
             visible = pendingEffect != null,

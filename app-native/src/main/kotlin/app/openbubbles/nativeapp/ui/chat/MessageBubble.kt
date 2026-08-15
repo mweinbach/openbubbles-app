@@ -2,7 +2,9 @@ package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +86,7 @@ private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerS
  * group chats, and an optional delivery status row under my latest outgoing
  * message.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: MessageItem,
@@ -96,6 +99,8 @@ fun MessageBubble(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     senderDisplayName: String? = null,
+    replyPreview: String? = null,
+    onLongPress: (() -> Unit)? = null,
 ) {
     when {
         message.isGroupEvent -> {
@@ -122,6 +127,13 @@ fun MessageBubble(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (onLongPress != null) {
+                    Modifier.combinedClickable(onClick = {}, onLongClick = onLongPress)
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 12.dp, vertical = 3.dp),
     ) {
         Column(
@@ -138,6 +150,20 @@ fun MessageBubble(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
+            }
+            if (message.replyToGuid != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Text(
+                        text = "Reply to ${replyPreview?.ifBlank { "attachment" } ?: "message"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
             }
             attachments.forEachIndexed { index, attachment ->
                 Box {

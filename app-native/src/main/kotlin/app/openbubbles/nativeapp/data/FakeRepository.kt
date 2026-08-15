@@ -111,6 +111,18 @@ internal object FakeChatData {
         }
     }
 
+    fun react(chatId: Long, messageGuid: String, emoji: String?) {
+        updateMessageByGuid(chatId, messageGuid) { it.copy(reactionEmoji = emoji) }
+    }
+
+    fun edit(chatId: Long, messageGuid: String, text: String) {
+        updateMessageByGuid(chatId, messageGuid) { it.copy(text = text, edited = true) }
+    }
+
+    fun unsend(chatId: Long, messageGuid: String) {
+        updateMessageByGuid(chatId, messageGuid) { it.copy(text = "", unsent = true) }
+    }
+
     /** Fake attachment send: optimistic bubble that settles like a text send. */
     suspend fun sendAttachment(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
         val meta = AttachmentMeta(
@@ -156,6 +168,13 @@ internal object FakeChatData {
         history[chatId] = history[chatId].orEmpty().map { if (it.id == messageId) transform(it) else it }
         _windows.update { windows ->
             windows + (chatId to windows[chatId].orEmpty().map { if (it.id == messageId) transform(it) else it })
+        }
+    }
+
+    private fun updateMessageByGuid(chatId: Long, guid: String, transform: (MessageItem) -> MessageItem) {
+        history[chatId] = history[chatId].orEmpty().map { if (it.guid == guid) transform(it) else it }
+        _windows.update { windows ->
+            windows + (chatId to windows[chatId].orEmpty().map { if (it.guid == guid) transform(it) else it })
         }
     }
 
@@ -350,6 +369,26 @@ object FakeSender : Sender {
     override suspend fun send(chatId: Long, text: String) = FakeChatData.send(chatId, text)
 }
 
+object FakeMessageActions : MessageActions {
+    override suspend fun react(
+        chatId: Long,
+        messageGuid: String,
+        messageText: String,
+        reactionIndex: Int,
+        emoji: String?,
+        enable: Boolean,
+    ) {
+        val display = emoji ?: listOf("❤️", "👍", "👎", "😂", "‼️", "❓").getOrNull(reactionIndex)
+        FakeChatData.react(chatId, messageGuid, display.takeIf { enable })
+    }
+
+    override suspend fun edit(chatId: Long, messageGuid: String, newText: String) =
+        FakeChatData.edit(chatId, messageGuid, newText)
+
+    override suspend fun unsend(chatId: Long, messageGuid: String) =
+        FakeChatData.unsend(chatId, messageGuid)
+}
+
 /** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
 object FakeAttachmentSender : AttachmentSender {
     override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) =
@@ -394,6 +433,7 @@ object AppGraph {
     val chats: ChatListRepository get() = CoreGraph.chats
     val messages: MessageListRepository get() = CoreGraph.messages
     val sender: Sender get() = CoreGraph.sender
+    val messageActions: MessageActions get() = CoreGraph.messageActions
     val attachmentSender: AttachmentSender get() = CoreGraph.attachmentSender
     val typing: TypingRepository get() = CoreGraph.typing
     val attachments: AttachmentProvider get() = CoreGraph.attachments
