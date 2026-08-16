@@ -14,6 +14,7 @@ import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
+import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 
 /**
@@ -230,6 +231,16 @@ fun ChatScreenSmsScreenshot() {
             onLoadOlder = {},
             onBack = {},
         )
+    }
+}
+
+/** Preference groups: Messages-style segmented list, foldable small app bar. */
+@PreviewTest
+@FormFactorPreviews
+@Composable
+fun SettingsScreenScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        SettingsScreen(onBack = {})
     }
 }
 

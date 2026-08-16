@@ -4,11 +4,9 @@ import android.content.res.Configuration
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,36 +17,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Contacts
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,15 +36,15 @@ import androidx.compose.material3.MaterialTheme
 // function on ExposedDropdownMenuBoxScope, so it needs an explicit import.
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,15 +56,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
@@ -103,7 +80,6 @@ import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.URegisterState
@@ -131,10 +107,10 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 }
 
 /**
- * Settings: iOS-style inset grouped cards — connection health (registration
- * state + handles via the live Rust push state), iCloud sync, power,
- * notifications, attachment storage maintenance, backup/restore, and an
- * about row.
+ * Settings: Material 3 preference groups in the Google Messages foldable
+ * style — segmented [ListItem]s, no leading icons, no section chrome.
+ * Compact windows keep the collapsing flexible bar; medium+ (foldables,
+ * tablets) pin a small bar so the list uses the extra width.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,7 +178,9 @@ fun SettingsScreen(
                 "Sync failed: ${summary.error}"
             } else {
                 CoreGraph.relinkContacts()
-                CloudSyncWiring.markHistorySyncComplete(context)
+                withContext(Dispatchers.IO) {
+                    CloudSyncWiring.markHistorySyncComplete(context)
+                }
                 "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages, " +
                     "${summary.totalAttachments} attachments " +
                     "(${summary.chatTombstones + summary.messageTombstones + summary.attachmentTombstones} removed) " +
@@ -381,25 +359,48 @@ fun SettingsScreen(
         }
     }
 
-    // Top-level destination with a headline worth collapsing, so it gets the
-    // flexible bar. Transient detail screens (Chat Info, New Message) keep the
-    // small bar, which is what Material specifies for dense/pushed layouts.
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // Compact: collapsing headline. Medium+ (foldable inner, tablet): the
+    // Messages pattern — title sits next to back so the list gets the height.
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val isMediumWidth = windowSizeClass.isWidthAtLeastBreakpoint(
+        WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+    )
+    val scrollBehavior = if (isMediumWidth) {
+        TopAppBarDefaults.pinnedScrollBehavior()
+    } else {
+        TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    }
+    val barColors = TopAppBarDefaults.topAppBarColors(
+        containerColor = MaterialTheme.colorScheme.surface,
+        scrolledContainerColor = MaterialTheme.colorScheme.surface,
+    )
+    val navigationIcon: @Composable () -> Unit = {
+        if (showBackButton) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        }
+    }
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            MediumFlexibleTopAppBar(
-                title = { Text("Settings") },
-                scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    if (showBackButton) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                },
-            )
+            if (isMediumWidth) {
+                TopAppBar(
+                    title = { Text("Settings") },
+                    navigationIcon = navigationIcon,
+                    colors = barColors,
+                    scrollBehavior = scrollBehavior,
+                )
+            } else {
+                MediumFlexibleTopAppBar(
+                    title = { Text("Settings") },
+                    scrollBehavior = scrollBehavior,
+                    colors = barColors,
+                    navigationIcon = navigationIcon,
+                )
+            }
         },
     ) { padding ->
         // Wide windows center the content column instead of stretching rows.
@@ -414,339 +415,406 @@ fun SettingsScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(
+                    horizontal = if (isMediumWidth) 24.dp else 16.dp,
+                    vertical = 8.dp,
+                )
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
         ) {
-            SectionCard(title = "Connection") {
+            SettingsGroup {
                 if (pushState == null) {
-                    SettingRow(
+                    SettingsInfoItem(
                         title = "Not connected",
                         supporting = pushError ?: "Sign in from the banner on the chat list",
-                        icon = Icons.Filled.CloudDone,
+                        index = 0,
+                        count = 1,
                         multiline = pushError != null,
                     )
                 } else {
-                    SettingRow(
-                        title = "Registration",
-                        supporting = connection?.regstate ?: "Checking…",
-                        icon = Icons.Filled.CloudDone,
-                    )
-                    SettingRow(
-                        title = "Handles",
-                        supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
-                        icon = Icons.Filled.AlternateEmail,
-                        multiline = true,
-                    )
-                    pushError?.let { error ->
-                        SettingRow(
-                            title = "Last push problem",
-                            supporting = error,
-                            icon = Icons.Filled.Warning,
-                            multiline = true,
-                        )
-                    }
                     var signingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
-                    SettingActionRow(
-                        title = if (signingOut) "Signing out…" else "Sign out",
-                        supporting = "Disconnect this Apple ID on this device",
-                        icon = Icons.AutoMirrored.Filled.Logout,
-                        destructive = true,
-                        enabled = !signingOut,
-                        onClick = {
-                            signingOut = true
-                            scope.launch {
-                                CoreGraph.signOut(context)
-                                signingOut = false
-                                onBack()
-                            }
-                        },
-                    )
-                }
-            }
-
-            SectionCard(title = "iCloud Sync") {
-                if (syncManager == null) {
-                    SettingRow(
-                        title = "History sync",
-                        supporting = "Connect to enable syncing messages from iCloud",
-                        icon = Icons.Filled.CloudSync,
-                    )
-                } else {
-                    val progress = syncProgress
-                    SettingRow(
-                        title = "History sync",
-                        supporting = when {
-                            cliqueError != null -> cliqueError!!
-                            inClique == null -> "Checking Secure iCloud Keychain…"
-                            inClique == false ->
-                                "Join Secure iCloud Keychain before Messages in iCloud history can be decrypted"
-                            progress != null && syncing ->
-                                "${progress.phase}: ${progress.chatsDone} chats, " +
-                                    "${progress.messagesDone} messages, ${progress.attachmentsDone} attachments"
-                            syncResult != null -> syncResult!!
-                            else -> "Downloads your Messages in iCloud history to this device"
-                        },
-                        icon = Icons.Filled.CloudSync,
-                        multiline = true,
-                    )
-                    if (inClique == false) {
-                        FilledTonalButton(
-                            onClick = ::openCliqueJoin,
-                            shapes = ButtonDefaults.shapes(),
-                            enabled = !loadingBottles && !joiningClique,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Join iCloud Keychain") }
-                    } else if (syncing) {
-                        TextButton(onClick = { syncManager.cancel() }) { Text("Stop") }
-                    } else if (inClique == true) {
-                        FilledTonalButton(
-                            onClick = ::syncAllHistory,
-                            shapes = ButtonDefaults.shapes(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Sync all history now") }
+                    val error = pushError
+                    val accountRows = buildList {
+                        add("registration")
+                        add("handles")
+                        if (error != null) add("error")
+                        add("signout")
                     }
-
-                    if (inClique == true) {
-                        val savedRecoveryCode = context
-                            .getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                            .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
-                        if (savedRecoveryCode != null) {
-                            SettingActionRow(
-                                title = "Device Keychain code",
-                                supporting = if (revealSavedRecoveryCode) {
-                                    savedRecoveryCode
-                                } else {
-                                    "Saved on this device — tap to reveal"
+                    val count = accountRows.size
+                    accountRows.forEachIndexed { index, row ->
+                        when (row) {
+                            "registration" -> SettingsInfoItem(
+                                title = "Registration",
+                                supporting = connection?.regstate ?: "Checking…",
+                                index = index,
+                                count = count,
+                            )
+                            "handles" -> SettingsInfoItem(
+                                title = "Handles",
+                                supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
+                                index = index,
+                                count = count,
+                                multiline = true,
+                            )
+                            "error" -> SettingsInfoItem(
+                                title = "Last push problem",
+                                supporting = error.orEmpty(),
+                                index = index,
+                                count = count,
+                                multiline = true,
+                                titleColor = MaterialTheme.colorScheme.error,
+                            )
+                            else -> SettingsActionItem(
+                                title = if (signingOut) "Signing out…" else "Sign out",
+                                supporting = "Disconnect this Apple ID on this device",
+                                onClick = {
+                                    signingOut = true
+                                    scope.launch {
+                                        CoreGraph.signOut(context)
+                                        signingOut = false
+                                        onBack()
+                                    }
                                 },
-                                icon = Icons.Filled.CloudDone,
-                                onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
+                                index = index,
+                                count = count,
+                                destructive = true,
+                                enabled = !signingOut,
+                                busy = signingOut,
                             )
                         }
                     }
                 }
-
-                SettingActionRow(
-                    title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
-                    supporting = contactSyncStatusText(contactStatus, pushState != null),
-                    icon = Icons.Filled.Contacts,
-                    enabled = pushState != null && !contactSyncing,
-                    onClick = ::syncICloudContacts,
-                )
             }
 
-            SectionCard(title = "Power") {
+            SettingsGroup {
+                val savedRecoveryCode = if (inClique == true) {
+                    context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
+                        .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
+                } else {
+                    null
+                }
+                val historySupporting = when {
+                    syncManager == null -> "Connect to enable syncing messages from iCloud"
+                    cliqueError != null -> cliqueError!!
+                    inClique == null -> "Checking Secure iCloud Keychain…"
+                    inClique == false ->
+                        "Join Secure iCloud Keychain before Messages in iCloud history can be decrypted"
+                    syncProgress != null && syncing ->
+                        "${syncProgress!!.phase}: ${syncProgress!!.chatsDone} chats, " +
+                            "${syncProgress!!.messagesDone} messages, ${syncProgress!!.attachmentsDone} attachments"
+                    syncResult != null -> syncResult!!
+                    else -> "Downloads your Messages in iCloud history to this device"
+                }
+                val manager = syncManager
+                val recoveryCode = savedRecoveryCode
+                val icloudRows = buildList {
+                    add("history")
+                    if (manager != null && inClique == false) add("join")
+                    if (manager != null && syncing) add("stop")
+                    if (manager != null && !syncing && inClique == true) add("sync")
+                    if (recoveryCode != null) add("recovery")
+                    add("contacts")
+                }
+                val count = icloudRows.size
+                icloudRows.forEachIndexed { index, row ->
+                    when (row) {
+                        "history" -> SettingsInfoItem(
+                            title = "History sync",
+                            supporting = historySupporting,
+                            index = index,
+                            count = count,
+                            multiline = true,
+                        )
+                        "join" -> SettingsActionItem(
+                            title = "Join iCloud Keychain",
+                            supporting = "Unlock Messages in iCloud from a trusted Apple device",
+                            onClick = ::openCliqueJoin,
+                            index = index,
+                            count = count,
+                            enabled = !loadingBottles && !joiningClique,
+                            busy = loadingBottles || joiningClique,
+                        )
+                        "stop" -> SettingsActionItem(
+                            title = "Stop sync",
+                            supporting = "Cancel the history download in progress",
+                            onClick = { manager?.cancel() },
+                            index = index,
+                            count = count,
+                        )
+                        "sync" -> SettingsActionItem(
+                            title = "Sync all history now",
+                            supporting = "Download Messages in iCloud to this device",
+                            onClick = ::syncAllHistory,
+                            index = index,
+                            count = count,
+                        )
+                        "recovery" -> SettingsActionItem(
+                            title = "Device Keychain code",
+                            supporting = if (revealSavedRecoveryCode) {
+                                recoveryCode.orEmpty()
+                            } else {
+                                "Saved on this device — tap to reveal"
+                            },
+                            onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
+                            index = index,
+                            count = count,
+                        )
+                        else -> SettingsActionItem(
+                            title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
+                            supporting = contactSyncStatusText(contactStatus, pushState != null),
+                            onClick = ::syncICloudContacts,
+                            index = index,
+                            count = count,
+                            enabled = pushState != null && !contactSyncing,
+                            busy = contactSyncing,
+                        )
+                    }
+                }
+            }
+
+            SettingsGroup {
                 val ctx = context
                 var batterySaver by remember {
                     androidx.compose.runtime.mutableStateOf(
                         app.openbubbles.nativeapp.service.BatterySaver.isEnabled(ctx))
                 }
-                SwitchSettingRow(
+                SettingsToggleItem(
                     title = "Battery saver",
                     supporting = if (batterySaver) {
                         "Checking iCloud every 15 min — messages may be delayed"
                     } else {
                         "Live connection — instant messages, uses more battery"
                     },
-                    icon = Icons.Filled.BatterySaver,
                     checked = batterySaver,
                     onCheckedChange = { enabled ->
                         batterySaver = app.openbubbles.nativeapp.service.BatterySaver
                             .setEnabled(ctx, enabled)
                     },
+                    index = 0,
+                    count = 1,
                 )
             }
 
-            SectionCard(title = "Notifications") {
+            SettingsGroup {
                 val notifPrefs = remember { NotifPrefs(context) }
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
                 var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
-                SwitchSettingRow(
+                SettingsToggleItem(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
-                    icon = Icons.Filled.NotificationsActive,
                     checked = hidePreviews,
                     onCheckedChange = { enabled ->
                         hidePreviews = enabled
                         notifPrefs.hidePreviews = enabled
                     },
+                    index = 0,
+                    count = 3,
                 )
-                SwitchSettingRow(
+                SettingsToggleItem(
                     title = "Quick reply",
                     supporting = "Show the Reply action on message notifications",
-                    icon = Icons.Filled.NotificationsActive,
                     checked = replyEnabled,
                     onCheckedChange = { enabled ->
                         replyEnabled = enabled
                         notifPrefs.replyEnabled = enabled
                     },
+                    index = 1,
+                    count = 3,
                 )
-                SwitchSettingRow(
+                SettingsToggleItem(
                     title = "Reaction notifications",
                     supporting = "Notify when someone reacts to a message",
-                    icon = Icons.Filled.NotificationsActive,
                     checked = notifyReactions,
                     onCheckedChange = { enabled ->
                         notifyReactions = enabled
                         notifPrefs.notifyReactions = enabled
                     },
+                    index = 2,
+                    count = 3,
                 )
             }
 
-            SectionCard(title = "Messaging") {
+            SettingsGroup {
                 val messagingPrefs = remember { MessagingPrefs(context) }
                 var sendReadReceipts by remember {
                     mutableStateOf(messagingPrefs.sendReadReceipts)
                 }
-                SwitchSettingRow(
+                SettingsToggleItem(
                     title = "Send read receipts",
                     supporting = if (sendReadReceipts) {
                         "Tell people in direct iMessage chats when you read their messages"
                     } else {
                         "Read state syncs privately to your Apple devices"
                     },
-                    icon = Icons.Filled.Check,
                     checked = sendReadReceipts,
                     onCheckedChange = { enabled ->
                         sendReadReceipts = enabled
                         messagingPrefs.sendReadReceipts = enabled
                     },
+                    index = 0,
+                    count = 1,
                 )
             }
 
-            SectionCard(title = "SMS & MMS") {
-                SettingRow(
+            SettingsGroup {
+                val smsCount = if (isDefaultSmsApp) 1 else 2
+                SettingsInfoItem(
                     title = if (isDefaultSmsApp) "Default SMS app" else "Finish SMS setup",
                     supporting = if (isDefaultSmsApp) {
                         "OpenBubbles can receive carrier SMS, MMS, photos, and group messages"
                     } else {
                         "Set OpenBubbles as the default SMS app for reliable incoming MMS and media"
                     },
-                    icon = Icons.Filled.Sms,
+                    index = 0,
+                    count = smsCount,
                     multiline = true,
                 )
                 if (!isDefaultSmsApp) {
-                    FilledTonalButton(
+                    SettingsActionItem(
+                        title = "Set as default SMS app",
+                        supporting = "Needed for incoming MMS and media",
                         onClick = {
                             SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                         },
-                        shapes = ButtonDefaults.shapes(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Set as default SMS app") }
+                        index = 1,
+                        count = smsCount,
+                    )
                 }
             }
 
-            SectionCard(title = "Location") {
-                SettingActionRow(
+            SettingsGroup {
+                SettingsActionItem(
                     title = "Find My",
                     supporting = "Devices, friends and items",
-                    icon = Icons.Filled.LocationOn,
                     onClick = onOpenFindMy,
+                    index = 0,
+                    count = 1,
                 )
             }
 
-            SectionCard(title = "Appearance") {
-                SettingRow(
-                    title = "Theme",
-                    supporting = "Follows your system's light or dark mode",
-                    icon = Icons.Filled.Palette,
-                )
+            SettingsGroup {
                 val dynamicColor by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
-                SwitchSettingRow(
+                SettingsInfoItem(
+                    title = "Theme",
+                    supporting = "System default",
+                    index = 0,
+                    count = 2,
+                )
+                SettingsToggleItem(
                     title = "Dynamic color",
                     supporting = if (dynamicColor) {
                         "Colors follow your wallpaper (Material You)"
                     } else {
                         "OpenBubbles blue, always"
                     },
-                    icon = Icons.Filled.Palette,
                     checked = dynamicColor,
                     onCheckedChange = { AppearancePrefs.dynamicColor = it },
+                    index = 1,
+                    count = 2,
                 )
             }
 
-            SectionCard(title = "Storage") {
-                SettingRow(
+            SettingsGroup {
+                val cacheLabel = cacheBytes
+                    ?.let { formatBytes(it).ifEmpty { "Empty" } }
+                    ?: "Calculating…"
+                SettingsInfoItem(
                     title = "Attachments on disk",
-                    supporting = cacheBytes
-                        ?.let { formatBytes(it).ifEmpty { "Empty" } }
-                        ?: "Calculating…",
-                    icon = Icons.Filled.Folder,
+                    supporting = cacheLabel,
+                    index = 0,
+                    count = 2,
                 )
-                FilledTonalButton(
+                SettingsActionItem(
+                    title = "Clear attachment cache",
+                    supporting = "Removes downloaded files; they can be fetched again",
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
                             cacheBytes = withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() }
                         }
                     },
-                    shapes = ButtonDefaults.shapes(),
+                    index = 1,
+                    count = 2,
                     enabled = (cacheBytes ?: 0L) > 0L,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Clear attachment cache")
-                }
-            }
-
-            SectionCard(title = "Backup") {
-                SettingRow(
-                    title = "Local backup",
-                    supporting = "Export the database and attachments to a zip file, or restore from one.",
-                    icon = Icons.Filled.Archive,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Button(
-                        onClick = { exportLauncher.launch(backupFileName()) },
-                        shapes = ButtonDefaults.shapes(),
-                        enabled = !backupBusy,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Export")
+            }
+
+            SettingsGroup {
+                val backupErrorText = backupError
+                val backupStageText = backupStage
+                val backupRows = buildList {
+                    add("info")
+                    add("export")
+                    add("restore")
+                    if (backupStageText != null) add("working")
+                    if (restarting) add("restarting")
+                    if (backupErrorText != null) add("error")
+                }
+                val backupCount = backupRows.size
+                backupRows.forEachIndexed { backupIndex, row ->
+                    when (row) {
+                        "info" -> SettingsInfoItem(
+                            title = "Local backup",
+                            supporting = "Export the database and attachments to a zip file, or restore from one",
+                            index = backupIndex,
+                            count = backupCount,
+                        )
+                        "export" -> SettingsActionItem(
+                            title = "Export backup",
+                            supporting = "Save a zip of this device's messages and attachments",
+                            onClick = { exportLauncher.launch(backupFileName()) },
+                            index = backupIndex,
+                            count = backupCount,
+                            enabled = !backupBusy,
+                            busy = backupBusy && backupStageText != null && !restarting,
+                        )
+                        "restore" -> SettingsActionItem(
+                            title = "Restore backup",
+                            supporting = "Replace this device's data from a zip",
+                            onClick = {
+                                restoreLauncher.launch(
+                                    arrayOf(
+                                        "application/zip",
+                                        "application/x-zip-compressed",
+                                        "application/octet-stream",
+                                    ),
+                                )
+                            },
+                            index = backupIndex,
+                            count = backupCount,
+                            enabled = !backupBusy,
+                        )
+                        "working" -> SettingsInfoItem(
+                            title = "Working…",
+                            supporting = backupStageText,
+                            index = backupIndex,
+                            count = backupCount,
+                        )
+                        "restarting" -> SettingsInfoItem(
+                            title = "Restore complete",
+                            supporting = "Restarting to load the restored data…",
+                            index = backupIndex,
+                            count = backupCount,
+                        )
+                        else -> SettingsInfoItem(
+                            title = "Backup error",
+                            supporting = backupErrorText,
+                            index = backupIndex,
+                            count = backupCount,
+                            multiline = true,
+                            titleColor = MaterialTheme.colorScheme.error,
+                        )
                     }
-                    OutlinedButton(
-                        onClick = {
-                            restoreLauncher.launch(arrayOf(
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/octet-stream",
-                            ))
-                        },
-                        shapes = ButtonDefaults.shapes(),
-                        enabled = !backupBusy,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Restore")
-                    }
-                }
-                if (backupStage != null) {
-                    SettingRow(title = "Working…", supporting = backupStage ?: "", icon = Icons.Filled.Archive)
-                }
-                if (restarting) {
-                    SettingRow(
-                        title = "Restore complete",
-                        supporting = "Restarting to load the restored data…",
-                        icon = Icons.Filled.Archive,
-                    )
-                }
-                backupError?.let {
-                    SettingRow(
-                        title = "Backup error",
-                        supporting = it,
-                        icon = Icons.Filled.Archive,
-                        multiline = true,
-                    )
                 }
             }
 
-            SectionCard(title = "About") {
-                SettingRow(
-                    title = "OpenBubbles native",
+            SettingsGroup {
+                SettingsInfoItem(
+                    title = "OpenBubbles",
                     supporting = "Version ${versionName ?: "unknown"}",
-                    icon = Icons.Filled.Info,
+                    index = 0,
+                    count = 1,
                 )
             }
         }
@@ -960,181 +1028,15 @@ private fun contactSyncStatusText(status: ICloudContactSyncStatus, connected: Bo
     }
 }
 
-/** iOS-style inset grouped card: small header above a rounded surface. */
-@Composable
-private fun SectionCard(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column {
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
-        )
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                content()
-            }
-        }
-    }
-}
-
-/** Tinted rounded-square leading icon (iOS settings row flavor). */
-@Composable
-private fun SettingsIcon(
-    icon: ImageVector,
-    destructive: Boolean = false,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = if (destructive) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.primaryContainer
-        },
-        contentColor = if (destructive) {
-            MaterialTheme.colorScheme.onErrorContainer
-        } else {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        },
-        modifier = modifier.size(36.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-        }
-    }
-}
-
-/** Read-only row: leading icon, title, supporting text, optional trailing. */
-@Composable
-private fun SettingRow(
-    title: String,
-    supporting: String,
-    icon: ImageVector? = null,
-    multiline: Boolean = false,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        icon?.let { SettingsIcon(it) }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = supporting,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = if (multiline) 6 else 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        trailing?.invoke()
-    }
-}
-
-/** Clickable row with a chevron (or spinner while busy). */
-@Composable
-private fun SettingActionRow(
-    title: String,
-    supporting: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-    destructive: Boolean = false,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // The row sits inside a rounded card: clip so the ripple doesn't
-            // paint square corners, and announce it as the button it is.
-            .clip(MaterialTheme.shapes.small)
-            .clickable(enabled = enabled, onClickLabel = title, role = Role.Button, onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        SettingsIcon(icon, destructive)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = supporting,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (!enabled) {
-            CircularProgressIndicator(
-                strokeWidth = 2.dp,
-                modifier = Modifier.size(18.dp),
-            )
-        } else {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** [SettingRow] with a trailing Material3 switch (toggles). */
-@Composable
-private fun SwitchSettingRow(
-    title: String,
-    supporting: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    icon: ImageVector? = null,
-) {
-    // The whole row is the switch: one merged control with the title as its
-    // label instead of a bare switch TalkBack can't name.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        icon?.let { SettingsIcon(it) }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = supporting,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = null)
-    }
-}
-
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "phone", device = Devices.PHONE, showBackground = true)
+@Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true)
+@Preview(name = "tablet", device = Devices.TABLET, showBackground = true)
+@Preview(name = "dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SettingsScreenPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         SettingsScreen(onBack = {})
     }
 }

@@ -22,8 +22,9 @@ Levers: size, shape, color, motion. Pull one outside a hero. Shape change is a *
 | List pane | `surfaceContainerLow` |
 | Conversation pane | `surface` |
 | Selected list row | `secondaryContainer` + `extraLarge` shape |
-| Settings / Find My groups | `surfaceContainer` cards or `segmentedRowShape` |
-| Section labels | uppercase `labelMedium` / `onSurfaceVariant` |
+| Settings groups | segmented `ListItem`s on `surfaceContainerLowest` |
+| Find My groups | `surfaceContainer` cards or `segmentedRowShape` |
+| Section labels | uppercase `labelMedium` / `onSurfaceVariant` (Find My); Settings has none — grouping is the card |
 | Empty-state icon | `MaterialShapes` on `primaryContainer`, **static** |
 
 Theme: [`OpenBubblesTheme`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/ui/theme/Theme.kt)
@@ -96,7 +97,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt` | VM + send/action/attachment/typing ports |
 | New chat | `ui/chatcreator/NewChatScreen.kt` | local + `CoreGraph.findOrCreateChat` |
 | Chat info | `ui/chatinfo/ChatInfoScreen.kt` | hoisted `AppGraph.chatInfo*` |
-| Settings | `ui/settings/SettingsScreen.kt` | fat composable; use `SectionCard` / `SwitchSettingRow` |
+| Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
 | Find My | `ui/findmy/FindMyScreen.kt`, `FindMyViewModel.kt` | VM + `FindMyPort` |
 | Attachment viewer | `ui/attachmentviewer/AttachmentViewerScreen.kt` | `AttachmentProvider` |
 | Login / provision | `ui/login/LoginScreen.kt`, `LoginViewModel.kt`, `ProvisionScreen.kt` | VM + `RustLoginHandle` |
@@ -123,9 +124,10 @@ Back chevron only when `showBackButton` (false in multi-pane for list-detail chi
 `buildConversationEntries` in `ChatScreen.kt`. Viewer: `AttachmentKey` + `sharedAttachment(guid)`.
 Long-press is part-aware — pass the Apple part index.
 
-**Settings row.** `SectionCard` + `SettingRow` / `SettingActionRow` / `SwitchSettingRow` in
-`SettingsScreen.kt`. Persist through `AppearancePrefs`, `MessagingPrefs`, `NotifPrefs`, or
-`BatterySaver`. Do not invent a second preferences API.
+**Settings row.** `SettingsGroup` + `SettingsInfoItem` / `SettingsActionItem` /
+`SettingsToggleItem` in `SettingsRows.kt`. Compact keeps the flexible bar; medium+ pins a
+small bar (Google Messages foldable pattern). Persist through `AppearancePrefs`,
+`MessagingPrefs`, `NotifPrefs`, or `BatterySaver`. Do not invent a second preferences API.
 
 **Tapbacks.** Indexes `❤️ 👍 👎 😂 ‼️ ❓` then custom at 6. Hidden on SMS chats.
 
