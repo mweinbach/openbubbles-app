@@ -40,36 +40,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # Must run before checkout: the private submodules are fetched over
-      # SSH with read-only deploy keys (GitHub allows a deploy key on only
-      # one repository, so each submodule gets its own key + host alias)
-      # instead of the GITHUB_TOKEN, which cannot cross repositories.
+      # Must run before checkout: five private repositories are pulled in as
+      # (nested) submodules — rustpush, telephony_plus, apple-private-apis,
+      # open-absinthe, android-smsmms — and GITHUB_TOKEN only sees this repo.
+      # GitHub allows a deploy key on a single repository, so each gets its
+      # own read-only key plus an SSH host alias.
       - name: Grant submodule read access (read-only deploy keys)
         env:
           KEY_RUSTPUSH: ${{ secrets.SUBMODULE_KEY_RUSTPUSH }}
           KEY_TELEPHONY: ${{ secrets.SUBMODULE_KEY_TELEPHONY }}
+          KEY_APIS: ${{ secrets.SUBMODULE_KEY_APIS }}
+          KEY_ABSINTHE: ${{ secrets.SUBMODULE_KEY_ABSINTHE }}
+          KEY_SMSMMS: ${{ secrets.SUBMODULE_KEY_SMSMMS }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$KEY_RUSTPUSH" > ~/.ssh/id_rustpush
-          printf '%s\n' "$KEY_TELEPHONY" > ~/.ssh/id_telephony
-          chmod 600 ~/.ssh/id_rustpush ~/.ssh/id_telephony
-          {
-            echo "Host github-rustpush"
-            echo "  HostName github.com"
-            echo "  IdentityFile ~/.ssh/id_rustpush"
-            echo "  IdentitiesOnly yes"
-            echo "Host github-telephony"
-            echo "  HostName github.com"
-            echo "  IdentityFile ~/.ssh/id_telephony"
-            echo "  IdentitiesOnly yes"
-          } >> ~/.ssh/config
           ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config --global \
-            url."ssh://git@github-rustpush/mweinbach/rustpush-private.git".insteadOf \
-            "https://github.com/mweinbach/rustpush-private.git"
-          git config --global \
-            url."ssh://git@github-telephony/mweinbach/telephony_plus.git".insteadOf \
-            "https://github.com/mweinbach/telephony_plus.git"
+          # alias|env var with the key|repository (owner/name)
+          cat <<'ALIASES' | while IFS='|' read -r alias keyvar repo; do
+          github-rustpush|KEY_RUSTPUSH|mweinbach/rustpush-private
+          github-telephony|KEY_TELEPHONY|mweinbach/telephony_plus
+          github-apis|KEY_APIS|mweinbach/apple-private-apis-private
+          github-absinthe|KEY_ABSINTHE|mweinbach/openabsinthe-private
+          github-smsmms|KEY_SMSMMS|mweinbach/android-smsmms
+          ALIASES
+            key="${!keyvar}"
+            if [ -z "$key" ]; then echo "missing secret $keyvar" >&2; exit 1; fi
+            printf '%s\n' "$key" > ~/.ssh/id_$alias
+            chmod 600 ~/.ssh/id_$alias
+            {
+              echo "Host $alias"
+              echo "  HostName github.com"
+              echo "  User git"
+              echo "  IdentityFile ~/.ssh/id_$alias"
+              echo "  IdentitiesOnly yes"
+            } >> ~/.ssh/config
+            git config --global \
+              url."ssh://$alias/$repo.git".insteadOf "https://github.com/$repo.git"
+          done
 
       - uses: actions/checkout@v4
         with:

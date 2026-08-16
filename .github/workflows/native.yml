@@ -8,6 +8,40 @@ jobs:
     name: Native Android APK
     runs-on: ubuntu-latest
     steps:
+      # Private (nested) submodules need read-only deploy keys; see the
+      # release-update.yml copy of this step for the secret inventory.
+      - name: Grant submodule read access (read-only deploy keys)
+        env:
+          KEY_RUSTPUSH: ${{ secrets.SUBMODULE_KEY_RUSTPUSH }}
+          KEY_TELEPHONY: ${{ secrets.SUBMODULE_KEY_TELEPHONY }}
+          KEY_APIS: ${{ secrets.SUBMODULE_KEY_APIS }}
+          KEY_ABSINTHE: ${{ secrets.SUBMODULE_KEY_ABSINTHE }}
+          KEY_SMSMMS: ${{ secrets.SUBMODULE_KEY_SMSMMS }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          cat <<'ALIASES' | while IFS='|' read -r alias keyvar repo; do
+          github-rustpush|KEY_RUSTPUSH|mweinbach/rustpush-private
+          github-telephony|KEY_TELEPHONY|mweinbach/telephony_plus
+          github-apis|KEY_APIS|mweinbach/apple-private-apis-private
+          github-absinthe|KEY_ABSINTHE|mweinbach/openabsinthe-private
+          github-smsmms|KEY_SMSMMS|mweinbach/android-smsmms
+          ALIASES
+            key="${!keyvar}"
+            if [ -z "$key" ]; then echo "missing secret $keyvar" >&2; exit 1; fi
+            printf '%s\n' "$key" > ~/.ssh/id_$alias
+            chmod 600 ~/.ssh/id_$alias
+            {
+              echo "Host $alias"
+              echo "  HostName github.com"
+              echo "  User git"
+              echo "  IdentityFile ~/.ssh/id_$alias"
+              echo "  IdentitiesOnly yes"
+            } >> ~/.ssh/config
+            git config --global \
+              url."ssh://$alias/$repo.git".insteadOf "https://github.com/$repo.git"
+          done
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -77,6 +111,41 @@ jobs:
     name: Native Desktop (Windows)
     runs-on: windows-latest
     steps:
+      # Same deploy-key dance as the android job; bash for the indirect
+      # variable expansion.
+      - name: Grant submodule read access (read-only deploy keys)
+        shell: bash
+        env:
+          KEY_RUSTPUSH: ${{ secrets.SUBMODULE_KEY_RUSTPUSH }}
+          KEY_TELEPHONY: ${{ secrets.SUBMODULE_KEY_TELEPHONY }}
+          KEY_APIS: ${{ secrets.SUBMODULE_KEY_APIS }}
+          KEY_ABSINTHE: ${{ secrets.SUBMODULE_KEY_ABSINTHE }}
+          KEY_SMSMMS: ${{ secrets.SUBMODULE_KEY_SMSMMS }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          cat <<'ALIASES' | while IFS='|' read -r alias keyvar repo; do
+          github-rustpush|KEY_RUSTPUSH|mweinbach/rustpush-private
+          github-telephony|KEY_TELEPHONY|mweinbach/telephony_plus
+          github-apis|KEY_APIS|mweinbach/apple-private-apis-private
+          github-absinthe|KEY_ABSINTHE|mweinbach/openabsinthe-private
+          github-smsmms|KEY_SMSMMS|mweinbach/android-smsmms
+          ALIASES
+            key="${!keyvar}"
+            if [ -z "$key" ]; then echo "missing secret $keyvar" >&2; exit 1; fi
+            printf '%s\n' "$key" > ~/.ssh/id_$alias
+            chmod 600 ~/.ssh/id_$alias
+            {
+              echo "Host $alias"
+              echo "  HostName github.com"
+              echo "  User git"
+              echo "  IdentityFile ~/.ssh/id_$alias"
+              echo "  IdentitiesOnly yes"
+            } >> ~/.ssh/config
+            git config --global \
+              url."ssh://$alias/$repo.git".insteadOf "https://github.com/$repo.git"
+          done
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
