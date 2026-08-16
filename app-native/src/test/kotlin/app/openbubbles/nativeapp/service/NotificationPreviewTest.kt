@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.service
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UMessage
@@ -83,6 +84,55 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `reaction with empty push text uses resolved target`() {
+        assertEquals(
+            "Liked “the stored message”",
+            notificationPreview(
+                reaction(
+                    "{\"React\":{\"reaction\":\"Like\",\"enable\":true}}",
+                    toText = "",
+                ),
+                reactionTargetText = "the stored message",
+            ),
+        )
+    }
+
+    @Test
+    fun `reaction with no target never shows empty quotes`() {
+        assertEquals(
+            "Emphasized a message",
+            notificationPreview(
+                reaction(
+                    "{\"React\":{\"reaction\":\"Emphasize\",\"enable\":true}}",
+                    toText = "",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `conversation notification id is stable per chat`() {
+        assertEquals(conversationNotificationId(42L), conversationNotificationId(42L))
+        assertNotEquals(conversationNotificationId(42L), conversationNotificationId(43L))
+    }
+
+    @Test
+    fun `legacy notification stack keeps one notification per chat`() {
+        val stableId = conversationNotificationId(7L)
+        val entries = listOf(
+            ConversationNotificationEntry(101, 7L, 100L, isSummary = false),
+            ConversationNotificationEntry(102, 7L, 300L, isSummary = true),
+            ConversationNotificationEntry(stableId, 7L, 200L, isSummary = false),
+            ConversationNotificationEntry(201, 8L, 100L, isSummary = false),
+        )
+
+        assertEquals(
+            setOf(101, 102),
+            redundantConversationNotificationIds(entries).toSet(),
+        )
+    }
+
+    @Test
     fun `history removes matching newest row and preserves oldest`() {
         val rows = listOf("oldest", "middle", "current")
 
@@ -122,7 +172,10 @@ class NotificationPreviewTest {
         verificationFailed = false,
     )
 
-    private fun reaction(json: String) = UMessageInst(
+    private fun reaction(
+        json: String,
+        toText: String = "the new photo",
+    ) = UMessageInst(
         id = "reaction-id",
         sender = "mailto:friend@icloud.com",
         conversation = null,
@@ -130,7 +183,7 @@ class NotificationPreviewTest {
             toUuid = "message-id",
             toPart = null,
             reactionJson = json,
-            toText = "the new photo",
+            toText = toText,
             parts = emptyList(),
         ),
         sentTimestamp = 1_700_000_000_000uL,

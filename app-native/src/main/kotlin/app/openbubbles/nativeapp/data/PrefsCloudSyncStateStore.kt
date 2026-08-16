@@ -6,9 +6,16 @@ import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.sync.CloudSyncManager
 import app.openbubbles.core.sync.CloudSyncStateStore
 import app.openbubbles.core.sync.SyncMode
+import app.openbubbles.core.sync.SyncSummary
 import app.openbubbles.core.sync.UniffiCloudSyncPort
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.NativePushState
 import java.io.ByteArrayInputStream
@@ -35,7 +42,14 @@ private const val KEY_HISTORY_SYNC_COMPLETE = "historySyncComplete"
 object CloudSyncWiring {
 
     private val managerRef = AtomicReference<CloudSyncManager?>(null)
+    private val syncCoordinator = HistorySyncCoordinator(
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        sync = { mode -> managerRef.get()?.sync(mode) },
+    )
+
     val manager: CloudSyncManager? get() = managerRef.get()
+    val syncing: StateFlow<Boolean> = syncCoordinator.running
+    val lastSummary: StateFlow<SyncSummary?> = syncCoordinator.lastSummary
 
     fun onStateInstalled(context: Context, state: NativePushState, autoSync: Boolean = true) {
         val store = CoreGraph.store ?: return
@@ -54,19 +68,25 @@ object CloudSyncWiring {
         // Auto incremental sync on connect (Dart parity: startup + daily).
         // Poll mode (battery saver) drives its own single sync instead.
         if (autoSync) {
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching { managerRef.get()?.sync(SyncMode.INCREMENTAL) }
-                    .getOrNull()
-                    ?.takeIf { it.error == null && !it.cancelled }
-                    ?.let {
-                        // CardDAV commonly finishes before initial history;
-                        // bind the newly created handles before exposing the
-                        // completed chat list.
-                        CoreGraph.relinkContacts()
-                        markHistorySyncComplete(context)
-                    }
-            }
+            startHistorySync(context, SyncMode.INCREMENTAL)
         }
+    }
+
+    /**
+     * Starts a single process-owned sync. The foreground push service keeps
+     * this process alive when the app leaves Settings or moves to background;
+     * persisted page cursors resume safely after an actual process death.
+     */
+    fun startHistorySync(context: Context, mode: SyncMode): Boolean =
+        syncCoordinator.start(mode) {
+            // CardDAV commonly finishes before initial history; bind newly
+            // created handles before exposing the completed chat list.
+            CoreGraph.relinkContacts()
+            markHistorySyncComplete(context.applicationContext)
+        }
+
+    fun cancelHistorySync() {
+        managerRef.get()?.cancel()
     }
 
     /**
@@ -101,7 +121,7 @@ object CloudSyncWiring {
     }
 
     fun clear() {
-        managerRef.set(null)
+        managerRef.getAndSet(null)?.cancel()
     }
 
     /** Queue a local chat deletion so the next sync flushes it before pulling. */
@@ -141,6 +161,58 @@ object CloudSyncWiring {
         editor.putBoolean(KEY_HISTORY_SYNC_COMPLETE, state.historySyncComplete)
         return editor.commit()
     }
+}
+
+internal class HistorySyncCoordinator(
+    private val scope: CoroutineScope,
+    private val sync: suspend (SyncMode) -> SyncSummary?,
+) {
+    private val lock = Any()
+    private var activeJob: Job? = null
+    private val _running = MutableStateFlow(false)
+    private val _lastSummary = MutableStateFlow<SyncSummary?>(null)
+
+    val running: StateFlow<Boolean> = _running.asStateFlow()
+    val lastSummary: StateFlow<SyncSummary?> = _lastSummary.asStateFlow()
+
+    fun start(mode: SyncMode, afterSuccessfulSync: suspend () -> Unit): Boolean =
+        synchronized(lock) {
+            if (activeJob?.isActive == true) return@synchronized false
+            _lastSummary.value = null
+            _running.value = true
+
+            lateinit var launched: Job
+            launched = scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val summary = sync(mode)
+                    _lastSummary.value = if (
+                        summary != null && summary.error == null && !summary.cancelled
+                    ) {
+                        runCatching { afterSuccessfulSync() }
+                            .fold(
+                                onSuccess = { summary },
+                                onFailure = { error ->
+                                    summary.copy(
+                                        error = error.message ?: error.javaClass.simpleName,
+                                    )
+                                },
+                            )
+                    } else {
+                        summary
+                    }
+                } finally {
+                    synchronized(lock) {
+                        if (activeJob === launched) {
+                            activeJob = null
+                            _running.value = false
+                        }
+                    }
+                }
+            }
+            activeJob = launched
+            launched.start()
+            true
+        }
 }
 
 private class PrefsCloudSyncStateStore(

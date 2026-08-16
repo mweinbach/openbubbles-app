@@ -128,8 +128,8 @@ fun SettingsScreen(
     val syncManager = CloudSyncWiring.manager
     val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(null) }
-    var syncing by remember { mutableStateOf(false) }
-    var syncResult by remember { mutableStateOf<String?>(null) }
+    val syncing by CloudSyncWiring.syncing.collectAsStateWithLifecycle()
+    val syncSummary by CloudSyncWiring.lastSummary.collectAsStateWithLifecycle()
     var contactSyncing by remember { mutableStateOf(false) }
     var contactStatus by remember {
         mutableStateOf(ICloudContactSync.status(context))
@@ -167,26 +167,10 @@ fun SettingsScreen(
     var revealSavedRecoveryCode by remember { mutableStateOf(false) }
 
     fun syncAllHistory() {
-        val manager = syncManager ?: return
-        if (syncing) return
-        syncing = true
-        syncResult = null
-        scope.launch {
-            val summary = manager.sync(app.openbubbles.core.sync.SyncMode.FULL)
-            syncing = false
-            syncResult = if (summary.error != null) {
-                "Sync failed: ${summary.error}"
-            } else {
-                CoreGraph.relinkContacts()
-                withContext(Dispatchers.IO) {
-                    CloudSyncWiring.markHistorySyncComplete(context)
-                }
-                "Synced ${summary.totalChats} chats, ${summary.totalMessages} messages, " +
-                    "${summary.totalAttachments} attachments " +
-                    "(${summary.chatTombstones + summary.messageTombstones + summary.attachmentTombstones} removed) " +
-                    "in ${summary.durationMs / 1000}s"
-            }
-        }
+        CloudSyncWiring.startHistorySync(
+            context,
+            app.openbubbles.core.sync.SyncMode.FULL,
+        )
     }
 
     fun syncICloudContacts() {
@@ -502,7 +486,14 @@ fun SettingsScreen(
                     syncProgress != null && syncing ->
                         "${syncProgress!!.phase}: ${syncProgress!!.chatsDone} chats, " +
                             "${syncProgress!!.messagesDone} messages, ${syncProgress!!.attachmentsDone} attachments"
-                    syncResult != null -> syncResult!!
+                    syncSummary?.error != null -> "Sync failed: ${syncSummary!!.error}"
+                    syncSummary?.cancelled == true -> "History sync stopped; progress was saved"
+                    syncSummary != null ->
+                        "Synced ${syncSummary!!.totalChats} chats, " +
+                            "${syncSummary!!.totalMessages} messages, " +
+                            "${syncSummary!!.totalAttachments} attachments " +
+                            "(${syncSummary!!.chatTombstones + syncSummary!!.messageTombstones + syncSummary!!.attachmentTombstones} removed) " +
+                            "in ${syncSummary!!.durationMs / 1000}s"
                     else -> "Downloads your Messages in iCloud history to this device"
                 }
                 val manager = syncManager
@@ -537,7 +528,7 @@ fun SettingsScreen(
                         "stop" -> SettingsActionItem(
                             title = "Stop sync",
                             supporting = "Cancel the history download in progress",
-                            onClick = { manager?.cancel() },
+                            onClick = CloudSyncWiring::cancelHistorySync,
                             index = index,
                             count = count,
                         )

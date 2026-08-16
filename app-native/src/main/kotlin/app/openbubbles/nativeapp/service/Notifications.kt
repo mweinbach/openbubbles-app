@@ -15,6 +15,8 @@ import androidx.core.app.RemoteInput
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
+import uniffi.rust_lib_bluebubbles.UMessage
+import uniffi.rust_lib_bluebubbles.UMessageInst
 
 /**
  * Incoming-message notification pipeline for the native app — the counterpart
@@ -22,13 +24,13 @@ import app.openbubbles.nativeapp.data.NotifPrefs
  * round-trips:
  *
  *  - one [NotificationChannel] per chat (lazily created, named after the chat)
- *  - one notification per message, grouped under a per-chat GROUP key, with a
- *    group summary posted once more than one message is pending in a chat
+ *  - one stable notification per chat; each new message updates its
+ *    MessagingStyle history instead of adding another notification card
  *  - MessagingStyle with a Person per chat (title + guid as the person key),
  *    conversation history from the store (last 4 messages, current appended),
  *    the chat guid as the conversation id (shortcutId) and person/search key
- *  - unique request codes (chatId-hash + timestamp) so every message's
- *    PendingIntents carry their own extras
+ *  - stable per-chat request codes whose PendingIntent extras update to the
+ *    newest message
  *  - tap deep-links into the chat (`chat_guid` extra), swipe-dismiss marks the
  *    chat read, "Mark As Read" / "Reply" actions mirror the Flutter actions
  *  - sanitized content when previews are hidden ([NotifPrefs.hidePreviews]):
@@ -45,7 +47,6 @@ object Notifications {
     const val EXTRA_MESSAGE_GUID = "message_guid"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val EXTRA_CANCEL_NOTIFICATIONS = "cancel_notifications"
-    const val EXTRA_IS_SUMMARY = "is_summary"
 
     /**
      * Conversation identity: NotificationCompat has no setConversationId /
@@ -60,8 +61,6 @@ object Notifications {
     const val KEY_TEXT_REPLY = "text_reply"
 
     private const val CHANNEL_PREFIX = "chat_"
-    private const val GROUP_PREFIX = "chat_group_"
-    private const val SUMMARY_SUFFIX = ":summary"
 
     /** Messages of conversation history shown above the new message. */
     private const val HISTORY_DEPTH = 4
@@ -87,10 +86,19 @@ object Notifications {
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
-        if (messageGuid != null && nm.activeNotifications.any {
+        val notificationId = conversationNotificationId(chatId)
+        val activeNotifications = nm.activeNotifications
+        val duplicate = messageGuid != null && activeNotifications.any {
+            it.id == notificationId &&
                 it.notification.extras.getString(EXTRA_MESSAGE_GUID) == messageGuid
+        }
+        activeNotifications
+            .filter {
+                it.id != notificationId &&
+                    it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId
             }
-        ) return
+            .forEach { nm.cancel(it.id) }
+        if (duplicate) return
 
         val prefs = NotifPrefs(context)
         val hide = prefs.hidePreviews
@@ -98,12 +106,7 @@ object Notifications {
         val shownText = if (hide) "New message" else text
 
         val channelId = ensureChannel(nm, chatGuid, title, isGroup)
-        val groupKey = GROUP_PREFIX + chatGuid
-
-        // Unique per message (chatId-hash + timestamp) — reused as the
-        // notification id and as the PendingIntent request-code base.
-        val requestCode = "$chatId:${messageGuid ?: System.currentTimeMillis()}".hashCode()
-        val notificationId = requestCode
+        val requestCode = notificationId
 
         val contentIntent = PendingIntent.getActivity(
             context,
@@ -164,8 +167,6 @@ object Notifications {
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setGroup(groupKey)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setColor(ACCENT_COLOR)
@@ -204,14 +205,12 @@ object Notifications {
         }
 
         nm.notify(notificationId, builder.build())
+    }
 
-        // Per-chat summary once more than one message is pending (counts only
-        // message children, never the summary itself).
-        val pending = nm.activeNotifications.count {
-            it.notification.extras.getString(EXTRA_CHAT_GUID) == chatGuid &&
-                !it.notification.extras.getBoolean(EXTRA_IS_SUMMARY)
-        }
-        if (pending > 1) postSummary(context, nm, chatId, chatGuid, channelId, title, hide, pending)
+    internal fun previewForIncoming(inst: UMessageInst): String? {
+        val reactionTarget = (inst.message as? UMessage.React)
+            ?.let { storedMessagePreview(it.toUuid) }
+        return notificationPreview(inst, reactionTarget)
     }
 
     /**
@@ -237,9 +236,12 @@ object Notifications {
         val shownText = if (hide) "Reply sent" else "You: $replyText"
 
         val channelId = ensureChannel(nm, chatGuid, title, isGroup = false)
-        val requestCode = if (notificationId > 0) notificationId else {
-            "$chatId:${System.currentTimeMillis()}".hashCode()
+        val requestCode = if (notificationId != -1) {
+            notificationId
+        } else {
+            conversationNotificationId(chatId)
         }
+        cancelOtherChatNotifications(nm, chatId, requestCode)
         val contentIntent = PendingIntent.getActivity(
             context,
             requestCode,
@@ -272,8 +274,6 @@ object Notifications {
             )
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setGroup(GROUP_PREFIX + chatGuid)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
@@ -305,9 +305,12 @@ object Notifications {
         if (!nm.areNotificationsEnabled()) return
         val conversationId = chatGuid ?: "chat-$chatId"
         val channelId = ensureChannel(nm, conversationId, title, isGroup = false)
-        val requestCode = if (notificationId > 0) notificationId else {
-            "$chatId:reply-failed".hashCode()
+        val requestCode = if (notificationId != -1) {
+            notificationId
+        } else {
+            conversationNotificationId(chatId)
         }
+        cancelOtherChatNotifications(nm, chatId, requestCode)
         val openIntent = Intent(context, NativeMainActivity::class.java).apply {
             chatGuid?.let { putExtra(EXTRA_CHAT_GUID, it) }
         }
@@ -344,6 +347,20 @@ object Notifications {
         nm.activeNotifications
             .filter { it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId }
             .forEach { nm.cancel(it.id) }
+    }
+
+    /** Removes redundant notifications left by older per-message notification builds. */
+    fun collapseActiveConversationNotifications(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        val entries = nm.activeNotifications.map { active ->
+            ConversationNotificationEntry(
+                id = active.id,
+                chatId = active.notification.extras.getLong(EXTRA_CHAT_ID),
+                postedAtMs = active.postTime,
+                isSummary = active.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+            )
+        }
+        redundantConversationNotificationIds(entries).forEach(nm::cancel)
     }
 
     // ------------------------------------------------------------------
@@ -457,8 +474,17 @@ object Notifications {
     private fun historyEntry(row: app.openbubbles.db.Message): HistoryEntry? {
         // Skip group events (name/photo changes etc.) and empty rows.
         if (row.itemType != null && row.itemType != 0L) return null
-        val text = row.text?.trim()?.takeIf { it.isNotEmpty() }
-            ?: if (row.hasAttachments) "[Attachment]" else return null
+        val text = if (
+            row.associatedMessageGuid != null && row.associatedMessageType != null
+        ) {
+            reactionNotificationText(
+                rawType = row.associatedMessageType,
+                emoji = row.associatedMessageEmoji,
+                targetText = storedMessagePreview(row.associatedMessageGuid),
+            )
+        } else {
+            storedMessagePreview(row)
+        } ?: return null
         val timestamp = row.dateCreated?.time ?: return null
         val sender = if (row.isFromMe) {
             null // local user
@@ -472,6 +498,33 @@ object Notifications {
                 .build()
         }
         return HistoryEntry(text = text, timestampMs = timestamp, senderPerson = sender)
+    }
+
+    private fun storedMessagePreview(guid: String): String? {
+        val store = CoreGraph.store ?: return null
+        val row = runCatching {
+            store.boxFor(app.openbubbles.db.Message::class.java)
+                .query()
+                .equal(
+                    app.openbubbles.db.Message_.guid,
+                    guid,
+                    io.objectbox.query.QueryBuilder.StringOrder.CASE_SENSITIVE,
+                )
+                .build().use { it.findFirst() }
+        }.getOrNull() ?: return null
+        return storedMessagePreview(row)
+    }
+
+    private fun storedMessagePreview(row: app.openbubbles.db.Message): String? {
+        row.text?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        row.subject?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        val attachments = runCatching { row.dbAttachments.toList() }.getOrDefault(emptyList())
+        if (attachments.size == 1) {
+            return attachments.single().transferName?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "an attachment"
+        }
+        if (attachments.size > 1) return "${attachments.size} attachments"
+        return if (row.hasAttachments) "an attachment" else null
     }
 
     // ------------------------------------------------------------------
@@ -507,42 +560,17 @@ object Notifications {
         .setContentIntent(contentIntent)
         .build()
 
-    private fun postSummary(
-        context: Context,
+    private fun cancelOtherChatNotifications(
         nm: NotificationManager,
         chatId: Long,
-        chatGuid: String,
-        channelId: String,
-        title: String,
-        hidePreviews: Boolean,
-        count: Int,
+        keepNotificationId: Int,
     ) {
-        val summaryId = "$chatId$SUMMARY_SUFFIX".hashCode()
-        // The summary opens the app root (chat list), like the Flutter app.
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            summaryId,
-            Intent(context, NativeMainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val summary = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(SMALL_ICON)
-            .setContentTitle(if (hidePreviews) "iMessage" else title)
-            .setContentText("$count new messages")
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setGroup(GROUP_PREFIX + chatGuid)
-            .setGroupSummary(true)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent)
-            .setColor(ACCENT_COLOR)
-            .setExtras(Bundle().apply {
-                putString(EXTRA_CHAT_GUID, chatGuid)
-                putLong(EXTRA_CHAT_ID, chatId)
-                putBoolean(EXTRA_IS_SUMMARY, true)
-            })
-            .build()
-        nm.notify(summaryId, summary)
+        nm.activeNotifications
+            .filter {
+                it.id != keepNotificationId &&
+                    it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId
+            }
+            .forEach { nm.cancel(it.id) }
     }
 
     /**
@@ -579,3 +607,26 @@ object Notifications {
         return id
     }
 }
+
+internal fun conversationNotificationId(chatId: Long): Int =
+    "openbubbles-chat:$chatId".hashCode()
+
+internal data class ConversationNotificationEntry(
+    val id: Int,
+    val chatId: Long,
+    val postedAtMs: Long,
+    val isSummary: Boolean,
+)
+
+internal fun redundantConversationNotificationIds(
+    entries: List<ConversationNotificationEntry>,
+): List<Int> = entries
+    .filter { it.chatId > 0L }
+    .groupBy { it.chatId }
+    .flatMap { (chatId, chatEntries) ->
+        if (chatEntries.size <= 1) return@flatMap emptyList()
+        val keep = chatEntries.firstOrNull { it.id == conversationNotificationId(chatId) }
+            ?: chatEntries.filterNot { it.isSummary }.maxByOrNull { it.postedAtMs }
+            ?: chatEntries.maxBy { it.postedAtMs }
+        chatEntries.filter { it.id != keep.id }.map { it.id }
+    }

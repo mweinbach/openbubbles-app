@@ -75,6 +75,7 @@ class NativePushService : Service(), MsgReceiver {
     override fun onCreate() {
         super.onCreate()
         createChannels()
+        Notifications.collapseActiveConversationNotifications(this)
         startForegroundCompat()
     }
 
@@ -496,7 +497,7 @@ class NativePushService : Service(), MsgReceiver {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
         if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
         if (inst.message is UMessage.React && !NotifPrefs(this).notifyReactions) return
-        val body = notificationPreview(inst) ?: return
+        val body = Notifications.previewForIncoming(inst) ?: return
         val target = chat ?: return
         if (app.openbubbles.core.model.ChatMute.shouldMute(
                 target,
