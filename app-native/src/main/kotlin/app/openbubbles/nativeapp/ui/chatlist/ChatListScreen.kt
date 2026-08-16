@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.chatlist
 
 import android.content.res.Configuration
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,25 +20,28 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -46,15 +50,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
 import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import androidx.compose.ui.tooling.preview.Preview
@@ -70,8 +77,8 @@ import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 private val ListContentMaxWidth = 840.dp
 
 /**
- * Expressive conversations overview with a collapsing hero title and an
- * adaptive, width-constrained list that remains comfortable on large screens.
+ * Conversations overview with compact Messages-style chrome and an adaptive,
+ * width-constrained list that remains comfortable on large screens.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +87,8 @@ fun ChatListScreen(
     onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
     onNewChat: () -> Unit = {},
+    onOpenFindMy: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onTogglePinned: (ChatListItem) -> Unit = {},
     onToggleMuted: (ChatListItem) -> Unit = {},
     onMuteFor: (ChatListItem, Long) -> Unit = { _, _ -> },
@@ -96,40 +105,108 @@ fun ChatListScreen(
     modifier: Modifier = Modifier,
     /**
      * Banner slot rendered above the conversation list, inside the Scaffold.
-     * It has to live here rather than above the NavHost: NavigationSuiteScaffold
-     * does not propagate its PaddingValues to inner content, so a banner hoisted
-     * outside the Scaffold draws underneath the status bar and pushes the app bar
-     * down.
+     * Keeping it here makes the banner share the app bar's insets and prevents a
+     * host-level banner from drawing underneath the status bar.
      */
     header: @Composable ColumnScope.() -> Unit = {},
     footer: @Composable ColumnScope.() -> Unit = {},
 ) {
     var selectedChat by remember { mutableStateOf<ChatListItem?>(null) }
     var confirmDelete by remember { mutableStateOf<ChatListItem?>(null) }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val conversationCount = uiState.pinned.size + uiState.chats.size + uiState.archived.size
-    val unreadCount = (uiState.pinned + uiState.chats + uiState.archived).sumOf { it.unread }
-    val subtitle = when {
-        uiState.loading -> "Loading conversations"
-        uiState.query.isNotBlank() -> "$conversationCount ${if (conversationCount == 1) "result" else "results"}"
-        conversationCount == 0 -> "Messages from your Apple devices"
-        unreadCount > 0 -> "$conversationCount conversations • $unreadCount unread"
-        else -> "$conversationCount ${if (conversationCount == 1) "conversation" else "conversations"}"
-    }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    var profileMenuExpanded by remember { mutableStateOf(false) }
+    val searchVisible = searchExpanded || uiState.query.isNotBlank()
     val paneColor = containerColor ?: MaterialTheme.colorScheme.surface
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier,
         containerColor = paneColor,
         topBar = {
-            LargeFlexibleTopAppBar(
-                title = { Text("Messages", maxLines = 1) },
-                subtitle = { Text(subtitle, maxLines = 1) },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = paneColor,
-                    scrolledContainerColor = paneColor,
-                ),
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "OpenBubbles",
+                            style = MaterialTheme.typography.headlineSmall,
+                            maxLines = 1,
+                        )
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                if (searchVisible) {
+                                    searchExpanded = false
+                                    onQueryChange("")
+                                } else {
+                                    searchExpanded = true
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (searchVisible) Icons.Filled.Clear else Icons.Filled.Search,
+                                contentDescription = if (searchVisible) "Close search" else "Search conversations",
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { profileMenuExpanded = true }) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Person,
+                                            contentDescription = "Open app menu",
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = profileMenuExpanded,
+                                onDismissRequest = { profileMenuExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Find My") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.LocationOn, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        profileMenuExpanded = false
+                                        onOpenFindMy()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Settings, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        profileMenuExpanded = false
+                                        onOpenSettings()
+                                    },
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = paneColor,
+                        scrolledContainerColor = paneColor,
+                    ),
+                )
+                if (searchVisible) {
+                    SearchField(
+                        value = uiState.query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier
+                            .widthIn(max = ListContentMaxWidth)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -145,12 +222,6 @@ fun ChatListScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                SearchField(
-                    value = uiState.query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
                 LoadingState(Modifier.fillMaxSize())
                 footer()
             }
@@ -159,12 +230,6 @@ fun ChatListScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                SearchField(
-                    value = uiState.query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
                 EmptyState(
                     query = uiState.query,
                     onNewChat = onNewChat,
@@ -176,10 +241,9 @@ fun ChatListScreen(
             else -> ChatSections(
                 uiState = uiState,
                 contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 8.dp,
+                    top = padding.calculateTopPadding() + 4.dp,
                     bottom = padding.calculateBottomPadding() + 88.dp,
                 ),
-                onQueryChange = onQueryChange,
                 onChatClick = onChatClick,
                 onChatLongClick = { selectedChat = it },
                 selectedChatId = selectedChatId,
@@ -240,7 +304,6 @@ fun ChatListScreen(
 private fun ChatSections(
     uiState: ChatListUiState,
     contentPadding: PaddingValues,
-    onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
     selectedChatId: Long?,
@@ -251,19 +314,11 @@ private fun ChatSections(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item(key = "header") {
             Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { header() }
-        }
-        item(key = "search") {
-            SearchField(
-                value = uiState.query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-            )
         }
         if (uiState.pinned.isNotEmpty()) {
             item(key = "header-pinned") {
@@ -280,7 +335,6 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -290,9 +344,6 @@ private fun ChatSections(
             }
         }
         if (uiState.chats.isNotEmpty()) {
-            item(key = "header-recent") {
-                SectionHeader("Recent", Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth())
-            }
             items(
                 items = uiState.chats,
                 key = { "chat-${it.id}" },
@@ -304,7 +355,6 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -328,7 +378,6 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -355,7 +404,7 @@ private fun SectionHeader(label: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** One iMessage-style rounded conversation row. */
+/** One flat, Messages-style conversation row. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListRow(
@@ -367,20 +416,14 @@ fun ChatListRow(
     modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
-    // Selected rows take secondaryContainer (the Material selected-state role)
-    // and a rounder shape — shape change as a state signal, not decoration.
     val secondaryText = if (selected) {
         MaterialTheme.colorScheme.onSecondaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
-        shape = if (selected) MaterialTheme.shapes.extraLarge else MaterialTheme.shapes.large,
-        color = when {
-            selected -> MaterialTheme.colorScheme.secondaryContainer
-            unread -> MaterialTheme.colorScheme.surfaceContainerHigh
-            else -> MaterialTheme.colorScheme.surfaceContainer
-        },
+        shape = if (selected) MaterialTheme.shapes.extraLarge else RectangleShape,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         modifier = modifier
             .fillMaxWidth()
             // Container transform into the conversation (compact windows only;
@@ -393,13 +436,14 @@ fun ChatListRow(
             ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ChatAvatar(
                 title = chat.title,
                 avatarColor = chat.avatarColor,
+                size = 56.dp,
                 avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
             Column(modifier = Modifier.weight(1f)) {
@@ -433,32 +477,38 @@ fun ChatListRow(
                     )
                 }
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    text = chat.snippet.orEmpty(),
-                    style = if (unread) {
-                        MaterialTheme.typography.bodyMediumEmphasized
-                    } else {
-                        MaterialTheme.typography.bodyMedium
-                    },
-                    color = when {
-                        selected -> MaterialTheme.colorScheme.onSecondaryContainer
-                        unread -> MaterialTheme.colorScheme.onSurface
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (chat.muted) {
-                Icon(
-                    imageVector = Icons.Filled.NotificationsOff,
-                    contentDescription = "Muted",
-                    tint = secondaryText,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
-            if (unread) {
-                UnreadBadge(count = chat.unread)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = chat.snippet.orEmpty(),
+                        style = if (unread) {
+                            MaterialTheme.typography.bodyMediumEmphasized
+                        } else {
+                            MaterialTheme.typography.bodyMedium
+                        },
+                        color = when {
+                            selected -> MaterialTheme.colorScheme.onSecondaryContainer
+                            unread -> MaterialTheme.colorScheme.onSurface
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (chat.muted) {
+                        Icon(
+                            imageVector = Icons.Filled.NotificationsOff,
+                            contentDescription = "Muted",
+                            tint = secondaryText,
+                            modifier = Modifier.padding(start = 8.dp).size(17.dp),
+                        )
+                    }
+                    if (unread) {
+                        UnreadBadge(
+                            count = chat.unread,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
             }
         }
     }

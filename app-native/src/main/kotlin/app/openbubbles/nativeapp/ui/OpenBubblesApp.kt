@@ -11,11 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -32,8 +29,6 @@ import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
 import androidx.compose.material3.toShape
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
-import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -160,18 +154,6 @@ private fun routeToKey(route: String): NavKey? = when {
     else -> null
 }
 
-private data class TopLevelDestination(
-    val key: NavKey,
-    val label: String,
-    val icon: ImageVector,
-)
-
-private val TopLevelDestinations = listOf(
-    TopLevelDestination(ChatsKey, "Chats", Icons.AutoMirrored.Filled.Chat),
-    TopLevelDestination(FindMyKey, "Find My", Icons.Filled.LocationOn),
-    TopLevelDestination(SettingsKey, "Settings", Icons.Filled.Settings),
-)
-
 /**
  * Root scaffold.
  *
@@ -247,20 +229,8 @@ fun OpenBubblesApp(
         null
     }
 
-    /**
-     * Tab switches preserve the Chats conversation stack: Chats pops back to
-     * whatever the user had open; other destinations sit on top of it and
-     * replace each other. Clearing the stack on every tab tap threw away the
-     * open conversation, which is not what tabs do.
-     */
-    fun navigateTopLevel(destination: TopLevelDestination) {
-        if (backStack.lastOrNull() == destination.key) return
-        if (destination.key == ChatsKey) {
-            while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
-        } else {
-            backStack.removeAll { it is SettingsKey || it is FindMyKey }
-            backStack.add(destination.key)
-        }
+    fun navigateHome() {
+        while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
     }
 
     /** Restores the persisted route at the recorded depth (chat info keeps its chat underneath). */
@@ -426,6 +396,8 @@ fun OpenBubblesApp(
                             MaterialTheme.colorScheme.surface
                         },
                         onNewChat = { navigateTo(NewChatKey) },
+                        onOpenFindMy = { navigateTo(FindMyKey) },
+                        onOpenSettings = { navigateTo(SettingsKey) },
                         onTogglePinned = viewModel::togglePinned,
                         onToggleMuted = viewModel::toggleMuted,
                         onMuteFor = viewModel::muteFor,
@@ -543,9 +515,9 @@ fun OpenBubblesApp(
 
                 entry<SettingsKey> {
                     SettingsScreen(
-                        onBack = { navigateTopLevel(TopLevelDestinations.first()) },
+                        onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
-                        showBackButton = false,
+                        showBackButton = true,
                     )
                 }
 
@@ -555,8 +527,8 @@ fun OpenBubblesApp(
                     FindMyScreen(
                         uiState = state,
                         onRefresh = viewModel::refresh,
-                        onBack = { navigateTopLevel(TopLevelDestinations.first()) },
-                        showBackButton = false,
+                        onBack = { popBack() },
+                        showBackButton = true,
                     )
                 }
 
@@ -590,7 +562,7 @@ fun OpenBubblesApp(
                                     NativePushService.reloadAfterLogin(c)
                                     requestBatteryExemptionOnce(c)
                                 }
-                                navigateTopLevel(TopLevelDestinations.first())
+                                navigateHome()
                             },
                             onBack = { popBack() },
                             onRedoSetup = { provisioned = false },
@@ -611,41 +583,9 @@ fun OpenBubblesApp(
         }
     }
 
-    // The navigation container belongs on top-level destinations, and also
-    // alongside a conversation once the list stays on screen next to it.
-    val showNavigationSuite = TopLevelDestinations.any { it.key == current } ||
-        (isMultiPane && (current is ChatKey || current is ChatInfoKey))
-
-    // The scaffold stays mounted and animates its navigation component in and
-    // out — conditionally composing it used to dispose and recreate the whole
-    // NavDisplay subtree on every full-screen transition.
-    val suiteState = rememberNavigationSuiteScaffoldState()
-    LaunchedEffect(showNavigationSuite) {
-        if (showNavigationSuite) suiteState.show() else suiteState.hide()
+    Box(modifier = modifier.fillMaxSize()) {
+        appContent()
     }
-
-    NavigationSuiteScaffold(
-        state = suiteState,
-        modifier = modifier,
-        navigationSuiteItems = {
-            TopLevelDestinations.forEach { destination ->
-                val selected = current == destination.key ||
-                    (destination.key == ChatsKey && (current is ChatKey || current is ChatInfoKey))
-                item(
-                    selected = selected,
-                    onClick = { navigateTopLevel(destination) },
-                    icon = {
-                        Icon(
-                            imageVector = destination.icon,
-                            contentDescription = null,
-                        )
-                    },
-                    label = { Text(destination.label) },
-                )
-            }
-        },
-        content = appContent,
-    )
 }
 
 /**

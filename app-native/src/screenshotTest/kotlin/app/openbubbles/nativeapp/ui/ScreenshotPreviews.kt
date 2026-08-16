@@ -79,7 +79,7 @@ private fun sampleState() = ChatListUiState(
     ),
 )
 
-/** Collapsing flexible app bar, section headers, and the width cap on wide windows. */
+/** Compact Messages-style app bar, flat rows, and the width cap on wide windows. */
 @PreviewTest
 @FormFactorPreviews
 @Composable
