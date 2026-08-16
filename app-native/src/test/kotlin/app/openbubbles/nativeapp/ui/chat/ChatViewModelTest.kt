@@ -74,6 +74,43 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `grouped contact sends new messages through its most recent address`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val model = model(
+            sender = sender,
+            actions = RecordingActions(),
+            chatListRepository = GroupedChats,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("latest route")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(9L to "latest route", sender.sent)
+    }
+
+    @Test
+    fun `grouped contact actions retain the message source address`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val actions = RecordingActions()
+        val model = model(sender, actions, chatListRepository = GroupedChats)
+        val target = message(guid = "alternate", text = "hello", chatId = 9L)
+
+        model.beginReply(target)
+        model.onInputChange("reply")
+        model.sendMessage()
+        model.react(target, 0L, 1)
+        model.unsend(target)
+        advanceUntilIdle()
+
+        assertEquals(9L, sender.reply?.first)
+        assertEquals(9L, actions.reactionChatId)
+        assertEquals(9L to "alternate", actions.unsend)
+    }
+
+    @Test
     fun `reply to a root message sends its full selected run locator`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val model = model(sender, RecordingActions())
@@ -254,6 +291,7 @@ class ChatViewModelTest {
     private fun model(
         sender: Sender,
         actions: MessageActions,
+        chatListRepository: ChatListRepository = StaticChats,
         messageRepository: MessageListRepository = StaticMessages,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
@@ -262,7 +300,7 @@ class ChatViewModelTest {
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
         chatId = 7L,
-        chatListRepository = StaticChats,
+        chatListRepository = chatListRepository,
         messageRepository = messageRepository,
         sender = sender,
         messageActions = actions,
@@ -284,6 +322,7 @@ class ChatViewModelTest {
         replyToPart: Long? = null,
         replyToPartLocator: String? = null,
         replyPartLocators: Map<Long, String> = emptyMap(),
+        chatId: Long? = null,
     ) = MessageItem(
         id = id,
         text = text,
@@ -298,12 +337,37 @@ class ChatViewModelTest {
         replyToPart = replyToPart,
         replyToPartLocator = replyToPartLocator,
         replyPartLocators = replyPartLocators,
+        chatId = chatId,
     )
 }
 
 private object StaticChats : ChatListRepository {
     override fun chats(): Flow<List<ChatListItem>> = flowOf(
         listOf(ChatListItem(7L, "Test", null, 0L, 0, false, 0L)),
+    )
+
+    override fun markRead(id: Long) = Unit
+    override fun setPinned(id: Long, pinned: Boolean) = Unit
+    override fun setMuted(id: Long, muted: Boolean) = Unit
+    override fun setArchived(id: Long, archived: Boolean) = Unit
+    override fun delete(id: Long) = Unit
+}
+
+private object GroupedChats : ChatListRepository {
+    override fun chats(): Flow<List<ChatListItem>> = flowOf(
+        listOf(
+            ChatListItem(
+                id = 7L,
+                title = "Grouped",
+                snippet = null,
+                date = 0L,
+                unread = 0,
+                pinned = false,
+                avatarColor = 0L,
+                memberChatIds = listOf(7L, 9L),
+                preferredChatId = 9L,
+            ),
+        ),
     )
 
     override fun markRead(id: Long) = Unit
@@ -357,10 +421,13 @@ private class BlockingThreadMessages : MessageListRepository {
 }
 
 private class RecordingSender : Sender {
+    var sent: Pair<Long, String>? = null
     var reply: Triple<Long, String, String>? = null
     var replyPartLocator: String? = null
 
-    override suspend fun send(chatId: Long, text: String) = Unit
+    override suspend fun send(chatId: Long, text: String) {
+        sent = chatId to text
+    }
 
     override suspend fun sendReply(
         chatId: Long,
@@ -378,6 +445,7 @@ private class RecordingActions : MessageActions {
     var reaction: Triple<String, Int, String>? = null
     var reactionPart: Long? = null
     var reactionEmoji: String? = null
+    var reactionChatId: Long? = null
     var unsend: Pair<Long, String>? = null
 
     override suspend fun react(
@@ -389,6 +457,7 @@ private class RecordingActions : MessageActions {
         emoji: String?,
         enable: Boolean,
     ) {
+        reactionChatId = chatId
         reaction = Triple(messageGuid, reactionIndex, messageText)
         reactionPart = messagePart
         reactionEmoji = emoji

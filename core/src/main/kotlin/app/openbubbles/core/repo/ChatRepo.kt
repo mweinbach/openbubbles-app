@@ -49,12 +49,36 @@ class ChatRepo(private val store: BoxStore) {
             .orderDesc(Chat_.dbOnlyLatestMessageDate)
             .build()
         return query.use {
-            val found = if (limit > 0) it.find(0, limit.toLong()) else it.find()
+            val found = it.find()
             val contactInfo = contactSync.displayInfoByHandleId()
+            val contactIds = contactSync.contactIdsByHandleId()
             // Project while the query and its creator thread are still alive;
             // relation reads in toItem must not escape to a collector thread.
-            found.map { chat -> toItem(chat, contactInfo) }
+            val grouped = groupContactChats(found, contactInfo, contactIds)
+            if (limit > 0) grouped.take(limit) else grouped
         }
+    }
+
+    /**
+     * Protocol chat ids represented by one direct-contact conversation.
+     *
+     * Only exact links to the same stored [ContactV2] are considered. Names,
+     * partial phone numbers, and other ambiguous metadata never merge chats.
+     */
+    fun relatedDirectChatIds(chatId: Long): List<Long> {
+        val chat = chatBox.get(chatId) ?: return emptyList()
+        val contactIds = contactSync.contactIdsByHandleId()
+        val contactId = directContactId(chat, contactIds) ?: return listOf(chatId)
+        return chatBox.query()
+            .isNull(Chat_.dateDeleted)
+            .build().use { query ->
+                query.find()
+                    .filter { candidate -> directContactId(candidate, contactIds) == contactId }
+                    .map { it.id }
+                    .distinct()
+                    .sorted()
+            }
+            .ifEmpty { listOf(chatId) }
     }
 
     /**
@@ -249,6 +273,78 @@ class ChatRepo(private val store: BoxStore) {
             transcriptBackgroundPath = chat.transcriptPosterPath,
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
         )
+    }
+
+    private data class ContactChatProjection(
+        val chat: Chat,
+        val item: ChatListItem,
+        val contactInfo: HandleDisplayInfo?,
+    )
+
+    private fun groupContactChats(
+        chats: List<Chat>,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        contactIds: Map<Long, Long>,
+    ): List<ChatListItem> {
+        val grouped = linkedMapOf<String, MutableList<ContactChatProjection>>()
+        chats.forEach { chat ->
+            val handle = chat.handles.singleOrNull()
+            val info = handle?.let { contactInfo[it.id] }
+            val contactId = directContactId(chat, contactIds)
+            val key = contactId?.let { "contact:$it" } ?: "chat:${chat.id}"
+            grouped.getOrPut(key) { mutableListOf() } += ContactChatProjection(
+                chat = chat,
+                item = toItem(chat, contactInfo),
+                contactInfo = info,
+            )
+        }
+        return grouped.values.map(::mergeContactChats)
+    }
+
+    private fun mergeContactChats(group: List<ContactChatProjection>): ChatListItem {
+        if (group.size == 1) {
+            val only = group.single()
+            return only.item.copy(
+                avatarPath = only.item.avatarPath ?: only.contactInfo?.avatar,
+                memberChatIds = listOf(only.chat.id),
+                preferredChatId = only.chat.id,
+            )
+        }
+
+        val canonical = group.minBy { it.chat.id }
+        val newest = group.maxWithOrNull(
+            compareBy<ContactChatProjection> { it.item.date?.time ?: Long.MIN_VALUE }
+                .thenBy { it.chat.id },
+        ) ?: canonical
+        val identity = canonical.contactInfo
+        return canonical.item.copy(
+            title = identity?.name?.takeIf(String::isNotBlank) ?: canonical.item.title,
+            snippet = newest.item.snippet,
+            date = newest.item.date,
+            hasUnread = group.any { it.item.hasUnread },
+            unreadCount = group.sumOf { it.item.unreadCount },
+            pinned = group.any { it.item.pinned },
+            muted = group.all { it.item.muted },
+            archived = group.all { it.item.archived },
+            avatarPath = newest.item.avatarPath ?: identity?.avatar,
+            customBackgroundPath = newest.item.customBackgroundPath
+                ?: canonical.item.customBackgroundPath,
+            transcriptBackgroundPath = newest.item.transcriptBackgroundPath
+                ?: canonical.item.transcriptBackgroundPath,
+            transcriptBackgroundVersion = newest.item.transcriptBackgroundVersion
+                ?: canonical.item.transcriptBackgroundVersion,
+            memberChatIds = group.map { it.chat.id }.distinct().sorted(),
+            preferredChatId = newest.chat.id,
+        )
+    }
+
+    private fun directContactId(
+        chat: Chat,
+        contactIds: Map<Long, Long>,
+    ): Long? {
+        if (chat.isRpSms == true || chat.isGroupConversation()) return null
+        val handle = chat.handles.singleOrNull() ?: return null
+        return contactIds[handle.id]
     }
 
     /** Chat list snippet for the latest message. */

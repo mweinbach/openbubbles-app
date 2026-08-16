@@ -8,6 +8,7 @@ import app.openbubbles.core.model.MessageStatus
 import app.openbubbles.core.model.StickerPlacement
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
@@ -17,8 +18,10 @@ import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 import java.util.Date
 
@@ -40,7 +43,7 @@ class MessageRepo(
 
     /** Newest-first page of messages for a chat ([offset] skips older rows). */
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
-        messageQuery(chatId).use { query ->
+        messageQuery(conversationChatIds(chatId)).use { query ->
             // Relation-backed fields are projected while the query's native
             // read transaction is scoped to this worker thread.
             query.find(offset.toLong(), limit.toLong()).map(::toItem)
@@ -49,7 +52,9 @@ class MessageRepo(
     /** Newest-first page strictly older than [beforeId]'s time/id cursor. */
     fun messagesBefore(chatId: Long, beforeId: Long, limit: Int): List<MessageItem> {
         val anchor = messageBox.get(beforeId) ?: return emptyList()
-        return messageQuery(chatId, anchor).use { query ->
+        val chatIds = conversationChatIds(chatId)
+        if (anchor.chat.targetId !in chatIds) return emptyList()
+        return messageQuery(chatIds, anchor).use { query ->
             query.find(0, limit.toLong()).map(::toItem)
         }
     }
@@ -60,14 +65,20 @@ class MessageRepo(
      * ObjectBox limit instead of materializing the entire transcript first.
      */
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
-        store.subscribe(Message::class.java)
-            .asFlow()
+        merge(
+            store.subscribe(Message::class.java).asFlow().map { Unit },
+            store.subscribe(ContactV2::class.java).asFlow().drop(1).map { Unit },
+        )
             .conflate()
             .map { messages(chatId, limit) }
             .flowOn(Dispatchers.IO)
 
-    private fun messageQuery(chatId: Long, before: Message? = null): Query<Message> {
-        var condition: QueryCondition<Message> = Message_.chatId.equal(chatId)
+    private fun messageQuery(chatIds: List<Long>, before: Message? = null): Query<Message> {
+        var chatCondition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
+        chatIds.drop(1).forEach { chatId ->
+            chatCondition = chatCondition.or(Message_.chatId.equal(chatId))
+        }
+        var condition = chatCondition
             .and(Message_.associatedMessageGuid.isNull())
             .and(Message_.dateDeleted.isNull())
         if (before != null) {
@@ -91,9 +102,11 @@ class MessageRepo(
 
     /** Root plus every reply attached to the same root part, oldest first. */
     fun threadMessages(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
-        val root = messageByGuid(rootGuid)?.takeIf { it.chat.targetId == chatId }
+        val chatIds = conversationChatIds(chatId)
+        val root = messageByGuid(rootGuid)?.takeIf { it.chat.targetId in chatIds }
+        val sourceChatId = root?.chat?.targetId ?: chatId
         val replies = messageBox.query()
-            .equal(Message_.chatId, chatId)
+            .equal(Message_.chatId, sourceChatId)
             .equal(Message_.threadOriginatorGuid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .isNull(Message_.associatedMessageGuid)
             .isNull(Message_.dateDeleted)
@@ -235,8 +248,12 @@ class MessageRepo(
                 message.balloonBundleId == "com.apple.messages.URLBalloonProvider"
             },
             stickers = activeReactions.flatMap(::stickerPlacements),
+            chatId = message.chat.targetId,
         )
     }
+
+    private fun conversationChatIds(chatId: Long): List<Long> =
+        chatRepo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
 
     /**
      * Collapses reaction rows onto their target bubble. Each sender owns one

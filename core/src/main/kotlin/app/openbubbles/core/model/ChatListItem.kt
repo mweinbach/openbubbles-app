@@ -46,4 +46,8 @@ data class ChatListItem(
     /** Apple-synced transcript background decoded to a local image. */
     val transcriptBackgroundPath: String?,
     val transcriptBackgroundVersion: Long?,
+    /** Protocol chat rows represented by this contact-grouped conversation. */
+    val memberChatIds: List<Long> = listOf(id),
+    /** Most recently active protocol chat used for a new outgoing message. */
+    val preferredChatId: Long = id,
 )

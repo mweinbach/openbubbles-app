@@ -536,6 +536,8 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     customBackgroundPath = item.customBackgroundPath,
     transcriptBackgroundPath = item.transcriptBackgroundPath,
     transcriptBackgroundVersion = item.transcriptBackgroundVersion,
+    memberChatIds = item.memberChatIds,
+    preferredChatId = item.preferredChatId,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -576,6 +578,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
             downloaded = sticker.downloaded,
         )
     },
+    chatId = item.chatId,
 )
 
 /** True when the mime/uti pair clearly describes an image. */
@@ -779,19 +782,28 @@ private class CoreChatListRepository(
             .map { list -> list.map(::coreChatToUi) }
             .flowOn(Dispatchers.IO)
 
-    override fun markRead(id: Long) = repo.markRead(id)
+    private fun memberIds(id: Long): List<Long> =
+        repo.relatedDirectChatIds(id).ifEmpty { listOf(id) }
 
-    override fun setPinned(id: Long, pinned: Boolean) = repo.setPinned(id, pinned)
+    override fun markRead(id: Long) = memberIds(id).forEach(repo::markRead)
 
-    override fun setMuted(id: Long, muted: Boolean) = repo.setMuted(id, muted)
+    override fun setPinned(id: Long, pinned: Boolean) =
+        memberIds(id).forEach { repo.setPinned(it, pinned) }
 
-    override fun setMutedUntil(id: Long, untilEpochMs: Long) = repo.setMutedUntil(id, untilEpochMs)
+    override fun setMuted(id: Long, muted: Boolean) =
+        memberIds(id).forEach { repo.setMuted(it, muted) }
 
-    override fun setArchived(id: Long, archived: Boolean) = repo.setArchived(id, archived)
+    override fun setMutedUntil(id: Long, untilEpochMs: Long) =
+        memberIds(id).forEach { repo.setMutedUntil(it, untilEpochMs) }
+
+    override fun setArchived(id: Long, archived: Boolean) =
+        memberIds(id).forEach { repo.setArchived(it, archived) }
 
     override fun delete(id: Long) {
-        val recordId = repo.softDelete(id) ?: return
-        AppContext.current?.let { CloudSyncWiring.queueChatDelete(it, recordId) }
+        memberIds(id).forEach { memberId ->
+            val recordId = repo.softDelete(memberId) ?: return@forEach
+            AppContext.current?.let { CloudSyncWiring.queueChatDelete(it, recordId) }
+        }
     }
 }
 
@@ -978,8 +990,30 @@ private object CoreSender : Sender {
 private object CoreReadReceiptSender : ReadReceiptSender {
     override suspend fun markRead(chatId: Long, messageGuid: String?) {
         val store = CoreGraph.store ?: return
-        ChatRepo(store).markRead(chatId)
+        val chatRepo = ChatRepo(store)
+        val relatedChatIds = chatRepo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
+        relatedChatIds.forEach(chatRepo::markRead)
 
+        val explicitMessage = messageGuid?.let { guid ->
+            val messageBox = store.boxFor(Message::class.java)
+            messageBox.query()
+                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?: messageBox.query()
+                    .equal(Message_.stagingGuid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+        }
+        val receiptChatIds = when {
+            explicitMessage != null -> listOf(explicitMessage.chat.targetId)
+            messageGuid != null -> listOf(chatId)
+            else -> relatedChatIds
+        }
+        receiptChatIds.forEach { receiptChatId ->
+            sendReadReceipt(store, receiptChatId, messageGuid)
+        }
+    }
+
+    private suspend fun sendReadReceipt(store: BoxStore, chatId: Long, messageGuid: String?) {
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: return
         if (!shouldSendAppleReadReceipt(chat)) return
         val state = PushStateHolder.state ?: return
@@ -987,18 +1021,18 @@ private object CoreReadReceiptSender : ReadReceiptSender {
         val receiptGuid = messageGuid?.takeUnless {
             it.contains("temp") || it.contains("error")
         } ?: store.boxFor(Message::class.java)
-                .query()
-                .equal(Message_.chatId, chatId)
-                .isNull(Message_.dateDeleted)
-                .orderDesc(Message_.dateCreated)
-                .build().use { query ->
-                    query.find(0, 10).firstNotNullOfOrNull { message ->
-                        (message.stagingGuid ?: message.guid)?.takeUnless {
-                            it.contains("temp") || it.contains("error")
-                        }
+            .query()
+            .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .build().use { query ->
+                query.find(0, 10).firstNotNullOfOrNull { message ->
+                    (message.stagingGuid ?: message.guid)?.takeUnless {
+                        it.contains("temp") || it.contains("error")
                     }
                 }
-                ?: return
+            }
+            ?: return
         val globalReceipts = AppContext.current
             ?.let { MessagingPrefs(it).sendReadReceipts }
             ?: false

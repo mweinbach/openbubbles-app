@@ -251,6 +251,17 @@ class ContactSync(private val store: BoxStore) {
         resolved
     }
 
+    /** Stable contact ids for exact identity grouping across linked handles. */
+    fun contactIdsByHandleId(): Map<Long, Long> = store.callInReadTx {
+        val resolved = HashMap<Long, Long>()
+        contactsByPreference().forEach { contact ->
+            contact.handles.forEach { handle ->
+                resolved.putIfAbsent(handle.id, contact.id)
+            }
+        }
+        resolved
+    }
+
     /**
      * Name + avatar path the UI should render for [handle] — the port of
      * `Handle.displayName` / `HandleState._resolveAvatarPath`: prefer the

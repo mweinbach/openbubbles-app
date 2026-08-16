@@ -151,20 +151,28 @@ class ChatViewModel(
 
     private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
 
+    private val chat: StateFlow<ChatListItem?> =
+        chatListRepository.chats()
+            .map { chats ->
+                chats.firstOrNull { item -> item.id == chatId || chatId in item.memberChatIds }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)
             .onEach(::observeMessageEffects)
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val chat: StateFlow<ChatListItem?> =
-        chatListRepository.chats()
-            .map { chats -> chats.firstOrNull { it.id == chatId } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
     private val typingSenders: StateFlow<List<String>> =
-        typingRepository.typing()
-            .map { entries -> entries.filter { it.chatId == chatId }.map { it.senderAddress } }
+        combine(typingRepository.typing(), chat) { entries, item ->
+            val chatIds = item?.memberChatIds.orEmpty().ifEmpty { listOf(chatId) }
+            entries.filter { it.chatId in chatIds }.map { it.senderAddress }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun preferredChatId(): Long = chat.value?.preferredChatId ?: chatId
+
+    private fun sourceChatId(message: MessageItem): Long = message.chatId ?: preferredChatId()
 
     private fun observeMessageEffects(list: List<MessageItem>) {
         if (!effectBaselineInitialized) {
@@ -220,19 +228,20 @@ class ChatViewModel(
             runCatching {
                 val editing = editingMessage.value
                 val reply = replyingTo.value
+                val targetChatId = preferredChatId()
                 when {
-                    editing != null -> messageActions.edit(chatId, editing.guid, text)
+                    editing != null -> messageActions.edit(sourceChatId(editing), editing.guid, text)
                     // SIM-routed chats (isRpSms) send over the modem; everything else
                     // goes through the APNs iMessage sender.
-                    smsRouter(chatId, text) -> Unit
+                    smsRouter(targetChatId, text) -> Unit
                     reply != null -> sender.sendReply(
-                        chatId,
+                        sourceChatId(reply.message),
                         text,
                         reply.rootGuid,
                         reply.partLocator,
                     )
-                    effectId == null -> sender.send(chatId, text)
-                    else -> sender.sendWithEffect(chatId, text, effectId)
+                    effectId == null -> sender.send(targetChatId, text)
+                    else -> sender.sendWithEffect(targetChatId, text, effectId)
                 }
             }.onSuccess {
                 editingMessage.value = null
@@ -264,7 +273,7 @@ class ChatViewModel(
         replyThread.value = ReplyThreadState(rootGuid, part)
         replyThreadJob = viewModelScope.launch(Dispatchers.IO) {
             val messages = try {
-                messageRepository.thread(chatId, rootGuid, part)
+                messageRepository.thread(sourceChatId(message), rootGuid, part)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -314,7 +323,7 @@ class ChatViewModel(
         viewModelScope.launch {
             runCatching {
                 messageActions.react(
-                    chatId = chatId,
+                    chatId = sourceChatId(message),
                     messageGuid = message.guid,
                     messageText = message.text,
                     messagePart = part,
@@ -330,7 +339,7 @@ class ChatViewModel(
     fun unsend(message: MessageItem) {
         if (!message.isFromMe || message.unsent) return
         viewModelScope.launch {
-            runCatching { messageActions.unsend(chatId, message.guid) }
+            runCatching { messageActions.unsend(sourceChatId(message), message.guid) }
                 .onFailure { failure ->
                     actionError.value = failure.message ?: "Could not unsend message"
                 }
@@ -345,7 +354,7 @@ class ChatViewModel(
         if (faceTimeStarting.value) return
         faceTimeStarting.value = true
         viewModelScope.launch {
-            runCatching { faceTimeCaller.start(chatId) }
+            runCatching { faceTimeCaller.start(preferredChatId()) }
                 .onSuccess { faceTimeLaunch.value = it }
                 .onFailure { failure ->
                     actionError.value = failure.message ?: "Could not start FaceTime"
@@ -368,8 +377,9 @@ class ChatViewModel(
         viewModelScope.launch {
             runCatching {
                 val value = caption.ifEmpty { null }
-                if (!smsAttachmentRouter(chatId, attachment, value)) {
-                    attachmentSender.send(chatId, attachment, value)
+                val targetChatId = preferredChatId()
+                if (!smsAttachmentRouter(targetChatId, attachment, value)) {
+                    attachmentSender.send(targetChatId, attachment, value)
                 }
             }.onFailure { failure ->
                 input.value = caption
@@ -386,7 +396,14 @@ class ChatViewModel(
     ) {
         viewModelScope.launch {
             runCatching {
-                stickerSender.send(chatId, target.guid, part, target.text, sticker, transform)
+                stickerSender.send(
+                    sourceChatId(target),
+                    target.guid,
+                    part,
+                    target.text,
+                    sticker,
+                    transform,
+                )
             }.onFailure { failure ->
                 actionError.value = failure.message ?: "Could not send sticker"
             }

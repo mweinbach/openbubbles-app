@@ -1,6 +1,9 @@
 package app.openbubbles.core.repo
 
+import app.openbubbles.core.contacts.ContactSync
+import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.db.Chat
+import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
@@ -55,6 +58,33 @@ class MessageRepoPagingTest {
         assertEquals((81L..90L).toList().reversed(), older.map { it.date!!.time })
     }
 
+    @Test
+    fun `contact conversation merges histories and retains source chat ids`() {
+        val firstHandle = handle("+15550000001")
+        val secondHandle = handle("+15550000002")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:merged-history",
+                    displayName = "Merged Person",
+                    firstName = null,
+                    lastName = null,
+                    avatarPath = null,
+                    addresses = listOf(firstHandle.address, secondHandle.address),
+                ),
+            ),
+        )
+        val firstChat = chat("first-address", firstHandle)
+        val secondChat = chat("second-address", secondHandle)
+        message(firstChat, "from first", 1_000L)
+        message(secondChat, "from second", 2_000L)
+
+        val page = repo.messages(firstChat.id, limit = 10)
+
+        assertEquals(listOf("from second", "from first"), page.map { it.text })
+        assertEquals(listOf(secondChat.id, firstChat.id), page.map { it.chatId })
+    }
+
     private fun seed(target: Chat, count: Int) {
         val box = store.boxFor(Message::class.java)
         repeat(count) { index ->
@@ -66,5 +96,27 @@ class MessageRepoPagingTest {
                 chat.target = target
             })
         }
+    }
+
+    private fun handle(address: String): Handle = Handle().apply {
+        this.address = address
+        service = "iMessage"
+        uniqueAddressAndService = "$address/$service"
+    }.also(store.boxFor(Handle::class.java)::put)
+
+    private fun chat(guid: String, handle: Handle): Chat = Chat().apply {
+        this.guid = guid
+        chatIdentifier = handle.address
+        isRpSms = false
+        handles.add(handle)
+    }.also(store.boxFor(Chat::class.java)::put)
+
+    private fun message(chat: Chat, text: String, timestamp: Long) {
+        store.boxFor(Message::class.java).put(Message().apply {
+            guid = "${chat.guid}-$timestamp"
+            this.text = text
+            dateCreated = Date(timestamp)
+            this.chat.target = chat
+        })
     }
 }

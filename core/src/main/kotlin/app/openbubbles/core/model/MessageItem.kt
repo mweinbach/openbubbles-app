@@ -100,4 +100,6 @@ data class MessageItem(
     val richLinkMetadataJson: String? = null,
     /** Active positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
+    /** Protocol chat that carried this message inside a grouped contact thread. */
+    val chatId: Long? = null,
 )

@@ -38,6 +38,10 @@ data class ChatListItem(
     /** Apple-synced transcript background received from another device. */
     val transcriptBackgroundPath: String? = null,
     val transcriptBackgroundVersion: Long? = null,
+    /** Protocol chats represented by this contact-grouped conversation. */
+    val memberChatIds: List<Long> = listOf(id),
+    /** Most recently active protocol chat for a new outgoing message. */
+    val preferredChatId: Long = id,
 )
 
 /** Device-local wallpaper overrides the Apple poster only while its file exists. */
@@ -133,6 +137,8 @@ data class MessageItem(
     val richLink: RichLinkPreview? = null,
     /** Positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
+    /** Protocol chat that carried this message inside a grouped contact thread. */
+    val chatId: Long? = null,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
