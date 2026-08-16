@@ -922,8 +922,9 @@ private object CoreSender : Sender {
             ?: error("no registered sending handle")
         val conversation = sendConversation(store, chat, myHandle)
 
-        val tempGuid = MessageIngestor.tempGuid()
-        graphMessageStage(store, chat.guid, myHandle, text, tempGuid).let { staged ->
+        val stage = stageOutgoingText(store, chat.guid, myHandle, text)
+        val tempGuid = stage.tempGuid
+        stage.message.let { staged ->
             if (effectId != null) {
                 // Persist the effect on the staged row so the bubble (and the
                 // screen-effect trigger) sees it before the echo lands.
@@ -938,8 +939,7 @@ private object CoreSender : Sender {
         }
 
         if (pushState == null) {
-            CoreGraphStageHolder.messageRepo(store)
-                .failOutgoing(tempGuid, "Not connected to Apple push")
+            failOutgoingText(store, tempGuid, "Not connected to Apple push")
             return
         }
 
@@ -957,34 +957,11 @@ private object CoreSender : Sender {
             failureLookupGuid = inst.id
             // Promote the staged row to the Rust staging guid so the echo and
             // SendConfirm receipts find it (same swap Dart performs).
-            store.runInTx {
-                val staged = messageBox.query()
-                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }
-                staged?.apply {
-                    guid = inst.id
-                    stagingGuid = inst.id
-                    if (effectId != null) expressiveSendStyleId = effectId
-                    messageBox.put(this)
-                }
-            }
+            promoteOutgoingText(store, tempGuid, inst.id)
             ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
         } catch (t: Throwable) {
-            CoreGraphStageHolder.messageRepo(store)
-                .failOutgoing(failureLookupGuid, t.message ?: t.javaClass.simpleName)
+            failOutgoingText(store, failureLookupGuid, t.message ?: t.javaClass.simpleName)
         }
-    }
-
-    private suspend fun graphMessageStage(
-        store: BoxStore,
-        chatGuid: String,
-        sender: String,
-        text: String,
-        tempGuid: String,
-    ): app.openbubbles.db.Message {
-        // Uses the core repo's staging helper bound to the same store.
-        val mRepo = CoreGraphStageHolder.messageRepo(store)
-        return mRepo.stageOutgoingMessage(chatGuid, sender, text, tempGuid)
     }
 }
 

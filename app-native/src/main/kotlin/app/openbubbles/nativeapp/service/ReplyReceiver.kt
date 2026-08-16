@@ -8,11 +8,16 @@ import androidx.core.app.RemoteInput
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.failOutgoingText
+import app.openbubbles.nativeapp.data.promoteOutgoingText
 import app.openbubbles.nativeapp.data.sendConversation
+import app.openbubbles.nativeapp.data.stageOutgoingText
 import app.openbubbles.nativeapp.sms.SmsBridge
+import io.objectbox.BoxStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import uniffi.rust_lib_bluebubbles.UMessageInst
 import uniffi.rust_lib_bluebubbles.UPushMessage
 
 /**
@@ -96,24 +101,36 @@ class ReplyReceiver : BroadcastReceiver() {
                 fail("Reply not sent: no registered sending address")
                 return
             }
-            val inst = runCatching {
-                pushState.sendText(
-                    sendConversation(chat, afterGuid, sender),
-                    sender,
-                    text,
-                    // replyGuid, replyPart, effect, subject
-                    null, null, null, null,
+            val persistedChatGuid = chat.guid ?: run {
+                fail("Reply not sent: conversation identifier unavailable")
+                return
+            }
+            val result = runCatching {
+                sendAppleNotificationReply(
+                    store = store,
+                    chatGuid = persistedChatGuid,
+                    sender = sender,
+                    text = text,
+                    send = {
+                        pushState.sendText(
+                            sendConversation(chat, afterGuid, sender),
+                            sender,
+                            text,
+                            // replyGuid, replyPart, effect, subject
+                            null, null, null, null,
+                        )
+                    },
+                    ingest = { inst ->
+                        val ingestor = CoreGraph.ingestor ?: error("message ingestor unavailable")
+                        ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                    },
                 )
             }.getOrElse { error ->
                 fail("Reply not sent: ${error.message ?: error.javaClass.simpleName}", error)
                 return
             }
 
-            // The network send succeeded. A local-echo failure should be visible,
-            // but must not claim the already-sent reply failed.
-            runCatching {
-                CoreGraph.ingestor?.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
-            }.onFailure { error ->
+            result.localEchoError?.let { error ->
                 Log.e(TAG, "reply sent but local echo ingest failed", error)
                 PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
             }
@@ -140,3 +157,31 @@ internal enum class NotificationReplyTransport { SMS, IMESSAGE }
 
 internal fun notificationReplyTransport(chat: Chat): NotificationReplyTransport =
     if (chat.isRpSms == true) NotificationReplyTransport.SMS else NotificationReplyTransport.IMESSAGE
+
+internal data class NotificationReplySendResult(
+    val localEchoError: Throwable?,
+)
+
+internal suspend fun sendAppleNotificationReply(
+    store: BoxStore,
+    chatGuid: String,
+    sender: String,
+    text: String,
+    send: () -> UMessageInst,
+    ingest: suspend (UMessageInst) -> Unit,
+): NotificationReplySendResult {
+    val stage = stageOutgoingText(store, chatGuid, sender, text)
+    val inst = try {
+        send()
+    } catch (error: Throwable) {
+        failOutgoingText(store, stage.tempGuid, error.message ?: error.javaClass.simpleName)
+        throw error
+    }
+    val promotionError = runCatching {
+        checkNotNull(promoteOutgoingText(store, stage.tempGuid, inst.id)) {
+            "staged notification reply disappeared"
+        }
+    }.exceptionOrNull()
+    val localEchoError = promotionError ?: runCatching { ingest(inst) }.exceptionOrNull()
+    return NotificationReplySendResult(localEchoError)
+}
