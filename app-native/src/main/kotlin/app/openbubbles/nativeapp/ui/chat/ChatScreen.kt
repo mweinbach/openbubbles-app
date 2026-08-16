@@ -316,6 +316,7 @@ fun ChatScreen(
     onActionErrorShown: () -> Unit = {},
     onStartFaceTime: () -> Unit = {},
     onFaceTimeLaunchConsumed: () -> Unit = {},
+    onScreenEffectConsumed: (Long) -> Unit = {},
     onOpenChatInfo: () -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -353,12 +354,20 @@ fun ChatScreen(
     // who removed animations at the OS level never get the full-screen storm.
     val reduceMotion = LocalReduceMotion.current
     var activeEffect by remember { mutableStateOf<ScreenEffectTrigger?>(null) }
+    val effectScope = rememberCoroutineScope()
+    var effectJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(uiState.screenEffect, reduceMotion) {
-        activeEffect = null
         val trigger = uiState.screenEffect ?: return@LaunchedEffect
-        if (reduceMotion) return@LaunchedEffect
-        delay(700)
-        activeEffect = trigger
+        effectJob?.cancel()
+        activeEffect = null
+        onScreenEffectConsumed(trigger.messageId)
+        if (reduceMotion) {
+            return@LaunchedEffect
+        }
+        effectJob = effectScope.launch {
+            delay(700)
+            activeEffect = trigger
+        }
     }
 
     LaunchedEffect(uiState.actionError) {

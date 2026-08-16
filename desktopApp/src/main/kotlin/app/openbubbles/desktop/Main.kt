@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -32,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import java.awt.Dimension
+import java.io.File
 
 /**
  * Compose Desktop entry point for the native (no-Dart) OpenBubbles client.
@@ -64,6 +67,7 @@ fun main() {
 /** Navigation destinations. */
 private sealed interface Screen {
     data object Splash : Screen
+    data object Provision : Screen
     data object Login : Screen
     data object Chats : Screen
     data class Chat(val chatId: Long) : Screen
@@ -78,11 +82,14 @@ private fun App() {
         val saved = withContext(Dispatchers.IO) {
             runCatching { DesktopGraph.hasSavedUsers() }.getOrDefault(false)
         }
+        val provisioned = File(DesktopGraph.dataDir, "hw_info.plist").isFile
         if (saved) {
             DesktopGraph.startDaemon()
             screen = Screen.Chats
-        } else {
+        } else if (provisioned) {
             screen = Screen.Login
+        } else {
+            screen = Screen.Provision
         }
     }
 
@@ -103,6 +110,13 @@ private fun App() {
 
     when (val s = screen) {
         Screen.Splash -> CenteredBusy("Starting…")
+        Screen.Provision -> ProvisionRequired(
+            onRetry = {
+                if (File(DesktopGraph.dataDir, "hw_info.plist").isFile) {
+                    screen = Screen.Login
+                }
+            },
+        )
         Screen.Login -> LoginScreen(controller = loginController)
         Screen.Chats -> {
             if (DesktopGraph.store == null) {
@@ -120,6 +134,26 @@ private fun App() {
             chatId = s.chatId,
             onBack = { screen = Screen.Chats },
         )
+    }
+}
+
+@Composable
+private fun ProvisionRequired(onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Desktop provisioning required", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Provision this device with the supported OABS Mac payload, then place " +
+                    "hw_info.plist in ${DesktopGraph.dataDir.absolutePath}.",
+            )
+            Button(onClick = onRetry) { Text("Check again") }
+        }
     }
 }
 

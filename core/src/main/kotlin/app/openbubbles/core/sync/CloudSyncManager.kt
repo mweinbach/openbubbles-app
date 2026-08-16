@@ -1,5 +1,6 @@
 package app.openbubbles.core.sync
 
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Attachment
@@ -102,6 +103,7 @@ class CloudSyncManager(
     private val store: BoxStore,
     private val port: CloudSyncPort,
     private val syncStore: CloudSyncStateStore = InMemoryCloudSyncStateStore(),
+    private val attachmentStore: AttachmentStore? = null,
 ) {
 
     companion object {
@@ -278,46 +280,40 @@ class CloudSyncManager(
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
                 for (record in batch) {
-                    // Dart caught per-record failures and kept the sync running —
-                    // one malformed record must not kill the whole backfill.
-                    try {
-                        val cloud = record.chat
-                        if (cloud == null) {
-                            deleteChatByRecordIdLocked(record.recordId)
-                            continue
-                        }
-                        if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
-                        val chat = findOrImportChatLocked(cloud)
-                        // Always refresh identifiers (Dart applies these before the
-                        // version gate).
-                        chat.chatIdentifier = cloud.chatIdentifier
-                        chat.ckRecordId = record.recordId
-                        chat.cloudGuid = cloud.groupId
-                        val localVersion = chat.groupVersion ?: 1L
-                        val cloudVersion = cloud.groupVersion?.toLong()
-                        if (cloudVersion == null || cloudVersion <= localVersion) {
-                            chat.ckSyncState = cloudVersion == localVersion
-                        } else {
-                            // Cloud is newer: apply the full chat state.
-                            chat.style = cloud.style
-                            chat.lastReadMessageGuid = cloud.lastSeenMessageGuid
-                            chat.groupVersion = cloudVersion
-                            chat.displayName = cloud.displayName
-                            chat.dbOnlyLatestMessageDate = dateFromAppleNs(cloud.lastReadMessageTimestamp)
-                            // Cloud chats include me — mirror Dart and keep all.
-                            chat.handles.clear()
-                            chat.handles.addAll(
-                                cloud.participants.map { HandleResolver.resolve(store, it, "iMessage") },
-                            )
-                            if (cloud.lastAddressedHandle.isNotEmpty()) {
-                                chat.usingHandle = MessageMapper.toRustHandle(cloud.lastAddressedHandle)
-                            }
-                            chat.ckSyncState = true
-                        }
-                        chatBox.put(chat)
-                    } catch (_: Exception) {
-                        // Skip the bad record; the rest of this batch still applies.
+                    val cloud = record.chat
+                    if (cloud == null) {
+                        deleteChatByRecordIdLocked(record.recordId)
+                        continue
                     }
+                    if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
+                    val chat = findOrImportChatLocked(cloud)
+                    // Always refresh identifiers (Dart applies these before the
+                    // version gate).
+                    chat.chatIdentifier = cloud.chatIdentifier
+                    chat.ckRecordId = record.recordId
+                    chat.cloudGuid = cloud.groupId
+                    val localVersion = chat.groupVersion ?: 1L
+                    val cloudVersion = cloud.groupVersion?.toLong()
+                    if (cloudVersion == null || cloudVersion <= localVersion) {
+                        chat.ckSyncState = cloudVersion == localVersion
+                    } else {
+                        // Cloud is newer: apply the full chat state.
+                        chat.style = cloud.style
+                        chat.lastReadMessageGuid = cloud.lastSeenMessageGuid
+                        chat.groupVersion = cloudVersion
+                        chat.displayName = cloud.displayName
+                        chat.dbOnlyLatestMessageDate = dateFromAppleNs(cloud.lastReadMessageTimestamp)
+                        // Cloud chats include me — mirror Dart and keep all.
+                        chat.handles.clear()
+                        chat.handles.addAll(
+                            cloud.participants.map { HandleResolver.resolve(store, it, "iMessage") },
+                        )
+                        if (cloud.lastAddressedHandle.isNotEmpty()) {
+                            chat.usingHandle = MessageMapper.toRustHandle(cloud.lastAddressedHandle)
+                        }
+                        chat.ckSyncState = true
+                    }
+                    chatBox.put(chat)
                 }
             }
         }
@@ -331,7 +327,7 @@ class CloudSyncManager(
             .forEach { chat ->
                 val messages = chat.messages.toList()
                 messages.forEach { message ->
-                    message.dbAttachments.forEach { attachmentBox.remove(it) }
+                    message.dbAttachments.toList().forEach(::removeAttachmentLocked)
                 }
                 messages.forEach { messageBox.remove(it) }
                 chatBox.remove(chat)
@@ -408,18 +404,12 @@ class CloudSyncManager(
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
                 for (record in batch) {
-                    // Same per-record resilience as the chat zone (Dart caught each
-                    // item separately and kept going).
-                    try {
-                        val cloud = record.message
-                        if (cloud == null) {
-                            deleteMessageByRecordIdLocked(record.recordId)
-                            continue
-                        }
-                        applyMessageLocked(record.recordId, cloud)
-                    } catch (_: Exception) {
-                        // Skip the bad record; the batch's other records still apply.
+                    val cloud = record.message
+                    if (cloud == null) {
+                        deleteMessageByRecordIdLocked(record.recordId)
+                        continue
                     }
+                    applyMessageLocked(record.recordId, cloud)
                 }
             }
         }
@@ -433,7 +423,10 @@ class CloudSyncManager(
         messageBox.query()
             .equal(Message_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { q -> q.find() }
-            .forEach { message -> messageBox.remove(message) }
+            .forEach { message ->
+                message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+                messageBox.remove(message)
+            }
     }
 
     /**
@@ -583,16 +576,12 @@ class CloudSyncManager(
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
                 for (record in batch) {
-                    try {
-                        val cloud = record.attachment
-                        if (cloud == null) {
-                            deleteAttachmentByRecordIdLocked(record.recordId)
-                            continue
-                        }
-                        applyAttachmentLocked(record.recordId, cloud)
-                    } catch (_: Exception) {
-                        // Keep applying the batch when one malformed attachment is encountered.
+                    val cloud = record.attachment
+                    if (cloud == null) {
+                        deleteAttachmentByRecordIdLocked(record.recordId)
+                        continue
                     }
+                    applyAttachmentLocked(record.recordId, cloud)
                 }
             }
         }
@@ -603,7 +592,12 @@ class CloudSyncManager(
         attachmentBox.query()
             .equal(Attachment_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.find() }
-            .forEach(attachmentBox::remove)
+            .forEach(::removeAttachmentLocked)
+    }
+
+    private fun removeAttachmentLocked(attachment: Attachment) {
+        attachmentStore?.deleteLocalFiles(attachment)
+        attachmentBox.remove(attachment)
     }
 
     private fun applyAttachmentLocked(recordId: String, cloud: UCloudAttachment) {

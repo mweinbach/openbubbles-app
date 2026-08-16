@@ -11,27 +11,85 @@ kotlin {
     jvmToolchain(21)
 }
 
-// UniFFI bindings (same generated file the Android app compiles)
-sourceSets.main.java.srcDir "../core/src/main/kotlin/uniffi"
-
 dependencies {
     implementation project(":db")
     implementation project(":core")
-    implementation "io.objectbox:objectbox-kotlin:4.3.0"
+    implementation libs.objectbox.kotlin
     // ObjectBox's native library ships as separate per-OS jars that the
     // objectbox-java POM does not pull in (Android bundles it in the AAR);
     // add every desktop target so dev machines and the CI Windows build
     // both resolve `native/libobjectbox-jni-<os>.dylib|dll|so` at runtime.
-    implementation "io.objectbox:objectbox-macos:4.3.0"
-    implementation "io.objectbox:objectbox-windows:4.3.0"
-    implementation "io.objectbox:objectbox-linux:4.3.0"
+    implementation libs.objectbox.macos
+    implementation libs.objectbox.windows
+    implementation libs.objectbox.linux
 
     implementation(compose.desktop.currentOs)
     implementation(compose.foundation)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
-    implementation "net.java.dev.jna:jna:5.16.0"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0"
+    implementation libs.jna
+    implementation libs.kotlinx.coroutines.swing
+    testImplementation libs.kotlin.test
+    testImplementation libs.kotlinx.coroutines.test
+}
+
+def osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
+def archName = System.getProperty("os.arch").toLowerCase(java.util.Locale.ROOT)
+def arm64 = archName == "aarch64" || archName == "arm64"
+def rustLibraryName
+def jnaResourcePrefix
+if (osName.contains("win")) {
+    rustLibraryName = "rust_lib_bluebubbles.dll"
+    jnaResourcePrefix = arm64 ? "win32-aarch64" : "win32-x86-64"
+} else if (osName.contains("mac")) {
+    rustLibraryName = "librust_lib_bluebubbles.dylib"
+    jnaResourcePrefix = arm64 ? "darwin-aarch64" : "darwin-x86-64"
+} else {
+    rustLibraryName = "librust_lib_bluebubbles.so"
+    jnaResourcePrefix = arm64 ? "linux-aarch64" : "linux-x86-64"
+}
+
+def rustDir = rootProject.file("../rust")
+def rustLibrary = new File(rustDir, "target/release/${rustLibraryName}")
+def generatedRustResources = layout.buildDirectory.dir("generated/rustJnaResources")
+
+def buildHostRust = tasks.register("buildHostRust", Exec) {
+    description = "Builds the host Rust cdylib used by desktop UniFFI/JNA"
+    workingDir rustDir
+    commandLine "cargo", "build", "--release", "--locked"
+    inputs.files(fileTree(rustDir) {
+        include "Cargo.toml", "Cargo.lock", "build.rs", "src/**"
+    })
+    inputs.files(fileTree(rootProject.file("../rustpush")) {
+        include "Cargo.toml", "Cargo.lock", "src/**", "keystore/**", "cloudkit-proto/**"
+    })
+    outputs.file(rustLibrary)
+}
+
+def copyHostRustLibrary = tasks.register("copyHostRustLibrary", Copy) {
+    dependsOn buildHostRust
+    from rustLibrary
+    into generatedRustResources.map { new File(it.asFile, jnaResourcePrefix) }
+}
+
+sourceSets.main.resources.srcDir(generatedRustResources)
+tasks.named("processResources").configure { dependsOn copyHostRustLibrary }
+
+def verifyHostRustResource = tasks.register("verifyHostRustResource") {
+    dependsOn copyHostRustLibrary
+    doLast {
+        def embedded = new File(generatedRustResources.get().asFile, "${jnaResourcePrefix}/${rustLibraryName}")
+        if (!embedded.isFile()) {
+            throw new GradleException("Desktop Rust library was not embedded at ${embedded}")
+        }
+    }
+}
+
+tasks.matching {
+    it.name == "run" || it.name == "createDistributable" ||
+        it.name.startsWith("package") || it.name.startsWith("createRelease")
+}.configureEach {
+    dependsOn verifyHostRustResource
 }
 
 compose.desktop {

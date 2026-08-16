@@ -1,5 +1,6 @@
 package app.openbubbles.core.intake
 
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.model.DeleteMessageCommand
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageSummaryPartList
@@ -64,6 +65,7 @@ data class TypingIndicator(
 class MessageIngestor(
     private val store: BoxStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val attachmentStore: AttachmentStore? = null,
 ) {
     /**
      * Persistence result used by notification consumers. [isNewIncomingMessage]
@@ -424,7 +426,7 @@ class MessageIngestor(
                 command.messageGuids.forEach { guid ->
                     findMessageByGuidOrStaging(guid)?.let { message ->
                         message.chat.target?.let(affected::add)
-                        message.dbAttachments.toList().forEach(attachmentBox::remove)
+                        removeAttachments(message)
                         messageBox.remove(message)
                     }
                 }
@@ -437,19 +439,26 @@ class MessageIngestor(
         store.runInTx {
             if (chat.dateDeleted != null) {
                 chat.messages.toList().forEach { message ->
-                    message.dbAttachments.toList().forEach(attachmentBox::remove)
+                    removeAttachments(message)
                     messageBox.remove(message)
                 }
                 chatBox.remove(chat)
             } else {
                 chat.messages.filter { it.dateDeleted != null }.forEach { message ->
-                    message.dbAttachments.toList().forEach(attachmentBox::remove)
+                    removeAttachments(message)
                     messageBox.remove(message)
                 }
                 refreshChatLatest(chat)
             }
         }
         return chat
+    }
+
+    private fun removeAttachments(message: Message) {
+        message.dbAttachments.toList().forEach { attachment ->
+            attachmentStore?.deleteLocalFiles(attachment)
+            attachmentBox.remove(attachment)
+        }
     }
 
     private fun findOperatedChat(command: DeleteMessageCommand, myHandles: Set<String>): Chat? {

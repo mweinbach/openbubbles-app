@@ -1,6 +1,6 @@
 
 
-use std::{borrow::{Borrow, BorrowMut}, collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, str::FromStr, sync::{Arc, OnceLock, Weak}, time::Duration, u64};
+use std::{borrow::{Borrow, BorrowMut}, collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, path::Path, str::FromStr, sync::{Arc, OnceLock, Weak}, time::Duration, u64};
 pub use std::time::SystemTime;
 use anyhow::anyhow;
 use flutter_rust_bridge::{DartFnFuture, IntoDart, JoinHandle, frb};
@@ -42,6 +42,24 @@ use flutter_rust_bridge::for_generated::{SimpleHandler, SimpleExecutor, NoOpErro
 pub type MyHandler = SimpleHandler<SimpleExecutor<NoOpErrorListener, SimpleThreadPool, MyAsyncRuntime>, NoOpErrorListener>;
 
 include!("./mirrors.rs");
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let parent = path.parent().ok_or_else(|| anyhow!("path has no parent: {}", path.display()))?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    let persisted = temp.persist(path).map_err(|error| error.error)?;
+    persisted.sync_all()?;
+    #[cfg(unix)]
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn atomic_write_plist<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
+    let mut bytes = Vec::new();
+    plist::to_writer_xml(&mut bytes, value)?;
+    atomic_write(path, &bytes)
+}
 
 #[derive(Debug, Default)]
 pub struct MyAsyncRuntime();
@@ -218,13 +236,30 @@ pub struct ActiveCircleSession {
     otp: u32,
 }
 
+static SHARED_STATE_DATA: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, Weak<SharedPushState>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static NEXT_SHARED_STATE_ID: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+pub fn register_service(state: &Arc<SharedPushState>) -> u64 {
+    let id = NEXT_SHARED_STATE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SHARED_STATE_DATA
+        .lock()
+        .expect("shared state registry lock poisoned")
+        .insert(id, Arc::downgrade(state));
+    id
+}
+
 pub fn service_from_ptr(ptr: String) -> Option<SharedPushState> {
-    let pointer: u64 = ptr.parse().unwrap();
+    let pointer = ptr.parse::<u64>().ok()?;
     info!("using state {pointer}");
-    let service = unsafe {
-        Weak::from_raw(pointer as *const SharedPushState)
-    };
-    service.upgrade().map(|s| (*s).clone())
+    SHARED_STATE_DATA
+        .lock()
+        .ok()?
+        .remove(&pointer)?
+        .upgrade()
+        .map(|state| (*state).clone())
 }
 
 fn plist_to_buf<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, plist::Error> {
@@ -264,7 +299,7 @@ fn migrate(path: String) -> bool {
                                 ..Default::default()
                             }).expect("failed to import RSA");
                             *private = Value::String(handle);
-                            plist::to_file_xml(&hw_config_path, &item).expect("failed to save!");
+                            atomic_write_plist(&hw_config_path, &item).expect("failed to save!");
                         }
                     }
                 }
@@ -274,7 +309,7 @@ fn migrate(path: String) -> bool {
             if value.as_dictionary().is_some() {
                 let identity: IDSNGMIdentity = plist::from_value(&value).expect("NGM Identity parse");
                 *value = Value::Data(identity.save("openbubbles").expect("Failed to save"));
-                plist::to_file_xml(&hw_config_path, &item).expect("failed to save!");
+                atomic_write_plist(&hw_config_path, &item).expect("failed to save!");
             }
         }
     }
@@ -313,7 +348,7 @@ fn migrate(path: String) -> bool {
             }
         }
         if modified {
-            plist::to_file_xml(&id_path, &users).expect("failed to save!");
+            atomic_write_plist(&id_path, &users).expect("failed to save!");
         }
     }
 
@@ -375,7 +410,7 @@ fn migrate(path: String) -> bool {
                 if let Some(Value::Dictionary(dict)) = users.get_mut("items") {
                     dict.clear();
                 }
-                plist::to_file_xml(&cloudkit_path, &users).expect("failed to save!");
+                atomic_write_plist(&cloudkit_path, &users).expect("failed to save!");
             }
         }
     }
@@ -384,11 +419,11 @@ fn migrate(path: String) -> bool {
     if let Ok(mut account) = plist::from_file::<_, Dictionary>(&gsa_path) {
         if let Some(Value::Data(password)) = account.remove("password") {
             account.insert("encrypted_password".to_string(), Value::Data(GSAConfig::encrypt(&password).expect("Undo").into()));
-            plist::to_file_xml(&gsa_path, &account).expect("failed to save!");
+            atomic_write_plist(&gsa_path, &account).expect("failed to save!");
 
             let findmy = dir.join("findmy.plist");
             if let Ok(users) = plist::from_file::<_, FindMyState>(&findmy) {
-                std::fs::write(findmy, users.encode().expect("what")).unwrap();
+                atomic_write(&findmy, &users.encode().expect("what")).unwrap();
             }
         }
     }
@@ -497,6 +532,12 @@ pub struct DaemonData {
     pub state: SharedPushState,
 }
 
+static DAEMON_DATA: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, DaemonData>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static NEXT_DAEMON_ID: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
 #[frb(sync)]
 pub fn send_daemon(state: SharedPushState, watcher: APSWatcher) -> (String, SharedPushState) {
     let data = DaemonData {
@@ -504,11 +545,24 @@ pub fn send_daemon(state: SharedPushState, watcher: APSWatcher) -> (String, Shar
         state: state.clone()
     };
 
-    let num = Box::into_raw(Box::new(data)) as u64;
+    let num = NEXT_DAEMON_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    DAEMON_DATA
+        .lock()
+        .expect("daemon registry lock poisoned")
+        .insert(num, data);
 
     info!("emitting pointer {num}");
 
     (num.to_string(), state)
+}
+
+pub fn take_daemon(handle: &str) -> anyhow::Result<DaemonData> {
+    let id = handle.parse::<u64>()?;
+    DAEMON_DATA
+        .lock()
+        .map_err(|_| anyhow!("daemon registry lock poisoned"))?
+        .remove(&id)
+        .ok_or_else(|| anyhow!("unknown or already-consumed daemon token"))
 }
 
 #[frb(sync)]
@@ -562,6 +616,16 @@ pub struct SharedICloudServices {
 
 impl SharedPushState {
     pub async fn restore(path: String) -> Option<(Self, APSWatcher)> {
+        match Self::restore_with_error(path).await {
+            Ok(state) => state,
+            Err(error) => {
+                error!("failed to restore saved push state: {error}");
+                None
+            }
+        }
+    }
+
+    pub async fn restore_with_error(path: String) -> anyhow::Result<Option<(Self, APSWatcher)>> {
         info!("restroing");
         let dir = PathBuf::from_str(&path).unwrap();
         let keystore = dir.join("keystore.plist");
@@ -578,22 +642,32 @@ impl SharedPushState {
         if let Err(err) = panic::catch_unwind(|| {
             migrate(path.clone());
         }) {
-
-            if let Some(s) = err.downcast_ref::<&str>() {
-                info!("Panic message: {}", s);
-            } else if let Some(s) = err.downcast_ref::<String>() {
-                info!("Panic message: {}", s);
+            let reason = if let Some(message) = err.downcast_ref::<&str>() {
+                info!("Panic message: {}", message);
+                message.to_string()
+            } else if let Some(message) = err.downcast_ref::<String>() {
+                info!("Panic message: {}", message);
+                message.clone()
             } else {
                 info!("Panic occurred, but message has unknown type");
-            }
-
-            panic!("panicked")
+                "unknown migration panic".to_string()
+            };
+            anyhow::bail!("saved-state migration failed: {reason}");
         }
 
-        let hardware = read_hardware(path.clone())?;
-        let users = restore_users(path.clone())?;
+        let hardware = match read_hardware(path.clone()) {
+            Some(hardware) => hardware,
+            None if !dir.join("hw_info.plist").exists() => return Ok(None),
+            None => anyhow::bail!("saved hardware state is unreadable"),
+        };
+        let users = match restore_users(path.clone()) {
+            Some(users) => users,
+            None if !dir.join("id.plist").exists() => return Ok(None),
+            None => anyhow::bail!("saved IDS registration is unreadable"),
+        };
         let config = &hardware.os_config;
-        let identity = IDSNGMIdentity::restore(hardware.identity.as_ref(), "openbubbles").ok()?;
+        let identity = IDSNGMIdentity::restore(hardware.identity.as_ref(), "openbubbles")
+            .map_err(|error| anyhow::anyhow!("saved identity is unreadable: {error}"))?;
         let (conn, _) = setup_push(config, &identity, Some(hardware.push.clone()), path.clone()).await;
         let client = make_imclient(path.clone(), &conn, &users, &identity).await;
         let anisette = make_anisette(path.clone(), config, &conn).await;
@@ -605,7 +679,7 @@ impl SharedPushState {
 
         let (cancel_poll, local_broadcast, watcher) = build_watcher(&conn, &client);
 
-        Some((Self {
+        Ok(Some((Self {
             os_config: config.clone(),
             cancel_poll,
             conf_dir: path.clone(),
@@ -615,7 +689,9 @@ impl SharedPushState {
             conn: conn.clone(),
             icloud_services: if let Some(account) = &account {
                 let token_provider = make_token_provider(account, config);
-                let cloudkit = make_cloudkit(path.clone(), &anisette, config, &token_provider).await.expect("todo remove");
+                let cloudkit = make_cloudkit(path.clone(), &anisette, config, &token_provider)
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("saved CloudKit state is unreadable"))?;
                 let keychain = make_keychain(path.clone(), &cloudkit, &anisette, config, &token_provider);
 
                 Some(SharedICloudServices {
@@ -645,7 +721,7 @@ impl SharedPushState {
             
             active_circle_sessions: make_circle_sessions(),
             client_session: make_client_session(None),
-        }, watcher))
+        }, watcher)))
     }
 }
 
@@ -1181,17 +1257,17 @@ pub async fn read_queued_message() -> Option<(u64, u8, PushMessage)> {
 }
 
 #[frb(type_64bit_int)]
-pub async fn mark_queue_attempt(id: u64, success: bool) {
+pub async fn mark_queue_attempt(id: u64, success: bool) -> anyhow::Result<()> {
     let mut log_lock = MESSAGE_LOG.lock().await;
     if success {
-        log_lock.finish(id);
+        log_lock.finish(id)?;
     } else {
-        let count = log_lock.attempt(id);
+        let count = log_lock.attempt(id)?;
         if count >= 2 {
             warn!("Dropping queue attempt failed!");
-            log_lock.finish(id);
         }
     }
+    Ok(())
 }
 
 pub async fn ptr_to_dart(ptr: String) -> Option<PushMessage> {
@@ -2075,9 +2151,13 @@ pub async fn delete_beacon_share(items: &Arc<FindMyClient<DefaultAnisetteProvide
 pub async fn get_beacon_items(items: &Arc<FindMyClient<DefaultAnisetteProvider>>) -> anyhow::Result<Vec<DartBeacon>> {
     items.sync_item_positions().await?;
 
+    Ok(get_cached_beacon_items(items).await)
+}
+
+pub async fn get_cached_beacon_items(items: &Arc<FindMyClient<DefaultAnisetteProvider>>) -> Vec<DartBeacon> {
     let records = items.state.state.lock().await;
 
-    Ok(records.accessories.iter().map(|(id, a)| DartBeacon {
+    records.accessories.iter().map(|(id, a)| DartBeacon {
         naming: a.naming.clone(),
         last_report: a.last_report.clone(),
         product_id: a.master_record.product_id,
@@ -2111,7 +2191,7 @@ pub async fn get_beacon_items(items: &Arc<FindMyClient<DefaultAnisetteProvider>>
                 owner_handle: a.owner_handle.clone(),
             }),
         })
-    })).collect())
+    })).collect()
 }
 
 pub async fn update_beacon_name(items: &Arc<FindMyClient<DefaultAnisetteProvider>>, naming_record: &BeaconNamingRecord) -> anyhow::Result<()> {

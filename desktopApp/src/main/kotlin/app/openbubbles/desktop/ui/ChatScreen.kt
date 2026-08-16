@@ -126,6 +126,8 @@ fun ChatScreen(
     }
     val rows by rowsFlow.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val connected = DesktopGraph.PushStateHolder.stateFlow.collectAsState().value != null
+    val carrierChat = chat?.isRpSms == true
 
     // Mark read on open (and whenever a new row lands while open).
     LaunchedEffect(chatId, rows.size) {
@@ -136,7 +138,7 @@ fun ChatScreen(
         ChatHeader(
             title = chat?.displayName ?: chat?.chatIdentifier ?: "Chat",
             subtitle = chat?.handles?.joinToString(", ") { it.formattedAddress ?: it.address }.orEmpty(),
-            connected = DesktopGraph.PushStateHolder.stateFlow.collectAsState().value != null,
+            connected = connected,
             onBack = onBack,
         )
         Transcript(
@@ -147,7 +149,8 @@ fun ChatScreen(
             onLoadMore = { windowSize.value += 60 },
         )
         InputBox(
-            enabled = DesktopGraph.PushStateHolder.stateFlow.collectAsState().value != null,
+            enabled = connected && chat != null && !carrierChat,
+            placeholder = if (carrierChat) "SMS is available on Android only" else "iMessage",
             onSend = { text ->
                 scope.launch { runCatching { DesktopGraph.send(chatId, text) } }
             },
@@ -539,7 +542,7 @@ internal fun humanSize(bytes: Long): String {
 // ------------------------------------------------------------------
 
 @Composable
-private fun InputBox(enabled: Boolean, onSend: (String) -> Unit) {
+private fun InputBox(enabled: Boolean, placeholder: String, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
 
     Surface(tonalElevation = 2.dp) {
@@ -553,7 +556,7 @@ private fun InputBox(enabled: Boolean, onSend: (String) -> Unit) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("iMessage") },
+                placeholder = { Text(placeholder) },
                 modifier = Modifier.weight(1f),
                 enabled = enabled,
                 maxLines = 5,

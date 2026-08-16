@@ -20,12 +20,15 @@ import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -122,6 +125,7 @@ class ChatViewModel(
     private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
     private val smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean =
         SmsBridge::routeAttachmentIfSmsChat,
+    initialInput: String? = null,
 ) : ViewModel() {
 
     init {
@@ -130,7 +134,7 @@ class ChatViewModel(
         viewModelScope.launch { readReceiptSender.markRead(chatId, null) }
     }
 
-    private val input = MutableStateFlow("")
+    private val input = MutableStateFlow(initialInput.orEmpty())
     private val loadingOlder = MutableStateFlow(false)
     private val replyingTo = MutableStateFlow<ReplyTarget?>(null)
     private val replyThread = MutableStateFlow<ReplyThreadState?>(null)
@@ -139,15 +143,18 @@ class ChatViewModel(
     private val faceTimeStarting = MutableStateFlow(false)
     private val faceTimeLaunch = MutableStateFlow<FaceTimeLaunch?>(null)
     private var endReached = false
+    private var replyThreadJob: Job? = null
 
     /** Message ids whose send effect has already been played (once each). */
     private val playedEffectMessageIds = mutableSetOf<Long>()
+    private var effectBaselineInitialized = false
 
     private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
 
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .onEach(::observeMessageEffects)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val chat: StateFlow<ChatListItem?> =
         chatListRepository.chats()
@@ -159,17 +166,17 @@ class ChatViewModel(
             .map { entries -> entries.filter { it.chatId == chatId }.map { it.senderAddress } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    init {
-        // Watch the transcript so a *new* newest message with a send effect
-        // (incoming or outgoing) triggers the full-screen overlay exactly once.
-        viewModelScope.launch {
-            messages.collect { list ->
-                val newest = list.lastOrNull() ?: return@collect
-                val styleId = newest.expressiveSendStyleId ?: return@collect
-                if (playedEffectMessageIds.add(newest.id)) {
-                    screenEffect.value = ScreenEffectTrigger(newest.id, styleId)
-                }
-            }
+    private fun observeMessageEffects(list: List<MessageItem>) {
+        if (!effectBaselineInitialized) {
+            effectBaselineInitialized = true
+            list.filter { it.expressiveSendStyleId != null }
+                .forEach { playedEffectMessageIds.add(it.id) }
+            return
+        }
+        val newest = list.lastOrNull() ?: return
+        val styleId = newest.expressiveSendStyleId ?: return
+        if (playedEffectMessageIds.add(newest.id)) {
+            screenEffect.value = ScreenEffectTrigger(newest.id, styleId)
         }
     }
 
@@ -253,19 +260,35 @@ class ChatViewModel(
     fun openReplyThread(message: MessageItem) {
         val rootGuid = message.replyToGuid ?: message.guid
         val part = message.replyToPart ?: 0L
+        replyThreadJob?.cancel()
         replyThread.value = ReplyThreadState(rootGuid, part)
-        viewModelScope.launch(Dispatchers.IO) {
-            val messages = runCatching { messageRepository.thread(chatId, rootGuid, part) }
-                .getOrElse { failure ->
+        replyThreadJob = viewModelScope.launch(Dispatchers.IO) {
+            val messages = try {
+                messageRepository.thread(chatId, rootGuid, part)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                val current = replyThread.value
+                if (current?.rootGuid == rootGuid && current.part == part) {
                     actionError.value = failure.message ?: "Could not load replies"
-                    emptyList()
                 }
-            replyThread.value = ReplyThreadState(rootGuid, part, messages, loading = false)
+                emptyList()
+            }
+            val current = replyThread.value
+            if (current?.rootGuid == rootGuid && current.part == part) {
+                replyThread.value = ReplyThreadState(rootGuid, part, messages, loading = false)
+            }
         }
     }
 
     fun closeReplyThread() {
+        replyThreadJob?.cancel()
+        replyThreadJob = null
         replyThread.value = null
+    }
+
+    fun consumeScreenEffect(messageId: Long) {
+        if (screenEffect.value?.messageId == messageId) screenEffect.value = null
     }
 
     fun replyFromThread(message: MessageItem, part: Long) {
@@ -407,6 +430,7 @@ class ChatViewModel(
             faceTimeCaller: FaceTimeCaller = FaceTimeCaller {
                 error("FaceTime requires an active Apple push connection")
             },
+            initialInput: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatViewModel(
@@ -420,6 +444,7 @@ class ChatViewModel(
                     stickerSender,
                     typingRepository,
                     readReceiptSender,
+                    initialInput = initialInput,
                 )
             }
         }

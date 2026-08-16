@@ -679,9 +679,12 @@ internal interface UniffiCallbackInterfaceMsgReceiverMethod1 : com.sun.jna.Callb
     fun callback(`uniffiHandle`: Long,`state`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceMsgReceiverMethod2 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`success`: Byte,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(`uniffiHandle`: Long,`reason`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceMsgReceiverMethod3 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`success`: Byte,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceMsgReceiverMethod4 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceNativeKeystoreMethod0 : com.sun.jna.Callback {
@@ -836,25 +839,28 @@ internal open class UniffiVTableCallbackInterfaceKotlinFilePackager(
     }
 
 }
-@Structure.FieldOrder("receievedMsg", "nativeReady", "twofaEvent", "finish", "uniffiFree")
+@Structure.FieldOrder("receievedMsg", "nativeReady", "nativeError", "twofaEvent", "finish", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceMsgReceiver(
     @JvmField internal var `receievedMsg`: UniffiCallbackInterfaceMsgReceiverMethod0? = null,
     @JvmField internal var `nativeReady`: UniffiCallbackInterfaceMsgReceiverMethod1? = null,
-    @JvmField internal var `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod2? = null,
-    @JvmField internal var `finish`: UniffiCallbackInterfaceMsgReceiverMethod3? = null,
+    @JvmField internal var `nativeError`: UniffiCallbackInterfaceMsgReceiverMethod2? = null,
+    @JvmField internal var `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod3? = null,
+    @JvmField internal var `finish`: UniffiCallbackInterfaceMsgReceiverMethod4? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
         `receievedMsg`: UniffiCallbackInterfaceMsgReceiverMethod0? = null,
         `nativeReady`: UniffiCallbackInterfaceMsgReceiverMethod1? = null,
-        `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod2? = null,
-        `finish`: UniffiCallbackInterfaceMsgReceiverMethod3? = null,
+        `nativeError`: UniffiCallbackInterfaceMsgReceiverMethod2? = null,
+        `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod3? = null,
+        `finish`: UniffiCallbackInterfaceMsgReceiverMethod4? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceMsgReceiver(`receievedMsg`,`nativeReady`,`twofaEvent`,`finish`,`uniffiFree`,), Structure.ByValue
+    ): UniffiVTableCallbackInterfaceMsgReceiver(`receievedMsg`,`nativeReady`,`nativeError`,`twofaEvent`,`finish`,`uniffiFree`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceMsgReceiver) {
         `receievedMsg` = other.`receievedMsg`
         `nativeReady` = other.`nativeReady`
+        `nativeError` = other.`nativeError`
         `twofaEvent` = other.`twofaEvent`
         `finish` = other.`finish`
         `uniffiFree` = other.`uniffiFree`
@@ -1454,6 +1460,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1533,6 +1545,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_receieved_msg(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_native_ready(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_native_error(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_twofa_event(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_finish(
@@ -1605,6 +1619,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_available_gr
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_cached_beacon_items(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_contacts_headers(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_devices(
@@ -1672,6 +1688,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_stop_loop(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page(
 ): Short
@@ -1909,6 +1927,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_receieved_msg(`ptr`: Point
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_ready(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_twofa_event(`ptr`: Pointer,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_finish(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1991,6 +2011,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_cached_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_contacts_headers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2058,6 +2080,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`:
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2435,7 +2459,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_is_locked() != 51144.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt() != 52117.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_mark_journal_attempt() != 46897.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_parse_call_poster() != 56461.toShort()) {
@@ -2504,10 +2528,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_native_ready() != 61228.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_twofa_event() != 20021.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_native_error() != 50133.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_finish() != 11980.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_twofa_event() != 15647.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_msgreceiver_finish() != 48335.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_supports_import() != 18551.toShort()) {
@@ -2612,6 +2639,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_beacon_items() != 27025.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_cached_beacon_items() != 49490.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_contacts_headers() != 37658.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2712,6 +2742,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_loop() != 19847.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_stop_loop() != 11143.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page() != 17111.toShort()) {
@@ -4812,6 +4845,8 @@ public interface MsgReceiver {
     
     fun `nativeReady`(`state`: NativePushState?)
     
+    fun `nativeError`(`reason`: kotlin.String)
+    
     fun `twofaEvent`(`success`: kotlin.Boolean)
     
     fun `finish`()
@@ -4923,6 +4958,17 @@ open class MsgReceiverImpl: Disposable, AutoCloseable, MsgReceiver
     
     
 
+    override fun `nativeError`(`reason`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_error(
+        it, FfiConverterString.lower(`reason`),_status)
+}
+    }
+    
+    
+
     override fun `twofaEvent`(`success`: kotlin.Boolean)
         = 
     callWithPointer {
@@ -4981,7 +5027,19 @@ internal object uniffiCallbackInterfaceMsgReceiver {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod2 {
+    internal object `nativeError`: UniffiCallbackInterfaceMsgReceiverMethod2 {
+        override fun callback(`uniffiHandle`: Long,`reason`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeMsgReceiver.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`nativeError`(
+                    FfiConverterString.lift(`reason`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `twofaEvent`: UniffiCallbackInterfaceMsgReceiverMethod3 {
         override fun callback(`uniffiHandle`: Long,`success`: Byte,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypeMsgReceiver.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -4993,7 +5051,7 @@ internal object uniffiCallbackInterfaceMsgReceiver {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `finish`: UniffiCallbackInterfaceMsgReceiverMethod3 {
+    internal object `finish`: UniffiCallbackInterfaceMsgReceiverMethod4 {
         override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypeMsgReceiver.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -5014,6 +5072,7 @@ internal object uniffiCallbackInterfaceMsgReceiver {
     internal var vtable = UniffiVTableCallbackInterfaceMsgReceiver.UniffiByValue(
         `receievedMsg`,
         `nativeReady`,
+        `nativeError`,
         `twofaEvent`,
         `finish`,
         uniffiFree,
@@ -5951,6 +6010,11 @@ public interface NativePushStateInterface {
     fun `getBeaconItems`(): List<UFmItem>
     
     /**
+     * Last persisted own + shared Find My items without a network refresh.
+     */
+    fun `getCachedBeaconItems`(): List<UFmItem>
+    
+    /**
      * Authenticated headers for the account's iCloud CardDAV endpoint. This
      * reuses the on-device Apple session; Kotlin never receives the password
      * or long-lived account credentials, only the short-lived request values
@@ -6134,6 +6198,13 @@ public interface NativePushStateInterface {
     fun `startFacetimeCall`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>): kotlin.String
     
     fun `startLoop`(`handler`: MsgReceiver)
+    
+    /**
+     * Stop the current receive loop and close its live Apple resources
+     * without deleting registration or account state. The caller may restore
+     * a fresh state afterward (battery-saver transitions and service reloads).
+     */
+    fun `stopLoop`()
     
     /**
      * Pull one page of attachment metadata. Payload bytes stay remote until
@@ -6629,6 +6700,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Last persisted own + shared Find My items without a network refresh.
+     */
+    @Throws(UException::class)override fun `getCachedBeaconItems`(): List<UFmItem> {
+            return FfiConverterSequenceTypeUFmItem.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_cached_beacon_items(
         it, _status)
 }
     }
@@ -7175,6 +7262,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(
         it, FfiConverterTypeMsgReceiver.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Stop the current receive loop and close its live Apple resources
+     * without deleting registration or account state. The caller may restore
+     * a fresh state afterward (battery-saver transitions and service reloads).
+     */override fun `stopLoop`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(
+        it, _status)
 }
     }
     
@@ -17521,9 +17624,10 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     )
     }
     
- fun `markJournalAttempt`(`id`: kotlin.ULong, `success`: kotlin.Boolean)
+
+    @Throws(UException::class) fun `markJournalAttempt`(`id`: kotlin.ULong, `success`: kotlin.Boolean)
         = 
-    uniffiRustCall() { _status ->
+    uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(
         FfiConverterULong.lower(`id`),FfiConverterBoolean.lower(`success`),_status)
 }

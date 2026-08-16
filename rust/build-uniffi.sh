@@ -1,10 +1,20 @@
 #!/bin/bash
-set -e
-cargo build --release
-# cdylib artifact suffix differs by platform (.so on Linux/Android, .dylib on macOS)
-LIB=$(ls target/release/librust_lib_bluebubbles.* 2>/dev/null | grep -E '\.(so|dylib)$' | head -1)
+set -euo pipefail
+cargo build --release --locked
+# cdylib artifact suffix differs by platform.
+LIB=""
+for candidate in \
+    target/release/librust_lib_bluebubbles.so \
+    target/release/librust_lib_bluebubbles.dylib \
+    target/release/rust_lib_bluebubbles.dll
+do
+    if [ -f "$candidate" ]; then
+        LIB="$candidate"
+        break
+    fi
+done
 if [ -z "$LIB" ]; then
     echo "cdylib not found in target/release" >&2
     exit 1
 fi
-cargo run --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin
+cargo run --locked --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin

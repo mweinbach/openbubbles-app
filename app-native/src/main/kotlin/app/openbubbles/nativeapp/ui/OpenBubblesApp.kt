@@ -56,6 +56,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.openbubbles.nativeapp.BuildConfig
 import app.openbubbles.nativeapp.NativeMainActivity
+import app.openbubbles.nativeapp.SmsComposeRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
@@ -99,9 +100,21 @@ object Routes {
     const val NEW_CHAT = "newchat"
     fun chat(chatId: Long): String = "chat/$chatId"
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
+    fun newChat(recipients: List<String>, body: String?, useSms: Boolean): String = buildString {
+        append(NEW_CHAT)
+        val params = buildList {
+            if (recipients.isNotEmpty()) add("to=${Uri.encode(recipients.joinToString("\u001f"))}")
+            if (!body.isNullOrEmpty()) add("body=${Uri.encode(body)}")
+            if (useSms) add("sms=1")
+        }
+        if (params.isNotEmpty()) append('?').append(params.joinToString("&"))
+    }
 
     /** Attachment guids can contain ':'/'/' — encode for the path segment. */
-    fun attachment(guid: String): String = "attachment/${Uri.encode(guid)}"
+    fun attachment(guid: String, chatId: Long?): String = buildString {
+        append("attachment/").append(Uri.encode(guid))
+        if (chatId != null) append("?chat=").append(chatId)
+    }
 }
 
 // --------------------------------------------------------------- destinations
@@ -110,7 +123,7 @@ object Routes {
 data object ChatsKey : NavKey
 
 @Serializable
-data class ChatKey(val chatId: Long) : NavKey
+data class ChatKey(val chatId: Long, val initialDraft: String? = null) : NavKey
 
 @Serializable
 data object SettingsKey : NavKey
@@ -119,13 +132,17 @@ data object SettingsKey : NavKey
 data object FindMyKey : NavKey
 
 @Serializable
-data object NewChatKey : NavKey
+data class NewChatKey(
+    val recipients: List<String> = emptyList(),
+    val body: String? = null,
+    val useSms: Boolean = false,
+) : NavKey
 
 @Serializable
 data class ChatInfoKey(val chatId: Long) : NavKey
 
 @Serializable
-data class AttachmentKey(val guid: String) : NavKey
+data class AttachmentKey(val guid: String, val chatId: Long? = null) : NavKey
 
 @Serializable
 data object LoginKey : NavKey
@@ -135,22 +152,36 @@ private fun NavKey.toRoute(): String = when (this) {
     is ChatKey -> Routes.chat(chatId)
     is SettingsKey -> Routes.SETTINGS
     is FindMyKey -> Routes.FIND_MY
-    is NewChatKey -> Routes.NEW_CHAT
+    is NewChatKey -> Routes.newChat(recipients, body, useSms)
     is ChatInfoKey -> Routes.chatInfo(chatId)
-    is AttachmentKey -> Routes.attachment(guid)
+    is AttachmentKey -> Routes.attachment(guid, chatId)
     is LoginKey -> Routes.LOGIN
     else -> Routes.CHATS
 }
+
+private fun routeParameter(route: String, name: String): String? =
+    route.substringAfter('?', "")
+        .split('&')
+        .firstOrNull { it.substringBefore('=') == name }
+        ?.substringAfter('=', "")
+        ?.let(Uri::decode)
 
 private fun routeToKey(route: String): NavKey? = when {
     route == Routes.CHATS -> ChatsKey
     route == Routes.SETTINGS -> SettingsKey
     route == Routes.FIND_MY -> FindMyKey
-    route == Routes.NEW_CHAT -> NewChatKey
+    route.substringBefore('?') == Routes.NEW_CHAT -> NewChatKey(
+        recipients = routeParameter(route, "to")?.split('\u001f')?.filter(String::isNotBlank).orEmpty(),
+        body = routeParameter(route, "body"),
+        useSms = routeParameter(route, "sms") == "1",
+    )
     route == Routes.LOGIN -> LoginKey
-    route.startsWith("chat/") -> route.removePrefix("chat/").toLongOrNull()?.let(::ChatKey)
+    route.startsWith("chat/") -> route.substringBefore('?').removePrefix("chat/").toLongOrNull()?.let(::ChatKey)
     route.startsWith("chatinfo/") -> route.removePrefix("chatinfo/").toLongOrNull()?.let(::ChatInfoKey)
-    route.startsWith("attachment/") -> AttachmentKey(Uri.decode(route.removePrefix("attachment/")))
+    route.startsWith("attachment/") -> AttachmentKey(
+        guid = Uri.decode(route.substringBefore('?').removePrefix("attachment/")),
+        chatId = routeParameter(route, "chat")?.toLongOrNull(),
+    )
     else -> null
 }
 
@@ -168,6 +199,8 @@ fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
     /** Chat guid from a notification tap; resolved and consumed once. */
     startChatGuid: String? = null,
+    startComposeRequest: SmsComposeRequest? = null,
+    onComposeRequestConsumed: () -> Unit = {},
     /** Actual route restored after the hidden Compose tree was released. */
     resumeRoute: String? = null,
     onRouteChanged: (String?) -> Unit = {},
@@ -212,7 +245,9 @@ fun OpenBubblesApp(
         // A conversation belongs to the Chats tab: entering one from another
         // top-level destination (notification tap while in Settings) replaces
         // it so the detail pane never renders orphaned beside nothing.
-        backStack.removeAll { it is SettingsKey || it is FindMyKey }
+        backStack.removeAll {
+            it is SettingsKey || it is FindMyKey || it is NewChatKey || it is LoginKey
+        }
         while (backStack.size > 1 &&
             (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
         ) {
@@ -241,13 +276,17 @@ fun OpenBubblesApp(
                 backStack.add(ChatKey(key.chatId))
                 backStack.add(key)
             }
+            is AttachmentKey -> {
+                key.chatId?.let { backStack.add(ChatKey(it)) }
+                backStack.add(key)
+            }
             null -> Unit
             else -> backStack.add(key)
         }
     }
 
-    LaunchedEffect(resumeRoute, startChatGuid) {
-        if (startChatGuid == null) restoreResumeRoute()
+    LaunchedEffect(resumeRoute, startChatGuid, startComposeRequest) {
+        if (startChatGuid == null && startComposeRequest == null) restoreResumeRoute()
     }
 
     LaunchedEffect(current) {
@@ -269,6 +308,13 @@ fun OpenBubblesApp(
             restoreResumeRoute()
         }
         NativeMainActivity.pendingChatGuid = null
+    }
+
+    LaunchedEffect(startComposeRequest) {
+        val request = startComposeRequest ?: return@LaunchedEffect
+        navigateHome()
+        navigateTo(NewChatKey(request.recipients, request.body, request.useSms))
+        onComposeRequestConsumed()
     }
 
     // First-run gate: full-screen onboarding until sign-in completes once.
@@ -395,7 +441,7 @@ fun OpenBubblesApp(
                         } else {
                             MaterialTheme.colorScheme.surface
                         },
-                        onNewChat = { navigateTo(NewChatKey) },
+                        onNewChat = { navigateTo(NewChatKey()) },
                         onOpenFindMy = { navigateTo(FindMyKey) },
                         onOpenSettings = { navigateTo(SettingsKey) },
                         onTogglePinned = viewModel::togglePinned,
@@ -427,6 +473,7 @@ fun OpenBubblesApp(
                             AppGraph.typing,
                             AppGraph.readReceipts,
                             AppGraph.faceTimeCaller,
+                            initialInput = key.initialDraft,
                         ),
                     )
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -448,11 +495,12 @@ fun OpenBubblesApp(
                         onActionErrorShown = viewModel::clearActionError,
                         onStartFaceTime = viewModel::startFaceTime,
                         onFaceTimeLaunchConsumed = viewModel::consumeFaceTimeLaunch,
+                        onScreenEffectConsumed = viewModel::consumeScreenEffect,
                         onBack = { popBack() },
                         // Beside its own list there is nothing to go back to.
                         showBackButton = !isMultiPane,
                         onOpenChatInfo = { navigateTo(ChatInfoKey(chatId)) },
-                        onOpenAttachment = { guid -> navigateTo(AttachmentKey(guid)) },
+                        onOpenAttachment = { guid -> navigateTo(AttachmentKey(guid, chatId)) },
                         onDownloadAttachment = { attachment ->
                             AppGraph.requestAttachmentDownload(attachment.guid)
                         },
@@ -502,12 +550,14 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<NewChatKey> {
+                entry<NewChatKey> { key ->
                     NewChatScreen(
+                        initialRecipients = key.recipients,
+                        initialUseSms = key.useSms,
                         onChatOpened = { chatId ->
                             // Drop the creator, then open the new conversation.
                             popBack()
-                            navigateTo(ChatKey(chatId))
+                            navigateTo(ChatKey(chatId, key.body))
                         },
                         onBack = { popBack() },
                     )

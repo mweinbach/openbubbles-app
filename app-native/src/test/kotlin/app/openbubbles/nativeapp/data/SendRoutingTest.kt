@@ -4,7 +4,9 @@ import app.openbubbles.db.Chat
 import app.openbubbles.db.Handle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SendRoutingTest {
 
@@ -122,5 +124,11 @@ class SendRoutingTest {
         )
 
         assertEquals(listOf("mailto:me@icloud.com"), conversation.participants)
+    }
+
+    @Test
+    fun `SIM chats never send Apple read receipts`() {
+        assertFalse(shouldSendAppleReadReceipt(Chat().apply { isRpSms = true }))
+        assertTrue(shouldSendAppleReadReceipt(Chat().apply { isRpSms = false }))
     }
 }

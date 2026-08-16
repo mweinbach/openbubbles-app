@@ -5,6 +5,7 @@ import app.openbubbles.db.Db
 import app.openbubbles.db.Message
 import io.objectbox.BoxStore
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -61,6 +62,7 @@ class BackupManager(
     private val storeGate: StoreGate,
     /** Version of the calling app, recorded in the manifest. */
     private val appVersion: String? = null,
+    private val restoreLimits: RestoreLimits = RestoreLimits(),
 ) {
     companion object {
         /** Zip entry name of the archive manifest. */
@@ -76,8 +78,25 @@ class BackupManager(
         private val SKIP_STORE_FILES = setOf("lock.mdb")
 
         private const val BUFFER = 64 * 1024
+        private const val MAX_MANIFEST_BYTES = 1024 * 1024L
         private const val ATTACHMENTS_DIR = "attachments"
         private const val ATTACHMENTS_PREFIX = "$ATTACHMENTS_DIR/"
+    }
+
+    data class RestoreLimits(
+        val maxArchiveBytes: Long = 16L * 1024 * 1024 * 1024,
+        val maxEntryBytes: Long = 16L * 1024 * 1024 * 1024,
+        val maxExpandedBytes: Long = 64L * 1024 * 1024 * 1024,
+        val maxEntries: Int = 100_000,
+        val minFreeBytes: Long = 64L * 1024 * 1024,
+    ) {
+        init {
+            require(maxArchiveBytes > 0)
+            require(maxEntryBytes > 0)
+            require(maxExpandedBytes > 0)
+            require(maxEntries > 0)
+            require(minFreeBytes >= 0)
+        }
     }
 
     /** Result/summary of a snapshot or restore. */
@@ -172,7 +191,11 @@ class BackupManager(
      * process keeps the old file handles open); the returned [BackupInfo]
      * describes the restored archive.
      */
-    fun restore(source: InputStream, targetDir: File): Result<BackupInfo> = runCatching {
+    fun restore(
+        source: InputStream,
+        targetDir: File,
+        beforeSwap: () -> Unit = {},
+    ): Result<BackupInfo> = runCatching {
         val staging = File(targetDir, ".ob-restore-staging")
         staging.deleteRecursively()
         if (!staging.mkdirs()) error("cannot create restore staging directory")
@@ -180,35 +203,66 @@ class BackupManager(
         try {
             // 1. Stage the raw bytes first — never decode straight into disk state.
             val stagedZip = File(staging, "backup.zip")
-            stagedZip.outputStream().use { out -> source.copyTo(out, BUFFER) }
+            stagedZip.outputStream().use { out ->
+                source.copyBounded(out, restoreLimits.maxArchiveBytes, "backup archive")
+            }
 
             ZipFile(stagedZip).use { zf ->
                 // 2. Validate everything before touching the live tree.
                 val manifestEntry = zf.getEntry(MANIFEST_ENTRY)
                     ?: error("not an OpenBubbles backup (missing $MANIFEST_ENTRY)")
-                val manifest = zf.getInputStream(manifestEntry).use {
-                    it.readBytes().toString(Charsets.UTF_8)
+                val manifest = zf.getInputStream(manifestEntry).use { input ->
+                    val output = ByteArrayOutputStream()
+                    input.copyBounded(
+                        output,
+                        minOf(restoreLimits.maxEntryBytes, MAX_MANIFEST_BYTES),
+                        MANIFEST_ENTRY,
+                    )
+                    output.toString(Charsets.UTF_8.name())
                 }
                 val parsed = parseManifest(manifest)
 
-                val entries = zf.entries().asSequence().toList()
-                val seen = HashSet<String>(entries.size)
-                entries.forEach { entry ->
+                val entries = ArrayList<ZipEntry>()
+                val seen = HashSet<String>()
+                var declaredExpandedBytes = 0L
+                val enumeration = zf.entries()
+                while (enumeration.hasMoreElements()) {
+                    if (entries.size >= restoreLimits.maxEntries) {
+                        error("backup contains too many entries")
+                    }
+                    val entry = enumeration.nextElement()
+                    entries += entry
                     if (!seen.add(entry.name)) error("duplicate zip entry: ${entry.name}")
                     val name = entry.name
-                    if (name == MANIFEST_ENTRY) return@forEach
-                    val allowed = name.startsWith("${Db.STORE_DIR_NAME}/") ||
-                        name.startsWith(ATTACHMENTS_PREFIX)
+                    val normalizedName = name.removeSuffix("/")
+                    if (normalizedName.isEmpty()) error("unsafe empty entry path in backup")
+                    val allowed = normalizedName == MANIFEST_ENTRY ||
+                        normalizedName.startsWith("${Db.STORE_DIR_NAME}/") ||
+                        normalizedName.startsWith(ATTACHMENTS_PREFIX)
                     if (!allowed) error("unexpected entry in backup: $name")
                     // Zip-slip guard: no parent segments, resolved path stays
                     // inside the staging root.
-                    if (name.split('/').any { it.isEmpty() || it == "." || it == ".." }) {
+                    if (normalizedName.split('/').any { it.isEmpty() || it == "." || it == ".." }) {
                         error("unsafe entry path in backup: $name")
                     }
-                    val resolved = File(staging, name)
+                    val resolved = File(staging, normalizedName)
                     if (!resolved.canonicalPath.startsWith(staging.canonicalPath + File.separator)) {
                         error("unsafe entry path in backup: $name")
                     }
+                    if (!entry.isDirectory) {
+                        if (entry.size < 0L) error("backup entry has no declared size: $name")
+                        if (entry.size > restoreLimits.maxEntryBytes) {
+                            error("backup entry exceeds size limit: $name")
+                        }
+                        if (declaredExpandedBytes > restoreLimits.maxExpandedBytes - entry.size) {
+                            error("backup expands beyond the size limit")
+                        }
+                        declaredExpandedBytes += entry.size
+                    }
+                }
+
+                if (staging.usableSpace < declaredExpandedBytes + restoreLimits.minFreeBytes) {
+                    error("not enough free space to restore backup")
                 }
 
                 val dbEntry = zf.getEntry("${Db.STORE_DIR_NAME}/$DATA_FILE")
@@ -216,12 +270,26 @@ class BackupManager(
                 if (dbEntry.size <= 0L) error("backup database file is empty")
 
                 // 3. Extract (ZipFile verifies each entry's CRC while reading).
+                var actualExpandedBytes = 0L
                 entries.filter { it.name != MANIFEST_ENTRY }.forEach { entry ->
                     if (entry.isDirectory) return@forEach
                     val out = File(staging, entry.name)
                     out.parentFile?.mkdirs()
                     zf.getInputStream(entry).use { input ->
-                        out.outputStream().use { output -> input.copyTo(output, BUFFER) }
+                        out.outputStream().use { output ->
+                            val copied = input.copyBounded(
+                                output,
+                                restoreLimits.maxEntryBytes,
+                                entry.name,
+                            )
+                            if (copied != entry.size) {
+                                error("backup entry size mismatch: ${entry.name}")
+                            }
+                            if (actualExpandedBytes > restoreLimits.maxExpandedBytes - copied) {
+                                error("backup expands beyond the size limit")
+                            }
+                            actualExpandedBytes += copied
+                        }
                     }
                 }
 
@@ -231,7 +299,11 @@ class BackupManager(
                     error("database file size mismatch — backup is corrupt")
                 }
 
-                // 5. Swap into place (rolls back on failure).
+                // 5. Only after all validation/extraction succeeds may the
+                // caller stop live services and close the active store.
+                beforeSwap()
+
+                // 6. Swap into place (rolls back on failure).
                 swap(staging, targetDir)
                 BackupInfo(
                     dateEpochMs = parsed.dateEpochMs,
@@ -243,6 +315,23 @@ class BackupManager(
         } finally {
             staging.deleteRecursively()
         }
+    }
+
+    private fun InputStream.copyBounded(
+        output: OutputStream,
+        limit: Long,
+        label: String,
+    ): Long {
+        val buffer = ByteArray(BUFFER)
+        var total = 0L
+        while (true) {
+            val read = read(buffer)
+            if (read < 0) break
+            if (total > limit - read) error("$label exceeds size limit")
+            output.write(buffer, 0, read)
+            total += read
+        }
+        return total
     }
 
     /**

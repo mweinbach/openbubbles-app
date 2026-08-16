@@ -103,6 +103,10 @@ class CredentialCreateActivity : FragmentActivity() {
 
             val origin = CredentialService.appInfoToOrigin(this, request.callingAppInfo)
             val packageName = request.callingAppInfo.packageName
+            if (request.callingAppInfo.isOriginPopulated() && !originMatchesRpId(origin, rpId)) {
+                finishAndRemoveTask()
+                return
+            }
             val userJson = requestJson.getJSONObject("user")
 
             val credentialId = ByteArray(20)

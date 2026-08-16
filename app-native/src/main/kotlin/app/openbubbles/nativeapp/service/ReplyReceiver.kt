@@ -9,6 +9,7 @@ import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.sendConversation
+import app.openbubbles.nativeapp.sms.SmsBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,10 +74,6 @@ class ReplyReceiver : BroadcastReceiver() {
             fail("Reply not sent: message store unavailable")
             return
         }
-        val pushState = PushStateHolder.state ?: run {
-            fail("Reply not sent: Apple push is disconnected")
-            return
-        }
         val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull() ?: run {
             fail("Reply not sent: conversation unavailable")
             return
@@ -85,32 +82,43 @@ class ReplyReceiver : BroadcastReceiver() {
         title = chat.displayName
             ?: chat.handles.firstOrNull()?.formattedAddress
             ?: "Message"
-        val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: run {
-            fail("Reply not sent: no registered sending address")
-            return
-        }
         val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
 
-        val inst = runCatching {
-            pushState.sendText(
-                sendConversation(chat, afterGuid),
-                sender,
-                text,
-                // replyGuid, replyPart, effect, subject
-                null, null, null, null,
-            )
-        }.getOrElse { error ->
-            fail("Reply not sent: ${error.message ?: error.javaClass.simpleName}", error)
-            return
-        }
+        if (notificationReplyTransport(chat) == NotificationReplyTransport.SMS) {
+            runCatching { SmsBridge.sender.send(chatId, text) }.getOrElse { error ->
+                fail("Reply not sent: ${error.message ?: error.javaClass.simpleName}", error)
+                return
+            }
+        } else {
+            val pushState = PushStateHolder.state ?: run {
+                fail("Reply not sent: Apple push is disconnected")
+                return
+            }
+            val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: run {
+                fail("Reply not sent: no registered sending address")
+                return
+            }
+            val inst = runCatching {
+                pushState.sendText(
+                    sendConversation(chat, afterGuid),
+                    sender,
+                    text,
+                    // replyGuid, replyPart, effect, subject
+                    null, null, null, null,
+                )
+            }.getOrElse { error ->
+                fail("Reply not sent: ${error.message ?: error.javaClass.simpleName}", error)
+                return
+            }
 
-        // The network send succeeded. A local-echo failure should be visible,
-        // but must not claim the already-sent reply failed.
-        runCatching {
-            CoreGraph.ingestor?.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
-        }.onFailure { error ->
-            Log.e(TAG, "reply sent but local echo ingest failed", error)
-            PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
+            // The network send succeeded. A local-echo failure should be visible,
+            // but must not claim the already-sent reply failed.
+            runCatching {
+                CoreGraph.ingestor?.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+            }.onFailure { error ->
+                Log.e(TAG, "reply sent but local echo ingest failed", error)
+                PushStateHolder.reportError("Reply sent, but its local copy could not be saved")
+            }
         }
 
         runCatching { CoreGraph.readReceipts.markRead(chatId, messageGuid ?: afterGuid) }
@@ -129,3 +137,8 @@ class ReplyReceiver : BroadcastReceiver() {
         const val TAG = "ReplyReceiver"
     }
 }
+
+internal enum class NotificationReplyTransport { SMS, IMESSAGE }
+
+internal fun notificationReplyTransport(chat: Chat): NotificationReplyTransport =
+    if (chat.isRpSms == true) NotificationReplyTransport.SMS else NotificationReplyTransport.IMESSAGE

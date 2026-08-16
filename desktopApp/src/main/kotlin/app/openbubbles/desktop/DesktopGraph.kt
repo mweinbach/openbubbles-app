@@ -2,9 +2,12 @@ package app.openbubbles.desktop
 
 import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.core.send.buildSendConversation
+import app.openbubbles.core.send.selectSendingHandle
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -15,6 +18,7 @@ import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -28,7 +32,6 @@ import uniffi.rust_lib_bluebubbles.KotlinFilePackager
 import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.PackagedFile
-import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.hasSavedUsers
@@ -41,6 +44,7 @@ import uniffi.rust_lib_bluebubbles.start
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Desktop composition root — the counterpart of the Android app's
@@ -68,7 +72,10 @@ object DesktopGraph {
 
     val chatRepo: ChatRepo? by lazy { store?.let(::ChatRepo) }
     val messageRepo: MessageRepo? by lazy { store?.let { MessageRepo(it) } }
-    val ingestor: MessageIngestor? by lazy { store?.let { MessageIngestor(it, scope) } }
+    val ingestor: MessageIngestor? by lazy {
+        val st = store ?: return@lazy null
+        MessageIngestor(st, scope, AttachmentStore(st, dataDir))
+    }
 
     /** Attachment downloads ride the live push state (rust `downloadAttachment`). */
     val attachmentManager: AttachmentManager? by lazy {
@@ -96,47 +103,121 @@ object DesktopGraph {
     @Volatile
     private var booted = false
 
+    private val runtimeLock = Any()
+    private val initGeneration = AtomicInteger(0)
+    private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
+
+    @Volatile
+    private var activeState: NativePushState? = null
+
+    fun ensureRuntimeStarted() {
+        uniffiEnsureInitialized()
+        if (booted) return
+        synchronized(runtimeLock) {
+            if (!booted) {
+                start(dataDir.absolutePath, DesktopFilePackager, NoopWifiCallback)
+                booted = true
+            }
+        }
+    }
+
     /**
      * Boot the Rust core and restore the live push state. Safe to re-issue
      * (e.g. after a fresh login wrote `id.plist`, or a manual retry from the
      * chat list): `start` runs once per process, `initNative` re-restores.
      */
     fun startDaemon() {
+        val generation = initGeneration.incrementAndGet()
+        reconnectJob?.cancel()
+        reconnectJob = null
         scope.launch {
-            runInterruptible(Dispatchers.IO) {
-                uniffiEnsureInitialized()
-                if (!booted) {
-                    start(dataDir.absolutePath, DesktopFilePackager, NoopWifiCallback)
-                    booted = true
+            stopActiveState()
+            PushStateHolder.clear()
+            try {
+                runInterruptible(Dispatchers.IO) {
+                    ensureRuntimeStarted()
+                    initNative(dataDir.absolutePath, null, DesktopReceiver(generation))
                 }
-                initNative(dataDir.absolutePath, null, DesktopReceiver)
+            } catch (error: Throwable) {
+                handleNativeFailure(
+                    generation,
+                    "Apple push initialization failed: ${error.message ?: error.javaClass.simpleName}",
+                )
             }
         }
     }
 
     /** Callbacks from Rust — arrived on Rust threads; keep them light. */
-    private object DesktopReceiver : MsgReceiver {
+    private class DesktopReceiver(
+        private val generation: Int,
+    ) : MsgReceiver {
         override fun receievedMsg(msg: ULong, retry: ULong) {
             val ing = ingestor ?: return
             scope.launch {
                 try {
                     val handles = PushStateHolder.myHandles
                     val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
-                    if (decoded != null) {
-                        ing.ingest(decoded, handles)
+                    when (decoded) {
+                        null -> Unit
+                        UPushMessage.ProcessQueue -> startQueueDrainer()
+                        else -> ing.ingest(decoded, handles)
                     }
                     runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
-                } catch (_: Throwable) {
+                } catch (error: Throwable) {
                     // Leave the entry queued; Rust re-emits with backoff.
+                    PushStateHolder.reportError(
+                        "Incoming message failed on attempt ${retry + 1uL}: " +
+                            (error.message ?: error.javaClass.simpleName),
+                    )
                 }
             }
         }
 
         override fun nativeReady(state: NativePushState?) {
-            val live = state ?: return
-            val handles = runCatching { live.getHandles().toSet() }.getOrDefault(emptySet())
-            PushStateHolder.install(live, handles)
-            runCatching { live.startLoop(this) }
+            scope.launch {
+                if (generation != initGeneration.get()) {
+                    runCatching { state?.stopLoop() }
+                    return@launch
+                }
+                val live = state ?: run {
+                    activeState = null
+                    PushStateHolder.clear()
+                    return@launch
+                }
+                val handles = runCatching {
+                    runInterruptible(Dispatchers.IO) { live.getHandles().toSet() }
+                }.getOrElse { error ->
+                    runCatching { live.stopLoop() }
+                    handleNativeFailure(
+                        generation,
+                        "Apple push handle restore failed: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    return@launch
+                }
+                if (generation != initGeneration.get()) {
+                    runCatching { live.stopLoop() }
+                    return@launch
+                }
+                activeState?.takeIf { it !== live }?.let { old -> runCatching { old.stopLoop() } }
+                activeState = live
+                reconnectAttempt = 0
+                PushStateHolder.install(live, handles)
+                runCatching {
+                    runInterruptible(Dispatchers.IO) { live.startLoop(this@DesktopReceiver) }
+                }.onFailure { error ->
+                    handleNativeFailure(
+                        generation,
+                        "Apple push loop failed: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
+
+        override fun nativeError(reason: String) {
+            scope.launch {
+                handleNativeFailure(generation, "Apple push restore failed: $reason")
+            }
         }
 
         override fun twofaEvent(success: Boolean) {
@@ -144,7 +225,36 @@ object DesktopGraph {
         }
 
         override fun finish() {
-            // Rust loop ended (state torn down); daemon stays for a re-init.
+            scope.launch {
+                if (generation == initGeneration.get()) {
+                    handleNativeFailure(generation, "Apple push connection ended")
+                }
+            }
+        }
+    }
+
+    private fun stopActiveState() {
+        val state = activeState
+        activeState = null
+        runCatching { state?.stopLoop() }
+    }
+
+    private fun handleNativeFailure(generation: Int, reason: String) {
+        if (generation != initGeneration.get()) return
+        stopActiveState()
+        PushStateHolder.clear()
+        PushStateHolder.reportError(reason)
+        scheduleReconnect(generation)
+    }
+
+    private fun scheduleReconnect(generation: Int) {
+        if (generation != initGeneration.get()) return
+        reconnectJob?.cancel()
+        val delayMs = (2_000L shl reconnectAttempt.coerceIn(0, 6)).coerceAtMost(120_000L)
+        reconnectAttempt++
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (generation == initGeneration.get()) startDaemon()
         }
     }
 
@@ -158,10 +268,24 @@ object DesktopGraph {
         val myHandlesFlow = _myHandles.asStateFlow()
         val myHandles: Set<String> get() = _myHandles.value
 
+        private val _lastError = MutableStateFlow<String?>(null)
+        val lastErrorFlow = _lastError.asStateFlow()
+        val lastError: String? get() = _lastError.value
+
         fun install(state: NativePushState, handles: Set<String>) {
             _state.value = state
             _myHandles.value = handles
+            _lastError.value = null
             startQueueDrainer()
+        }
+
+        fun clear() {
+            _state.value = null
+            _myHandles.value = emptySet()
+        }
+
+        fun reportError(message: String) {
+            _lastError.value = message
         }
     }
 
@@ -185,16 +309,29 @@ object DesktopGraph {
                     delay(5_000)
                     continue
                 }
+                val entryResult = runCatching {
+                    runInterruptible(Dispatchers.IO) { readQueuedJournal() }
+                }
+                if (entryResult.isFailure) {
+                    delay(5_000)
+                    continue
+                }
+                val entry = entryResult.getOrNull()
+                if (entry == null) {
+                    delay(2_000)
+                    continue
+                }
                 try {
-                    val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() }
-                    if (entry == null) {
-                        delay(2_000)
-                        continue
-                    }
                     ing.ingest(entry.message, handles)
                     runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
-                } catch (_: Throwable) {
-                    delay(5_000)
+                } catch (error: Throwable) {
+                    runCatching {
+                        runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
+                    }
+                    PushStateHolder.reportError(
+                        "Journal message ${entry.id} failed: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    delay(desktopJournalRetryDelayMs(entry.attempts.toInt()))
                 }
             }
         }
@@ -217,30 +354,25 @@ object DesktopGraph {
         val chatBox = st.boxFor(Chat::class.java)
         val messageBox = st.boxFor(Message::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+        require(chat.isRpSms != true) { "Carrier SMS is only supported on Android" }
 
-        val myHandle = PushStateHolder.myHandles.firstOrNull()
-            ?: chat.usingHandle
-            ?: "unknown-sender"
+        val myHandle = selectSendingHandle(chat, PushStateHolder.myHandles)
+            ?: error("no registered sending address")
 
         val tempGuid = MessageIngestor.tempGuid()
         repo.stageOutgoingMessage(chat.guid, myHandle, text, tempGuid)
 
         val pushState = PushStateHolder.state
         if (pushState == null) {
-            // Not connected: leave the bubble SENDING; the queue path resolves
-            // it once the daemon has a live state.
-            return
+            repo.failOutgoing(tempGuid, "Not connected to Apple push")
+            error("not connected to Apple push")
         }
 
         try {
+            val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
             val inst = runInterruptible(Dispatchers.IO) {
                 pushState.sendText(
-                    UConversation(
-                        participants = chat.handles.map { it.address }.distinct(),
-                        cvName = chat.displayName,
-                        senderGuid = null,
-                        afterGuid = null,
-                    ),
+                    buildSendConversation(chat, afterGuid, myHandle),
                     myHandle,
                     text,
                     null, null, null, null,
@@ -260,17 +392,8 @@ object DesktopGraph {
             }
             ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
         } catch (t: Throwable) {
-            st.runInTx {
-                val staged = messageBox.query()
-                    .equal(Message_.guid, tempGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }
-                staged?.apply {
-                    sendingServiceId = null
-                    error = 1
-                    errorMessage = t.message?.take(200)
-                    messageBox.put(this)
-                }
-            }
+            repo.failOutgoing(tempGuid, t.message ?: t.javaClass.simpleName)
+            throw t
         }
     }
 
@@ -325,6 +448,12 @@ object DesktopGraph {
             Result.success(Unit)
         }
     }
+}
+
+internal fun desktopJournalRetryDelayMs(attempt: Int): Long = when (val safeAttempt = attempt.coerceAtLeast(0)) {
+    0 -> 2_000L
+    1 -> 10_000L
+    else -> (30_000L shl (safeAttempt - 2).coerceAtMost(3)).coerceAtMost(240_000L)
 }
 
 /** Minimal [KotlinFilePackager]: files exist on disk; no gallery scanning. */

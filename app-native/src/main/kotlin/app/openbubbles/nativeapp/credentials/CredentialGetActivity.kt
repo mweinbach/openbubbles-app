@@ -111,13 +111,9 @@ class CredentialGetActivity : FragmentActivity() {
                             val requestObj = JSONObject(requestJson)
                             val challenge = requestObj.optString("challenge", "")
                             val rpId = requestObj.optString("rpId", site)
-                            val originHost = origin.toUri().host
-                            if (originHost != null && rpId.isNotEmpty()) {
-                                val ok = originHost == rpId || originHost.endsWith(".$rpId")
-                                if (!ok) {
-                                    finish()
-                                    return
-                                }
+                            if (rpId.isNotEmpty() && !originMatchesRpId(origin, rpId)) {
+                                finish()
+                                return
                             }
 
                             val clientDataJsonPlain = JSONObject()

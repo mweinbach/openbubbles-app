@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.data
 
 import android.content.Context
 import android.util.Base64
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.sync.CloudSyncManager
 import app.openbubbles.core.sync.CloudSyncStateStore
 import app.openbubbles.core.sync.SyncMode
@@ -10,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.NativePushState
+import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -36,7 +38,14 @@ object CloudSyncWiring {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stateStore = PrefsCloudSyncStateStore(prefs)
         val port = UniffiCloudSyncPort(state)
-        managerRef.set(CloudSyncManager(store, port, stateStore))
+        managerRef.set(
+            CloudSyncManager(
+                store,
+                port,
+                stateStore,
+                AttachmentStore(store, File(context.dataDir, "app_flutter")),
+            ),
+        )
 
         // Auto incremental sync on connect (Dart parity: startup + daily).
         // Poll mode (battery saver) drives its own single sync instead.

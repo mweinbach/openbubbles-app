@@ -176,6 +176,8 @@ fun NewChatScreen(
     onChatOpened: (chatId: Long) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    initialRecipients: List<String> = emptyList(),
+    initialUseSms: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -184,7 +186,7 @@ fun NewChatScreen(
     val chips = remember { mutableStateListOf<RecipientChip>() }
     var input by rememberSaveable { mutableStateOf("") }
     var showInvalid by remember { mutableStateOf(false) }
-    var useSms by rememberSaveable { mutableStateOf(false) }
+    var useSms by rememberSaveable(initialUseSms) { mutableStateOf(initialUseSms) }
     var creating by remember { mutableStateOf(false) }
     var contactsPermission by remember { mutableStateOf(DeviceContacts.hasPermission(context)) }
     var permissionRequested by rememberSaveable { mutableStateOf(false) }
@@ -216,6 +218,10 @@ fun NewChatScreen(
             chips += RecipientChip(key, parsed.display, parsed.isEmail)
         }
         return true
+    }
+
+    LaunchedEffect(initialRecipients) {
+        initialRecipients.forEach(::addChip)
     }
 
     fun commitInput() {

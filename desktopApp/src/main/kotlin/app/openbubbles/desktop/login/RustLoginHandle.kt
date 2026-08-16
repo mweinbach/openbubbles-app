@@ -1,5 +1,6 @@
 package app.openbubbles.desktop.login
 
+import app.openbubbles.desktop.DesktopGraph
 import uniffi.rust_lib_bluebubbles.ULoginDelegate
 import uniffi.rust_lib_bluebubbles.ULoginSession
 import uniffi.rust_lib_bluebubbles.ULoginStage
@@ -34,7 +35,10 @@ class RustLoginHandle(
 
     private fun session(): ULoginSession =
         session ?: synchronized(lock) {
-            session ?: createLoginSession(path, Delegate()).also { session = it }
+            session ?: run {
+                DesktopGraph.ensureRuntimeStarted()
+                createLoginSession(path, Delegate()).also { session = it }
+            }
         }
 
     override suspend fun savedUsername(): String? = savedLoginUsername(path)

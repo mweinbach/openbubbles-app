@@ -125,6 +125,7 @@ class AttachmentStore(
             File(primary.path + ".thumbnail"),
             File(primary.path + ".png.thumbnail"),
         ).forEach { it.delete() }
+        primary.parentFile?.takeIf { it.isDirectory && it.list().isNullOrEmpty() }?.delete()
     }
 
     /**

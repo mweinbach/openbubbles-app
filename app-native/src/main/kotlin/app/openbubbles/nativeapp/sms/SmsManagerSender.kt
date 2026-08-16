@@ -54,8 +54,9 @@ class SmsManagerSender(private val context: Context) : SmsSender {
 
         // 2. Dispatch via the modem; receivers flip the row's status.
         if (!SmsPermissions.canSendSms(context)) {
-            fail(store, tempGuid, "SMS permission not granted")
-            return@withContext
+            val error = IllegalStateException("SMS permission not granted")
+            fail(store, tempGuid, error.message.orEmpty())
+            throw error
         }
 
         try {
@@ -85,6 +86,7 @@ class SmsManagerSender(private val context: Context) : SmsSender {
         } catch (t: Throwable) {
             Log.w(TAG, "SMS send failed", t)
             fail(store, tempGuid, t.message?.take(200) ?: t.javaClass.simpleName)
+            throw t
         }
     }
 

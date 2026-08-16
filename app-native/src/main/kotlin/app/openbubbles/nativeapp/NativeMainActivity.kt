@@ -23,10 +23,53 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.isLocked
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+
+data class SmsComposeRequest(
+    val recipients: List<String>,
+    val body: String?,
+    val useSms: Boolean = true,
+)
+
+internal fun parseSmsComposeRequest(
+    action: String?,
+    dataString: String?,
+    extraText: String?,
+): SmsComposeRequest? {
+    if (action != Intent.ACTION_SENDTO || dataString.isNullOrBlank()) return null
+    val scheme = dataString.substringBefore(':', "").lowercase()
+    if (scheme !in setOf("sms", "smsto", "mms", "mmsto")) return null
+    val schemeSpecific = dataString.substringAfter(':').removePrefix("//")
+    val recipientPart = schemeSpecific.substringBefore('?')
+    val recipients = recipientPart
+        .split(',', ';')
+        .mapNotNull { raw -> decodeComposeValue(raw, plusAsSpace = false).trim().takeIf { it.isNotEmpty() } }
+        .take(32)
+    val query = schemeSpecific.substringAfter('?', "")
+    val queryBody = query.split('&')
+        .mapNotNull { part ->
+            val key = part.substringBefore('=', "")
+            if (key.equals("body", ignoreCase = true)) {
+                decodeComposeValue(part.substringAfter('=', ""), plusAsSpace = true)
+            } else {
+                null
+            }
+        }
+        .firstOrNull()
+    val body = (queryBody ?: extraText)?.take(20_000)?.takeIf { it.isNotBlank() }
+    return SmsComposeRequest(recipients = recipients, body = body)
+}
+
+private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = runCatching {
+    val encoded = if (plusAsSpace) value else value.replace("+", "%2B")
+    URLDecoder.decode(encoded, StandardCharsets.UTF_8.name())
+}.getOrDefault(value)
 
 class NativeMainActivity : ComponentActivity() {
     private var debugLines: List<String> = emptyList()
     private var resumeRoute: String? = null
+    private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
 
@@ -39,7 +82,7 @@ class NativeMainActivity : ComponentActivity() {
         // exactly the case where savedInstanceState != null, and OpenBubblesApp
         // consumes the guid idempotently (it navigates only when the chat is
         // not already on the restored stack, then clears the static).
-        readPendingChatGuid(intent)
+        readPendingIntent(intent)
 
         // Boot the Rust runtime (state dirs + keystore) before any UI can
         // provision or sign in — onboarding reaches Rust before the push
@@ -81,6 +124,8 @@ class NativeMainActivity : ComponentActivity() {
                 OpenBubblesApp(
                     debugLines = debugLines,
                     startChatGuid = pendingChatGuid,
+                    startComposeRequest = pendingComposeRequest,
+                    onComposeRequestConsumed = { pendingComposeRequest = null },
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
                 )
@@ -129,13 +174,19 @@ class NativeMainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         // Notification tap while the activity is alive (launchMode=singleTask
         // routes it here instead of stacking a second instance).
-        readPendingChatGuid(intent)
+        readPendingIntent(intent)
     }
 
-    private fun readPendingChatGuid(intent: Intent?) {
+    private fun readPendingIntent(intent: Intent?) {
         pendingChatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID)?.takeIf { it.isNotBlank() }
+        pendingComposeRequest = parseSmsComposeRequest(
+            action = intent?.action,
+            dataString = intent?.dataString,
+            extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+        )
     }
 
     private fun syncContacts() {

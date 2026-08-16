@@ -4,6 +4,7 @@ import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
@@ -56,7 +57,7 @@ class MessageIngestorTest {
     fun setUp() {
         testDir = java.nio.file.Files.createTempDirectory("ob-core-test").toFile()
         store = MyObjectBox.builder().directory(testDir).build()
-        ingestor = MessageIngestor(store)
+        ingestor = MessageIngestor(store, attachmentStore = AttachmentStore(store, testDir))
         chatRepo = ChatRepo(store)
         messageRepo = MessageRepo(store)
     }
@@ -983,6 +984,17 @@ class MessageIngestorTest {
     @Test
     fun `permanent delete removes selected message`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("delete-me", friend, "gone")), myHandles)
+        val message = requireNotNull(messageByGuid("delete-me"))
+        val attachment = Attachment().apply {
+            guid = "delete-attachment"
+            transferName = "payload.bin"
+            this.message.target = message
+        }
+        store.boxFor(Attachment::class.java).put(attachment)
+        val payload = AttachmentStore(store, testDir).pathFor(attachment).apply {
+            parentFile?.mkdirs()
+            writeText("payload")
+        }
         val delete = UMessageInst(
             id = "permanent-event",
             sender = me,
@@ -998,6 +1010,7 @@ class MessageIngestorTest {
         ingestor.ingest(push(delete), myHandles)
 
         assertNull(messageByGuid("delete-me"))
+        assertTrue(!payload.exists())
     }
 
     @Test

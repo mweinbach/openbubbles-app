@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.PushStateHolder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,9 +58,12 @@ class FindMyViewModel(
         if (_uiState.value.refreshing) return
         _uiState.update { it.copy(refreshing = true) }
         viewModelScope.launch {
-            val devices = runCatching { port.refreshDevices() }
-            val friends = runCatching { port.refreshFriends() }
-            val items = runCatching { port.refreshItems() }
+            val (devices, friends, items) = coroutineScope {
+                val devices = async { captureResult { port.refreshDevices() } }
+                val friends = async { captureResult { port.refreshFriends() } }
+                val items = async { captureResult { port.refreshItems() } }
+                Triple(devices.await(), friends.await(), items.await())
+            }
             _uiState.update { state ->
                 FindMyUiState(
                     loading = false,
@@ -97,6 +103,14 @@ class FindMyViewModel(
             }
             then()
         }
+    }
+
+    private suspend fun <T> captureResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
     }
 
     companion object {

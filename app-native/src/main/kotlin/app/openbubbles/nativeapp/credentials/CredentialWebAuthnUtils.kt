@@ -9,10 +9,13 @@ import java.math.BigInteger
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.IDN
+import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.interfaces.ECPublicKey
+import java.util.Locale
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
@@ -66,6 +69,20 @@ fun base64UrlEncode(bytes: ByteArray): String {
 
 fun base64UrlDecode(value: String): ByteArray {
     return Base64.decode(value, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+}
+
+internal fun canonicalRpHost(value: String): String? = runCatching {
+    val trimmed = value.trim()
+    if (trimmed.isEmpty()) return null
+    val uri = URI(if ("://" in trimmed) trimmed else "https://$trimmed")
+    val host = uri.host?.trimEnd('.')?.lowercase(Locale.ROOT) ?: return null
+    IDN.toASCII(host).lowercase(Locale.ROOT)
+}.getOrNull()
+
+internal fun originMatchesRpId(origin: String, rpId: String): Boolean {
+    val originHost = canonicalRpHost(origin) ?: return false
+    val canonicalRpId = canonicalRpHost(rpId) ?: return false
+    return originHost == canonicalRpId || originHost.endsWith(".$canonicalRpId")
 }
 
 private fun bigIntToFixedLength(value: BigInteger, size: Int): ByteArray {

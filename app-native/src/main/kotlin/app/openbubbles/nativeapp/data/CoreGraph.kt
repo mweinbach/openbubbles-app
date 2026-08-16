@@ -11,6 +11,8 @@ import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.core.send.buildSendConversation
+import app.openbubbles.core.send.selectSendingHandle
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -54,6 +56,9 @@ import java.util.concurrent.ConcurrentHashMap
 object CoreGraph {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Volatile
+    private var restoreRestartRequired = false
+
     val store: BoxStore? by lazy {
         runCatching {
             // Match the Flutter app's store location (path_provider's
@@ -67,7 +72,11 @@ object CoreGraph {
 
     private val chatRepo: ChatRepo? by lazy { store?.let(::ChatRepo) }
     private val messageRepo: MessageRepo? by lazy { store?.let { MessageRepo(it) } }
-    val ingestor: MessageIngestor? by lazy { store?.let { MessageIngestor(it, scope) } }
+    val ingestor: MessageIngestor? by lazy {
+        val st = store ?: return@lazy null
+        val root = AppContext.current?.dataDir?.let { File(it, "app_flutter") }
+        MessageIngestor(st, scope, root?.let { AttachmentStore(st, it) })
+    }
 
     /**
      * Attachment payload resolver. Downloads go through the live push state:
@@ -405,12 +414,29 @@ object CoreGraph {
      * does `Runtime.getRuntime().exit(0)` after surfacing the result).
      */
     fun restoreFrom(stream: java.io.InputStream): Result<BackupManager.BackupInfo> {
+        restoreRestartRequired = false
         val manager = backupManager
             ?: return Result.failure(IllegalStateException("backup unavailable — store not open"))
         val ctx = AppContext.current
             ?: return Result.failure(IllegalStateException("no app context"))
-        return manager.restore(stream, File(ctx.dataDir, "app_flutter"))
+        return manager.restore(stream, File(ctx.dataDir, "app_flutter")) {
+            restoreRestartRequired = true
+            ctx.stopService(
+                android.content.Intent(
+                    ctx,
+                    app.openbubbles.nativeapp.service.NativePushService::class.java,
+                ),
+            )
+            try {
+                PushStateHolder.state?.stopLoop()
+            } finally {
+                PushStateHolder.clear(resetError = true)
+            }
+            store?.close()
+        }
     }
+
+    fun restoreRequiresRestart(): Boolean = restoreRestartRequired
 }
 
 /**
@@ -947,6 +973,7 @@ private object CoreReadReceiptSender : ReadReceiptSender {
         ChatRepo(store).markRead(chatId)
 
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: return
+        if (!shouldSendAppleReadReceipt(chat)) return
         val state = PushStateHolder.state ?: return
         val sender = sendingHandle(chat) ?: return
         val receiptGuid = messageGuid?.takeUnless {
@@ -981,6 +1008,8 @@ private object CoreReadReceiptSender : ReadReceiptSender {
         }
     }
 }
+
+internal fun shouldSendAppleReadReceipt(chat: Chat): Boolean = chat.isRpSms != true
 
 /** Rust-backed tapback, edit, and undo-send operations with local echoes. */
 private object CoreMessageActions : MessageActions {
@@ -1093,14 +1122,7 @@ private object CoreGraphStageHolder {
 
 /** Prefer the sender explicitly associated with this chat (legacy ensureHandle). */
 internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.myHandles): String? {
-    val preferred = chat.usingHandle
-    if (preferred != null) {
-        handles.firstOrNull { candidate ->
-            candidate == preferred ||
-                MessageMapper.normalizeAddress(candidate) == MessageMapper.normalizeAddress(preferred)
-        }?.let { return it }
-    }
-    return handles.firstOrNull()
+    return selectSendingHandle(chat, handles)
 }
 
 /**
@@ -1108,15 +1130,8 @@ internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.my
  * latest confirmed message anchor on every send. Without these fields Rust
  * creates a new sender guid, which can split group conversations.
  */
-internal fun sendConversation(chat: Chat, afterGuid: String?, sender: String? = null): UConversation = UConversation(
-    participants = buildList {
-        addAll(chat.handles.map { MessageMapper.toRustHandle(it.address) })
-        sender?.let { add(MessageMapper.toRustHandle(MessageMapper.normalizeAddress(it))) }
-    }.distinct(),
-    cvName = chat.apnTitle ?: chat.displayName,
-    senderGuid = chat.guid,
-    afterGuid = afterGuid ?: chat.guid,
-)
+internal fun sendConversation(chat: Chat, afterGuid: String?, sender: String? = null): UConversation =
+    buildSendConversation(chat, afterGuid, sender)
 
 /**
  * Public direct-chat receipts reach the peer and our devices. Private direct

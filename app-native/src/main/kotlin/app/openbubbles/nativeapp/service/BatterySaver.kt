@@ -44,7 +44,7 @@ object BatterySaver {
             schedule(context)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-            NativePushService.start(context)
+            NativePushService.reloadAfterLogin(context)
         }
         return enabled
     }

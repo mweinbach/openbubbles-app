@@ -1,5 +1,6 @@
 package app.openbubbles.core.sync
 
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Attachment
@@ -129,12 +130,12 @@ class CloudSyncManagerTest {
         store = MyObjectBox.builder().directory(testDir).build()
         port = FakeCloudSyncPort()
         syncStore = InMemoryCloudSyncStateStore()
-        manager = CloudSyncManager(store, port, syncStore)
+        manager = CloudSyncManager(store, port, syncStore, AttachmentStore(store, testDir))
     }
 
     @After
     fun tearDown() {
-        store.close()
+        if (!store.isClosed) store.close()
         testDir.deleteRecursively()
     }
 
@@ -340,6 +341,10 @@ class CloudSyncManagerTest {
         assertEquals("photo.jpg", attachment.transferName)
         assertEquals("rec-attachment", attachment.metadata["cloud"])
         assertEquals("message_with_underscore", attachment.message.target?.guid)
+        val payload = AttachmentStore(store, testDir).pathFor(attachment).apply {
+            parentFile?.mkdirs()
+            writeText("payload")
+        }
 
         port.chatPages += chatPage()
         port.messagePages += messagePage()
@@ -349,6 +354,7 @@ class CloudSyncManagerTest {
 
         assertEquals(1uL, tombstoneSummary.attachmentTombstones)
         assertNull(attachmentByGuid("message_with_underscore_0"))
+        assertTrue(!payload.exists())
     }
 
     @Test
@@ -478,6 +484,21 @@ class CloudSyncManagerTest {
         runSync()
         assertEquals(3, port.chatCursorsReceived.size)
         assertTrue(syncStore.chatCursor()!!.contentEquals(byteArrayOf(3)))
+    }
+
+    @Test
+    fun `failed page application does not advance its cursor`() {
+        syncStore.saveChatCursor(byteArrayOf(9))
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+            cursor = byteArrayOf(10),
+        )
+        store.close()
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNotNull(summary.error)
+        assertTrue(syncStore.chatCursor()!!.contentEquals(byteArrayOf(9)))
     }
 
     // ------------------------------------------------------------------

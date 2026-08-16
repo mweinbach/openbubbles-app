@@ -297,6 +297,48 @@ class BackupManagerTest {
         assertTrue(!File(root, "evil.txt").exists(), "zip-slip wrote inside the target dir")
     }
 
+    @Test
+    fun `restore validates archive before invoking pre-swap callback`() {
+        seedData()
+        var beforeSwapCalled = false
+
+        val failure = manager.restore(
+            ByteArrayInputStream("not a backup".toByteArray()),
+            root,
+        ) {
+            beforeSwapCalled = true
+        }
+
+        assertTrue(failure.isFailure)
+        assertTrue(!beforeSwapCalled, "invalid input must not stop the live app")
+        assertOriginalDataIntact(failure, "validation ordering")
+    }
+
+    @Test
+    fun `restore rejects an archive larger than the configured source limit`() {
+        seedData()
+        val (_, zipBytes) = snapshotBytes()
+        val limited = BackupManager(
+            rootDir = root,
+            store = { store },
+            storeGate = PassThroughStoreGate,
+            restoreLimits = BackupManager.RestoreLimits(
+                maxArchiveBytes = zipBytes.size.toLong() - 1L,
+                minFreeBytes = 0L,
+            ),
+        )
+        var beforeSwapCalled = false
+
+        val failure = limited.restore(ByteArrayInputStream(zipBytes), root) {
+            beforeSwapCalled = true
+        }
+
+        assertTrue(failure.isFailure)
+        assertTrue(!beforeSwapCalled, "oversized input must not stop the live app")
+        assertTrue(failure.exceptionOrNull()?.message?.contains("size limit") == true)
+        assertOriginalDataIntact(failure, "source limit")
+    }
+
     // ------------------------------------------------------------------
     // Snapshot failure mode
     // ------------------------------------------------------------------

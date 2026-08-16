@@ -163,18 +163,16 @@ class CredentialService : CredentialProviderService() {
             }
         }
         if (site.isEmpty()) {
-            site = callingOrigin
+            site = canonicalRpHost(callingOrigin).orEmpty()
         }
 
         // RP ID check: if origin host is present, it must be equal to or a subdomain of rpId.
-        if (callingAppInfo.isOriginPopulated() && site.isNotEmpty()) {
-            val host = callingOrigin.removeSuffix("/")
-            val rpId = site
-            val ok = host == rpId || host.endsWith(rpId)
-            if (!ok) {
-                callback.onResult(BeginGetCredentialResponse(emptyList()))
-                return
-            }
+        if (callingAppInfo.isOriginPopulated() &&
+            site.isNotEmpty() &&
+            !originMatchesRpId(callingOrigin, site)
+        ) {
+            callback.onResult(BeginGetCredentialResponse(emptyList()))
+            return
         }
 
         val client = APNClient(this)

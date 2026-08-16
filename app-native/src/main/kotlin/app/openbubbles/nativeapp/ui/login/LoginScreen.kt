@@ -162,7 +162,7 @@ private fun FormStep(
     var username by rememberSaveable(state.savedUsername) {
         mutableStateOf(state.savedUsername.orEmpty())
     }
-    var password by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
     Column(

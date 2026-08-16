@@ -64,6 +64,7 @@ jobs:
           cd native
           ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
             :db:checkModelParity :app-native:lintDebug \
+            :app-native:checkUniffiBindings :app-native:validateDebugScreenshotTest \
             :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
       - uses: actions/upload-artifact@v4
@@ -90,17 +91,21 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Protobuf compiler
+        uses: arduino/setup-protoc@v3
+
       - name: DB model parity (no Android SDK needed)
         run: |
           cd native
           ./gradlew.bat :db:checkModelParity --console=plain
 
       - name: Package Windows distributable
-        run: |
-          cd native
-          ./gradlew.bat :desktopApp:createDistributable --console=plain
+        run: cd native; ./gradlew.bat :desktopApp:verifyHostRustResource :desktopApp:createDistributable --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
           name: native-desktop-windows
-          path: desktopApp/build/compose/binaries/main/*
+          path: build-native/desktopApp/compose/binaries/main/*

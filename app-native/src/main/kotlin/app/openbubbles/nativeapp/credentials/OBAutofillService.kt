@@ -21,6 +21,8 @@ import uniffi.rust_lib_bluebubbles.InsertKeychainCallback
 import uniffi.rust_lib_bluebubbles.RetrieveKeysCallback
 import uniffi.rust_lib_bluebubbles.SavedPasskey
 import uniffi.rust_lib_bluebubbles.SavedPassword
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 class OBAutofillService : AutofillService() {
@@ -150,27 +152,56 @@ class OBAutofillService : AutofillService() {
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        for (context in request.fillContexts) {
+        data class PendingSave(val domain: String, val username: String, val password: String)
+
+        val pending = request.fillContexts.mapNotNull { context ->
             val currentContext = context.structure
             val structure = AutofillStructure(this, currentContext)
 
             val data = AutofillDatasets.LoginInfo("Unknown", "", "", "")
             data.importFields(structure)
 
-            if (data.password == "") continue
+            val domain = structure.webDomain ?: return@mapNotNull null
+            if (data.password.isEmpty()) return@mapNotNull null
+            PendingSave(domain, data.username, data.password)
+        }
 
+        if (pending.isEmpty()) {
+            callback.onFailure("No password fields were available to save")
+            return
+        }
+
+        val remaining = AtomicInteger(pending.size)
+        val completed = AtomicBoolean(false)
+        fun finishOne(error: String?) {
+            if (error != null && completed.compareAndSet(false, true)) {
+                callback.onFailure(error)
+                return
+            }
+            if (remaining.decrementAndGet() == 0 && completed.compareAndSet(false, true)) {
+                callback.onSuccess()
+            }
+        }
+
+        pending.forEach { save ->
             val client = APNClient(this)
             client.bind { service: APNService ->
-                service.pushState!!.keychainPasswordInsert(structure.webDomain!!, data.username, data.password, object : InsertKeychainCallback {
+                val pushState = service.pushState
+                if (pushState == null) {
+                    client.destroy()
+                    finishOne("Apple password storage is unavailable")
+                    return@bind
+                }
+                pushState.keychainPasswordInsert(save.domain, save.username, save.password, object : InsertKeychainCallback {
                     override fun done(error: String?) {
                         if (error != null) {
                             Log.e("Error", "error")
                         }
                         client.destroy()
+                        finishOne(error)
                     }
                 }, null)
             }
         }
-        callback.onSuccess()
     }
 }

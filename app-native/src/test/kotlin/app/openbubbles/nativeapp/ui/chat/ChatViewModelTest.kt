@@ -20,16 +20,21 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
@@ -181,9 +186,75 @@ class ChatViewModelTest {
         assertEquals(null, model.uiState.value.faceTimeLaunch)
     }
 
+    @Test
+    fun `historical effects are baselined and new effects are consumed once`() = runTest(dispatcher) {
+        val messages = MutableMessages(
+            listOf(message(id = 1L, guid = "historical", effectId = "historical-effect")),
+        )
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+
+        advanceUntilIdle()
+        assertEquals(null, model.uiState.value.screenEffect)
+
+        messages.value.value += message(id = 2L, guid = "new", effectId = "new-effect")
+        advanceUntilIdle()
+
+        assertEquals(ScreenEffectTrigger(2L, "new-effect"), model.uiState.value.screenEffect)
+        model.consumeScreenEffect(2L)
+        advanceUntilIdle()
+        assertEquals(null, model.uiState.value.screenEffect)
+    }
+
+    @Test
+    fun `slower reply lookup cannot overwrite a newer thread`() = runTest(dispatcher) {
+        val messages = BlockingThreadMessages()
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.openReplyThread(message(guid = "first"))
+        assertTrue(messages.firstStarted.await(5, TimeUnit.SECONDS))
+
+        model.openReplyThread(message(guid = "second"))
+        assertTrue(messages.secondStarted.await(5, TimeUnit.SECONDS))
+        messages.secondRelease.countDown()
+
+        var secondLoaded = false
+        for (attempt in 0 until 100) {
+            runCurrent()
+            val thread = model.uiState.value.replyThread
+            if (thread?.rootGuid == "second" && !thread.loading) {
+                secondLoaded = true
+                break
+            }
+            Thread.sleep(10)
+        }
+        assertTrue(secondLoaded)
+
+        messages.firstRelease.countDown()
+        assertTrue(messages.firstReturned.await(5, TimeUnit.SECONDS))
+        repeat(10) {
+            runCurrent()
+            Thread.sleep(5)
+        }
+
+        assertEquals("second", model.uiState.value.replyThread?.rootGuid)
+        assertEquals(false, model.uiState.value.replyThread?.loading)
+    }
+
     private fun model(
         sender: Sender,
         actions: MessageActions,
+        messageRepository: MessageListRepository = StaticMessages,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
         faceTimeCaller: FaceTimeCaller = FaceTimeCaller { error("not used") },
@@ -192,7 +263,7 @@ class ChatViewModelTest {
     ) = ChatViewModel(
         chatId = 7L,
         chatListRepository = StaticChats,
-        messageRepository = StaticMessages,
+        messageRepository = messageRepository,
         sender = sender,
         messageActions = actions,
         faceTimeCaller = faceTimeCaller,
@@ -205,20 +276,23 @@ class ChatViewModelTest {
     )
 
     private fun message(
+        id: Long = 1L,
         guid: String,
         text: String = "hello",
+        effectId: String? = null,
         replyToGuid: String? = null,
         replyToPart: Long? = null,
         replyToPartLocator: String? = null,
         replyPartLocators: Map<Long, String> = emptyMap(),
     ) = MessageItem(
-        id = 1L,
+        id = id,
         text = text,
         isFromMe = true,
         date = 1L,
         status = MessageStatus.SENT,
         isGroupEvent = false,
         reactionEmoji = null,
+        expressiveSendStyleId = effectId,
         guid = guid,
         replyToGuid = replyToGuid,
         replyToPart = replyToPart,
@@ -244,6 +318,42 @@ private object StaticMessages : MessageListRepository {
         flowOf(emptyList())
 
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> = emptyList()
+}
+
+private class MutableMessages(initial: List<MessageItem>) : MessageListRepository {
+    val value = MutableStateFlow(initial)
+
+    override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> = value
+
+    override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> = emptyList()
+}
+
+private class BlockingThreadMessages : MessageListRepository {
+    val firstStarted = CountDownLatch(1)
+    val secondStarted = CountDownLatch(1)
+    val firstRelease = CountDownLatch(1)
+    val secondRelease = CountDownLatch(1)
+    val firstReturned = CountDownLatch(1)
+
+    override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
+        flowOf(emptyList())
+
+    override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> = emptyList()
+
+    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
+        when (rootGuid) {
+            "first" -> {
+                firstStarted.countDown()
+                check(firstRelease.await(5, TimeUnit.SECONDS))
+                firstReturned.countDown()
+            }
+            "second" -> {
+                secondStarted.countDown()
+                check(secondRelease.await(5, TimeUnit.SECONDS))
+            }
+        }
+        return emptyList()
+    }
 }
 
 private class RecordingSender : Sender {

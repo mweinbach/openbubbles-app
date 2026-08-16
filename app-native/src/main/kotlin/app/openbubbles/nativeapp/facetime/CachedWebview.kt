@@ -21,10 +21,31 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.net.URI
+
+internal fun secureWebOrigin(url: String): URI? = runCatching {
+    val uri = URI(url)
+    if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) return null
+    URI(uri.scheme.lowercase(), null, uri.host.lowercase(), uri.port, null, null, null)
+}.getOrNull()
+
+internal fun matchesWebOrigin(origin: URI, candidate: String): Boolean = runCatching {
+    val uri = URI(candidate)
+    uri.scheme.equals(origin.scheme, ignoreCase = true) &&
+        uri.host.equals(origin.host, ignoreCase = true) &&
+        effectivePort(uri) == effectivePort(origin)
+}.getOrDefault(false)
+
+private fun effectivePort(uri: URI): Int = when {
+    uri.port >= 0 -> uri.port
+    uri.scheme.equals("https", ignoreCase = true) -> 443
+    else -> -1
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 class CachedWebview(context: Context, name: String?, desc: String, url: String) {
     val webView = WebView(context)
+    private val allowedOrigin = requireNotNull(secureWebOrigin(url)) { "FaceTime URL must use HTTPS" }
 
     var mirrorReady = false
     var mirrorReadyCall: (() -> Unit)? = null
@@ -77,11 +98,17 @@ class CachedWebview(context: Context, name: String?, desc: String, url: String) 
             .build()
         webView.settings.javaScriptEnabled = true
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                if (request == null || !request.isForMainFrame) return false
+                return !matchesWebOrigin(allowedOrigin, request.url.toString())
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 if (request == null) return null
+                if (!matchesWebOrigin(allowedOrigin, request.url.toString())) return null
                 if (!request.url.toString().endsWith("main.js")) return null
                 // intercept and patch request
 
@@ -117,6 +144,16 @@ class CachedWebview(context: Context, name: String?, desc: String, url: String) 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
                 if (request == null) return
+                val allowedResources = setOf(
+                    PermissionRequest.RESOURCE_AUDIO_CAPTURE,
+                    PermissionRequest.RESOURCE_VIDEO_CAPTURE,
+                )
+                if (!matchesWebOrigin(allowedOrigin, request.origin.toString()) ||
+                    request.resources.any { it !in allowedResources }
+                ) {
+                    request.deny()
+                    return
+                }
                 deferredRequests.add(request)
                 deferredRequestsUpdated()
             }
@@ -127,6 +164,11 @@ class CachedWebview(context: Context, name: String?, desc: String, url: String) 
         }
 
         webView.loadUrl(url)
+    }
+
+    fun cancelDeferredPermissions() {
+        deferredRequests.forEach(PermissionRequest::deny)
+        deferredRequests.clear()
     }
 
 }

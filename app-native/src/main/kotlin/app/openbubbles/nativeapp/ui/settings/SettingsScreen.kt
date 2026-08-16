@@ -364,15 +364,19 @@ fun SettingsScreen(
                 } ?: Result.failure(IllegalStateException("cannot open backup file"))
             }
             backupStageFlow.value = null
-            result.onSuccess {
+            if (result.isSuccess || CoreGraph.restoreRequiresRestart()) {
                 // CoreGraph's lazy singletons (and the open store) cannot be
                 // rebuilt in place, so the process restarts to load the
-                // restored data — the row below is the user-facing notice.
+                // restored data. A failure after pre-swap shutdown also needs
+                // a restart because the live store is already closed.
+                result.exceptionOrNull()?.let {
+                    backupError = it.message ?: "restore failed after shutdown"
+                }
                 restarting = true
                 delay(2_500)
                 Runtime.getRuntime().exit(0)
-            }.onFailure {
-                backupError = it.message ?: "restore failed"
+            } else {
+                backupError = result.exceptionOrNull()?.message ?: "restore failed"
             }
         }
     }

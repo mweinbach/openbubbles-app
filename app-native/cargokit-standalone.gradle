@@ -103,8 +103,22 @@ tasks.register("checkUniffiBindings") {
         injected.execOps.exec {
             workingDir file("../rust")
             executable "cargo"
-            args "run", "--bin", "uniffi-bindgen", "generate",
-                    "--library", "target/release/librust_lib_bluebubbles.dylib",
+            args "build", "--release", "--locked"
+        }
+        def libraryName
+        if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS)) {
+            libraryName = "rust_lib_bluebubbles.dll"
+        } else if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_MAC)) {
+            libraryName = "librust_lib_bluebubbles.dylib"
+        } else {
+            libraryName = "librust_lib_bluebubbles.so"
+        }
+        def libraryFile = file("../rust/target/release/${libraryName}")
+        injected.execOps.exec {
+            workingDir file("../rust")
+            executable "cargo"
+            args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
+                    "--library", libraryFile.absolutePath,
                     "--language", "kotlin", "--no-format",
                     "--out-dir", tmp.absolutePath
         }

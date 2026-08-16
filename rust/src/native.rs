@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap, VecDeque}, fmt::Debug, fs::{File, OpenOptions}, io::{self, Cursor, Read, Seek, Write}, sync::{Arc, LazyLock, OnceLock, RwLock, Weak}, time::{Duration, SystemTime}};
+use std::{collections::{BTreeMap, HashMap, VecDeque}, fmt::Debug, fs::{File, OpenOptions}, io::{self, Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock, RwLock, Weak}, time::{Duration, SystemTime}};
 
 use flexi_logger::{FileSpec, Logger, WriteMode};
 use keystore::software::plist_to_bin;
@@ -10,7 +10,7 @@ use tokio::{runtime::{Handle, Runtime}, sync::Mutex};
 
 use futures::FutureExt;
 use uuid::Uuid;
-use crate::{RUNTIME, api::api::{APSWatcher, DaemonData, PollResult, PushMessage, SharedPushState, approve_circle, decline_facetime, do_first_time_init, get_2fa_code, get_entitlements, recv_wait, set_status, teardown_2fa}, frb_generated::FLUTTER_RUST_BRIDGE_HANDLER, init_logger};
+use crate::{RUNTIME, api::api::{APSWatcher, PollResult, PushMessage, SharedPushState, approve_circle, decline_facetime, do_first_time_init, get_2fa_code, get_entitlements, recv_wait, register_service, set_status, take_daemon, teardown_2fa}, frb_generated::FLUTTER_RUST_BRIDGE_HANDLER, init_logger};
 
 #[derive(uniffi::Record)] 
 pub struct FileInfo {
@@ -38,6 +38,7 @@ pub static PACKAGER_LOCK: OnceLock<Arc<dyn KotlinFilePackager>> = OnceLock::new(
 pub trait MsgReceiver: Send + Sync + Debug {
     fn receieved_msg(&self, msg: u64, retry: u64);
     fn native_ready(&self, state: Option<Arc<NativePushState>>);
+    fn native_error(&self, reason: String);
     fn twofa_event(&self, success: bool);
     fn finish(&self);
 }
@@ -119,22 +120,25 @@ pub fn init_native(dir: String, handle: Option<String>, handler: Arc<dyn MsgRece
         info!("rpljslf initting");
 
         let result = if let Some(handle) = handle {
-            let parsed: u64 = handle.parse().expect("bad handle??");
+            let parsed = handle.parse::<u64>().unwrap_or_default();
             info!("consuming pointer {handle} {parsed}");
-            let daemondata: DaemonData = *unsafe { Box::from_raw(parsed as *mut DaemonData) };
-            Some(Arc::new(NativePushState {
+            info!("consuming daemon token {handle}");
+            take_daemon(&handle).map(|daemondata| Some(Arc::new(NativePushState {
                 state: Arc::new(daemondata.state),
                 watcher: Mutex::new(daemondata.watcher),
-            }))
+            })))
         } else {
-            SharedPushState::restore(dir).await.map(|a| Arc::new(NativePushState {
+            SharedPushState::restore_with_error(dir).await.map(|restored| restored.map(|a| Arc::new(NativePushState {
                 state: Arc::new(a.0),
                 watcher: Mutex::new(a.1),
-            }))
+            })))
         };
 
         info!("rpljslf raed");
-        handler.native_ready(result);
+        match result {
+            Ok(state) => handler.native_ready(state),
+            Err(error) => handler.native_error(error.to_string()),
+        }
         info!("rpljslf dom");
     });
 }
@@ -183,11 +187,14 @@ enum MessageJournal {
     }
 }
 
+const MAX_JOURNAL_RECORD_BYTES: usize = 16 * 1024 * 1024;
+
 impl MessageJournal {
     fn read(mut reader: impl Read) -> anyhow::Result<(usize, Self)> {
         let mut len = [0u8; 4];
         reader.read_exact(&mut len)?;
         let len = u32::from_be_bytes(len) as usize;
+        anyhow::ensure!(len <= MAX_JOURNAL_RECORD_BYTES, "journal record exceeds size limit");
         let mut data = vec![0u8; len];
         reader.read_exact(&mut data)?;
 
@@ -196,6 +203,7 @@ impl MessageJournal {
 
     fn write(&self, mut writer: impl Write) -> anyhow::Result<usize> {
         let bytes = plist_to_bin(self)?;
+        anyhow::ensure!(bytes.len() <= MAX_JOURNAL_RECORD_BYTES, "journal record exceeds size limit");
         writer.write_all(&(bytes.len() as u32).to_be_bytes())?;
         writer.write_all(&bytes)?;
 
@@ -205,13 +213,14 @@ impl MessageJournal {
 
 pub struct MessageLog {
     pub messages: BTreeMap<u64, MessageLogEntry>,
+    journal_path: PathBuf,
     journal: File,
     journal_len: usize,
     current_id: u64,
 }
 
 impl MessageLog {
-    fn create(mut journal: File) -> Self {
+    fn create(journal_path: PathBuf, mut journal: File) -> Self {
         let mut total_read = 0;
         let mut current_id = 0;
         let mut messages: BTreeMap<u64, MessageLogEntry> = BTreeMap::new();
@@ -219,7 +228,7 @@ impl MessageLog {
             total_read += size;
             match len {
                 MessageJournal::Message { id, item } => {
-                    current_id = id;
+                    current_id = current_id.max(id);
                     messages.insert(id, item);
                 },
                 MessageJournal::Attempt { id } => {
@@ -236,6 +245,7 @@ impl MessageLog {
         journal.seek(std::io::SeekFrom::Start(total_read as u64)).unwrap();
         Self {
             messages,
+            journal_path,
             journal,
             journal_len: total_read,
             current_id,
@@ -244,27 +254,45 @@ impl MessageLog {
 
     fn compact_journal(&mut self) -> anyhow::Result<()> {
         info!("Compacting journal!");
-        self.journal.set_len(0)?;
-        self.journal.seek(std::io::SeekFrom::Start(0))?;
-        self.journal_len = 0;
-        for (id, item) in self.messages.clone() {
-            let message = MessageJournal::Message { id, item };
-
-            match message.write(&mut self.journal) {
-                Ok(len) => self.journal_len += len,
-                Err(e) => {
-                    warn!("Failed to write to journal {e}");
-                    let _ = self.journal.set_len(self.journal_len as u64);
-                    let _ = self.journal.seek(std::io::SeekFrom::Start(self.journal_len as u64));
-                }
-            }
+        let temp_path = self.journal_path.with_extension("journal.tmp");
+        let mut temp = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_path)?;
+        let mut compacted_len = 0;
+        for (id, item) in &self.messages {
+            let message = MessageJournal::Message {
+                id: *id,
+                item: item.clone(),
+            };
+            compacted_len += message.write(&mut temp).map_err(|error| {
+                warn!("Failed to write to journal {error}");
+                error
+            })?;
         }
+        temp.sync_data()?;
+        drop(temp);
+
+        if let Err(error) = std::fs::rename(&temp_path, &self.journal_path) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error.into());
+        }
+        if let Some(parent) = self.journal_path.parent() {
+            File::open(parent)?.sync_data()?;
+        }
+        self.journal = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.journal_path)?;
+        self.journal.seek(std::io::SeekFrom::Start(compacted_len as u64))?;
+        self.journal_len = compacted_len;
 
         info!("Compacted journal!");
         Ok(())
     }
 
-    fn log_entry(&mut self, item: MessageJournal) {
+    fn log_entry(&mut self, item: MessageJournal) -> anyhow::Result<()> {
         if self.journal_len > 1024 * 128 {
             if let Err(e) = self.compact_journal() {
                 warn!("Error compacting journal {e}");
@@ -272,56 +300,66 @@ impl MessageLog {
         }
 
         match item.write(&mut self.journal) {
-            Ok(len) => self.journal_len += len,
+            Ok(len) => {
+                self.journal.sync_data()?;
+                self.journal_len += len;
+                Ok(())
+            },
             Err(e) => {
                 warn!("Failed to write to journal {e}");
                 let _ = self.journal.set_len(self.journal_len as u64);
                 let _ = self.journal.seek(std::io::SeekFrom::Start(self.journal_len as u64));
+                Err(e)
             }
         }
     }
     
-    pub fn insert(&mut self, item: MessageInst) -> u64 {
-        let id: u64 = self.current_id + 1;
-        self.current_id = self.current_id.wrapping_add(1);
+    pub fn insert(&mut self, item: MessageInst) -> anyhow::Result<u64> {
+        let id = self.current_id.wrapping_add(1);
         let log = MessageLogEntry { attempts: 0, msg: item.clone() };
 
         self.log_entry(MessageJournal::Message { 
             id, 
             item: log.clone(),
-        });
+        })?;
         
+        self.current_id = id;
         self.messages.insert(id, log);
-        id
+        Ok(id)
     }
 
-    pub fn attempt(&mut self, id: u64) -> u8 {
-        self.log_entry(MessageJournal::Attempt { id });
-        let Some(msg) = self.messages.get_mut(&id) else {
+    pub fn attempt(&mut self, id: u64) -> anyhow::Result<u8> {
+        let Some(msg) = self.messages.get(&id) else {
             warn!("Attempting unknown ID!");
-            return u8::MAX;
+            anyhow::bail!("attempting unknown journal id {id}");
         };
         let attempts = msg.attempts;
-        msg.attempts += 1;
-        attempts
+        self.log_entry(MessageJournal::Attempt { id })?;
+        if let Some(msg) = self.messages.get_mut(&id) {
+            msg.attempts = msg.attempts.saturating_add(1);
+        }
+        Ok(attempts)
     }
 
-    pub fn finish(&mut self, id: u64) {
-        let Some(msg) = self.messages.remove(&id) else {
-            return;
-        };
-        self.log_entry(MessageJournal::Finish { id, success: true });
+    pub fn finish(&mut self, id: u64) -> anyhow::Result<()> {
+        if !self.messages.contains_key(&id) {
+            return Ok(());
+        }
+        self.log_entry(MessageJournal::Finish { id, success: true })?;
+        self.messages.remove(&id);
+        Ok(())
     }
 }
 
 pub static MESSAGE_LOG: LazyLock<Mutex<MessageLog>> = LazyLock::new(|| {
+    let path = PathBuf::from(format!("{}/messages.journal", CONFIG_PATH.get().expect("no path configured!")));
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .open(format!("{}/messages.journal", CONFIG_PATH.get().expect("no path configured!"))).expect("Failed to create jorunal!");
+        .open(&path).expect("Failed to create journal!");
     
-    Mutex::new(MessageLog::create(file))
+    Mutex::new(MessageLog::create(path, file))
 });
 
 pub static QUEUED_MESSAGES: LazyLock<Mutex<(u64, HashMap<u64, PushMessage>)>> = LazyLock::new(|| Mutex::new((0, HashMap::new())));
@@ -343,8 +381,16 @@ impl NativePushState {
                                 }
 
                                 if let PushMessage::IMessage(message) = &msg {
-                                    let mut log_lock = MESSAGE_LOG.lock().await;
-                                    log_lock.insert(message.clone());
+                                    loop {
+                                        let result = MESSAGE_LOG.lock().await.insert(message.clone());
+                                        match result {
+                                            Ok(_) => break,
+                                            Err(error) => {
+                                                error!("Failed to persist incoming message journal entry: {error}");
+                                                tokio::time::sleep(Duration::from_secs(5)).await;
+                                            },
+                                        }
+                                    }
                                     msg = PushMessage::ProcessQueue;
                                 }
                                 let mut locked_messages = QUEUED_MESSAGES.lock().await;
@@ -499,7 +545,7 @@ impl NativePushState {
     }
 
     pub fn get_state(self: Arc<NativePushState>) -> u64 {
-        let arc_val = Arc::downgrade(&self.state).into_raw() as u64;
+        let arc_val = register_service(&self.state);
         info!("emitting state {arc_val}");
         arc_val
     }

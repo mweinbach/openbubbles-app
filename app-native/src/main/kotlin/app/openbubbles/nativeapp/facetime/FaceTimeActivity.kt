@@ -42,7 +42,7 @@ private fun lerp(start: Float, stop: Float, fraction: Float): Float =
 class FaceTimeActivity : Activity() {
     private lateinit var binding: ActivityFaceTimeBinding
 
-    private var permissionRequests = ArrayList<PermissionRequest>()
+    private var pendingPermissionRequest: PermissionRequest? = null
     private val permissionMap = mapOf(
         PermissionRequest.RESOURCE_VIDEO_CAPTURE to listOf(Manifest.permission.CAMERA),
         PermissionRequest.RESOURCE_AUDIO_CAPTURE to listOf(Manifest.permission.RECORD_AUDIO),
@@ -208,6 +208,14 @@ class FaceTimeActivity : Activity() {
         super.onCreate(savedInstanceState)
         binding = ActivityFaceTimeBinding.inflate(layoutInflater)
 
+        val extras = intent?.extras
+        val link = extras?.getString("link")
+        if (extras == null || link == null || secureWebOrigin(link) == null) {
+            Log.w("FaceTime", "refusing missing or non-HTTPS FaceTime link")
+            finishAndRemoveTask()
+            return
+        }
+
         activeFaceTimeActivity = this
 
         window.statusBarColor = Color.TRANSPARENT
@@ -227,7 +235,7 @@ class FaceTimeActivity : Activity() {
             )
         }
 
-        handleConfig(intent.extras!!)
+        handleConfig(extras)
         binding.mainFrame.addView(webView)
 
         binding.accept.setOnClickListener {
@@ -302,20 +310,27 @@ class FaceTimeActivity : Activity() {
     }
 
     fun handlePermissionRequest(request: PermissionRequest) {
-        val permissions = request.resources.flatMap { i -> permissionMap[i] ?: listOf() }
+        if (pendingPermissionRequest != null || request.resources.any { it !in permissionMap }) {
+            request.deny()
+            return
+        }
+        val permissions = request.resources.flatMap { permissionMap.getValue(it) }.distinct()
         if (permissions.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
             request.grant(request.resources)
             startService()
             return
         }
-        permissionRequests.add(request)
+        pendingPermissionRequest = request
         requestPermissions(permissions.toTypedArray(), 1)
     }
 
     override fun onDestroy() {
         callTimeoutHandler.removeCallbacks(outgoingCallTimeout)
         callUuid?.let(FaceTimeDispatch::clearActiveCall)
-        webView.destroy()
+        pendingPermissionRequest?.deny()
+        pendingPermissionRequest = null
+        if (::cached.isInitialized) cached.cancelDeferredPermissions()
+        if (::webView.isInitialized) webView.destroy()
         if (activeFaceTimeActivity === this) activeFaceTimeActivity = null
 
         val intent = Intent(this, FaceTimeInCallService::class.java)
@@ -348,17 +363,26 @@ class FaceTimeActivity : Activity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        if (requestCode != 1) return
-        for (request in permissionRequests) {
-            request.grant(request.resources.filter { i ->
-                (permissionMap[i] ?: listOf()).all {
-                    val permissionIdx = permissions.indexOf(it)
-                    grantResults[permissionIdx] == PackageManager.PERMISSION_GRANTED
-                }
-            }.toTypedArray())
+        if (requestCode != 1) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            return
         }
-        permissionRequests = arrayListOf()
-        startService()
+        val request = pendingPermissionRequest ?: return
+        pendingPermissionRequest = null
+        val granted = request.resources.all { resource ->
+            permissionMap.getValue(resource).all { permission ->
+                val permissionIdx = permissions.indexOf(permission)
+                permissionIdx >= 0 &&
+                    permissionIdx < grantResults.size &&
+                    grantResults[permissionIdx] == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        if (granted) {
+            request.grant(request.resources)
+            startService()
+        } else {
+            request.deny()
+        }
     }
 
     private fun connecting() {
@@ -383,6 +407,11 @@ class FaceTimeActivity : Activity() {
             cached = cachedWebview!!
             cachedWebview = null
         } else {
+            if (secureWebOrigin(link) == null) {
+                Log.w("FaceTime", "refusing non-HTTPS FaceTime link")
+                finishAndRemoveTask()
+                return
+            }
             cached = CachedWebview(this, name, desc, link)
         }
 

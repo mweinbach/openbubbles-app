@@ -39,6 +39,13 @@ class NativePushServiceStartTest {
     }
 
     @Test
+    fun `stale poll cannot stop a reloaded live service`() {
+        assertTrue(shouldStopAfterPoll(pollGeneration = 2, currentGeneration = 2, pollMode = true))
+        assertFalse(shouldStopAfterPoll(pollGeneration = 2, currentGeneration = 3, pollMode = false))
+        assertFalse(shouldStopAfterPoll(pollGeneration = 2, currentGeneration = 3, pollMode = true))
+    }
+
+    @Test
     fun `reconnect backoff is bounded`() {
         assertEquals(2_000L, reconnectDelayMs(0))
         assertEquals(4_000L, reconnectDelayMs(1))
@@ -49,6 +56,8 @@ class NativePushServiceStartTest {
     fun `journal retry delay only applies after failures`() {
         assertEquals(2_000L, journalRetryDelayMs(0))
         assertEquals(10_000L, journalRetryDelayMs(1))
-        assertEquals(10_000L, journalRetryDelayMs(5))
+        assertEquals(30_000L, journalRetryDelayMs(2))
+        assertEquals(240_000L, journalRetryDelayMs(5))
+        assertEquals(240_000L, journalRetryDelayMs(50))
     }
 }

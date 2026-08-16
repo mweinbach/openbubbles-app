@@ -411,8 +411,8 @@ pub fn read_queued_journal() -> Option<UQueuedJournal> {
 }
 
 #[uniffi::export]
-pub fn mark_journal_attempt(id: u64, success: bool) {
-    RUNTIME.block_on(api::mark_queue_attempt(id, success));
+pub fn mark_journal_attempt(id: u64, success: bool) -> Result<(), UError> {
+    RUNTIME.block_on(api::mark_queue_attempt(id, success)).map_err(login_err)
 }
 
 #[uniffi::export]
@@ -1398,6 +1398,23 @@ fn delegate_stage(delegate: &Arc<dyn ULoginDelegate>, stage: ULoginStage) {
 
 #[uniffi::export]
 impl NativePushState {
+    /// Stop the current receive loop and close its live Apple resources
+    /// without deleting registration or account state. The caller may restore
+    /// a fresh state afterward (battery-saver transitions and service reloads).
+    pub fn stop_loop(&self) {
+        let state = self.shared();
+        api::cancel_poll(&state.cancel_poll);
+        api::close_client(&state.client);
+        if let Some(sharedstreams) = state
+            .icloud_services
+            .as_ref()
+            .and_then(|services| services.sharedstreams.as_ref())
+        {
+            api::close_syncmanager(sharedstreams);
+        }
+        api::close_aps(&state.conn);
+    }
+
     /// Tear down the push connection and (with `logout`) deregister from
     /// iMessage and clear the saved Apple account. Hardware validation
     /// data is kept (`reset_hw = false`) so re-login doesn't need new
@@ -3275,6 +3292,13 @@ impl NativePushState {
         let items = RUNTIME
             .block_on(api::get_beacon_items(&fmfd))
             .map_err(|e| UError::Failed { reason: format!("findmy items failed: {e}") })?;
+        Ok(items.iter().map(conv_beacon).collect())
+    }
+
+    /// Last persisted own + shared Find My items without a network refresh.
+    pub fn get_cached_beacon_items(&self) -> Result<Vec<UFmItem>, UError> {
+        let fmfd = fmfd_client(self.shared())?;
+        let items = RUNTIME.block_on(api::get_cached_beacon_items(&fmfd));
         Ok(items.iter().map(conv_beacon).collect())
     }
 

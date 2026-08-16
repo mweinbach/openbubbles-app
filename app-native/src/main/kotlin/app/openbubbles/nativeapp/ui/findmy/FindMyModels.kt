@@ -142,12 +142,11 @@ class RustFindMyPort(
     }
 
     override suspend fun items(): List<FmItemUi> =
-        mapList("getBeaconItems") { _, element -> mapItem(element) }
+        mapList("getCachedBeaconItems") { _, element -> mapItem(element) }
 
     override suspend fun refreshItems(): List<FmItemUi> {
         val state = requireState()
         val raw = runInterruptible(Dispatchers.IO) {
-            runCatching { invoke(state, "getBeaconItems") }
             invokeList(state, "getBeaconItems")
         }
         return raw.map { mapItem(it) }
