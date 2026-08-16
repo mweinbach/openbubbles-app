@@ -16,8 +16,13 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.VerticalDragHandle
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
+import androidx.compose.material3.toShape
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -188,6 +193,34 @@ fun OpenBubblesApp(
         if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
     }
 
+    /**
+     * Opening a conversation from the list SWAPS the open one instead of
+     * stacking on top of it. In two-pane this is the Material list-detail
+     * contract — selecting a list item replaces the detail pane; without it,
+     * browsing five chats buries five conversations on the back stack and the
+     * back gesture walks through every one. Single-pane gets the same
+     * behaviour, which matches every mainstream messaging app: back from a
+     * conversation always lands on the list.
+     */
+    fun openChat(chatId: Long) {
+        val key = ChatKey(chatId)
+        if (backStack.lastOrNull() == key) return
+        while (backStack.size > 1 &&
+            (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
+        ) {
+            backStack.removeAt(backStack.lastIndex)
+        }
+        backStack.add(key)
+    }
+
+    // The conversation whose row should read as selected in the list pane.
+    // Only meaningful when the list is visible beside the detail.
+    val selectedChatId = if (isMultiPane) {
+        (backStack.lastOrNull { it is ChatKey } as? ChatKey)?.chatId
+    } else {
+        null
+    }
+
     /** Top-level switches reset to a single-entry stack rooted at the chat list. */
     fun navigateTopLevel(destination: TopLevelDestination) {
         if (backStack.lastOrNull() == destination.key) return
@@ -213,8 +246,8 @@ fun OpenBubblesApp(
     LaunchedEffect(startChatGuid) {
         val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
-        if (chatId != null && chatId > 0L && backStack.lastOrNull() != ChatKey(chatId)) {
-            backStack.add(ChatKey(chatId))
+        if (chatId != null && chatId > 0L) {
+            openChat(chatId)
         }
         NativeMainActivity.pendingChatGuid = null
     }
@@ -259,9 +292,36 @@ fun OpenBubblesApp(
         return
     }
 
-    val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>()
+    // User-resizable split: the drag handle between the panes is the Material
+    // affordance for pane expansion, and PaneExpansionState remembers where the
+    // user put it.
+    val paneExpansionState = rememberPaneExpansionState()
+    val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>(
+        directive = directive,
+        paneExpansionState = paneExpansionState,
+        paneExpansionDragHandle = { state ->
+            // One interaction source for both the drag modifier and the handle,
+            // so the handle's pressed shape morph tracks the actual drag.
+            val interactionSource = remember { MutableInteractionSource() }
+            VerticalDragHandle(
+                interactionSource = interactionSource,
+                modifier = Modifier.paneExpansionDraggable(state, 48.dp, interactionSource),
+            )
+        },
+    )
 
     val appContent: @Composable () -> Unit = {
+        // In two-pane the panes sit on a surfaceContainer canvas and separate
+        // tonally (list on surfaceContainerLow, conversation on surface) —
+        // Material's layering for list-detail. Single-pane keeps plain surface.
+        Surface(
+            color = if (isMultiPane) {
+                MaterialTheme.colorScheme.surfaceContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         NavDisplay(
             backStack = backStack,
             onBack = { popBack() },
@@ -279,7 +339,13 @@ fun OpenBubblesApp(
                     ChatListScreen(
                         uiState = state,
                         onQueryChange = viewModel::onQueryChange,
-                        onChatClick = { chat -> navigateTo(ChatKey(chat.id)) },
+                        onChatClick = { chat -> openChat(chat.id) },
+                        selectedChatId = selectedChatId,
+                        containerColor = if (isMultiPane) {
+                            MaterialTheme.colorScheme.surfaceContainerLow
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
                         onNewChat = { navigateTo(NewChatKey) },
                         onTogglePinned = viewModel::togglePinned,
                         onToggleMuted = viewModel::toggleMuted,
@@ -457,6 +523,7 @@ fun OpenBubblesApp(
                 }
             },
         )
+        }
     }
 
     // The navigation container belongs on top-level destinations, and also
@@ -491,11 +558,18 @@ fun OpenBubblesApp(
     }
 }
 
-/** Detail-pane placeholder shown on wide windows before a conversation is picked. */
+/**
+ * Detail-pane placeholder shown on wide windows before a conversation is picked.
+ *
+ * An empty state is one of the sanctioned decorative moments in Expressive, so
+ * the icon backdrop uses a MaterialShapes polygon on primaryContainer and the
+ * headline uses the emphasized type role. Deliberately static: a morph or loop
+ * here would burn motion budget on a screen whose job is to be waited past.
+ */
 @Composable
 private fun NoConversationSelected() {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxSize(),
     ) {
         Column(
@@ -504,26 +578,26 @@ private fun NoConversationSelected() {
             verticalArrangement = Arrangement.Center,
         ) {
             Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.size(64.dp),
+                shape = MaterialShapes.SoftBurst.toShape(),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(96.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Filled.ChatBubbleOutline,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(36.dp),
                     )
                 }
             }
             Text(
-                text = "No conversation selected",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 14.dp),
+                text = "Choose a conversation",
+                style = MaterialTheme.typography.titleLargeEmphasized,
+                modifier = Modifier.padding(top = 18.dp),
             )
             Text(
-                text = "Pick a conversation from the list to read it here.",
+                text = "Pick one from the list to read it here.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

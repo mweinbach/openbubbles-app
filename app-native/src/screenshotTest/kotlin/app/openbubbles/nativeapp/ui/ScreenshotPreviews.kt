@@ -123,3 +123,26 @@ fun ChatListRowScreenshot() {
         )
     }
 }
+
+/** Selected state: secondaryContainer + rounder shape when open in the detail pane. */
+@PreviewTest
+@Preview(name = "row-selected", showBackground = true)
+@Preview(name = "row-selected-dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatListRowSelectedScreenshot() {
+    OpenBubblesTheme {
+        ChatListRow(
+            chat = ChatListItem(
+                id = 3,
+                title = "Design Team",
+                snippet = "Maya: pushed the new mocks to Figma",
+                date = FIXED_NOW - 18 * 60_000L,
+                unread = 0,
+                pinned = true,
+                avatarColor = 0xFF8C4A60,
+            ),
+            onClick = {},
+            selected = true,
+        )
+    }
+}

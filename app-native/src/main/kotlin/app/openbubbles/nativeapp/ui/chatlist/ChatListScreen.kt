@@ -82,6 +82,14 @@ fun ChatListScreen(
     onMuteFor: (ChatListItem, Long) -> Unit = { _, _ -> },
     onToggleArchived: (ChatListItem) -> Unit = {},
     onDelete: (ChatListItem) -> Unit = {},
+    /**
+     * Conversation currently open in the detail pane, so its row reads as
+     * selected. Null on compact windows, where the list and a conversation are
+     * never visible together and a highlight would be meaningless.
+     */
+    selectedChatId: Long? = null,
+    /** Pane background — surfaceContainerLow in two-pane for tonal layering. */
+    containerColor: Color? = null,
     modifier: Modifier = Modifier,
     /**
      * Banner slot rendered above the conversation list, inside the Scaffold.
@@ -105,17 +113,18 @@ fun ChatListScreen(
         unreadCount > 0 -> "$conversationCount conversations • $unreadCount unread"
         else -> "$conversationCount ${if (conversationCount == 1) "conversation" else "conversations"}"
     }
+    val paneColor = containerColor ?: MaterialTheme.colorScheme.surface
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = paneColor,
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text("Messages", maxLines = 1) },
                 subtitle = { Text(subtitle, maxLines = 1) },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = paneColor,
+                    scrolledContainerColor = paneColor,
                 ),
             )
         },
@@ -170,6 +179,7 @@ fun ChatListScreen(
                 onQueryChange = onQueryChange,
                 onChatClick = onChatClick,
                 onChatLongClick = { selectedChat = it },
+                selectedChatId = selectedChatId,
                 header = header,
                 footer = footer,
             )
@@ -230,6 +240,7 @@ private fun ChatSections(
     onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
+    selectedChatId: Long?,
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
 ) {
@@ -263,6 +274,7 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
+                    selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
                         .padding(horizontal = 12.dp).animateItem(),
                 )
@@ -281,6 +293,7 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
+                    selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
                         .padding(horizontal = 12.dp).animateItem(),
                 )
@@ -299,6 +312,7 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
+                    selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
                         .padding(horizontal = 12.dp).animateItem(),
                 )
@@ -327,15 +341,24 @@ fun ChatListRow(
     chat: ChatListItem,
     onClick: (ChatListItem) -> Unit,
     onLongClick: (ChatListItem) -> Unit = {},
+    /** True when this conversation is open in the adjacent detail pane. */
+    selected: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
+    // Selected rows take secondaryContainer (the Material selected-state role)
+    // and a rounder shape — shape change as a state signal, not decoration.
+    val secondaryText = if (selected) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(
-        shape = MaterialTheme.shapes.large,
-        color = if (unread) {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
+        shape = if (selected) MaterialTheme.shapes.extraLarge else MaterialTheme.shapes.large,
+        color = when {
+            selected -> MaterialTheme.colorScheme.secondaryContainer
+            unread -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainer
         },
         modifier = modifier
             .fillMaxWidth()
@@ -371,7 +394,7 @@ fun ChatListRow(
                         Icon(
                             imageVector = Icons.Filled.PushPin,
                             contentDescription = "Pinned",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = secondaryText,
                             modifier = Modifier
                                 .padding(start = 6.dp)
                                 .size(14.dp),
@@ -380,7 +403,7 @@ fun ChatListRow(
                     Text(
                         text = formatListTimestamp(chat.date),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = secondaryText,
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
@@ -392,10 +415,10 @@ fun ChatListRow(
                     } else {
                         MaterialTheme.typography.bodyMedium
                     },
-                    color = if (unread) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    color = when {
+                        selected -> MaterialTheme.colorScheme.onSecondaryContainer
+                        unread -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -405,7 +428,7 @@ fun ChatListRow(
                 Icon(
                     imageVector = Icons.Filled.NotificationsOff,
                     contentDescription = "Muted",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = secondaryText,
                     modifier = Modifier.size(17.dp),
                 )
             }
