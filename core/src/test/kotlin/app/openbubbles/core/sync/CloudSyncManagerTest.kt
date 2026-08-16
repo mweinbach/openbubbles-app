@@ -27,6 +27,8 @@ import uniffi.rust_lib_bluebubbles.USyncState
 import uniffi.rust_lib_bluebubbles.UTranscriptBackground
 import java.io.File
 import java.util.Date
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -63,7 +65,9 @@ private class FakeCloudSyncPort : CloudSyncPort {
 
     /** Invoked after each served chat page (index 1-based), for mid-run hooks. */
     var onChatsPageServed: ((Int) -> Unit)? = null
+    var onMessagesPageServed: ((Int) -> Unit)? = null
     private var chatPagesServed = 0
+    private var messagePagesServed = 0
 
     override suspend fun syncState(): USyncState {
         calls += "state"
@@ -92,7 +96,10 @@ private class FakeCloudSyncPort : CloudSyncPort {
     override suspend fun messagesPage(cursor: ByteArray?): UMessageSyncPage {
         calls += "messages"
         messageCursorsReceived += cursor
-        return messagePages.removeFirst()
+        val page = messagePages.removeFirst()
+        messagePagesServed += 1
+        onMessagesPageServed?.invoke(messagePagesServed)
+        return page
     }
 
     override suspend fun attachmentsPage(cursor: ByteArray?): UAttachmentSyncPage {
@@ -657,6 +664,60 @@ class CloudSyncManagerTest {
         runSync()
         assertEquals(3, port.chatCursorsReceived.size)
         assertTrue(syncStore.chatCursor()!!.contentEquals(byteArrayOf(3)))
+    }
+
+    @Test
+    fun `next page fetch overlaps current page application`() {
+        val secondPageFetched = CountDownLatch(1)
+        port.onMessagesPageServed = { page ->
+            if (page == 2) secondPageFetched.countDown()
+        }
+        manager = CloudSyncManager(
+            store,
+            port,
+            syncStore,
+            AttachmentStore(store, testDir),
+            TranscriptBackgroundHandler { update ->
+                assertTrue(
+                    secondPageFetched.await(2, TimeUnit.SECONDS),
+                    "expected the next CloudKit page while applying the current page",
+                )
+                backgroundUpdates += update
+            },
+            pageRetryDelaysMs = listOf(0L, 0L),
+        )
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 1uL,
+                        chatId = "cloud-rec-chat",
+                        remove = true,
+                        mmcsXml = null,
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+            cursor = byteArrayOf(20),
+            more = true,
+        )
+        port.messagePages += messagePage(cursor = byteArrayOf(21))
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        assertEquals(2, port.messageCursorsReceived.size)
+        assertEquals(1, backgroundUpdates.size)
+        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(21)))
     }
 
     @Test

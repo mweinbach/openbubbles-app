@@ -7,6 +7,7 @@ import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.Handle
 import app.openbubbles.db.Handle_
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
@@ -15,12 +16,15 @@ import io.objectbox.exception.UniqueViolationException
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.UAttachmentChange
 import uniffi.rust_lib_bluebubbles.UChatChange
@@ -98,6 +102,8 @@ data class SyncSummary(
  * - No `syncHistoryTime` cutoff (Dart's "only sync the last N ms" pref):
  *   full history comes down; a cutoff can be layered by the caller later.
  *
+ * The next CloudKit page is prefetched while the current page is committed,
+ * hiding local database and cursor persistence latency behind the network.
  * All writes run on [Dispatchers.IO]; runs are single-flight ([sync]
  * serializes on a mutex). Safe to call from any thread.
  */
@@ -221,70 +227,80 @@ class CloudSyncManager(
                 port.deleteChatsRemote(syncStore.pendingChatDeletes())
                 syncStore.savePendingChatDeletes(emptyList())
 
+                val lookup = HistorySyncLookup(store)
+
                 // 3. Chat zone.
                 update(SyncPhase.CHATS)
-                var chatCursor = if (mode == SyncMode.INCREMENTAL) syncStore.chatCursor() else null
-                while (true) {
-                    if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = fetchPageWithRetry {
-                        port.chatsPage(chatCursor).also {
-                            validatePageCursor("Chat", chatCursor, it.nextCursor, it.more, it.status)
-                        }
-                    }
-                    applyChatPage(page.records)
-                    state = state.copy(
-                        chatsDone = state.chatsDone + page.records.count { it.chat != null }.toULong(),
-                        chatTombstones = state.chatTombstones + page.records.count { it.chat == null }.toULong(),
-                    )
-                    chatCursor = page.nextCursor
-                    syncStore.saveChatCursor(chatCursor)
-                    update()
-                    if (!page.more) break
+                val chatsComplete = syncPages(
+                    zone = "Chat",
+                    initialCursor = if (mode == SyncMode.INCREMENTAL) syncStore.chatCursor() else null,
+                    fetch = port::chatsPage,
+                    nextCursor = { it.nextCursor },
+                    more = { it.more },
+                    status = { it.status },
+                    apply = { applyChatPage(it.records, lookup) },
+                    saveCursor = syncStore::saveChatCursor,
+                    onCommitted = { page ->
+                        state = state.copy(
+                            chatsDone = state.chatsDone + page.records.count { it.chat != null }.toULong(),
+                            chatTombstones = state.chatTombstones +
+                                page.records.count { it.chat == null }.toULong(),
+                        )
+                        update()
+                    },
+                )
+                if (!chatsComplete) {
+                    return@withContext finish(cancelledFlag = true)
                 }
 
                 // 4. Message zone.
                 update(SyncPhase.MESSAGES)
-                var messageCursor = if (mode == SyncMode.INCREMENTAL) syncStore.messageCursor() else null
-                while (true) {
-                    if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = fetchPageWithRetry {
-                        port.messagesPage(messageCursor).also {
-                            validatePageCursor("Message", messageCursor, it.nextCursor, it.more, it.status)
-                        }
-                    }
-                    applyMessagePage(page.records)
-                    state = state.copy(
-                        messagesDone = state.messagesDone + page.records.count { it.message != null }.toULong(),
-                        messageTombstones = state.messageTombstones + page.records.count { it.message == null }.toULong(),
-                    )
-                    messageCursor = page.nextCursor
-                    syncStore.saveMessageCursor(messageCursor)
-                    update()
-                    if (!page.more) break
+                val messagesComplete = syncPages(
+                    zone = "Message",
+                    initialCursor = if (mode == SyncMode.INCREMENTAL) syncStore.messageCursor() else null,
+                    fetch = port::messagesPage,
+                    nextCursor = { it.nextCursor },
+                    more = { it.more },
+                    status = { it.status },
+                    apply = { applyMessagePage(it.records, lookup) },
+                    saveCursor = syncStore::saveMessageCursor,
+                    onCommitted = { page ->
+                        state = state.copy(
+                            messagesDone = state.messagesDone + page.records.count { it.message != null }.toULong(),
+                            messageTombstones = state.messageTombstones +
+                                page.records.count { it.message == null }.toULong(),
+                        )
+                        update()
+                    },
+                )
+                if (!messagesComplete) {
+                    return@withContext finish(cancelledFlag = true)
                 }
 
                 // 5. Attachment metadata zone. Payloads remain in CloudKit
                 // until the user opens/downloads an attachment.
                 update(SyncPhase.ATTACHMENTS)
-                var attachmentCursor = if (mode == SyncMode.INCREMENTAL) syncStore.attachmentCursor() else null
-                while (true) {
-                    if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = fetchPageWithRetry {
-                        port.attachmentsPage(attachmentCursor).also {
-                            validatePageCursor("Attachment", attachmentCursor, it.nextCursor, it.more, it.status)
-                        }
-                    }
-                    applyAttachmentPage(page.records)
-                    state = state.copy(
-                        attachmentsDone = state.attachmentsDone +
-                            page.records.count { it.attachment != null }.toULong(),
-                        attachmentTombstones = state.attachmentTombstones +
-                            page.records.count { it.attachment == null }.toULong(),
-                    )
-                    attachmentCursor = page.nextCursor
-                    syncStore.saveAttachmentCursor(attachmentCursor)
-                    update()
-                    if (!page.more) break
+                val attachmentsComplete = syncPages(
+                    zone = "Attachment",
+                    initialCursor = if (mode == SyncMode.INCREMENTAL) syncStore.attachmentCursor() else null,
+                    fetch = port::attachmentsPage,
+                    nextCursor = { it.nextCursor },
+                    more = { it.more },
+                    status = { it.status },
+                    apply = { applyAttachmentPage(it.records) },
+                    saveCursor = syncStore::saveAttachmentCursor,
+                    onCommitted = { page ->
+                        state = state.copy(
+                            attachmentsDone = state.attachmentsDone +
+                                page.records.count { it.attachment != null }.toULong(),
+                            attachmentTombstones = state.attachmentTombstones +
+                                page.records.count { it.attachment == null }.toULong(),
+                        )
+                        update()
+                    },
+                )
+                if (!attachmentsComplete) {
+                    return@withContext finish(cancelledFlag = true)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -309,6 +325,48 @@ class CloudSyncManager(
         return fetch()
     }
 
+    private suspend fun <Page> syncPages(
+        zone: String,
+        initialCursor: ByteArray?,
+        fetch: suspend (ByteArray?) -> Page,
+        nextCursor: (Page) -> ByteArray,
+        more: (Page) -> Boolean,
+        status: (Page) -> Int,
+        apply: suspend (Page) -> Unit,
+        saveCursor: (ByteArray?) -> Unit,
+        onCommitted: (Page) -> Unit,
+    ): Boolean = supervisorScope {
+        suspend fun fetchValidated(cursor: ByteArray?): Page = fetchPageWithRetry {
+            fetch(cursor).also { page ->
+                validatePageCursor(zone, cursor, nextCursor(page), more(page), status(page))
+            }
+        }
+
+        if (cancelled.get()) return@supervisorScope false
+        var page = fetchValidated(initialCursor)
+        while (true) {
+            val pageCursor = nextCursor(page)
+            val hasMore = more(page)
+            val nextPage = if (hasMore && !cancelled.get()) {
+                async(Dispatchers.IO) { fetchValidated(pageCursor) }
+            } else {
+                null
+            }
+
+            apply(page)
+            saveCursor(pageCursor)
+            onCommitted(page)
+
+            if (cancelled.get()) {
+                nextPage?.cancelAndJoin()
+                return@supervisorScope false
+            }
+            if (!hasMore) return@supervisorScope true
+            page = requireNotNull(nextPage).await()
+        }
+        error("unreachable history sync page loop")
+    }
+
     private fun validatePageCursor(
         zone: String,
         currentCursor: ByteArray?,
@@ -325,21 +383,103 @@ class CloudSyncManager(
         }
     }
 
+    private class HistorySyncLookup(
+        private val store: BoxStore,
+    ) {
+        private val chatBox = store.boxFor(Chat::class.java)
+        private val handleBox = store.boxFor(Handle::class.java)
+        private val chatsByIdentifier = HashMap<String, Long>()
+        private val chatsByCloudGuid = HashMap<String, Long>()
+        private val chatsByGuid = HashMap<String, Long>()
+        private val chatsByGuidRef = HashMap<String, Long>()
+        private val handlesByKey = HashMap<String, Long>()
+
+        fun findByCloudGuid(cloudGuid: String): Chat? =
+            chatsByCloudGuid[cloudGuid]?.let(chatBox::get)
+                ?: chatBox.query()
+                    .equal(Chat_.cloudGuid, cloudGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+                    ?.also(::putChat)
+
+        fun findByIdentifier(identifier: String): Chat? =
+            chatsByIdentifier[identifier]?.let(chatBox::get)
+                ?: chatBox.query()
+                    .equal(Chat_.chatIdentifier, identifier, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+                    ?.also(::putChat)
+
+        fun chatForCloudMessage(chatId: String): Chat? {
+            if (chatId.contains(';')) {
+                val identifier = chatId.split(';').getOrNull(2)
+                if (!identifier.isNullOrEmpty()) {
+                    findByIdentifier(identifier)?.let { return it }
+                }
+            }
+            findByCloudGuid(chatId)?.let { return it }
+            chatsByGuid[chatId]?.let(chatBox::get)?.let { return it }
+            chatsByGuidRef[chatId]?.let(chatBox::get)?.let { return it }
+            chatBox.query()
+                .equal(Chat_.guid, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.also(::putChat)
+                ?.let { return it }
+            return chatBox.query()
+                .containsElement(Chat_.guidRefs, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.also(::putChat)
+        }
+
+        fun putChat(chat: Chat) {
+            if (chat.id == 0L) return
+            chat.chatIdentifier?.takeIf(String::isNotEmpty)?.let { chatsByIdentifier[it] = chat.id }
+            chat.cloudGuid?.takeIf(String::isNotEmpty)?.let { chatsByCloudGuid[it] = chat.id }
+            chat.guid?.takeIf(String::isNotEmpty)?.let { chatsByGuid[it] = chat.id }
+            chat.guidRefs.orEmpty().filter(String::isNotEmpty).forEach { chatsByGuidRef[it] = chat.id }
+        }
+
+        fun removeChat(chat: Chat) {
+            chatsByIdentifier.entries.removeAll { it.value == chat.id }
+            chatsByCloudGuid.entries.removeAll { it.value == chat.id }
+            chatsByGuid.entries.removeAll { it.value == chat.id }
+            chatsByGuidRef.entries.removeAll { it.value == chat.id }
+        }
+
+        fun resolveHandle(rustHandle: String, service: String): Handle {
+            val address = MessageMapper.normalizeAddress(rustHandle)
+            val key = handleKey(address, service)
+            return handlesByKey[key]?.let(handleBox::get)
+                ?: HandleResolver.resolve(store, rustHandle, service).also(::putHandle)
+        }
+
+        private fun putHandle(handle: Handle) {
+            val address = handle.address ?: return
+            val service = handle.service ?: return
+            if (handle.id != 0L) handlesByKey[handleKey(address, service)] = handle.id
+        }
+
+        private fun handleKey(address: String, service: String): String = "$address\u0000$service"
+    }
+
     // ------------------------------------------------------------------
     // Chat zone (doCloudKitSyncPrivate chat loop + findFromCloud/applyFromCloud)
     // ------------------------------------------------------------------
 
-    private fun applyChatPage(records: List<UChatChange>) {
+    private fun applyChatPage(records: List<UChatChange>, lookup: HistorySyncLookup) {
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
+                val tombstonesByRecordId = chatsByRecordIdsLocked(
+                    batch.filter { it.chat == null }.map(UChatChange::recordId),
+                )
                 for (record in batch) {
                     val cloud = record.chat
                     if (cloud == null) {
-                        deleteChatByRecordIdLocked(record.recordId)
+                        tombstonesByRecordId[record.recordId]
+                            .orEmpty()
+                            .forEach { deleteChatLocked(it, lookup) }
                         continue
                     }
                     if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
-                    val chat = findOrImportChatLocked(cloud)
+                    val chat = findOrImportChatLocked(cloud, lookup)
                     // Always refresh identifiers (Dart applies these before the
                     // version gate).
                     chat.chatIdentifier = cloud.chatIdentifier
@@ -359,7 +499,7 @@ class CloudSyncManager(
                         // Cloud chats include me — mirror Dart and keep all.
                         chat.handles.clear()
                         chat.handles.addAll(
-                            cloud.participants.map { HandleResolver.resolve(store, it, "iMessage") },
+                            cloud.participants.map { lookup.resolveHandle(it, "iMessage") },
                         )
                         if (cloud.lastAddressedHandle.isNotEmpty()) {
                             chat.usingHandle = MessageMapper.toRustHandle(cloud.lastAddressedHandle)
@@ -367,35 +507,27 @@ class CloudSyncManager(
                         chat.ckSyncState = true
                     }
                     chatBox.put(chat)
+                    lookup.putChat(chat)
                 }
             }
         }
     }
 
     /** Tombstone: remove the chat, its messages and attachment rows. */
-    private fun deleteChatByRecordIdLocked(recordId: String) {
-        chatBox.query()
-            .equal(Chat_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.find() }
-            .forEach { chat ->
-                val messages = chat.messages.toList()
-                messages.forEach { message ->
-                    message.dbAttachments.toList().forEach(::removeAttachmentLocked)
-                }
-                messages.forEach { messageBox.remove(it) }
-                chatBox.remove(chat)
-            }
+    private fun deleteChatLocked(chat: Chat, lookup: HistorySyncLookup) {
+        val messages = chat.messages.toList()
+        messages.forEach { message ->
+            message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+        }
+        messages.forEach { messageBox.remove(it) }
+        chatBox.remove(chat)
+        lookup.removeChat(chat)
     }
 
     /** `Chat.findFromCloud`: cloud guid, then identifier, then exact participant set, else create. */
-    private fun findOrImportChatLocked(cloud: UCloudChat): Chat {
-        chatBox.query()
-            .equal(Chat_.cloudGuid, cloud.groupId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }?.let { return it }
-
-        chatBox.query()
-            .equal(Chat_.chatIdentifier, cloud.chatIdentifier, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }?.let { return it }
+    private fun findOrImportChatLocked(cloud: UCloudChat, lookup: HistorySyncLookup): Chat {
+        lookup.findByCloudGuid(cloud.groupId)?.let { return it }
+        lookup.findByIdentifier(cloud.chatIdentifier)?.let { return it }
 
         val participants = cloud.participants.map { MessageMapper.normalizeAddress(it) }.distinct()
         if (participants.isNotEmpty()) {
@@ -409,7 +541,10 @@ class CloudSyncManager(
             candidates.firstOrNull { chat ->
                 val addresses = chat.handles.map { it.address }
                 addresses.size == participants.size && addresses.containsAll(participants)
-            }?.let { return it }
+            }?.let {
+                lookup.putChat(it)
+                return it
+            }
         }
 
         // Create (Dart: BackendSvc.createChat with existingGuid = groupId —
@@ -437,30 +572,61 @@ class CloudSyncManager(
                 add(cloud.guid)
                 add(cloud.groupId)
             }
-            handles.addAll(participants.map { HandleResolver.resolve(store, MessageMapper.toRustHandle(it), "iMessage") })
+            handles.addAll(participants.map { lookup.resolveHandle(MessageMapper.toRustHandle(it), "iMessage") })
         }
         return try {
             chatBox.put(chat)
-            chat
+            chat.also(lookup::putChat)
         } catch (_: UniqueViolationException) {
             chatBox.query()
                 .equal(Chat_.guid, cloud.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { q -> q.findFirst() } ?: chat
+                .build().use { q -> q.findFirst() }
+                ?.also(lookup::putChat)
+                ?: chat
         }
+    }
+
+    private fun chatsByRecordIdsLocked(recordIds: Collection<String>): Map<String, List<Chat>> {
+        val ids = recordIds.distinct()
+        if (ids.isEmpty()) return emptyMap()
+        return chatBox.query()
+            .`in`(Chat_.ckRecordId, ids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .groupBy(Chat::ckRecordId)
     }
 
     // ------------------------------------------------------------------
     // Message zone (message loop + Message.applyFromCloud)
     // ------------------------------------------------------------------
 
-    private suspend fun applyMessagePage(records: List<UMessageChange>) {
+    private suspend fun applyMessagePage(records: List<UMessageChange>, lookup: HistorySyncLookup) {
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             val transcriptBackgrounds = mutableListOf<TranscriptBackgroundUpdate>()
             store.runInTx {
+                val cloudMessages = batch.mapNotNull(UMessageChange::message)
+                val messagesByGuid = messagesByGuidsLocked(
+                    buildSet {
+                        cloudMessages.forEach { cloud ->
+                            add(cloud.guid)
+                            cloud.associatedMessageGuid?.let(::add)
+                        }
+                    },
+                )
+                val attachmentsByGuid = attachmentsByGuidsLocked(
+                    cloudMessages.flatMap(UCloudMessage::attachmentGuids),
+                )
+                val tombstonesByRecordId = messagesByRecordIdsLocked(
+                    batch.filter { it.message == null }.map(UMessageChange::recordId),
+                )
                 for (record in batch) {
                     val cloud = record.message
                     if (cloud == null) {
-                        deleteMessageByRecordIdLocked(record.recordId)
+                        tombstonesByRecordId[record.recordId]
+                            .orEmpty()
+                            .forEach { message ->
+                                messagesByGuid.remove(message.guid)
+                                deleteMessageLocked(message)
+                            }
                         continue
                     }
                     if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
@@ -468,10 +634,10 @@ class CloudSyncManager(
                             "transcript background ${cloud.guid} has no decoded payload"
                         }
                         val chat = background.chatId
-                            ?.let(::chatForCloudMessage)
-                            ?: chatForCloudMessage(cloud.chatId)
+                            ?.let(lookup::chatForCloudMessage)
+                            ?: lookup.chatForCloudMessage(cloud.chatId)
                             ?: error("transcript background ${cloud.guid} has no matching chat")
-                        removeLegacyTranscriptBackgroundMessageLocked(cloud.guid)
+                        removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
                         transcriptBackgrounds += TranscriptBackgroundUpdate(
                             chatId = chat.id,
                             version = background.version.toLong(),
@@ -480,7 +646,13 @@ class CloudSyncManager(
                         )
                         continue
                     }
-                    applyMessageLocked(record.recordId, cloud)
+                    applyMessageLocked(
+                        record.recordId,
+                        cloud,
+                        lookup,
+                        messagesByGuid,
+                        attachmentsByGuid,
+                    )
                 }
             }
             val handler = transcriptBackgroundHandler
@@ -497,36 +669,58 @@ class CloudSyncManager(
     }
 
     /** Tombstone: remove the row matched by ckRecordId. */
-    private fun deleteMessageByRecordIdLocked(recordId: String) {
-        messageBox.query()
-            .equal(Message_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.find() }
-            .forEach { message ->
-                message.dbAttachments.toList().forEach(::removeAttachmentLocked)
-                messageBox.remove(message)
-            }
+    private fun deleteMessageLocked(message: Message) {
+        message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+        messageBox.remove(message)
     }
 
-    private fun removeLegacyTranscriptBackgroundMessageLocked(guid: String) {
-        messageBox.query()
-            .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+    private fun removeLegacyTranscriptBackgroundMessageLocked(
+        guid: String,
+        messagesByGuid: MutableMap<String, Message>,
+    ) {
+        val message = messagesByGuid.remove(guid) ?: return
+        val chat = message.chat.target
+        val wasLatest = chat?.dbLatestMessage?.targetId == message.id
+        message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+        messageBox.remove(message)
+        if (chat != null && wasLatest) {
+            val latest = messageBox.query()
+                .equal(Message_.chatId, chat.id)
+                .build().use { it.find() }
+                .filter { it.dateDeleted == null }
+                .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+            chat.dbLatestMessage.target = latest
+            chat.dbOnlyLatestMessageDate = latest?.dateCreated
+            chatBox.put(chat)
+        }
+    }
+
+    private fun messagesByGuidsLocked(guids: Collection<String>): MutableMap<String, Message> {
+        val values = guids.filter(String::isNotEmpty).distinct()
+        if (values.isEmpty()) return HashMap()
+        return messageBox.query()
+            .`in`(Message_.guid, values.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.find() }
-            .forEach { message ->
-                val chat = message.chat.target
-                val wasLatest = chat?.dbLatestMessage?.targetId == message.id
-                message.dbAttachments.toList().forEach(::removeAttachmentLocked)
-                messageBox.remove(message)
-                if (chat != null && wasLatest) {
-                    val latest = messageBox.query()
-                        .equal(Message_.chatId, chat.id)
-                        .build().use { it.find() }
-                        .filter { it.dateDeleted == null }
-                        .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
-                    chat.dbLatestMessage.target = latest
-                    chat.dbOnlyLatestMessageDate = latest?.dateCreated
-                    chatBox.put(chat)
-                }
-            }
+            .associateByTo(HashMap(), Message::guid)
+    }
+
+    private fun messagesByRecordIdsLocked(recordIds: Collection<String>): Map<String, List<Message>> {
+        val values = recordIds.filter(String::isNotEmpty).distinct()
+        if (values.isEmpty()) return emptyMap()
+        return messageBox.query()
+            .`in`(Message_.ckRecordId, values.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .filter { !it.ckRecordId.isNullOrEmpty() }
+            .groupBy { requireNotNull(it.ckRecordId) }
+    }
+
+    private fun attachmentsByGuidsLocked(guids: Collection<String>): MutableMap<String, Attachment> {
+        val values = guids.filter(String::isNotEmpty).distinct()
+        if (values.isEmpty()) return HashMap()
+        return attachmentBox.query()
+            .`in`(Attachment_.guid, values.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .associateByTo(HashMap(), Attachment::guid)
     }
 
     /**
@@ -535,11 +729,14 @@ class CloudSyncManager(
      * A stale cloud duplicate under a different record id is deleted
      * remotely (Dart's dupDeleteMessages).
      */
-    private fun applyMessageLocked(recordId: String, cloud: UCloudMessage) {
-        val existing = messageBox.query()
-            .equal(Message_.guid, cloud.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }
-
+    private fun applyMessageLocked(
+        recordId: String,
+        cloud: UCloudMessage,
+        lookup: HistorySyncLookup,
+        messagesByGuid: MutableMap<String, Message>,
+        attachmentsByGuid: MutableMap<String, Attachment>,
+    ) {
+        val existing = messagesByGuid[cloud.guid]
         if (existing != null) {
             val oldRecordId = existing.ckRecordId
             if (oldRecordId != null && oldRecordId != recordId) {
@@ -554,7 +751,7 @@ class CloudSyncManager(
             return
         }
 
-        val chat = chatForCloudMessage(cloud.chatId) ?: return
+        val chat = lookup.chatForCloudMessage(cloud.chatId) ?: return
         if (chat.isRpSms == true) return
 
         val message = Message().apply {
@@ -580,7 +777,7 @@ class CloudSyncManager(
             threadOriginatorPart = cloud.threadOriginatorPart
             associatedMessageEmoji = cloud.associatedMessageEmoji
             if (cloud.sender.isNotEmpty()) {
-                val handle = HandleResolver.resolve(store, cloud.sender, "iMessage")
+                val handle = lookup.resolveHandle(cloud.sender, "iMessage")
                 handleRelation.target = handle
                 handleId = handle.originalROWID
             }
@@ -595,28 +792,23 @@ class CloudSyncManager(
             // Lost a race against a concurrent delivery of the same guid.
             return
         }
+        messagesByGuid[cloud.guid] = message
 
         cloud.attachmentGuids.forEach { guid ->
-            attachmentBox.query()
-                .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
-                ?.let { attachment ->
-                    attachment.message.target = message
-                    attachmentBox.put(attachment)
-                }
+            attachmentsByGuid[guid]?.let { attachment ->
+                attachment.message.target = message
+                attachmentBox.put(attachment)
+            }
         }
 
         // Reaction bookkeeping (Message.save): flag the target message.
         if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
-            messageBox.query()
-                .equal(Message_.guid, message.associatedMessageGuid!!, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { q -> q.findFirst() }
-                ?.let { target ->
-                    if (!target.hasReactions) {
-                        target.hasReactions = true
-                        messageBox.put(target)
-                    }
+            messagesByGuid[message.associatedMessageGuid]?.let { target ->
+                if (!target.hasReactions) {
+                    target.hasReactions = true
+                    messageBox.put(target)
                 }
+            }
         }
 
         // Latest-message wiring (Chat.setLatestMessage) — but unlike the
@@ -631,28 +823,6 @@ class CloudSyncManager(
             if (chat.dateDeleted != null) chat.dateDeleted = null // Chat.unDelete
             chatBox.put(chat)
         }
-    }
-
-    /** `Message.applyFromCloud` chat resolution for `chatId`. */
-    private fun chatForCloudMessage(chatId: String): Chat? {
-        if (chatId.contains(";")) {
-            val parts = chatId.split(";")
-            val identifier = parts.getOrNull(2) ?: return null
-            chatBox.query()
-                .equal(Chat_.chatIdentifier, identifier, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { q -> q.findFirst() }?.let { return it }
-        }
-        chatBox.query()
-            .equal(Chat_.cloudGuid, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }?.let { return it }
-        // findByRustGuid parity: guid or guidRefs.
-        chatBox.query()
-            .equal(Chat_.guid, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }?.let { return it }
-        chatBox.query()
-            .containsElement(Chat_.guidRefs, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { q -> q.findFirst() }?.let { return it }
-        return null
     }
 
     /**
@@ -676,24 +846,32 @@ class CloudSyncManager(
     private suspend fun applyAttachmentPage(records: List<UAttachmentChange>) {
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
+                val cloudAttachments = batch.mapNotNull(UAttachmentChange::attachment)
+                val attachmentsByGuid = attachmentsByGuidsLocked(
+                    cloudAttachments.map(UCloudAttachment::guid),
+                )
+                val messagesByGuid = messagesByGuidsLocked(
+                    cloudAttachments.mapNotNull(UCloudAttachment::messageGuid),
+                )
+                val tombstonesByRecordId = attachmentsByRecordIdsLocked(
+                    batch.filter { it.attachment == null }.map(UAttachmentChange::recordId),
+                )
                 for (record in batch) {
                     val cloud = record.attachment
                     if (cloud == null) {
-                        deleteAttachmentByRecordIdLocked(record.recordId)
+                        tombstonesByRecordId[record.recordId]
+                            .orEmpty()
+                            .forEach { attachment ->
+                                attachmentsByGuid.remove(attachment.guid)
+                                removeAttachmentLocked(attachment)
+                            }
                         continue
                     }
-                    applyAttachmentLocked(record.recordId, cloud)
+                    applyAttachmentLocked(record.recordId, cloud, attachmentsByGuid, messagesByGuid)
                 }
             }
         }
         flushDuplicateAttachmentDeletes()
-    }
-
-    private fun deleteAttachmentByRecordIdLocked(recordId: String) {
-        attachmentBox.query()
-            .equal(Attachment_.ckRecordId, recordId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { it.find() }
-            .forEach(::removeAttachmentLocked)
     }
 
     private fun removeAttachmentLocked(attachment: Attachment) {
@@ -701,10 +879,13 @@ class CloudSyncManager(
         attachmentBox.remove(attachment)
     }
 
-    private fun applyAttachmentLocked(recordId: String, cloud: UCloudAttachment) {
-        val existing = attachmentBox.query()
-            .equal(Attachment_.guid, cloud.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { it.findFirst() }
+    private fun applyAttachmentLocked(
+        recordId: String,
+        cloud: UCloudAttachment,
+        attachmentsByGuid: MutableMap<String, Attachment>,
+        messagesByGuid: Map<String, Message>,
+    ) {
+        val existing = attachmentsByGuid[cloud.guid]
         if (existing != null) {
             existing.ckRecordId?.takeIf { it != recordId }
                 ?.let(pendingDuplicateAttachmentDeletes::add)
@@ -714,11 +895,7 @@ class CloudSyncManager(
             return
         }
 
-        val message = cloud.messageGuid?.let { guid ->
-            messageBox.query()
-                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
-        }
+        val message = cloud.messageGuid?.let(messagesByGuid::get)
         val attachment = Attachment().apply {
             guid = cloud.guid
             ckRecordId = recordId
@@ -733,9 +910,20 @@ class CloudSyncManager(
         }
         try {
             attachmentBox.put(attachment)
+            attachmentsByGuid[cloud.guid] = attachment
         } catch (_: UniqueViolationException) {
             // A live push may have inserted the same guid during the page.
         }
+    }
+
+    private fun attachmentsByRecordIdsLocked(recordIds: Collection<String>): Map<String, List<Attachment>> {
+        val values = recordIds.filter(String::isNotEmpty).distinct()
+        if (values.isEmpty()) return emptyMap()
+        return attachmentBox.query()
+            .`in`(Attachment_.ckRecordId, values.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .filter { !it.ckRecordId.isNullOrEmpty() }
+            .groupBy { requireNotNull(it.ckRecordId) }
     }
 
     private val pendingDuplicateAttachmentDeletes = ArrayDeque<String>()
