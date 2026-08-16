@@ -52,11 +52,17 @@ already-completed mechanical cutover.
 ## Self-update acceptance (GitHub Releases feed)
 
 - [ ] Publish path: `scripts/publish-update.sh --set --version-name <v> --version-code <n>`
-      creates a release with `openbubbles-<v>.apk` + `update.json`; re-running with a
+      (local, production keystore) or the `Self-update release` GitHub Action (push to main /
+      manual dispatch) creates a release with `openbubbles-<v>.apk` + `update.json`; publishing a
       non-increasing version code aborts.
-- [ ] First self-update on hardware: token entry in Settings → About, background check
-      downloads and verifies the APK, "Install unknown apps" grant flow works, the system
-      install confirmation appears, and the update installs in place.
+- [ ] Keystore continuity: `android/release.jks` + `android/key.properties` are backed up
+      off-machine (they are gitignored; GitHub Actions secrets hold a copy). Losing the key
+      breaks in-place updates for every installed device.
+- [ ] CI secret hygiene: `KEYSTORE_*` secrets exist, deploy keys on the private submodules are
+      read-only, and the repo's own release workflow cannot be triggered by fork PRs.
+- [ ] First self-update on hardware: background check downloads and verifies the APK, the
+      "Install unknown apps" grant flow works, the system install confirmation appears, and the
+      update installs in place.
 - [ ] Data survives a self-update: chats, attachments, and the ObjectBox store at
       `{dataDir}/app_flutter/objectbox` are intact; the push service restarts via
       `MY_PACKAGE_REPLACED`.

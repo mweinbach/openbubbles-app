@@ -39,6 +39,8 @@ pubspeck.lock
 
 #signing
 **/android/key.properties
+**/android/*.jks
+**/android/*.keystore
 **/android/.settings
 **/android/keystore
 **/releases

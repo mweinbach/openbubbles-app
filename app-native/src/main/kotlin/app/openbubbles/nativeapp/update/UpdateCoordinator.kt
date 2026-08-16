@@ -39,8 +39,6 @@ object UpdateCoordinator {
 
     /** Result of a manual or background check, for the Settings UI. */
     sealed interface CheckResult {
-        /** No stored GitHub token — prompt for one. */
-        data object NoToken : CheckResult
         /** Check completed; the decision says what (if anything) happened. */
         data class Done(val decision: UpdateDecision, val downloaded: Boolean) : CheckResult
         data class Failed(val message: String) : CheckResult
@@ -68,7 +66,6 @@ object UpdateCoordinator {
     /** App-open path: throttled, silent, never disturbs the user. */
     fun maybeCheckOnAppOpen(context: Context) {
         schedule(context)
-        if (!UpdateSettings.hasToken(context)) return
         val last = UpdateSettings.lastCheckMs(context)
         if (System.currentTimeMillis() - last < APP_OPEN_THROTTLE_MS) return
         runCatching {
@@ -88,15 +85,11 @@ object UpdateCoordinator {
     }
 
     suspend fun checkNow(context: Context): CheckResult = withContext(Dispatchers.IO) {
-        if (!UpdateSettings.hasToken(context)) return@withContext CheckResult.NoToken
         val source = GitHubUpdateSource(
             token = { UpdateSettings.githubToken(context) },
         )
         val feed = try {
             source.fetch()
-        } catch (e: GitHubUpdateSource.SourceException.AuthRequired) {
-            UpdateSettings.clearToken(context)
-            return@withContext CheckResult.NoToken
         } catch (e: GitHubUpdateSource.SourceException.NoReleases) {
             UpdateSettings.recordCheck(context)
             return@withContext CheckResult.Done(UpdateDecision.UpToDate, false)

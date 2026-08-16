@@ -1,0 +1,229 @@
+# Builds the production-signed release APK and publishes it as a self-update
+# GitHub Release (APK + update.json feed). Devices running the app pick the
+# release up through the in-app updater (app-native .../update/).
+#
+# Signing material lives in repository secrets (KEYSTORE_BASE64,
+# KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD); the keystore itself is never
+# committed. The two private submodules are cloned with per-repository
+# read-only deploy keys (SUBMODULE_KEY_RUSTPUSH, SUBMODULE_KEY_TELEPHONY).
+#
+# versionCode: gradle's versionCode is a floor; each release uses
+# max(gradle versionCode, latest published versionCode + 1) so pushing to
+# main always produces a strictly newer update. versionName comes from
+# gradle; when CI auto-increments the code beyond it, the release display
+# name becomes "<versionName> (build <code>)".
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: 'Release notes (overrides the commit log)'
+        required: false
+        default: ''
+
+name: Self-update release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: self-update-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build & publish update
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # Must run before checkout: the private submodules are fetched over
+      # SSH with read-only deploy keys (GitHub allows a deploy key on only
+      # one repository, so each submodule gets its own key + host alias)
+      # instead of the GITHUB_TOKEN, which cannot cross repositories.
+      - name: Grant submodule read access (read-only deploy keys)
+        env:
+          KEY_RUSTPUSH: ${{ secrets.SUBMODULE_KEY_RUSTPUSH }}
+          KEY_TELEPHONY: ${{ secrets.SUBMODULE_KEY_TELEPHONY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY_RUSTPUSH" > ~/.ssh/id_rustpush
+          printf '%s\n' "$KEY_TELEPHONY" > ~/.ssh/id_telephony
+          chmod 600 ~/.ssh/id_rustpush ~/.ssh/id_telephony
+          {
+            echo "Host github-rustpush"
+            echo "  HostName github.com"
+            echo "  IdentityFile ~/.ssh/id_rustpush"
+            echo "  IdentitiesOnly yes"
+            echo "Host github-telephony"
+            echo "  HostName github.com"
+            echo "  IdentityFile ~/.ssh/id_telephony"
+            echo "  IdentitiesOnly yes"
+          } >> ~/.ssh/config
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git config --global \
+            url."ssh://git@github-rustpush/mweinbach/rustpush-private.git".insteadOf \
+            "https://github.com/mweinbach/rustpush-private.git"
+          git config --global \
+            url."ssh://git@github-telephony/mweinbach/telephony_plus.git".insteadOf \
+            "https://github.com/mweinbach/telephony_plus.git"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Add Rust Android targets
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Install Protobuf compiler
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Set up fake Fairplay keys
+        run: |
+          mkdir -p rustpush/certs/fairplay
+          cert_names=(
+            "4056631661436364584235346952193"
+            "4056631661436364584235346952194"
+            "4056631661436364584235346952195"
+            "4056631661436364584235346952196"
+            "4056631661436364584235346952197"
+            "4056631661436364584235346952198"
+            "4056631661436364584235346952199"
+            "4056631661436364584235346952200"
+            "4056631661436364584235346952201"
+            "4056631661436364584235346952208"
+          )
+          for name in "${cert_names[@]}"; do
+              cp rustpush/certs/legacy-fairplay/fairplay.pem rustpush/certs/fairplay/$name.pem
+              cp rustpush/certs/legacy-fairplay/fairplay.crt rustpush/certs/fairplay/$name.crt
+          done
+
+      - name: Point the native build at the SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > native/local.properties
+
+      - name: Restore signing identity
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/android/release.jks"
+          cat > "$GITHUB_WORKSPACE/android/key.properties" <<EOF
+          storeFile=$GITHUB_WORKSPACE/android/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Compute release version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GRADLE_NAME=$(sed -n 's/^[[:space:]]*versionName "\(.*\)"/\1/p' app-native/build.gradle | head -1)
+          GRADLE_CODE=$(sed -n 's/^[[:space:]]*versionCode \([0-9]*\)/\1/p' app-native/build.gradle | head -1)
+          [ -n "$GRADLE_NAME" ] && [ -n "$GRADLE_CODE" ] || { echo "cannot read version from app-native/build.gradle" >&2; exit 1; }
+
+          PREV=0
+          PREV_ASSET=$(gh api "repos/${{ github.repository }}/releases/latest" \
+            --jq '.assets[] | select(.name == "update.json") | .url' 2>/dev/null || true)
+          if [ -n "$PREV_ASSET" ]; then
+            PREV=$(gh api "$PREV_ASSET" -H "Accept: application/octet-stream" | jq -r '.versionCode')
+          fi
+          [ "$PREV" -lt "$GRADLE_CODE" ] && CODE="$GRADLE_CODE" || CODE=$((PREV + 1))
+
+          # Stamp the build (runner-local; gradle stays the floor for humans).
+          sed -i "s/^[[:space:]]*versionCode .*/        versionCode $CODE/" app-native/build.gradle
+          if [ "$CODE" -eq "$GRADLE_CODE" ]; then
+            DISPLAY="$GRADLE_NAME"
+          else
+            DISPLAY="$GRADLE_NAME (build $CODE)"
+          fi
+
+          {
+            echo "version_name=$GRADLE_NAME"
+            echo "version_code=$CODE"
+            echo "tag=v${GRADLE_NAME}-${CODE}"
+            echo "display=$DISPLAY"
+            echo "asset=openbubbles-${GRADLE_NAME}-${CODE}.apk"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        run: |
+          cd native
+          ./gradlew :app-native:assembleRelease --console=plain
+
+      - name: Stage assets and write update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_IN="build-native/app-native/outputs/apk/release/app-native-release.apk"
+          [ -f "$APK_IN" ] || { echo "release APK missing at $APK_IN" >&2; exit 1; }
+          cp "$APK_IN" "${{ steps.ver.outputs.asset }}"
+
+          # Verify the APK really is production-signed before publishing.
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort | tail -1)
+          "$BT/apksigner" verify --print-certs "${{ steps.ver.outputs.asset }}" | tee certs.txt
+          grep -q "Signer #1 certificate SHA-256 digest:" certs.txt
+
+          SHA256=$(shasum -a 256 "${{ steps.ver.outputs.asset }}" | awk '{print $1}')
+          BYTES=$(wc -c < "${{ steps.ver.outputs.asset }}" | tr -d ' ')
+
+          # Release notes: dispatch input wins; otherwise the commit log since
+          # the previous release tag (or the last 20 commits).
+          if [ -n "${{ github.event.inputs.notes }}" ]; then
+            printf '%s\n' "${{ github.event.inputs.notes }}" > release-notes.md
+          else
+            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            if [ -n "$PREV_TAG" ]; then
+              git log --oneline "$PREV_TAG..HEAD" > release-notes.md
+            else
+              git log --oneline -20 > release-notes.md
+            fi
+          fi
+
+          python3 - "${{ steps.ver.outputs.version_code }}" \
+            "${{ steps.ver.outputs.display }}" \
+            "${{ steps.ver.outputs.asset }}" \
+            "$SHA256" "$BYTES" "$(cat release-notes.md)" > update.json <<'PY'
+          import json, sys
+          code, display, asset, sha, size, notes = sys.argv[1:7]
+          json.dump({
+              "versionCode": int(code),
+              "versionName": display,
+              "apkAsset": asset,
+              "sha256": sha,
+              "bytes": int(size),
+              "notes": notes[:4000],
+              "minVersionCode": 0,
+          }, sys.stdout, indent=2)
+          print()
+          PY
+          cat update.json
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            "${{ steps.ver.outputs.asset }}" update.json \
+            --repo "${{ github.repository }}" \
+            --target "$GITHUB_SHA" \
+            --title "OpenBubbles ${{ steps.ver.outputs.display }}" \
+            --notes-file release-notes.md

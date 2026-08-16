@@ -26,7 +26,6 @@ class UpdateDownloader(
             DownloadException("download truncated: $got of $want bytes")
         class Http(val code: Int) : DownloadException("download HTTP $code")
         class Io(cause: Throwable) : DownloadException("download IO failure", cause)
-        class AuthRequired : DownloadException("GitHub token required")
     }
 
     /**
@@ -44,15 +43,14 @@ class UpdateDownloader(
         val target = apkFileFor(destDir, manifest.versionCode)
         val part = File(destDir, target.name + PART_SUFFIX)
 
-        val token = token() ?: throw DownloadException.AuthRequired()
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(feed.apkAssetUrl)
-            .header("Authorization", "Bearer $token")
             .header("Accept", "application/octet-stream")
-            .build()
+        // Public-repo feeds need no auth; send a stored token when present.
+        token()?.let { builder.header("Authorization", "Bearer $it") }
 
         try {
-            client.newCall(request).execute().use { response ->
+            client.newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) throw DownloadException.Http(response.code)
                 val body = response.body ?: throw DownloadException.Io(
                     IllegalStateException("null body"),

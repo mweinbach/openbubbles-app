@@ -291,8 +291,6 @@ fun SettingsScreen(
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateError by remember { mutableStateOf<String?>(null) }
     var updateRefresh by remember { mutableStateOf(0) }
-    var showTokenDialog by remember { mutableStateOf(false) }
-    var tokenInput by remember { mutableStateOf("") }
     val pendingUpdate = remember(updateRefresh) {
         UpdateCoordinator.pendingUpdate(context)
     }
@@ -306,7 +304,6 @@ fun SettingsScreen(
             val result = withContext(Dispatchers.IO) { UpdateCoordinator.checkNow(context) }
             updateBusy = false
             when (result) {
-                UpdateCoordinator.CheckResult.NoToken -> showTokenDialog = true
                 is UpdateCoordinator.CheckResult.Done -> when (val decision = result.decision) {
                     UpdateDecision.UpToDate ->
                         updateStatus = "You're up to date${versionName?.let { " (version $it)" } ?: ""}"
@@ -1227,54 +1224,6 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingRestoreUri = null }) { Text("Cancel") }
-            },
-        )
-    }
-
-    // One-time GitHub token entry for the self-update feed. The repo is
-    // private, so a fine-grained read-only token is required to read
-    // releases. Stored encrypted (Android Keystore), never logged.
-    if (showTokenDialog) {
-        AlertDialog(
-            onDismissRequest = { showTokenDialog = false },
-            title = { Text("Connect update feed") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Updates are published to the private GitHub repository. " +
-                            "Paste a fine-grained personal access token with " +
-                            "Contents: Read-only access to that repository.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = tokenInput,
-                        onValueChange = { tokenInput = it },
-                        singleLine = true,
-                        label = { Text("Access token") },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val token = tokenInput.trim()
-                        if (token.isNotEmpty()) {
-                            runCatching { UpdateSettings.storeGithubToken(context, token) }
-                            tokenInput = ""
-                            showTokenDialog = false
-                            runUpdateCheck()
-                        }
-                    },
-                    enabled = tokenInput.isNotBlank(),
-                ) { Text("Save & check") }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        tokenInput = ""
-                        showTokenDialog = false
-                    },
-                ) { Text("Cancel") }
             },
         )
     }

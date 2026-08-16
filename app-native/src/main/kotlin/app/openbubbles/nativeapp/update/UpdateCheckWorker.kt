@@ -21,7 +21,6 @@ class UpdateCheckWorker(
     override suspend fun doWork(): Result {
         return try {
             when (val result = UpdateCoordinator.checkNow(applicationContext)) {
-                is UpdateCoordinator.CheckResult.NoToken -> Result.success()
                 is UpdateCoordinator.CheckResult.Done -> Result.success()
                 is UpdateCoordinator.CheckResult.Failed -> {
                     Log.w("SelfUpdate", "check failed: ${result.message}")

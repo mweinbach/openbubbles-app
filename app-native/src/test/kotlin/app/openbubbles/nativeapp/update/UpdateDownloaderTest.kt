@@ -94,12 +94,21 @@ class UpdateDownloaderTest {
     }
 
     @Test
-    fun `missing token is AuthRequired`() {
-        val dir = File(Files.createTempDirectory("ob-update-test").toFile(), "updates")
-        val m = manifest(ByteArray(10))
-        assertFailsWith<UpdateDownloader.DownloadException.AuthRequired> {
-            UpdateDownloader(client(), { null }).download(UpdateFeed(m, "https://example.invalid/apk"), dir)
+    fun `missing token downloads unauthenticated`() {
+        val payload = ByteArray(64)
+        val server = MockWebServer().apply {
+            start()
+            enqueue(MockResponse().setBody(okio.Buffer().write(payload)))
         }
+        val dir = File(Files.createTempDirectory("ob-update-test").toFile(), "updates")
+        val m = manifest(payload)
+
+        val file = UpdateDownloader(client(), { null })
+            .download(UpdateFeed(m, server.url("/apk").toString()), dir)
+
+        assertTrue(file.isFile)
+        assertEquals(null, server.takeRequest().getHeader("Authorization"))
+        server.shutdown()
     }
 
     @Test

@@ -4,13 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 
 class GitHubUpdateSourceTest {
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     private fun releaseJson(vararg assets: Pair<String, String>): String {
         val assetJson = assets.joinToString(",") { (name, url) ->
@@ -18,9 +15,6 @@ class GitHubUpdateSourceTest {
         }
         return """{"tag_name":"v2.0.1","assets":[$assetJson]}"""
     }
-
-    private fun server(block: MockWebServer.() -> Unit): MockWebServer =
-        MockWebServer().apply { start(); block() }
 
     @Test
     fun `fetch reads the feed asset with auth and returns the apk asset url`() {
@@ -86,7 +80,10 @@ class GitHubUpdateSourceTest {
 
     @Test
     fun `no releases maps to NoReleases`() {
-        val server = server { enqueue(MockResponse().setResponseCode(404)) }
+        val server = MockWebServer().apply {
+            start()
+            enqueue(MockResponse().setResponseCode(404))
+        }
         val source = GitHubUpdateSource(
             baseUrl = server.url("/").toString().trimEnd('/'),
             repoSlug = "x/y",
@@ -97,8 +94,13 @@ class GitHubUpdateSourceTest {
     }
 
     @Test
-    fun `auth rejected maps to Http`() {
-        val server = server { enqueue(MockResponse().setResponseCode(401)) }
+    fun `auth rejected even tokenless maps to Http`() {
+        val server = MockWebServer().apply {
+            start()
+            // First 401 triggers the tokenless retry; the second must surface.
+            enqueue(MockResponse().setResponseCode(401))
+            enqueue(MockResponse().setResponseCode(401))
+        }
         val source = GitHubUpdateSource(
             baseUrl = server.url("/").toString().trimEnd('/'),
             repoSlug = "x/y",
@@ -141,8 +143,71 @@ class GitHubUpdateSourceTest {
     }
 
     @Test
-    fun `missing token is AuthRequired without a network call`() {
-        val source = GitHubUpdateSource(token = { null })
-        assertFailsWith<GitHubUpdateSource.SourceException.AuthRequired> { source.fetch() }
+    fun `missing token fetches unauthenticated`() {
+        val server = MockWebServer().apply {
+            start()
+            enqueue(
+                MockResponse().setBody(
+                    releaseJson(
+                        "update.json" to url("/a/1").toString(),
+                        "a.apk" to url("/a/2").toString(),
+                    ),
+                ),
+            )
+            enqueue(MockResponse().setBody("""{"versionCode":7,"versionName":"2","apkAsset":"a.apk","sha256":"ab"}"""))
+        }
+        val source = GitHubUpdateSource(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            repoSlug = "x/y",
+            token = { null },
+        )
+        assertEquals(7L, source.fetch().manifest.versionCode)
+        val request = server.takeRequest()
+        assertEquals(null, request.getHeader("Authorization"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `rejected token retries once without auth on a public feed`() {
+        val server = MockWebServer().apply {
+            start()
+            enqueue(MockResponse().setResponseCode(401))
+            enqueue(
+                MockResponse().setBody(
+                    releaseJson(
+                        "update.json" to url("/a/1").toString(),
+                        "a.apk" to url("/a/2").toString(),
+                    ),
+                ),
+            )
+            enqueue(MockResponse().setBody("""{"versionCode":9,"versionName":"2","apkAsset":"a.apk","sha256":"ab"}"""))
+        }
+        val source = GitHubUpdateSource(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            repoSlug = "x/y",
+            token = { "stale-token" },
+        )
+        assertEquals(9L, source.fetch().manifest.versionCode)
+        val first = server.takeRequest()
+        assertEquals("Bearer stale-token", first.getHeader("Authorization"))
+        val second = server.takeRequest()
+        assertEquals(null, second.getHeader("Authorization"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `tokenless 401 stays an Http error`() {
+        val server = MockWebServer().apply {
+            start()
+            enqueue(MockResponse().setResponseCode(401))
+        }
+        val source = GitHubUpdateSource(
+            baseUrl = server.url("/").toString().trimEnd('/'),
+            repoSlug = "x/y",
+            token = { null },
+        )
+        val e = assertFailsWith<GitHubUpdateSource.SourceException.Http> { source.fetch() }
+        assertEquals(401, e.code)
+        server.shutdown()
     }
 }

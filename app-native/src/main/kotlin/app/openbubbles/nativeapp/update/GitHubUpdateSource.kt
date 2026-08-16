@@ -14,13 +14,15 @@ data class UpdateFeed(
 )
 
 /**
- * Reads the latest self-update release from the private GitHub repo.
+ * Reads the latest self-update release from the GitHub repo.
  *
- * Every call needs the fine-grained read-only PAT because both the release
- * metadata and asset bytes are private. Asset downloads use the asset API URL
- * with `Accept: application/octet-stream`; GitHub 302s to a signed
- * object-storage URL, which OkHttp follows (and strips our Authorization
- * header on the cross-host hop, exactly as the signed URL requires).
+ * The repo is public, so unauthenticated reads work; a stored token (when
+ * present) is sent as `Authorization: Bearer` and dropped for one retry on
+ * 401/403 so a stale token never blocks updates to a public feed. Asset
+ * downloads use the asset API URL with `Accept: application/octet-stream`;
+ * GitHub 302s to a signed object-storage URL, which OkHttp follows (and
+ * strips our Authorization header on the cross-host hop, exactly as the
+ * signed URL requires).
  *
  * Blocking OkHttp calls — run from `Dispatchers.IO`.
  */
@@ -32,11 +34,9 @@ class GitHubUpdateSource(
 ) {
     sealed class SourceException(message: String, cause: Throwable? = null) :
         Exception(message, cause) {
-        /** No stored token — the UI must prompt for one. */
-        class AuthRequired : SourceException("GitHub token required")
         /** Repo has no releases yet (HTTP 404 on /releases/latest). */
         class NoReleases : SourceException("no published releases")
-        /** Non-recoverable HTTP status (auth rejected, rate limited, …). */
+        /** Non-recoverable HTTP status (rate limited, moved, …). */
         class Http(val code: Int) : SourceException("GitHub HTTP $code")
         /** Latest release exists but its feed asset is missing or invalid. */
         class Malformed(message: String, cause: Throwable? = null) :
@@ -59,20 +59,35 @@ class GitHubUpdateSource(
         return UpdateFeed(manifest, apkAsset.url)
     }
 
+    /** Internal retry signal; never escapes [getJson]. */
+    private class RetryWithoutAuth : Exception()
+
     private fun getJson(url: String, octetStream: Boolean = false): String {
-        val token = token()
-            ?: throw SourceException.AuthRequired()
-        val request = Request.Builder()
+        return try {
+            getJsonOnce(url, octetStream, withToken = true)
+        } catch (_: RetryWithoutAuth) {
+            // A rejected token must not block reading a public feed: retry
+            // once without authentication.
+            getJsonOnce(url, octetStream, withToken = false)
+        }
+    }
+
+    private fun getJsonOnce(url: String, octetStream: Boolean, withToken: Boolean): String {
+        val builder = Request.Builder()
             .url(url)
-            .header("Authorization", "Bearer $token")
             .header(
                 "Accept",
                 if (octetStream) "application/octet-stream" else "application/vnd.github+json",
             )
-            .build()
-        client.newCall(request).execute().use { response ->
+        val token = if (withToken) token() else null
+        if (withToken && token != null) {
+            builder.header("Authorization", "Bearer $token")
+        }
+        client.newCall(builder.build()).execute().use { response ->
             when {
                 response.code == 404 && !octetStream -> throw SourceException.NoReleases()
+                (response.code == 401 || response.code == 403) && withToken && token != null ->
+                    throw RetryWithoutAuth()
                 !response.isSuccessful -> throw SourceException.Http(response.code)
             }
             return response.body?.bytes()?.decodeToString()
