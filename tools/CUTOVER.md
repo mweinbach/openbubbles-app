@@ -51,6 +51,9 @@ already-completed mechanical cutover.
 
 ## Self-update acceptance (GitHub Releases feed)
 
+Publishing mechanics, signing, and the changelog-section notes convention live
+in [docs/RELEASES.md](../docs/RELEASES.md).
+
 - [ ] Publish path: `scripts/publish-update.sh --set --version-name <v> --version-code <n>`
       (local, production keystore) or the `Self-update release` GitHub Action (push to main /
       manual dispatch) creates a release with `openbubbles-<v>.apk` + `update.json`; publishing a

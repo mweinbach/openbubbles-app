@@ -59,6 +59,7 @@ Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). D
 | Human contrib, submodules | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Setup, SDK/NDK pins | [README.md](README.md) |
 | Release / device checklist | [tools/CUTOVER.md](tools/CUTOVER.md) |
+| Cutting versions, signing, self-update feed | [docs/RELEASES.md](docs/RELEASES.md) |
 
 ## Skills (load only for that task)
 
