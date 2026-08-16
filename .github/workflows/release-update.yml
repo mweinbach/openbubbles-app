@@ -146,13 +146,19 @@ jobs:
           GRADLE_NAME=$(sed -n 's/^[[:space:]]*versionName "\(.*\)"/\1/p' app-native/build.gradle | head -1)
           GRADLE_CODE=$(sed -n 's/^[[:space:]]*versionCode \([0-9]*\)/\1/p' app-native/build.gradle | head -1)
           [ -n "$GRADLE_NAME" ] && [ -n "$GRADLE_CODE" ] || { echo "cannot read version from app-native/build.gradle" >&2; exit 1; }
+          case "$GRADLE_CODE" in ''|*[!0-9]*) echo "versionCode is not numeric: $GRADLE_CODE" >&2; exit 1 ;; esac
 
+          # Latest published versionCode, or 0 when no release exists yet.
+          # (gh api writes the 404 body to stdout, so the call is guarded by
+          # exit status and every parsed value is re-validated as numeric.)
           PREV=0
-          PREV_ASSET=$(gh api "repos/${{ github.repository }}/releases/latest" \
-            --jq '.assets[] | select(.name == "update.json") | .url' 2>/dev/null || true)
-          if [ -n "$PREV_ASSET" ]; then
-            PREV=$(gh api "$PREV_ASSET" -H "Accept: application/octet-stream" | jq -r '.versionCode')
+          if gh api "repos/${{ github.repository }}/releases/latest" > latest-release.json 2>/dev/null; then
+            PREV_ASSET=$(jq -r '[.assets[] | select(.name == "update.json") | .url][0] // empty' latest-release.json)
+            if [ -n "$PREV_ASSET" ]; then
+              PREV=$(gh api "$PREV_ASSET" -H "Accept: application/octet-stream" | jq -r '.versionCode')
+            fi
           fi
+          case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
           [ "$PREV" -lt "$GRADLE_CODE" ] && CODE="$GRADLE_CODE" || CODE=$((PREV + 1))
 
           # Stamp the build (runner-local; gradle stays the floor for humans).
@@ -185,9 +191,12 @@ jobs:
           cp "$APK_IN" "${{ steps.ver.outputs.asset }}"
 
           # Verify the APK really is production-signed before publishing.
+          # apksigner exits non-zero on a bad signature; the grep proves a
+          # certificate digest was printed (output format varies by
+          # build-tools: "Signer #1 certificate …" / "V2 Signer: certificate …").
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort | tail -1)
           "$BT/apksigner" verify --print-certs "${{ steps.ver.outputs.asset }}" | tee certs.txt
-          grep -q "Signer #1 certificate SHA-256 digest:" certs.txt
+          grep -q "certificate SHA-256 digest:" certs.txt
 
           SHA256=$(shasum -a 256 "${{ steps.ver.outputs.asset }}" | awk '{print $1}')
           BYTES=$(wc -c < "${{ steps.ver.outputs.asset }}" | tr -d ' ')
