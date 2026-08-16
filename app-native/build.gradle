@@ -158,6 +158,5 @@ dependencies {
 
 // UniFFI-generated Kotlin bindings live in :core.
 
-// Build the same Rust cdylib the Flutter app uses, packaged into this APK.
-// Standalone cargokit invocation (upstream plugin.gradle requires Flutter).
-apply from: "cargokit-standalone.gradle"
+// Build the Rust UniFFI cdylib directly with Cargo and the Android NDK.
+apply from: "cargo-android.gradle"

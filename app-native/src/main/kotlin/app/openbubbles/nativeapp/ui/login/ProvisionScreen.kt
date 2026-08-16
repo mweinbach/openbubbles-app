@@ -1,9 +1,10 @@
 package app.openbubbles.nativeapp.ui.login
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -12,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +51,7 @@ fun ProvisionScreen(
     onProvisioned: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    showBackAction: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -109,30 +113,26 @@ fun ProvisionScreen(
             .safeDrawingPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
         Column(
             modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Self-hosted device setup", style = MaterialTheme.typography.headlineSmall)
+            // Standalone routes have no parent header; the onboarding connect
+            // step supplies its own, so this title only shows when needed.
+            if (showBackAction) {
+                Text("Set up Mac hardware", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(4.dp))
+            }
             Text(
-                "Scan the hardware QR code generated on your Mac, or paste its " +
-                    "exported activation payload. After this one-time transfer, " +
-                    "Apple validation runs locally on this Android device; the " +
-                    "OpenBubbles hosted relay is not used.",
+                "Scan the QR code from your Mac, or paste its activation payload. " +
+                    "This is a one-time transfer — after this, Apple validation runs " +
+                    "on this device and the hosted relay is not used.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                "This build includes the version-pinned on-device validation engine. " +
-                    "If its compatibility check fails, setup stops instead of " +
-                    "sending hardware data to a hosted relay.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.height(20.dp))
 
             Button(
                 enabled = !busy,
@@ -140,17 +140,27 @@ fun ProvisionScreen(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Scan Mac hardware QR code")
+                Text("Scan QR code")
             }
+            Spacer(Modifier.height(20.dp))
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Or paste the payload",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = activationPayload,
                 onValueChange = { activationPayload = it },
                 label = { Text("Mac activation payload") },
-                supportingText = { Text("OABS base64 or 517-byte validation data") },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 4,
+                minLines = 3,
             )
-            Button(
+            Spacer(Modifier.height(12.dp))
+            FilledTonalButton(
                 enabled = !busy && activationPayload.isNotBlank(),
                 onClick = {
                     provision(classifyProvisioningInput(bytes = null, text = activationPayload))
@@ -158,19 +168,26 @@ fun ProvisionScreen(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Use local Mac hardware")
+                Text("Use payload")
             }
 
             // Indeterminate provisioning is exactly the wavy indicator's job.
-            if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+            if (busy) {
+                Spacer(Modifier.height(16.dp))
+                LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+            }
             error?.let {
+                Spacer(Modifier.height(10.dp))
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            TextButton(onClick = onBack) { Text("Back") }
+            if (showBackAction) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onBack) { Text("Back") }
+            }
         }
     }
 }

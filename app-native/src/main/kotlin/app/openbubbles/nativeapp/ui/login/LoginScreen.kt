@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
@@ -33,19 +32,16 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -89,6 +85,9 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
     /** Shown on the form step — re-run device provisioning (e.g. switch to a relay code). */
     onRedoSetup: (() -> Unit)? = null,
+    /** When true, skips the internal "Sign in" chrome so a host-supplied
+     *  header (e.g. the onboarding connect step) is the only title. */
+    embedded: Boolean = false,
 ) {
     val loginViewModel: LoginViewModel = viewModel(factory = LoginViewModel.factory(handle))
     val state by loginViewModel.screen.collectAsStateWithLifecycle()
@@ -99,10 +98,10 @@ fun LoginScreen(
         onFinished = onFinished,
         modifier = modifier,
         onRedoSetup = onRedoSetup,
+        embedded = embedded,
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreenBody(
     state: LoginScreen,
@@ -111,26 +110,13 @@ fun LoginScreenBody(
     onFinished: (username: String) -> Unit,
     modifier: Modifier = Modifier,
     onRedoSetup: (() -> Unit)? = null,
+    /** When true, skips the internal "Sign in" chrome so a host-supplied
+     *  header (e.g. the onboarding connect step) is the only title. */
+    embedded: Boolean = false,
 ) {
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text(titleFor(state)) },
-                navigationIcon = {
-                    if (state is LoginScreen.Form) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                },
-            )
-        },
-    ) { padding ->
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
-                .padding(padding)
                 .imePadding(),
         ) {
             if (state.isBusy()) {
@@ -139,7 +125,7 @@ fun LoginScreenBody(
                 LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             }
             when (state) {
-                is LoginScreen.Form -> FormStep(state, events, onRedoSetup)
+                is LoginScreen.Form -> FormStep(state, events, onRedoSetup, embedded)
                 is LoginScreen.DeviceCode -> DeviceCodeStep(state, events)
                 is LoginScreen.SmsPhoneChooser -> SmsPhoneChooserStep(state, events)
                 is LoginScreen.SmsCode -> SmsCodeStep(state, events)
@@ -148,7 +134,6 @@ fun LoginScreenBody(
                 is LoginScreen.Blocked -> BlockedStep(state)
             }
         }
-    }
 }
 
 // ---------------------------------------------------------------------- steps
@@ -158,6 +143,7 @@ private fun FormStep(
     state: LoginScreen.Form,
     events: LoginEvents,
     onRedoSetup: (() -> Unit)?,
+    embedded: Boolean,
 ) {
     var username by rememberSaveable(state.savedUsername) {
         mutableStateOf(state.savedUsername.orEmpty())
@@ -169,7 +155,7 @@ private fun FormStep(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Forms center-cap at 480dp on wide windows instead of stretching.
@@ -177,21 +163,25 @@ private fun FormStep(
             modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-        AppBadge()
-        Spacer(Modifier.height(20.dp))
-        Text(
-            text = "Sign in with your Apple ID",
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "OpenBubbles connects directly to iMessage using your Apple ID.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(28.dp))
+        if (!embedded) {
+            AppBadge()
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = "Sign in with your Apple ID",
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "OpenBubbles connects directly to iMessage using your Apple ID.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(28.dp))
+        } else {
+            Spacer(Modifier.height(4.dp))
+        }
         LoginTextField(
             value = username,
             onValueChange = { username = it },
@@ -633,16 +623,6 @@ private fun LoginScreen.isBusy(): Boolean = when (this) {
     is LoginScreen.ExtraStep -> busy
     is LoginScreen.Done -> false
     is LoginScreen.Blocked -> false
-}
-
-private fun titleFor(state: LoginScreen): String = when (state) {
-    is LoginScreen.Form -> "Sign in"
-    is LoginScreen.DeviceCode -> "Verification"
-    is LoginScreen.SmsPhoneChooser -> "Choose a phone"
-    is LoginScreen.SmsCode -> "SMS code"
-    is LoginScreen.ExtraStep -> "Account update"
-    is LoginScreen.Done -> "Signed in"
-    is LoginScreen.Blocked -> "Registration paused"
 }
 
 // ------------------------------------------------------------------- previews

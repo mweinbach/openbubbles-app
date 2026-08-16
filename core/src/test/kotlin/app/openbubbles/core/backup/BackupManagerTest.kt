@@ -159,6 +159,32 @@ class BackupManagerTest {
         assertEquals(listOf("hello backup", "second message"), messageTexts())
     }
 
+    @Test
+    fun `snapshot and restore round-trips opaque app state`() {
+        seedData()
+        val expectedState = byteArrayOf(1, 3, 3, 7)
+        var restoredState: ByteArray? = null
+        val stateManager = BackupManager(
+            rootDir = root,
+            store = { store },
+            storeGate = PassThroughStoreGate,
+            appVersion = "test-1",
+            appStateSnapshot = { expectedState },
+            appStateRestore = { restoredState = it },
+        )
+        val output = ByteArrayOutputStream()
+        val snapshot = stateManager.snapshot(output) {}
+        assertTrue(snapshot.isSuccess, "snapshot failed: ${snapshot.exceptionOrNull()}")
+
+        store.close()
+        val restored = stateManager.restore(ByteArrayInputStream(output.toByteArray()), root)
+
+        assertTrue(restored.isSuccess, "restore failed: ${restored.exceptionOrNull()}")
+        assertTrue(restoredState?.contentEquals(expectedState) == true)
+        store = Db.build(root)
+        assertEquals(listOf("hello backup", "second message"), messageTexts())
+    }
+
     // ------------------------------------------------------------------
     // Manifest
     // ------------------------------------------------------------------
@@ -174,6 +200,7 @@ class BackupManagerTest {
         assertTrue("\"messageCount\":2" in manifest, manifest)
         assertTrue("\"attachmentCount\":1" in manifest, manifest)
         assertTrue("\"appVersion\":\"test-1\"" in manifest, manifest)
+        assertTrue("\"appStateBase64\":null" in manifest, manifest)
         assertTrue(Regex("\"dbBytes\":\\d+").containsMatchIn(manifest), manifest)
 
         val entries = zipEntries(zipBytes)

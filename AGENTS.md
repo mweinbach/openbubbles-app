@@ -14,6 +14,15 @@ Platform UI and lifecycle stay in `app-native/` and `desktopApp/`. Apple protoco
 
 JDK 21 only. Gradle root is `native/` (not the repo root). Submodules required.
 
+### Native build boundary
+
+- Android compiles `rust/` directly with Cargo and NDK `28.2.13676358` through
+  `app-native/cargo-android.gradle`. Dart, Flutter, and Cargokit are not build prerequisites.
+- Do not route Gradle or CI through `rust_builder/cargokit/`, `run_build_tool.sh`, or any Dart tool.
+  That directory and the retired Flutter client are reference/migration material only.
+- `rust/src/frb_generated*.rs` and existing Flutter Rust Bridge exports still compile as legacy Rust
+  surface. They are not the Kotlin API; Kotlin uses committed UniFFI bindings from `:core`.
+
 ```bash
 cd native
 ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
@@ -32,6 +41,7 @@ Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). D
 - `db/objectbox-model.json` is a compatibility boundary. Keep `:db:checkModelParity` green or land a reviewed migration. Never regenerate ObjectBox UIDs.
 - Do not move the Android store off `{dataDir}/app_flutter/objectbox`.
 - Kotlin ↔ Rust is UniFFI. Do not add Flutter Rust Bridge APIs. Do not hand-edit generated UniFFI Kotlin.
+- Keep the Android Rust build Dart-free: direct Cargo + pinned NDK only.
 - SIM (`isRpSms`) attachments go through Android MMS, never MMCS.
 - Default path is self-hosted OABS + on-device validation. Do not require a hosted hardware relay.
 - Commit rustpush changes inside the submodule first, then the parent pointer separately.

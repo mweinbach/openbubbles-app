@@ -240,6 +240,7 @@ private fun ConnectStep(
                     onProvisioned = onProvisioned,
                     onBack = onBack,
                     modifier = Modifier.fillMaxSize(),
+                    showBackAction = false,
                 )
                 else -> LoginScreen(
                     handle = loginHandle ?: RustLoginHandle(path = confDir),
@@ -247,6 +248,7 @@ private fun ConnectStep(
                     onBack = onBack,
                     modifier = Modifier.fillMaxSize(),
                     onRedoSetup = onRedoSetup,
+                    embedded = true,
                 )
             }
         }

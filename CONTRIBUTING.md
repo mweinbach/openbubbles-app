@@ -8,11 +8,14 @@ start from [AGENTS.md](AGENTS.md).
 
 1. Clone with submodules or run `git submodule update --init --recursive`.
 2. Install JDK 21, the Android SDK/NDK versions listed in `README.md`, stable
-   Rust, the Android Rust targets, `protoc`, and Dart for cargokit.
+   Rust, the Android Rust targets, and `protoc`.
 3. Create `native/local.properties` containing your Android SDK path.
 4. Keep secrets and local device state out of Git.
 
 The Gradle settings reject non-JDK-21 runtimes with an actionable error.
+The Android build compiles `rust/` directly with Cargo and the pinned NDK through
+`app-native/cargo-android.gradle`; it must not require Dart, Flutter, or Cargokit.
+Retained Flutter/FRB files are compatibility or reference material, not the native build path.
 
 ## Code ownership by module
 

@@ -13,7 +13,9 @@ import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
 import io.objectbox.exception.UniqueViolationException
 import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -104,6 +106,7 @@ class CloudSyncManager(
     private val port: CloudSyncPort,
     private val syncStore: CloudSyncStateStore = InMemoryCloudSyncStateStore(),
     private val attachmentStore: AttachmentStore? = null,
+    private val pageRetryDelaysMs: List<Long> = listOf(1_000L, 3_000L, 10_000L, 30_000L),
 ) {
 
     companion object {
@@ -151,6 +154,10 @@ class CloudSyncManager(
     private val cancelled = AtomicBoolean(false)
 
     private val _progress = MutableStateFlow(SyncProgress(SyncPhase.IDLE))
+
+    init {
+        require(pageRetryDelaysMs.all { it >= 0L }) { "page retry delays must be non-negative" }
+    }
 
     /** Live progress; [SyncPhase.DONE] / [SyncPhase.FAILED] close a run. */
     val progress: StateFlow<SyncProgress> = _progress.asStateFlow()
@@ -216,7 +223,11 @@ class CloudSyncManager(
                 var chatCursor = if (mode == SyncMode.INCREMENTAL) syncStore.chatCursor() else null
                 while (true) {
                     if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = port.chatsPage(chatCursor)
+                    val page = fetchPageWithRetry {
+                        port.chatsPage(chatCursor).also {
+                            validatePageCursor("Chat", chatCursor, it.nextCursor, it.more, it.status)
+                        }
+                    }
                     applyChatPage(page.records)
                     state = state.copy(
                         chatsDone = state.chatsDone + page.records.count { it.chat != null }.toULong(),
@@ -233,7 +244,11 @@ class CloudSyncManager(
                 var messageCursor = if (mode == SyncMode.INCREMENTAL) syncStore.messageCursor() else null
                 while (true) {
                     if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = port.messagesPage(messageCursor)
+                    val page = fetchPageWithRetry {
+                        port.messagesPage(messageCursor).also {
+                            validatePageCursor("Message", messageCursor, it.nextCursor, it.more, it.status)
+                        }
+                    }
                     applyMessagePage(page.records)
                     state = state.copy(
                         messagesDone = state.messagesDone + page.records.count { it.message != null }.toULong(),
@@ -251,7 +266,11 @@ class CloudSyncManager(
                 var attachmentCursor = if (mode == SyncMode.INCREMENTAL) syncStore.attachmentCursor() else null
                 while (true) {
                     if (cancelled.get()) return@withContext finish(cancelledFlag = true)
-                    val page = port.attachmentsPage(attachmentCursor)
+                    val page = fetchPageWithRetry {
+                        port.attachmentsPage(attachmentCursor).also {
+                            validatePageCursor("Attachment", attachmentCursor, it.nextCursor, it.more, it.status)
+                        }
+                    }
                     applyAttachmentPage(page.records)
                     state = state.copy(
                         attachmentsDone = state.attachmentsDone +
@@ -264,11 +283,42 @@ class CloudSyncManager(
                     update()
                     if (!page.more) break
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 return@withContext finish(error = e.message ?: e.javaClass.simpleName)
             }
 
             finish()
+        }
+    }
+
+    private suspend fun <T> fetchPageWithRetry(fetch: suspend () -> T): T {
+        pageRetryDelaysMs.forEach { retryDelayMs ->
+            try {
+                return fetch()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                delay(retryDelayMs)
+            }
+        }
+        return fetch()
+    }
+
+    private fun validatePageCursor(
+        zone: String,
+        currentCursor: ByteArray?,
+        nextCursor: ByteArray,
+        more: Boolean,
+        status: Int,
+    ) {
+        if (!more) return
+        check(nextCursor.isNotEmpty()) {
+            "$zone history sync returned no continuation cursor while more changes remain (status $status)"
+        }
+        check(currentCursor == null || !currentCursor.contentEquals(nextCursor)) {
+            "$zone history sync did not advance its continuation cursor (status $status)"
         }
     }
 

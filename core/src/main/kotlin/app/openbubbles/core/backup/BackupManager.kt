@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.Base64
 import java.util.zip.ZipEntry
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
@@ -62,6 +63,10 @@ class BackupManager(
     private val storeGate: StoreGate,
     /** Version of the calling app, recorded in the manifest. */
     private val appVersion: String? = null,
+    /** Opaque app bookkeeping captured before the database copy starts. */
+    private val appStateSnapshot: () -> ByteArray? = { null },
+    /** Restores opaque app bookkeeping as part of the database swap. */
+    private val appStateRestore: (ByteArray?) -> Unit = {},
     private val restoreLimits: RestoreLimits = RestoreLimits(),
 ) {
     companion object {
@@ -79,6 +84,7 @@ class BackupManager(
 
         private const val BUFFER = 64 * 1024
         private const val MAX_MANIFEST_BYTES = 1024 * 1024L
+        private const val MAX_APP_STATE_BYTES = 512 * 1024
         private const val ATTACHMENTS_DIR = "attachments"
         private const val ATTACHMENTS_PREFIX = "$ATTACHMENTS_DIR/"
     }
@@ -117,6 +123,12 @@ class BackupManager(
      */
     fun snapshot(target: OutputStream, progress: (String) -> Unit): Result<BackupInfo> = runCatching {
         val st = store() ?: error("store unavailable — cannot back up")
+        // Capture cursors before copying the database. A cursor older than the
+        // copied rows only causes safe replay; a cursor newer than the copied
+        // rows could skip data after restore.
+        val appState = appStateSnapshot()?.copyOf()?.also {
+            require(it.size <= MAX_APP_STATE_BYTES) { "app backup state is too large" }
+        }
         progress("Counting records")
         val messageCount = st.boxFor(Message::class.java).count()
         val attachmentCount = st.boxFor(Attachment::class.java).count()
@@ -167,7 +179,7 @@ class BackupManager(
                 appVersion = appVersion,
             )
             zip.putNextEntry(ZipEntry(MANIFEST_ENTRY))
-            zip.write(manifestJson(info, dbBytes, attachmentFiles).toByteArray(Charsets.UTF_8))
+            zip.write(manifestJson(info, dbBytes, attachmentFiles, appState).toByteArray(Charsets.UTF_8))
             zip.closeEntry()
 
             zip.finish()
@@ -304,7 +316,9 @@ class BackupManager(
                 beforeSwap()
 
                 // 6. Swap into place (rolls back on failure).
-                swap(staging, targetDir)
+                swap(staging, targetDir) {
+                    appStateRestore(parsed.appState?.copyOf())
+                }
                 BackupInfo(
                     dateEpochMs = parsed.dateEpochMs,
                     messageCount = parsed.messageCount,
@@ -340,7 +354,11 @@ class BackupManager(
      * restored if any step fails; they are deleted only after the swap
      * succeeded.
      */
-    private fun swap(staging: File, targetDir: File) {
+    private fun swap(
+        staging: File,
+        targetDir: File,
+        restoreAppState: () -> Unit,
+    ) {
         val stagedDb = File(staging, Db.STORE_DIR_NAME)
         val stagedAtt = File(staging, ATTACHMENTS_DIR)
         val liveDb = File(targetDir, Db.STORE_DIR_NAME)
@@ -368,6 +386,7 @@ class BackupManager(
             if (stagedAtt.exists() && !stagedAtt.renameTo(liveAtt)) {
                 error("cannot move restored attachments into place")
             }
+            restoreAppState()
             success = true
         } catch (t: Throwable) {
             // Roll back to the pre-restore state.
@@ -403,7 +422,12 @@ class BackupManager(
         }
     }
 
-    private fun manifestJson(info: BackupInfo, dbBytes: Long, attachmentFileCount: Int): String =
+    private fun manifestJson(
+        info: BackupInfo,
+        dbBytes: Long,
+        attachmentFileCount: Int,
+        appState: ByteArray?,
+    ): String =
         "{" +
             "\"formatVersion\":$FORMAT_VERSION," +
             "\"dateEpochMs\":${info.dateEpochMs}," +
@@ -411,7 +435,8 @@ class BackupManager(
             "\"attachmentCount\":${info.attachmentCount}," +
             "\"attachmentFileCount\":$attachmentFileCount," +
             "\"dbBytes\":$dbBytes," +
-            "\"appVersion\":${info.appVersion?.let { "\"${jsonEscape(it)}\"" } ?: "null"}" +
+            "\"appVersion\":${info.appVersion?.let { "\"${jsonEscape(it)}\"" } ?: "null"}," +
+            "\"appStateBase64\":${appState?.let { "\"${Base64.getEncoder().encodeToString(it)}\"" } ?: "null"}" +
             "}"
 
     private class ParsedManifest(
@@ -420,6 +445,7 @@ class BackupManager(
         val attachmentCount: Long,
         val appVersion: String?,
         val dbBytes: Long?,
+        val appState: ByteArray?,
     )
 
     private fun parseManifest(json: String): ParsedManifest {
@@ -429,6 +455,27 @@ class BackupManager(
             ?: throw ZipException("manifest has no formatVersion")
         if (formatVersion != FORMAT_VERSION.toLong()) {
             throw ZipException("unsupported backup format version $formatVersion (expected $FORMAT_VERSION)")
+        }
+        val appStateField = Regex("\"appStateBase64\"\\s*:\\s*(null|\"([A-Za-z0-9+/=]*)\")")
+            .find(json)
+        if ("\"appStateBase64\"" in json && appStateField == null) {
+            throw ZipException("manifest has invalid appStateBase64")
+        }
+        val appState = appStateField?.let { field ->
+            if (field.groupValues[1] == "null") {
+                null
+            } else {
+                try {
+                    Base64.getDecoder().decode(field.groupValues[2])
+                        .also {
+                            if (it.size > MAX_APP_STATE_BYTES) {
+                                throw ZipException("manifest app state is too large")
+                            }
+                        }
+                } catch (error: IllegalArgumentException) {
+                    throw ZipException("manifest app state is invalid").apply { initCause(error) }
+                }
+            }
         }
         return ParsedManifest(
             dateEpochMs = longField("dateEpochMs")
@@ -440,6 +487,7 @@ class BackupManager(
             appVersion = Regex("\"appVersion\"\\s*:\\s*(null|\"((?:[^\"\\\\]|\\\\.)*)\")")
                 .find(json)?.groupValues?.get(2),
             dbBytes = longField("dbBytes"),
+            appState = appState,
         )
     }
 }

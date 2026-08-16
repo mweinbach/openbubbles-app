@@ -11,5 +11,8 @@ Current (Kotlin + Rust):
 Release checklist: [../tools/CUTOVER.md](../tools/CUTOVER.md).
 Agent entry: [../AGENTS.md](../AGENTS.md).
 
+Native Android build rule: Cargo + pinned Android NDK through
+`../app-native/cargo-android.gradle`; no Dart, Flutter, or Cargokit tooling.
+
 Historical Flutter (do not implement from): `DECISIONS.md`, `COMMON_TASKS.md`,
 `MESSAGE_RECEIVE_FLOW.md`, `MESSAGE_SEND_FLOW.md`, `models.md`.

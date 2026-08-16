@@ -390,6 +390,8 @@ object CoreGraph {
             store = { store },
             storeGate = BackupStoreGate,
             appVersion = version,
+            appStateSnapshot = { CloudSyncWiring.backupState(ctx) },
+            appStateRestore = { CloudSyncWiring.restoreBackupState(ctx, it) },
         )
     }
 

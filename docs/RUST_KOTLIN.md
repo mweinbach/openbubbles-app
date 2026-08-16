@@ -74,8 +74,8 @@ is unavailable — no silent relay fallback. Debug account-free smoke: 517-byte 
 
 ## Build
 
-- Android `.so`: standalone cargokit (`app-native/cargokit-standalone.gradle`). Dart exists only
-  as that helper. Do not use `rust_builder/cargokit/gradle/plugin.gradle` (it requires Flutter).
+- Android `.so`: direct Cargo/NDK build (`app-native/cargo-android.gradle`). The native build does
+  not require Dart or Flutter tooling.
 - Bindings: `rust/build-uniffi.sh` → `core/src/main/kotlin/uniffi/`. Commit the result.
 - Gate: `:app-native:checkUniffiBindings` (not in the default CI command).
 - There are no `#[test]`s under `rust/src/`. Protocol unit tests are

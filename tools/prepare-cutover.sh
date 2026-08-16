@@ -1,6 +1,9 @@
 #!/bin/bash
 # M4 cutover preparation — run from the repo root on a fresh m4-cutover
 # branch (see tools/CUTOVER.md). Each phase is a separate commit.
+# ARCHIVED: this records the original cutover and is not current build guidance.
+# Its Cargokit references predate the direct Cargo/NDK Android build in
+# app-native/cargo-android.gradle. Do not reintroduce Dart or Cargokit from here.
 #
 #   git checkout -b m4-cutover main
 #   bash tools/prepare-cutover.sh

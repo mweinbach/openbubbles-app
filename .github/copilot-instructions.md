@@ -2,6 +2,10 @@
 
 The shipping client is Kotlin + Rust. Start from [AGENTS.md](../AGENTS.md).
 
+Android compiles `rust/` directly with Cargo and the pinned NDK via
+`app-native/cargo-android.gradle`. Do not introduce Dart, Flutter, Cargokit, or
+`rust_builder/cargokit/run_build_tool.sh` into the Gradle or CI build.
+
 ## Current docs
 
 - [AGENTS.md](../AGENTS.md) — orientation, commands, constraints
@@ -16,4 +20,5 @@ The shipping client is Kotlin + Rust. Start from [AGENTS.md](../AGENTS.md).
 ## Historical (do not implement from)
 
 `docs/DECISIONS.md`, `docs/COMMON_TASKS.md`, `docs/MESSAGE_*_FLOW.md`, `docs/models.md`
-describe the retired Flutter client. There is no `lib/` application tree.
+describe the retired Flutter client. There is no `lib/` application tree. Retained Flutter Rust
+Bridge sources are legacy Rust compatibility surface, not the Kotlin API or Android build system.

@@ -98,8 +98,8 @@ class NativeMainActivity : ComponentActivity() {
             syncContacts()
         }
 
-        // Smoke test: load librust_lib_bluebubbles.so (built by cargokit from
-        // the same Rust crate the Flutter app uses) and call through UniFFI.
+        // Smoke test: load the Cargo-built librust_lib_bluebubbles.so and call
+        // through UniFFI.
         // Shown as a small status footer on the chat list.
         val rustStatus = try {
             uniffiEnsureInitialized()

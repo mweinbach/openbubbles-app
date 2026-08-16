@@ -31,7 +31,6 @@ Required tooling:
 - Android SDK 36 and NDK `28.2.13676358`
 - stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
 - `protoc`
-- Dart, used only by cargokit's Rust build helper
 
 Initialize submodules, provide `native/local.properties` with `sdk.dir`, then run:
 

@@ -57,6 +57,7 @@ private class FakeCloudSyncPort : CloudSyncPort {
     var state: USyncState = USyncState.AVAILABLE
     var inClique: Boolean = true
     var failOn: String? = null
+    var chatFailuresRemaining: Int = 0
 
     /** Invoked after each served chat page (index 1-based), for mid-run hooks. */
     var onChatsPageServed: ((Int) -> Unit)? = null
@@ -75,6 +76,10 @@ private class FakeCloudSyncPort : CloudSyncPort {
     override suspend fun chatsPage(cursor: ByteArray?): UChatSyncPage {
         calls += "chats"
         chatCursorsReceived += cursor
+        if (chatFailuresRemaining > 0) {
+            chatFailuresRemaining -= 1
+            throw IllegalStateException("temporary chat fetch failure")
+        }
         failOn?.let { throw IllegalStateException(it) }
         val page = chatPages.removeFirst()
         chatPagesServed += 1
@@ -130,7 +135,13 @@ class CloudSyncManagerTest {
         store = MyObjectBox.builder().directory(testDir).build()
         port = FakeCloudSyncPort()
         syncStore = InMemoryCloudSyncStateStore()
-        manager = CloudSyncManager(store, port, syncStore, AttachmentStore(store, testDir))
+        manager = CloudSyncManager(
+            store,
+            port,
+            syncStore,
+            AttachmentStore(store, testDir),
+            pageRetryDelaysMs = listOf(0L, 0L),
+        )
     }
 
     @After
@@ -499,6 +510,33 @@ class CloudSyncManagerTest {
 
         assertNotNull(summary.error)
         assertTrue(syncStore.chatCursor()!!.contentEquals(byteArrayOf(9)))
+    }
+
+    @Test
+    fun `transient page failures retry without losing progress`() {
+        port.chatFailuresRemaining = 2
+        port.chatPages += chatPage(cursor = byteArrayOf(10))
+        port.messagePages += messagePage(cursor = byteArrayOf(20))
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        assertEquals(3, port.calls.count { it == "chats" })
+        assertTrue(syncStore.chatCursor()!!.contentEquals(byteArrayOf(10)))
+        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(20)))
+    }
+
+    @Test
+    fun `non advancing page cursor fails instead of stalling`() {
+        repeat(3) {
+            port.chatPages += chatPage(cursor = byteArrayOf(), more = true)
+        }
+
+        val summary = runSync()
+
+        assertTrue(summary.error?.contains("no continuation cursor") == true)
+        assertNull(syncStore.chatCursor())
+        assertEquals(3, port.calls.count { it == "chats" })
     }
 
     // ------------------------------------------------------------------

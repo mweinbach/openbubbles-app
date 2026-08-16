@@ -11,6 +11,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.NativePushState
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
@@ -75,8 +79,25 @@ object CloudSyncWiring {
             .getBoolean(KEY_HISTORY_SYNC_COMPLETE, false)
 
     fun markHistorySyncComplete(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_HISTORY_SYNC_COMPLETE, true).apply()
+        check(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_HISTORY_SYNC_COMPLETE, true).commit(),
+        ) { "failed to persist history sync completion" }
+    }
+
+    fun backupState(context: Context): ByteArray {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return CloudSyncBackupCodec.encode(snapshot(prefs))
+    }
+
+    fun restoreBackupState(context: Context, encoded: ByteArray?) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val previous = snapshot(prefs)
+        val restored = encoded?.let(CloudSyncBackupCodec::decode) ?: CloudSyncBackupState()
+        if (!writeSnapshot(prefs, restored)) {
+            writeSnapshot(prefs, previous)
+            error("failed to restore history sync state")
+        }
     }
 
     fun clear() {
@@ -88,7 +109,37 @@ object CloudSyncWiring {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getStringSet(KEY_CHAT_DELETES, emptySet()).orEmpty().toMutableSet()
         pending += recordId
-        prefs.edit().putStringSet(KEY_CHAT_DELETES, pending).apply()
+        check(prefs.edit().putStringSet(KEY_CHAT_DELETES, pending).commit()) {
+            "failed to persist pending chat deletion"
+        }
+    }
+
+    private fun snapshot(prefs: android.content.SharedPreferences): CloudSyncBackupState {
+        val stateStore = PrefsCloudSyncStateStore(prefs)
+        return CloudSyncBackupState(
+            chatCursor = stateStore.chatCursor(),
+            messageCursor = stateStore.messageCursor(),
+            attachmentCursor = stateStore.attachmentCursor(),
+            pendingChatDeletes = stateStore.pendingChatDeletes().sorted(),
+            pendingMessageDeletes = stateStore.pendingMessageDeletes().sorted(),
+            pendingAttachmentDeletes = stateStore.pendingAttachmentDeletes().sorted(),
+            historySyncComplete = prefs.getBoolean(KEY_HISTORY_SYNC_COMPLETE, false),
+        )
+    }
+
+    private fun writeSnapshot(
+        prefs: android.content.SharedPreferences,
+        state: CloudSyncBackupState,
+    ): Boolean {
+        val editor = prefs.edit().clear()
+        state.chatCursor?.let { editor.putString(KEY_CHAT_CURSOR, encodeCursor(it)) }
+        state.messageCursor?.let { editor.putString(KEY_MESSAGE_CURSOR, encodeCursor(it)) }
+        state.attachmentCursor?.let { editor.putString(KEY_ATTACHMENT_CURSOR, encodeCursor(it)) }
+        editor.putStringSet(KEY_CHAT_DELETES, state.pendingChatDeletes.toSet())
+        editor.putStringSet(KEY_MESSAGE_DELETES, state.pendingMessageDeletes.toSet())
+        editor.putStringSet(KEY_ATTACHMENT_DELETES, state.pendingAttachmentDeletes.toSet())
+        editor.putBoolean(KEY_HISTORY_SYNC_COMPLETE, state.historySyncComplete)
+        return editor.commit()
     }
 }
 
@@ -101,15 +152,15 @@ private class PrefsCloudSyncStateStore(
     override fun attachmentCursor(): ByteArray? = decode(prefs.getString(KEY_ATTACHMENT_CURSOR, null))
 
     override fun saveChatCursor(cursor: ByteArray?) {
-        prefs.edit().putString(KEY_CHAT_CURSOR, encode(cursor)).apply()
+        persistCursor(KEY_CHAT_CURSOR, cursor)
     }
 
     override fun saveMessageCursor(cursor: ByteArray?) {
-        prefs.edit().putString(KEY_MESSAGE_CURSOR, encode(cursor)).apply()
+        persistCursor(KEY_MESSAGE_CURSOR, cursor)
     }
 
     override fun saveAttachmentCursor(cursor: ByteArray?) {
-        prefs.edit().putString(KEY_ATTACHMENT_CURSOR, encode(cursor)).apply()
+        persistCursor(KEY_ATTACHMENT_CURSOR, cursor)
     }
 
     override fun pendingChatDeletes(): List<String> =
@@ -122,20 +173,131 @@ private class PrefsCloudSyncStateStore(
         prefs.getStringSet(KEY_ATTACHMENT_DELETES, emptySet())?.toList().orEmpty()
 
     override fun savePendingChatDeletes(ids: List<String>) {
-        prefs.edit().putStringSet(KEY_CHAT_DELETES, ids.toSet()).apply()
+        persistDeletes(KEY_CHAT_DELETES, ids)
     }
 
     override fun savePendingMessageDeletes(ids: List<String>) {
-        prefs.edit().putStringSet(KEY_MESSAGE_DELETES, ids.toSet()).apply()
+        persistDeletes(KEY_MESSAGE_DELETES, ids)
     }
 
     override fun savePendingAttachmentDeletes(ids: List<String>) {
-        prefs.edit().putStringSet(KEY_ATTACHMENT_DELETES, ids.toSet()).apply()
+        persistDeletes(KEY_ATTACHMENT_DELETES, ids)
     }
 
-    private fun encode(bytes: ByteArray?): String? =
-        bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+    private fun persistCursor(key: String, cursor: ByteArray?) {
+        val editor = prefs.edit()
+        if (cursor == null) editor.remove(key) else editor.putString(key, encodeCursor(cursor))
+        check(editor.commit()) { "failed to persist CloudKit cursor" }
+    }
+
+    private fun persistDeletes(key: String, ids: List<String>) {
+        check(prefs.edit().putStringSet(key, ids.toSet()).commit()) {
+            "failed to persist pending CloudKit deletions"
+        }
+    }
 
     private fun decode(s: String?): ByteArray? =
         s?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }
+}
+
+private fun encodeCursor(bytes: ByteArray): String =
+    Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+internal data class CloudSyncBackupState(
+    val chatCursor: ByteArray? = null,
+    val messageCursor: ByteArray? = null,
+    val attachmentCursor: ByteArray? = null,
+    val pendingChatDeletes: List<String> = emptyList(),
+    val pendingMessageDeletes: List<String> = emptyList(),
+    val pendingAttachmentDeletes: List<String> = emptyList(),
+    val historySyncComplete: Boolean = false,
+)
+
+internal object CloudSyncBackupCodec {
+    private const val MAGIC = 0x4f425343
+    private const val VERSION = 1
+    private const val MAX_STATE_BYTES = 512 * 1024
+    private const val MAX_CURSOR_BYTES = 256 * 1024
+    private const val MAX_DELETE_IDS = 100_000
+
+    fun encode(state: CloudSyncBackupState): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { output ->
+            output.writeInt(MAGIC)
+            output.writeInt(VERSION)
+            output.writeNullableBytes(state.chatCursor)
+            output.writeNullableBytes(state.messageCursor)
+            output.writeNullableBytes(state.attachmentCursor)
+            output.writeStrings(state.pendingChatDeletes)
+            output.writeStrings(state.pendingMessageDeletes)
+            output.writeStrings(state.pendingAttachmentDeletes)
+            output.writeBoolean(state.historySyncComplete)
+        }
+        return bytes.toByteArray().also {
+            require(it.size <= MAX_STATE_BYTES) { "history sync state is too large to back up" }
+        }
+    }
+
+    fun decode(bytes: ByteArray): CloudSyncBackupState {
+        require(bytes.size <= MAX_STATE_BYTES) { "history sync backup state is too large" }
+        return try {
+            DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+                require(input.readInt() == MAGIC) { "invalid history sync backup state" }
+                require(input.readInt() == VERSION) { "unsupported history sync backup state version" }
+                val state = CloudSyncBackupState(
+                    chatCursor = input.readNullableBytes(),
+                    messageCursor = input.readNullableBytes(),
+                    attachmentCursor = input.readNullableBytes(),
+                    pendingChatDeletes = input.readStrings(),
+                    pendingMessageDeletes = input.readStrings(),
+                    pendingAttachmentDeletes = input.readStrings(),
+                    historySyncComplete = input.readBoolean(),
+                )
+                require(input.read() == -1) { "trailing history sync backup data" }
+                state
+            }
+        } catch (error: IllegalArgumentException) {
+            throw error
+        } catch (error: Exception) {
+            throw IllegalArgumentException("invalid history sync backup state", error)
+        }
+    }
+
+    private fun DataOutputStream.writeNullableBytes(bytes: ByteArray?) {
+        if (bytes == null) {
+            writeInt(-1)
+            return
+        }
+        require(bytes.size <= MAX_CURSOR_BYTES) { "CloudKit cursor is too large" }
+        writeInt(bytes.size)
+        write(bytes)
+    }
+
+    private fun DataInputStream.readNullableBytes(): ByteArray? {
+        val size = readInt()
+        if (size == -1) return null
+        require(size in 0..MAX_CURSOR_BYTES) { "invalid CloudKit cursor length" }
+        return ByteArray(size).also { readFully(it) }
+    }
+
+    private fun DataOutputStream.writeStrings(values: List<String>) {
+        require(values.size <= MAX_DELETE_IDS) { "too many pending CloudKit deletions" }
+        writeInt(values.size)
+        values.forEach { value ->
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            require(bytes.size <= MAX_STATE_BYTES) { "CloudKit record id is too large" }
+            writeInt(bytes.size)
+            write(bytes)
+        }
+    }
+
+    private fun DataInputStream.readStrings(): List<String> {
+        val count = readInt()
+        require(count in 0..MAX_DELETE_IDS) { "invalid pending deletion count" }
+        return List(count) {
+            val size = readInt()
+            require(size in 0..MAX_STATE_BYTES) { "invalid CloudKit record id length" }
+            ByteArray(size).also { readFully(it) }.toString(Charsets.UTF_8)
+        }
+    }
 }
