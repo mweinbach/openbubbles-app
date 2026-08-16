@@ -30,6 +30,7 @@ import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPushMessage
+import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.completeMessage
 import uniffi.rust_lib_bluebubbles.initNative
 import uniffi.rust_lib_bluebubbles.markJournalAttempt
@@ -160,6 +161,7 @@ class NativePushService : Service(), MsgReceiver {
                 when (decoded) {
                     null -> Unit
                     UPushMessage.ProcessQueue -> drainMessageJournal(handles, allowNotifications = true)
+                    UPushMessage.RegistrationState -> handleRegistrationState()
                     else -> ingestAndNotify(decoded, handles, allowNotifications = true)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
@@ -171,6 +173,30 @@ class NativePushService : Service(), MsgReceiver {
                         (error.message ?: error.javaClass.simpleName),
                 )
             }
+        }
+    }
+
+    private fun handleRegistrationState() {
+        val state = activeState ?: return
+        val registration = runCatching { state.getRegstate() }
+            .onFailure { error -> Log.w(TAG, "failed to read IDS registration state", error) }
+            .getOrNull() ?: return
+        when (registration) {
+            is URegisterState.Failed -> {
+                if (registrationRequiresSignIn(registration)) {
+                    Log.w(TAG, "Apple account reauthentication required; stopping automatic reconnect")
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    PushStateHolder.clear()
+                    PushStateHolder.reportError(ACCOUNT_REAUTH_REQUIRED_MESSAGE)
+                    updateStatus(ACCOUNT_REAUTH_REQUIRED_STATUS)
+                    stopSelf()
+                } else {
+                    PushStateHolder.reportError("Apple messaging registration failed: ${registration.error}")
+                }
+            }
+            URegisterState.Registering -> Unit
+            is URegisterState.Registered -> Unit
         }
     }
 
@@ -563,6 +589,7 @@ class NativePushService : Service(), MsgReceiver {
         private const val STATUS_NOTIFICATION_ID = 1001
         private const val CONNECTING_STATUS = "Connecting to Apple push"
         private const val CONNECTED_STATUS = "Connected to Apple push"
+        private const val ACCOUNT_REAUTH_REQUIRED_STATUS = "Apple ID sign-in required"
         private const val DISCONNECTED_STATUS = "Apple push disconnected"
         internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
         private const val TAG = "NativePushService"
@@ -630,3 +657,11 @@ internal fun reconnectDelayMs(attempt: Int): Long {
     val bounded = attempt.coerceIn(0, 6)
     return (2_000L shl bounded).coerceAtMost(120_000L)
 }
+
+internal const val ACCOUNT_REAUTH_REQUIRED_MESSAGE =
+    "Apple ID session expired. Sign in again to renew messaging access. Your local messages are still here."
+
+internal fun registrationRequiresSignIn(state: URegisterState): Boolean =
+    state is URegisterState.Failed &&
+        state.retryWait == null &&
+        state.error.startsWith("Apple ID session expired.")

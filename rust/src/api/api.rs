@@ -1,13 +1,13 @@
 
 
-use std::{borrow::{Borrow, BorrowMut}, collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, path::Path, str::FromStr, sync::{Arc, OnceLock, Weak}, time::Duration, u64};
+use std::{borrow::{Borrow, BorrowMut}, collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, path::Path, str::FromStr, sync::{Arc, LazyLock, OnceLock, Weak}, time::Duration, u64};
 pub use std::time::SystemTime;
 use anyhow::anyhow;
 use flutter_rust_bridge::{DartFnFuture, IntoDart, JoinHandle, frb};
 #[cfg(not(target_os = "android"))]
 use keystore::software::{SoftwareEncryptor, SoftwareKeystore};
 use keystore::{AesKeystoreKey, EcCurve, EcKeystoreKey, EncryptMode, KeystoreAccessRules, KeystoreDigest, KeystoreEncryptKey, KeystorePadding, RsaKey, init_keystore, keystore};
-pub use rustpush::{default_provider, ArcAnisetteClient, LoginClientInfo, DefaultAnisetteProvider};
+pub use rustpush::{default_provider, ArcAnisetteClient, DefaultAnisetteProvider, IDSUserType, LoginClientInfo};
 use log::{debug, error, info, warn};
 use plist::{Data, Dictionary};
 pub use plist::Value;
@@ -594,6 +594,108 @@ pub struct SharedPushState {
     pub client_session: Arc<Mutex<Option<CircleClientSession<DefaultAnisetteProvider>>>>,
 }
 
+pub const ACCOUNT_REAUTH_REQUIRED: &str =
+    "Apple ID session expired. Sign in again to renew messaging access.";
+
+#[derive(Default)]
+struct IDSAuthLifecycle {
+    refresh_attempted: bool,
+    reauth_required: bool,
+}
+
+static IDS_AUTH_LIFECYCLE: LazyLock<std::sync::Mutex<std::collections::HashMap<String, IDSAuthLifecycle>>> =
+    LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn update_ids_auth_lifecycle(path: &str, update: impl FnOnce(&mut IDSAuthLifecycle)) {
+    let mut lifecycle = IDS_AUTH_LIFECYCLE
+        .lock()
+        .expect("IDS auth lifecycle lock poisoned");
+    update(lifecycle.entry(path.to_string()).or_default());
+}
+
+pub fn account_reauth_required(path: &str) -> bool {
+    IDS_AUTH_LIFECYCLE
+        .lock()
+        .expect("IDS auth lifecycle lock poisoned")
+        .get(path)
+        .map(|state| state.reauth_required)
+        .unwrap_or(false)
+}
+
+enum IDSAuthRefreshError {
+    LoginRequired,
+    Transient(anyhow::Error),
+}
+
+fn ids_auth_error_requires_login(error: &rustpush::PushError) -> bool {
+    matches!(
+        error,
+        rustpush::PushError::UnauthorizedAccountError
+            | rustpush::PushError::AuthError(_)
+            | rustpush::PushError::MobileMeError(_, _)
+            | rustpush::PushError::DelegateLoginFailed(_, _, _)
+            | rustpush::PushError::CertError(_)
+    )
+}
+
+async fn refresh_apple_ids_auth(state: &SharedPushState) -> Result<(), IDSAuthRefreshError> {
+    let services = state
+        .icloud_services
+        .as_ref()
+        .ok_or(IDSAuthRefreshError::LoginRequired)?;
+    let mut account = services.account.lock().await;
+    let username = account
+        .username
+        .clone()
+        .ok_or(IDSAuthRefreshError::LoginRequired)?;
+    let password = account
+        .hashed_password
+        .clone()
+        .ok_or(IDSAuthRefreshError::LoginRequired)?;
+
+    match account.login_email_pass(&username, &password).await {
+        Ok(rustpush::LoginState::LoggedIn) => {}
+        Ok(_) => return Err(IDSAuthRefreshError::LoginRequired),
+        Err(error) => return Err(IDSAuthRefreshError::Transient(error.into())),
+    }
+
+    let delegates = login_apple_delegates(
+        &*account,
+        None,
+        &*state.os_config.config(),
+        &[LoginDelegate::IDS],
+    )
+    .await
+    .map_err(|error| {
+        if ids_auth_error_requires_login(&error) {
+            IDSAuthRefreshError::LoginRequired
+        } else {
+            IDSAuthRefreshError::Transient(error.into())
+        }
+    })?;
+    drop(account);
+
+    let delegate = delegates.ids.ok_or(IDSAuthRefreshError::LoginRequired)?;
+    let mut refreshed = authenticate_apple(delegate, &*state.os_config.config())
+        .await
+        .map_err(|error| {
+            if ids_auth_error_requires_login(&error) {
+                IDSAuthRefreshError::LoginRequired
+            } else {
+                IDSAuthRefreshError::Transient(error.into())
+            }
+        })?;
+
+    let mut users = state.client.identity.users.write().await;
+    let existing = users
+        .iter_mut()
+        .find(|user| matches!(user.user_type, IDSUserType::Apple))
+        .ok_or(IDSAuthRefreshError::LoginRequired)?;
+    refreshed.registration = existing.registration.clone();
+    *existing = refreshed;
+    Ok(())
+}
+
 pub async fn make_idms(conn: &APSConnection) -> Arc<IdmsAuthListener> {
     IdmsAuthListener::new(conn.clone()).await.into()
 }
@@ -627,6 +729,7 @@ impl SharedPushState {
 
     pub async fn restore_with_error(path: String) -> anyhow::Result<Option<(Self, APSWatcher)>> {
         info!("restroing");
+        update_ids_auth_lifecycle(&path, |state| *state = IDSAuthLifecycle::default());
         let dir = PathBuf::from_str(&path).unwrap();
         let keystore = dir.join("keystore.plist");
 
@@ -1933,7 +2036,55 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
             PollResult::Cont(msg)
         },
         _reg_state = watcher.reg_state.changed() => {
-            PollResult::Cont(Some(PushMessage::RegistrationState(get_regstate(&state.client).await.unwrap())))
+            let regstate = get_regstate(&state.client).await.unwrap();
+            match &regstate {
+                RegisterState::Registered { .. } => {
+                    update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
+                        *lifecycle = IDSAuthLifecycle::default();
+                    });
+                }
+                RegisterState::Failed { error, .. } if error.contains("6005") => {
+                    let refresh_attempted = IDS_AUTH_LIFECYCLE
+                        .lock()
+                        .expect("IDS auth lifecycle lock poisoned")
+                        .get(&state.conf_dir)
+                        .map(|lifecycle| lifecycle.refresh_attempted)
+                        .unwrap_or(false);
+                    if refresh_attempted {
+                        warn!("IDS authentication still rejected after automatic renewal");
+                        update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
+                            lifecycle.reauth_required = true;
+                        });
+                    } else {
+                        info!("IDS authentication expired; refreshing account credentials");
+                        match refresh_apple_ids_auth(state).await {
+                            Ok(()) => {
+                                update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
+                                    lifecycle.refresh_attempted = true;
+                                });
+                                let identity = state.client.identity.clone();
+                                tokio::spawn(async move {
+                                    if let Err(error) = identity.refresh_now().await {
+                                        warn!("Failed to restart IDS registration after credential renewal: {error}");
+                                    }
+                                });
+                                return PollResult::Cont(None);
+                            }
+                            Err(IDSAuthRefreshError::LoginRequired) => {
+                                warn!("Apple account requires interactive sign-in before IDS can renew");
+                                update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
+                                    lifecycle.reauth_required = true;
+                                });
+                            }
+                            Err(IDSAuthRefreshError::Transient(error)) => {
+                                warn!("Temporary Apple account credential refresh failure: {error}");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            PollResult::Cont(Some(PushMessage::RegistrationState(regstate)))
         }
         reader = watcher.local_messages.recv() => {
             PollResult::Cont(Some(reader.unwrap()))
@@ -2814,6 +2965,7 @@ pub async fn reset_state(cancel: &mpsc::Sender<()>, path: String, config: &Joine
     // tell any poll to stop
     let _ = cancel.try_send(());
     let dir = PathBuf::from_str(&path).unwrap();
+    update_ids_auth_lifecycle(&path, |state| *state = IDSAuthLifecycle::default());
 
     info!("c");
     if logout {
@@ -2829,11 +2981,13 @@ pub async fn reset_state(cancel: &mpsc::Sender<()>, path: String, config: &Joine
 
         reset_user(&path);
     }
-    let _ = std::fs::remove_file(dir.join("id.plist"));
-    if let Ok(mut cache) = plist::from_file::<_, Dictionary>(dir.join("id_cache.plist")) {
-        // keep replay counters which are nessesary if our identity doesn't change
-        cache.get_mut("cache").expect("No cache?").as_dictionary_mut().unwrap().clear();
-        plist::to_file_xml(dir.join("id_cache.plist"), &cache)?;
+    if logout || reset_hw {
+        let _ = std::fs::remove_file(dir.join("id.plist"));
+        if let Ok(mut cache) = plist::from_file::<_, Dictionary>(dir.join("id_cache.plist")) {
+            // keep replay counters which are nessesary if our identity doesn't change
+            cache.get_mut("cache").expect("No cache?").as_dictionary_mut().unwrap().clear();
+            plist::to_file_xml(dir.join("id_cache.plist"), &cache)?;
+        }
     }
 
     if reset_hw {

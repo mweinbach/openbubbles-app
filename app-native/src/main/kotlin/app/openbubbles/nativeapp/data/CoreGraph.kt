@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import android.util.Log
 import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
 import app.openbubbles.core.attachment.AttachmentStore
@@ -281,15 +282,23 @@ object CoreGraph {
      * state, stop the push service, and clear the holders — the sign-in
      * banner reappears on the chat list.
      */
-    fun signOut(context: android.content.Context) {
-        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { PushStateHolder.state?.teardown(true) }
+    suspend fun signOut(context: android.content.Context): Result<Unit> {
+        Log.i("CoreGraph", "Apple account sign-out requested")
+        val teardown = withContext(Dispatchers.IO) {
+            runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }
+        }
+        teardown.onFailure { error ->
+            Log.e("CoreGraph", "Apple account sign-out teardown failed", error)
         }
         PushStateHolder.clear(resetError = true)
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
+        }.onFailure { error ->
+            Log.e("CoreGraph", "Apple push service stop failed during sign-out", error)
         }
+        Log.i("CoreGraph", "Apple account sign-out finished")
+        return teardown
     }
 
     /** Attachment send path (staging + Rust upload + echo ingest). */

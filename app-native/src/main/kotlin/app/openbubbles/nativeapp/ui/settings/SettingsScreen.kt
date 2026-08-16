@@ -142,6 +142,9 @@ fun SettingsScreen(
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val registeredHandles by PushStateHolder.myHandlesFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
+    var showSignOutConfirmation by rememberSaveable { mutableStateOf(false) }
+    var signingOut by remember { mutableStateOf(false) }
+    var signOutError by remember { mutableStateOf<String?>(null) }
     val messagingPrefs = remember(context) { MessagingPrefs(context) }
     var defaultSendingHandle by remember {
         mutableStateOf(messagingPrefs.defaultSendingHandle)
@@ -507,7 +510,6 @@ fun SettingsScreen(
                         multiline = pushError != null,
                     )
                 } else {
-                    var signingOut by remember { androidx.compose.runtime.mutableStateOf(false) }
                     val error = pushError
                     val accountRows = buildList {
                         add("registration")
@@ -542,14 +544,7 @@ fun SettingsScreen(
                             else -> SettingsActionItem(
                                 title = if (signingOut) "Signing out…" else "Sign out",
                                 supporting = "Disconnect this Apple ID on this device",
-                                onClick = {
-                                    signingOut = true
-                                    scope.launch {
-                                        CoreGraph.signOut(context)
-                                        signingOut = false
-                                        onBack()
-                                    }
-                                },
+                                onClick = { showSignOutConfirmation = true },
                                 index = index,
                                 count = count,
                                 destructive = true,
@@ -1058,6 +1053,62 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showSignOutConfirmation) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!signingOut) showSignOutConfirmation = false
+            },
+            title = { Text("Sign out of Apple ID?") },
+            text = {
+                Text(
+                    "This disconnects iMessage on this device. Local message history and hardware setup stay on the device, but you'll need to sign in again to reconnect.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        signingOut = true
+                        signOutError = null
+                        scope.launch {
+                            val result = CoreGraph.signOut(context)
+                            signingOut = false
+                            showSignOutConfirmation = false
+                            if (result.isSuccess) {
+                                onBack()
+                            } else {
+                                signOutError = result.exceptionOrNull()?.message ?: "Sign-out cleanup failed"
+                            }
+                        }
+                    },
+                    enabled = !signingOut,
+                ) {
+                    if (signingOut) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    } else {
+                        Text("Sign out", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showSignOutConfirmation = false },
+                    enabled = !signingOut,
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
+    signOutError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { signOutError = null },
+            title = { Text("Sign-out incomplete") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { signOutError = null }) { Text("OK") }
+            },
+        )
     }
 
     if (showDefaultSendingHandleDialog) {

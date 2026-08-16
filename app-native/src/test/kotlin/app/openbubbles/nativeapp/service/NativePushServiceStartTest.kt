@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import uniffi.rust_lib_bluebubbles.URegisterState
 
 class NativePushServiceStartTest {
 
@@ -59,5 +60,28 @@ class NativePushServiceStartTest {
         assertEquals(30_000L, journalRetryDelayMs(2))
         assertEquals(240_000L, journalRetryDelayMs(5))
         assertEquals(240_000L, journalRetryDelayMs(50))
+    }
+
+    @Test
+    fun `terminal registration failure requires account sign in`() {
+        assertTrue(
+            registrationRequiresSignIn(
+                URegisterState.Failed(
+                    retryWait = null,
+                    error = "Apple ID session expired. Sign in again.",
+                ),
+            ),
+        )
+        assertFalse(
+            registrationRequiresSignIn(
+                URegisterState.Failed(retryWait = 300uL, error = "temporary"),
+            ),
+        )
+        assertFalse(
+            registrationRequiresSignIn(
+                URegisterState.Failed(retryWait = null, error = "Closed"),
+            ),
+        )
+        assertFalse(registrationRequiresSignIn(URegisterState.Registering))
     }
 }

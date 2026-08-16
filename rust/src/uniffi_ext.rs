@@ -1473,6 +1473,12 @@ impl NativePushState {
     /// IDS registration health of the live client (drives the
     /// "registering..." / retry UI).
     pub fn get_regstate(&self) -> Result<URegisterState, UError> {
+        if api::account_reauth_required(&self.shared().conf_dir) {
+            return Ok(URegisterState::Failed {
+                retry_wait: None,
+                error: api::ACCOUNT_REAUTH_REQUIRED.to_string(),
+            });
+        }
         RUNTIME
             .block_on(api::get_regstate(&self.shared().client))
             .map(conv_regstate)
