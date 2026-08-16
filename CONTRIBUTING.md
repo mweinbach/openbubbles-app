@@ -1,7 +1,8 @@
 # Contributing to OpenBubbles
 
 OpenBubbles is in a native Kotlin/Rust cutover. New work must target the native
-modules; do not reintroduce Flutter or Dart application code.
+modules; do not reintroduce Flutter or Dart application code. Agents should
+start from [AGENTS.md](AGENTS.md).
 
 ## Setup
 
@@ -19,7 +20,6 @@ The Gradle settings reject non-JDK-21 runtimes with an actionable error.
 - Shared messaging and sync behavior: `core/`
 - ObjectBox persistence: `db/`
 - Desktop UI and lifecycle: `desktopApp/`
-- Cross-platform Kotlin contracts: `shared/`
 - Kotlin-facing native exports: `rust/`
 - Apple protocol implementation: `rustpush/`
 

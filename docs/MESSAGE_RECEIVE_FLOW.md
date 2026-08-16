@@ -1,7 +1,8 @@
 # Message Receive Flow
 
-> **Legacy Flutter reference:** this server/socket flow is not the native
-> Kotlin/Rust receive path. See `docs/ARCHITECTURE.md` for the current flow.
+> **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
+> The native receive path is APS → `NativePushService` → `MessageIngestor`,
+> documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 End-to-end flow for an inbound message: from the server socket through the database to the reactive UI state.
 

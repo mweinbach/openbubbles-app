@@ -1,10 +1,5 @@
-# scripts/ — Developer Scripts
+# scripts/
 
-## dart-fix-common-issues.sh
-Runs `dart fix --apply` across the project to automatically resolve common lint issues (unused imports, deprecated APIs, etc.).
+`dart-fix-common-issues.sh` is leftover from the Flutter client. Do not run it for native work.
 
-```bash
-bash scripts/dart-fix-common-issues.sh
-```
-
-Run this after making broad changes or before committing if the linter is reporting auto-fixable issues.
+Native verify commands live in [../AGENTS.md](../AGENTS.md) and [../docs/VERIFY.md](../docs/VERIFY.md).

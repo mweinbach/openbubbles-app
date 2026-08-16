@@ -1,9 +1,8 @@
 # BlueBubbles App -- Data Models
 
-> **Legacy Flutter reference:** entity names may help migration work, but the
-> current persistence contract lives in `db/` and is guarded by model parity.
-
-> Canonical model reference. Consolidates entity/DTO documentation from CLAUDE.md files across database directories.
+> **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
+> Entity names may help Flutter-backup migration. The live contract is `db/`
+> and [PERSISTENCE.md](PERSISTENCE.md). Do not run `dart run build_runner`.
 
 ---
 

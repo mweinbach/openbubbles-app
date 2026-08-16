@@ -15,13 +15,13 @@ legacy BlueBubbles client and does not require a BlueBubbles Mac server.
   and CloudKit orchestration.
 - `db/` — ObjectBox entities and the compatibility model.
 - `desktopApp/` — Compose Desktop application, currently targeting Windows.
-- `shared/` — Kotlin Multiplatform code shared by Android and desktop.
 - `rust/` — UniFFI-facing native API used by the Kotlin applications.
 - `rustpush/` — Apple protocol implementation, included as a Git submodule.
-- `native/` — Gradle root for all Kotlin-native modules.
+- `native/` — Gradle root for the Kotlin modules (JDK 21).
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime flows and
-[tools/CUTOVER.md](tools/CUTOVER.md) for the remaining release gates.
+See [AGENTS.md](AGENTS.md) for agent/contributor orientation,
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime flows, and
+[tools/CUTOVER.md](tools/CUTOVER.md) for remaining release gates.
 
 ## Build and test
 

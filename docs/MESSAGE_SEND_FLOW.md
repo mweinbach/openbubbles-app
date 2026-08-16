@@ -1,7 +1,8 @@
 # Message Send Flow
 
-> **Legacy Flutter reference:** this HTTP/socket flow is not the native
-> Kotlin/Rust send path. See `docs/ARCHITECTURE.md` for the current flow.
+> **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
+> The native send path is `ChatViewModel` → `CoreSender` (temp guid → UniFFI → echo ingest),
+> documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 End-to-end flow for an outbound message: from the user tapping Send through the API call, the race between the socket response and the HTTP response, and the tempGuid → realGuid swap that merges them.
 

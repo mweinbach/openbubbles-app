@@ -1,7 +1,8 @@
 # Architectural Decisions — BlueBubbles App
 
-> **Historical record:** these ADRs describe the retired Flutter architecture.
-> They are not current implementation guidance; see `docs/ARCHITECTURE.md`.
+> **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
+> Do not copy GetX, isolates, `lib/`, sockets, or Dart ObjectBox patterns.
+> Native: [AGENTS.md](../AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Each entry documents a significant design choice: what was decided, why, and what the consequences are. See `docs/ARCHITECTURE.md` for how these decisions fit together.
 
