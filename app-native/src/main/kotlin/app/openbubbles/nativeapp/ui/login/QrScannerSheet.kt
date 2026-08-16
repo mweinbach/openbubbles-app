@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
@@ -244,7 +246,8 @@ private fun ScanOverlay(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 120.dp),
+                .navigationBarsPadding()
+                .padding(bottom = 72.dp),
         )
         IconButton(
             onClick = onClose,
@@ -254,6 +257,7 @@ private fun ScanOverlay(
             ),
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .statusBarsPadding()
                 .padding(16.dp),
         ) {
             Icon(Icons.Filled.Close, contentDescription = "Close scanner")
@@ -266,6 +270,7 @@ private fun ScanOverlay(
             ),
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .statusBarsPadding()
                 .padding(16.dp),
         ) {
             Icon(

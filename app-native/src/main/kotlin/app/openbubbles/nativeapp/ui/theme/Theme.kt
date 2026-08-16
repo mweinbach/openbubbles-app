@@ -4,16 +4,21 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openbubbles.nativeapp.data.AppearancePrefs
 
 /**
  * Blue-seeded Material 3 palettes (iMessage-flavored): a confident blue
@@ -117,27 +122,41 @@ private val AppShapes = Shapes(
 )
 
 /**
- * App theme: dynamic color on Android 12+, blue-seeded Material 3 palettes
- * below that, light/dark driven by the system setting.
+ * App theme: dynamic color on Android 12+ (unless the user disabled it in
+ * Settings → Appearance), blue-seeded Material 3 palettes otherwise,
+ * light/dark driven by the system setting.
+ *
+ * @param dynamicColor overrides the user's dynamic-color preference; tests and
+ *   screenshot fixtures should pass an explicit value for determinism.
  */
 @Composable
 fun OpenBubblesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    val context = LocalContext.current
+    // Idempotent SharedPreferences bind; SideEffect (not remember) because
+    // init returns Unit and must run only after a successful composition.
+    SideEffect { AppearancePrefs.init(context) }
+    val dynamicColorPref by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
+    val useDynamicColor = dynamicColor ?: dynamicColorPref
+    val colorScheme = remember(darkTheme, useDynamicColor, context) {
+        when {
+            useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            darkTheme -> DarkColors
+            else -> LightColors
         }
-        darkTheme -> DarkColors
-        else -> LightColors
     }
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        shapes = AppShapes,
-        motionScheme = MotionScheme.expressive(),
-        content = content,
-    )
+    val reduceMotion = rememberReduceMotion()
+    CompositionLocalProvider(LocalReduceMotion provides reduceMotion) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            shapes = AppShapes,
+            motionScheme = appMotionScheme(),
+            content = content,
+        )
+    }
 }

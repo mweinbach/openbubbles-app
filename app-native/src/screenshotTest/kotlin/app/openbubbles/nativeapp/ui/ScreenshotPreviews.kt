@@ -6,9 +6,14 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.ui.chat.ChatScreen
+import app.openbubbles.nativeapp.ui.chat.ChatUiState
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
+import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 
 /**
@@ -79,7 +84,9 @@ private fun sampleState() = ChatListUiState(
 @FormFactorPreviews
 @Composable
 fun ChatListScreenScreenshot() {
-    OpenBubblesTheme {
+    // dynamicColor = false: Layoutlib has no wallpaper, so the dynamic path
+    // would make goldens renderer-dependent.
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = sampleState(),
             onQueryChange = {},
@@ -93,7 +100,7 @@ fun ChatListScreenScreenshot() {
 @Preview(name = "empty", device = Devices.PHONE, showBackground = true)
 @Composable
 fun ChatListEmptyScreenshot() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = ChatListUiState(),
             onQueryChange = {},
@@ -108,7 +115,7 @@ fun ChatListEmptyScreenshot() {
 @Preview(name = "row-dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 fun ChatListRowScreenshot() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListRow(
             chat = ChatListItem(
                 id = 1,
@@ -130,7 +137,7 @@ fun ChatListRowScreenshot() {
 @Preview(name = "row-selected-dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 fun ChatListRowSelectedScreenshot() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListRow(
             chat = ChatListItem(
                 id = 3,
@@ -144,5 +151,95 @@ fun ChatListRowSelectedScreenshot() {
             onClick = {},
             selected = true,
         )
+    }
+}
+
+private fun message(id: Long, text: String, fromMe: Boolean, status: MessageStatus = MessageStatus.READ) =
+    MessageItem(
+        id = id,
+        text = text,
+        isFromMe = fromMe,
+        date = FIXED_NOW - (10 - id) * 60_000L,
+        status = status,
+        isGroupEvent = false,
+        reactionEmoji = null,
+    )
+
+/**
+ * The transcript: grouped bubbles, the expressive composer, and the
+ * SMS-green service identity on an SMS conversation.
+ */
+@PreviewTest
+@Preview(name = "chat-imessage", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Alex Chen",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(
+                    message(1, "hey! still on for the hike saturday?", fromMe = false),
+                    message(2, "yes! 8am trailhead, i'll drive", fromMe = true),
+                    message(3, "grabbing coffee now, want anything?", fromMe = true, status = MessageStatus.DELIVERED),
+                ),
+                typingSenders = listOf("alex@icloud.com"),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/** SMS transcript: outgoing bubbles take the fixed green service color. */
+@PreviewTest
+@Preview(name = "chat-sms", device = Devices.PHONE, showBackground = true)
+@Composable
+fun ChatScreenSmsScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 5,
+                    title = "Sam (SMS)",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF3949AB,
+                    isSms = true,
+                ),
+                messages = listOf(
+                    message(1, "carrier thread below", fromMe = false),
+                    message(2, "green bubble out", fromMe = true, status = MessageStatus.SENT),
+                ),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/** First-run brand moment: expressive display type, gradient bubble. */
+@PreviewTest
+@Preview(name = "onboarding-phone", device = Devices.PHONE, showBackground = true)
+@Preview(name = "onboarding-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun OnboardingScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        OnboardingScreen(onFinished = {}, onLaunchSignIn = {})
     }
 }

@@ -45,8 +45,6 @@ import uniffi.rust_lib_bluebubbles.UPushMessage
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
-
 /**
  * Live composition root binding the UI contracts to :core (ObjectBox) and,
  * when the push service is up, the Rust send path. Falls back to the fake
@@ -469,14 +467,6 @@ object PushStateHolder {
 // Adapters: core DTOs -> UI contracts
 // ---------------------------------------------------------------------------
 
-private fun avatarColorFor(seed: String): Long {
-    val palette = longArrayOf(
-        0xFF7C4FDF, 0xFF4C8BF5, 0xFF00897B, 0xFFD81B60, 0xFFF4511E,
-        0xFF6D4C41, 0xFF3949AB, 0xFF43A047, 0xFF8D6E63, 0xFFC0CA33,
-    )
-    return palette[abs(seed.hashCode()) % palette.size]
-}
-
 private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatListItem(
     id = item.id,
     title = item.title,
@@ -484,7 +474,9 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     date = item.date?.time ?: 0L,
     unread = item.unreadCount,
     pinned = item.pinned,
-    avatarColor = avatarColorFor(item.guid),
+    // Seed DMs by the contact address so the color matches the contact picker
+    // and chat-info surfaces; groups fall back to the chat guid.
+    avatarColor = app.openbubbles.nativeapp.ui.common.avatarColorFor(item.avatarAddress ?: item.guid),
     isSms = item.isSms,
     muted = item.muted,
     archived = item.archived,

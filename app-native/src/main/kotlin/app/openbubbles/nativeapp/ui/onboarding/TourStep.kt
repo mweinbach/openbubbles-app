@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,6 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import kotlinx.coroutines.launch
 
 /** One feature-tour page: icon, title, and a one-line description. */
@@ -78,6 +82,8 @@ internal fun TourStep(
     val pagerState = rememberPagerState { TourPages.size }
     val scope = rememberCoroutineScope()
     val onLastPage = pagerState.currentPage == TourPages.lastIndex
+    // Hoisted: the scroll happens in a coroutine, not in composition.
+    val pageScrollSpec = defaultSpatialSpec<Float>()
 
     Column(modifier = modifier.fillMaxSize()) {
         OnboardingTopBar(onBack = onBack, activeSegment = 0)
@@ -111,10 +117,14 @@ internal fun TourStep(
                         onContinue()
                     } else {
                         scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            pagerState.animateScrollToPage(
+                                pagerState.currentPage + 1,
+                                animationSpec = pageScrollSpec,
+                            )
                         }
                     }
                 },
+                shapes = ButtonDefaults.shapes(),
             ) {
                 Text(text = if (onLastPage) "Continue" else "Next")
             }
@@ -182,6 +192,7 @@ private fun PagerDots(count: Int, active: Int, modifier: Modifier = Modifier) {
             val isActive = index == active
             val width by animateDpAsState(
                 targetValue = if (isActive) 22.dp else 8.dp,
+                animationSpec = fastSpatialSpec(),
                 label = "dot-width-$index",
             )
             val color by animateColorAsState(
@@ -190,6 +201,7 @@ private fun PagerDots(count: Int, active: Int, modifier: Modifier = Modifier) {
                 } else {
                     MaterialTheme.colorScheme.outlineVariant
                 },
+                animationSpec = fastEffectsSpec(),
                 label = "dot-color-$index",
             )
             Box(

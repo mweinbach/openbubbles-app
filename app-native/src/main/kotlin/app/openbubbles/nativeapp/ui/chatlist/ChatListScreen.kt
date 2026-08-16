@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -45,7 +46,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,13 +56,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 
 private val ListContentMaxWidth = 840.dp
 
@@ -244,6 +247,7 @@ private fun ChatSections(
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
 ) {
+    val itemSpecs = rememberItemAnimationSpecs()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = contentPadding,
@@ -276,7 +280,12 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp).animateItem(),
+                        .padding(horizontal = 12.dp)
+                        .animateItem(
+                            fadeInSpec = itemSpecs.fadeIn,
+                            fadeOutSpec = itemSpecs.fadeOut,
+                            placementSpec = itemSpecs.placement,
+                        ),
                 )
             }
         }
@@ -295,7 +304,12 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp).animateItem(),
+                        .padding(horizontal = 12.dp)
+                        .animateItem(
+                            fadeInSpec = itemSpecs.fadeIn,
+                            fadeOutSpec = itemSpecs.fadeOut,
+                            placementSpec = itemSpecs.placement,
+                        ),
                 )
             }
         }
@@ -314,7 +328,12 @@ private fun ChatSections(
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 12.dp).animateItem(),
+                        .padding(horizontal = 12.dp)
+                        .animateItem(
+                            fadeInSpec = itemSpecs.fadeIn,
+                            fadeOutSpec = itemSpecs.fadeOut,
+                            placementSpec = itemSpecs.placement,
+                        ),
                 )
             }
         }
@@ -329,7 +348,9 @@ private fun SectionHeader(label: String, modifier: Modifier = Modifier) {
     Text(
         text = label.uppercase(),
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
+        // Quiet chrome convention shared with Settings/Chat Info: section
+        // headers are onSurfaceVariant, not wallpaper-hued primary.
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp),
     )
 }
@@ -362,9 +383,13 @@ fun ChatListRow(
         },
         modifier = modifier
             .fillMaxWidth()
+            // Container transform into the conversation (compact windows only;
+            // the helper no-ops in multi-pane and outside SharedTransitionLayout).
+            .sharedChatContainer(chat.id)
             .combinedClickable(
                 onClick = { onClick(chat) },
                 onLongClick = { onLongClick(chat) },
+                onLongClickLabel = "Conversation actions",
             ),
     ) {
         Row(
@@ -514,7 +539,7 @@ private fun ChatActionButton(
 @Composable
 private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
     Surface(
-        shape = RoundedCornerShape(999.dp),
+        shape = CircleShape,
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = modifier,
@@ -550,9 +575,7 @@ private fun SearchField(
         },
         singleLine = true,
         shape = MaterialTheme.shapes.extraLarge,
-        colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
+        colors = pillTextFieldColors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
@@ -595,7 +618,7 @@ private fun EmptyState(query: String, onNewChat: () -> Unit, modifier: Modifier 
         Spacer(Modifier.height(16.dp))
         Text(
             text = if (hasQuery) "No results" else "No conversations yet",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLargeEmphasized,
         )
         Spacer(Modifier.height(6.dp))
         Text(
@@ -610,7 +633,7 @@ private fun EmptyState(query: String, onNewChat: () -> Unit, modifier: Modifier 
         )
         if (!hasQuery) {
             Spacer(Modifier.height(20.dp))
-            Button(onClick = onNewChat) {
+            Button(onClick = onNewChat, shapes = ButtonDefaults.shapes()) {
                 Icon(
                     imageVector = Icons.Filled.Edit,
                     contentDescription = null,

@@ -47,6 +47,7 @@ import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
 
@@ -56,6 +57,7 @@ private val ImageBubbleMaxWidth = 260.dp
 /** Cap so very tall screenshots do not take over the transcript. */
 private val ImageBubbleMaxHeight = 340.dp
 
+/** Standalone attachment radius, from the bubble family (see MessageBubble). */
 private val AttachmentShape = RoundedCornerShape(18.dp)
 
 /**
@@ -123,7 +125,7 @@ private fun ImageAttachmentBubble(
 
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
@@ -136,7 +138,8 @@ private fun ImageAttachmentBubble(
                 bitmap = image,
                 contentDescription = attachment.name ?: "Photo",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                // Shared-element continuity into the fullscreen viewer.
+                modifier = Modifier.fillMaxSize().sharedAttachment(attachment.guid),
             )
         } else {
             AttachmentPlaceholder(
@@ -164,7 +167,7 @@ private fun VideoAttachmentBubble(
     }
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
@@ -211,7 +214,7 @@ private fun FileAttachmentRow(
     }
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
             .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
@@ -267,7 +270,7 @@ private fun AttachmentPlaceholder(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -314,9 +317,13 @@ private fun DownloadChip(
     // update) resets the in-flight spinner state.
     var requested by remember(attachment) { mutableStateOf(false) }
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.clickable {
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = modifier.clickable(
+            role = androidx.compose.ui.semantics.Role.Button,
+            onClickLabel = "Download ${attachment.name ?: "attachment"}",
+        ) {
             requested = true
             onDownload(attachment)
         },
@@ -329,6 +336,7 @@ private fun DownloadChip(
             if (requested) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
+                    color = androidx.compose.material3.LocalContentColor.current,
                     modifier = Modifier.size(14.dp),
                 )
             } else {

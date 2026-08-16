@@ -21,9 +21,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,14 +62,16 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MaterialTheme.motionScheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -96,6 +102,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -117,12 +125,19 @@ import app.openbubbles.nativeapp.ui.common.formatConversationDay
 import app.openbubbles.nativeapp.ui.common.localDay
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.effects.PendingEffectChip
 import app.openbubbles.nativeapp.ui.effects.SendEffectCatalog
 import app.openbubbles.nativeapp.ui.effects.SendEffectOverlay
 import app.openbubbles.nativeapp.ui.effects.SendEffectOption
 import app.openbubbles.nativeapp.ui.effects.SendEffectPickerSheet
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 import java.io.File
 import java.time.ZoneId
 import kotlin.math.PI
@@ -329,14 +344,19 @@ fun ChatScreen(
     }
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
     val isTyping = uiState.typingSenders.isNotEmpty()
+    val itemSpecs = rememberItemAnimationSpecs()
+    val smsChat = uiState.chat?.isSms == true
 
     // ---- Send screen effects -------------------------------------------------
     // The ViewModel flags the newest unplayed effect; the overlay plays ~700ms
-    // after the message renders (matches the Dart send-animation delay).
+    // after the message renders (matches the Dart send-animation delay). Users
+    // who removed animations at the OS level never get the full-screen storm.
+    val reduceMotion = LocalReduceMotion.current
     var activeEffect by remember { mutableStateOf<ScreenEffectTrigger?>(null) }
-    LaunchedEffect(uiState.screenEffect) {
+    LaunchedEffect(uiState.screenEffect, reduceMotion) {
         activeEffect = null
         val trigger = uiState.screenEffect ?: return@LaunchedEffect
+        if (reduceMotion) return@LaunchedEffect
         delay(700)
         activeEffect = trigger
     }
@@ -434,8 +454,19 @@ fun ChatScreen(
         backgroundPath?.let(::File)?.takeIf { it.isFile }
     }
     val background = rememberDecodedImage(backgroundFile, maxDimensionPx = 1440)
+    // The scrim keeps bubbles readable over a photo; dark themes need the
+    // heavier dim because both the wallpaper and the incoming bubbles are dark.
+    val darkTheme = isSystemInDarkTheme()
+    val scrimAlpha = when {
+        uiState.chat?.customBackgroundPath != null -> if (darkTheme) 0.40f else 0.22f
+        else -> if (darkTheme) 0.34f else 0.16f
+    }
 
-    Box(modifier = modifier) {
+    // Container-transform target for the chat row (no-op in multi-pane and in
+    // previews without a SharedTransitionLayout).
+    val sharedContainer = uiState.chat?.let { Modifier.sharedChatContainer(it.id) } ?: Modifier
+
+    Box(modifier = modifier.then(sharedContainer)) {
         background?.image?.let { image ->
             Image(
                 bitmap = image,
@@ -443,15 +474,7 @@ fun ChatScreen(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(
-                Modifier.fillMaxSize().background(
-                    if (uiState.chat?.customBackgroundPath != null) {
-                        Color.Black.copy(alpha = 0.16f)
-                    } else {
-                        Color.Black.copy(alpha = 0.10f)
-                    },
-                ),
-            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrimAlpha)))
         }
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -463,7 +486,11 @@ fun ChatScreen(
                     title = {
                         ChatHeader(
                             chat = uiState.chat,
-                            modifier = Modifier.clickable(onClick = onOpenChatInfo),
+                            modifier = Modifier.clickable(
+                                onClickLabel = "Open conversation details",
+                                role = Role.Button,
+                                onClick = onOpenChatInfo,
+                            ),
                         )
                     },
                     subtitle = {
@@ -471,7 +498,10 @@ fun ChatScreen(
                     },
                     navigationIcon = {
                         if (showBackButton) {
-                            FilledTonalIconButton(onClick = onBack) {
+                            FilledTonalIconButton(
+                                onClick = onBack,
+                                shapes = IconButtonDefaults.shapes(),
+                            ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                         }
@@ -480,10 +510,16 @@ fun ChatScreen(
                         if (uiState.chat?.isSms == false) {
                             FilledTonalIconButton(
                                 onClick = onStartFaceTime,
+                                shapes = IconButtonDefaults.shapes(),
                                 enabled = !uiState.faceTimeStarting,
                             ) {
                                 if (uiState.faceTimeStarting) {
-                                    LoadingIndicator(modifier = Modifier.size(24.dp))
+                                    // Too small for the morphing polygon; the
+                                    // plain circular form reads cleanly at 24dp.
+                                    CircularProgressIndicator(
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(24.dp),
+                                    )
                                 } else {
                                     Icon(Icons.Filled.VideoCall, contentDescription = "Start FaceTime call")
                                 }
@@ -561,6 +597,7 @@ fun ChatScreen(
                                     tightTop = entry.tightTop,
                                     tightBottom = entry.tightBottom,
                                     showSenderName = entry.showSenderName,
+                                    smsChat = smsChat,
                                     attachmentFile = attachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
@@ -589,12 +626,22 @@ fun ChatScreen(
                                     } else {
                                         { part -> selectedAction = SelectedMessageAction(entry.message, part) }
                                     },
-                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
+                                        .animateItem(
+                                            fadeInSpec = itemSpecs.fadeIn,
+                                            fadeOutSpec = itemSpecs.fadeOut,
+                                            placementSpec = itemSpecs.placement,
+                                        ),
                                 )
                                 is ConversationEntry.DaySeparator ->
                                     DaySeparatorRow(
                                         label = formatConversationDay(entry.epochMillis),
-                                        modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                        modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
+                                            .animateItem(
+                                                fadeInSpec = itemSpecs.fadeIn,
+                                                fadeOutSpec = itemSpecs.fadeOut,
+                                                placementSpec = itemSpecs.placement,
+                                            ),
                                     )
                             }
                         }
@@ -614,13 +661,23 @@ fun ChatScreen(
             }
         }
 
-        // Full-screen send-effect overlay above everything.
-        activeEffect?.let { trigger ->
-            SendEffectOverlay(
-                effectId = trigger.effectId,
-                modifier = Modifier.fillMaxSize(),
-                onFinished = { activeEffect = null },
-            )
+        // Full-screen send-effect overlay above everything, fading in and out
+        // instead of hard-cutting. The last non-null trigger stays rendered for
+        // the exit pass.
+        var renderedEffect by remember { mutableStateOf<ScreenEffectTrigger?>(null) }
+        AnimatedVisibility(
+            visible = activeEffect != null,
+            enter = fadeIn(fastEffectsSpec()),
+            exit = fadeOut(defaultEffectsSpec()),
+        ) {
+            LaunchedEffect(activeEffect) { activeEffect?.let { renderedEffect = it } }
+            renderedEffect?.let { trigger ->
+                SendEffectOverlay(
+                    effectId = trigger.effectId,
+                    modifier = Modifier.fillMaxSize(),
+                    onFinished = { activeEffect = null },
+                )
+            }
         }
     }
 
@@ -688,6 +745,7 @@ fun ChatScreen(
     uiState.replyThread?.let { thread ->
         ReplyThreadSheet(
             thread = thread,
+            threadSmsChat = smsChat,
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
@@ -755,6 +813,7 @@ private fun MessageActionSheet(
                 Tapbacks.forEachIndexed { index, emoji ->
                     FilledTonalIconButton(
                         onClick = { onReact(index, null) },
+                        shapes = IconButtonDefaults.shapes(),
                         modifier = Modifier.weight(1f).height(48.dp),
                     ) {
                         Text(
@@ -805,7 +864,10 @@ private fun MessageActionSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         CustomReactionSuggestions.forEach { emoji ->
-                            FilledTonalIconButton(onClick = { customReaction = emoji }) {
+                            FilledTonalIconButton(
+                                onClick = { customReaction = emoji },
+                                shapes = IconButtonDefaults.shapes(),
+                            ) {
                                 Text(emoji)
                             }
                         }
@@ -845,7 +907,11 @@ private fun StickerPlacementSheet(
     onConfirm: (StickerTransform) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Hidden + Expanded only: the old skipPartiallyExpanded behavior.
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     val scope = rememberCoroutineScope()
     val decoded = rememberDecodedImage(sticker.file, maxDimensionPx = 512)
     var normalizedX by remember { mutableStateOf(0.72f) }
@@ -876,7 +942,7 @@ private fun StickerPlacementSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Surface(
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth().height(260.dp),
             ) {
@@ -896,16 +962,17 @@ private fun StickerPlacementSheet(
                         },
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
+                        // Mirrors the real bubble family (20dp) and its roles.
+                        shape = MaterialTheme.shapes.largeIncreased,
                         color = if (target.isFromMe) {
                             MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.surfaceVariant
+                            MaterialTheme.colorScheme.surfaceContainerHigh
                         },
                         contentColor = if (target.isFromMe) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.onSurface
                         },
                         modifier = Modifier.align(Alignment.Center).widthIn(max = 260.dp),
                     ) {
@@ -965,6 +1032,7 @@ private fun StickerPlacementSheet(
 @Composable
 private fun ReplyThreadSheet(
     thread: ReplyThreadState,
+    threadSmsChat: Boolean,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
@@ -1000,6 +1068,7 @@ private fun ReplyThreadSheet(
                         MessageBubble(
                             message = message,
                             showStatus = false,
+                            smsChat = threadSmsChat,
                             attachmentFile = attachmentFile,
                             onOpenAttachment = onOpenAttachment,
                             onDownloadAttachment = onDownloadAttachment,
@@ -1078,7 +1147,7 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
         }
         Text(
             text = "No messages yet",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleLargeEmphasized,
             modifier = Modifier.padding(top = 14.dp),
         )
         Text(
@@ -1117,8 +1186,8 @@ fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
                 )
             }
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.largeIncreased,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
             }
@@ -1128,36 +1197,52 @@ fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
 
 @Composable
 private fun TypingDots(modifier: Modifier = Modifier) {
+    val reduceMotion = LocalReduceMotion.current
     val transition = rememberInfiniteTransition(label = "typing")
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         repeat(3) { index ->
-            val alpha by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 450, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
-                ),
-                label = "dot-$index",
-            )
-            val scale by transition.animateFloat(
-                initialValue = 0.8f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 450, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
-                ),
-                label = "dot-scale-$index",
-            )
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .graphicsLayer(scaleX = scale, scaleY = scale)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)),
-            )
+            if (reduceMotion) {
+                // Removed-animations users get the indicator, not the loop.
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                )
+            } else {
+                val alpha by transition.animateFloat(
+                    initialValue = 0.25f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 450, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                        initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
+                    ),
+                    label = "dot-$index",
+                )
+                val scale by transition.animateFloat(
+                    initialValue = 0.8f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 450, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                        initialStartOffset = androidx.compose.animation.core.StartOffset(index * 220),
+                    ),
+                    label = "dot-scale-$index",
+                )
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        // Draw-phase reads only: no per-frame recomposition.
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            this.alpha = alpha
+                        }
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                )
+            }
         }
     }
 }
@@ -1222,16 +1307,16 @@ private fun MessageInputBar(
     onClearComposerAction: () -> Unit = {},
 ) {
     val hasText = value.isNotBlank()
-    val motionScheme = MaterialTheme.motionScheme
 
     // Color is an effects animation; the button's size response is spatial.
+    // (The spec helpers read the theme scheme and honor reduced motion.)
     val sendContainer by animateColorAsState(
         targetValue = if (hasText) {
             MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        animationSpec = motionScheme.defaultEffectsSpec(),
+        animationSpec = defaultEffectsSpec(),
         label = "sendContainer",
     )
     val sendContent by animateColorAsState(
@@ -1240,13 +1325,22 @@ private fun MessageInputBar(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = motionScheme.defaultEffectsSpec(),
+        animationSpec = defaultEffectsSpec(),
         label = "sendContent",
     )
     val sendScale by animateFloatAsState(
         targetValue = if (hasText) 1f else 0.9f,
-        animationSpec = motionScheme.defaultSpatialSpec(),
+        animationSpec = fastSpatialSpec(),
         label = "sendScale",
+    )
+    // Press corner-morph: the send action rounds out extra while pressed, the
+    // same interaction signal the shapes= button defaults encode.
+    val sendInteractionSource = remember { MutableInteractionSource() }
+    val sendPressed by sendInteractionSource.collectIsPressedAsState()
+    val sendCorner by animateFloatAsState(
+        targetValue = if (sendPressed) 32f else 28f,
+        animationSpec = fastSpatialSpec(),
+        label = "sendCorner",
     )
 
     Column(
@@ -1258,10 +1352,10 @@ private fun MessageInputBar(
     ) {
         AnimatedVisibility(
             visible = composerActionLabel != null,
-            enter = expandVertically(motionScheme.defaultSpatialSpec()) +
-                fadeIn(motionScheme.defaultEffectsSpec()),
-            exit = shrinkVertically(motionScheme.defaultSpatialSpec()) +
-                fadeOut(motionScheme.defaultEffectsSpec()),
+            enter = expandVertically(defaultSpatialSpec()) +
+                fadeIn(defaultEffectsSpec()),
+            exit = shrinkVertically(defaultSpatialSpec()) +
+                fadeOut(defaultEffectsSpec()),
         ) {
             if (composerActionLabel != null) {
                 Box(
@@ -1302,10 +1396,10 @@ private fun MessageInputBar(
         // Pending send-effect chip staged from the picker.
         AnimatedVisibility(
             visible = pendingEffect != null,
-            enter = expandVertically(motionScheme.defaultSpatialSpec()) +
-                fadeIn(motionScheme.defaultEffectsSpec()),
-            exit = shrinkVertically(motionScheme.defaultSpatialSpec()) +
-                fadeOut(motionScheme.defaultEffectsSpec()),
+            enter = expandVertically(defaultSpatialSpec()) +
+                fadeIn(defaultEffectsSpec()),
+            exit = shrinkVertically(defaultSpatialSpec()) +
+                fadeOut(defaultEffectsSpec()),
         ) {
             pendingEffect?.let { option ->
                 Row(
@@ -1322,8 +1416,9 @@ private fun MessageInputBar(
         ) {
             Surface(
                 shape = MaterialTheme.shapes.extraLargeIncreased,
+                // The container role already carries the tonal layer; stacking
+                // elevation tint on it double-signals the same thing.
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 2.dp,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     .widthIn(max = ConversationContentMaxWidth).fillMaxWidth(),
             ) {
@@ -1354,7 +1449,10 @@ private fun MessageInputBar(
                     BasicTextField(
                         value = value,
                         onValueChange = onValueChange,
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                            .semantics { contentDescription = "Message input" },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,
                         ),
@@ -1383,10 +1481,15 @@ private fun MessageInputBar(
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .graphicsLayer(scaleX = sendScale, scaleY = sendScale)
-                            .clip(MaterialTheme.shapes.extraLarge)
+                            .graphicsLayer {
+                                scaleX = sendScale
+                                scaleY = sendScale
+                            }
+                            .clip(RoundedCornerShape(sendCorner))
                             .background(sendContainer)
                             .combinedClickable(
+                                interactionSource = sendInteractionSource,
+                                indication = LocalIndication.current,
                                 enabled = hasText,
                                 role = Role.Button,
                                 onClickLabel = "Send",

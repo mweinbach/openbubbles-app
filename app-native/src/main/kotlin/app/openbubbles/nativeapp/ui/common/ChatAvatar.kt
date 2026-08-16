@@ -81,7 +81,9 @@ fun ChatAvatar(
         } else {
             Text(
                 text = initialsFor(title),
-                color = Color.White,
+                // White fails WCAG on the palette's bright seeds (up to 2.2:1);
+                // the content color is chosen per-seed by contrast.
+                color = avatarContentColor(Color(avatarColor)),
                 fontSize = (size.value * 0.36f).sp,
                 lineHeight = (size.value * 0.36f).sp,
                 style = MaterialTheme.typography.labelLarge,

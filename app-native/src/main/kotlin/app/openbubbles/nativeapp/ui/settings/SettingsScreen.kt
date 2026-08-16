@@ -17,8 +17,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,8 +77,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +88,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
@@ -393,10 +398,17 @@ fun SettingsScreen(
             )
         },
     ) { padding ->
-        Column(
+        // Wide windows center the content column instead of stretching rows.
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+        ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 840.dp)
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .navigationBarsPadding(),
@@ -477,6 +489,7 @@ fun SettingsScreen(
                     if (inClique == false) {
                         FilledTonalButton(
                             onClick = ::openCliqueJoin,
+                            shapes = ButtonDefaults.shapes(),
                             enabled = !loadingBottles && !joiningClique,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Join iCloud Keychain") }
@@ -485,6 +498,7 @@ fun SettingsScreen(
                     } else if (inClique == true) {
                         FilledTonalButton(
                             onClick = ::syncAllHistory,
+                            shapes = ButtonDefaults.shapes(),
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Sync all history now") }
                     }
@@ -613,6 +627,7 @@ fun SettingsScreen(
                         onClick = {
                             SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                         },
+                        shapes = ButtonDefaults.shapes(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Set as default SMS app") }
                 }
@@ -633,6 +648,18 @@ fun SettingsScreen(
                     supporting = "Follows your system's light or dark mode",
                     icon = Icons.Filled.Palette,
                 )
+                val dynamicColor by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
+                SwitchSettingRow(
+                    title = "Dynamic color",
+                    supporting = if (dynamicColor) {
+                        "Colors follow your wallpaper (Material You)"
+                    } else {
+                        "OpenBubbles blue, always"
+                    },
+                    icon = Icons.Filled.Palette,
+                    checked = dynamicColor,
+                    onCheckedChange = { AppearancePrefs.dynamicColor = it },
+                )
             }
 
             SectionCard(title = "Storage") {
@@ -650,6 +677,7 @@ fun SettingsScreen(
                             cacheBytes = withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() }
                         }
                     },
+                    shapes = ButtonDefaults.shapes(),
                     enabled = (cacheBytes ?: 0L) > 0L,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -669,6 +697,7 @@ fun SettingsScreen(
                 ) {
                     Button(
                         onClick = { exportLauncher.launch(backupFileName()) },
+                        shapes = ButtonDefaults.shapes(),
                         enabled = !backupBusy,
                         modifier = Modifier.weight(1f),
                     ) {
@@ -682,6 +711,7 @@ fun SettingsScreen(
                                 "application/octet-stream",
                             ))
                         },
+                        shapes = ButtonDefaults.shapes(),
                         enabled = !backupBusy,
                         modifier = Modifier.weight(1f),
                     ) {
@@ -715,6 +745,7 @@ fun SettingsScreen(
                     icon = Icons.Filled.Info,
                 )
             }
+        }
         }
     }
 
@@ -961,7 +992,7 @@ private fun SettingsIcon(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = MaterialTheme.shapes.medium,
         color = if (destructive) {
             MaterialTheme.colorScheme.errorContainer
         } else {
@@ -1022,7 +1053,10 @@ private fun SettingActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick),
+            // The row sits inside a rounded card: clip so the ripple doesn't
+            // paint square corners, and announce it as the button it is.
+            .clip(MaterialTheme.shapes.small)
+            .clickable(enabled = enabled, onClickLabel = title, role = Role.Button, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -1065,8 +1099,13 @@ private fun SwitchSettingRow(
     onCheckedChange: (Boolean) -> Unit,
     icon: ImageVector? = null,
 ) {
+    // The whole row is the switch: one merged control with the title as its
+    // label instead of a bare switch TalkBack can't name.
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -1081,7 +1120,7 @@ private fun SwitchSettingRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -45,16 +49,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
+import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlin.math.abs
 
 /**
  * Find My: devices on this account, followed friends, and beacon items.
@@ -124,19 +131,23 @@ fun FindMyScreen(
     }
 }
 
+/** Content width cap so wide windows don't stretch rows edge to edge. */
+private val FindMyContentMaxWidth = 840.dp
+
 @Composable
 private fun FindMyList(uiState: FindMyUiState) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().navigationBarsPadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (uiState.refreshErrors.isNotEmpty()) {
             item(key = "errors") {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.widthIn(max = FindMyContentMaxWidth).fillMaxWidth(),
                 ) {
                     Text(
                         text = "Couldn't refresh — showing last known data\n" +
@@ -148,53 +159,56 @@ private fun FindMyList(uiState: FindMyUiState) {
                 }
             }
         }
-        section("Devices", uiState.devices.size) {
-            uiState.devices.forEach { device ->
-                item(key = "device-${device.id}") {
-                    DeviceRow(device)
-                }
-            }
+        segmentedSection("Devices", uiState.devices, { "device-${it.id}" }) { device, shape ->
+            DeviceRow(device, shape)
         }
-        section("Friends", uiState.friends.size) {
-            uiState.friends.forEach { friend ->
-                item(key = "friend-${friend.id}") {
-                    FriendRow(friend)
-                }
-            }
+        segmentedSection("Friends", uiState.friends, { "friend-${it.id}" }) { friend, shape ->
+            FriendRow(friend, shape)
         }
-        section("Items", uiState.items.size) {
-            uiState.items.forEach { item ->
-                item(key = "item-${item.id}") {
-                    ItemRow(item)
-                }
-            }
+        segmentedSection("Items", uiState.items, { "item-${it.id}" }) { item, shape ->
+            ItemRow(item, shape)
         }
     }
 }
 
-/** Section header + one row per entry (kept in one LazyColumn for flat scroll). */
-private fun androidx.compose.foundation.lazy.LazyListScope.section(
+/**
+ * Section header + one segmented row per entry. Rows in a group share the
+ * connected shape language (rounded outer corners, square inner), so a group
+ * reads as one object.
+ */
+private fun <T> androidx.compose.foundation.lazy.LazyListScope.segmentedSection(
     title: String,
-    count: Int,
-    rows: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+    items: List<T>,
+    key: (T) -> String,
+    row: @Composable (T, RoundedCornerShape) -> Unit,
 ) {
     item(key = "header-$title") {
         Text(
-            text = if (count > 0) "$title (${count})".uppercase() else title.uppercase(),
+            text = if (items.isNotEmpty()) "$title (${items.size})".uppercase() else title.uppercase(),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
+            // Quiet chrome convention shared with the chat list and Settings.
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .widthIn(max = FindMyContentMaxWidth)
+                .fillMaxWidth()
+                .padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
         )
     }
-    if (count > 0) rows()
-    else {
+    if (items.isEmpty()) {
         item(key = "empty-$title") {
             Text(
                 text = "None",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                modifier = Modifier
+                    .widthIn(max = FindMyContentMaxWidth)
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, bottom = 4.dp),
             )
+        }
+    } else {
+        itemsIndexed(items, key = { _, it -> key(it) }) { index, entry ->
+            row(entry, segmentedRowShape(index, items.size))
         }
     }
 }
@@ -202,9 +216,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.section(
 // --------------------------------------------------------------------- rows
 
 @Composable
-private fun DeviceRow(device: FmDeviceUi) {
+private fun DeviceRow(device: FmDeviceUi, shape: RoundedCornerShape) {
     val context = LocalContext.current
     FindMyRow(
+        shape = shape,
         leading = {
             Icon(
                 imageVector = deviceIcon(device.model ?: device.name),
@@ -229,13 +244,14 @@ private fun DeviceRow(device: FmDeviceUi) {
 }
 
 @Composable
-private fun FriendRow(friend: FmFriendUi) {
+private fun FriendRow(friend: FmFriendUi, shape: RoundedCornerShape) {
     val context = LocalContext.current
     FindMyRow(
+        shape = shape,
         leading = {
             ChatAvatar(
                 title = friend.name,
-                avatarColor = avatarColorFor(friend.id),
+                avatarColor = avatarColorFor(friend.address ?: friend.id),
                 size = 40.dp,
                 avatarPath = rememberContactAvatarPath(friend.address),
             )
@@ -248,9 +264,10 @@ private fun FriendRow(friend: FmFriendUi) {
 }
 
 @Composable
-private fun ItemRow(item: FmItemUi) {
+private fun ItemRow(item: FmItemUi, shape: RoundedCornerShape) {
     val context = LocalContext.current
     FindMyRow(
+        shape = shape,
         leading = {
             Box(
                 modifier = Modifier
@@ -283,6 +300,7 @@ private fun ItemRow(item: FmItemUi) {
 
 @Composable
 private fun FindMyRow(
+    shape: RoundedCornerShape,
     leading: @Composable () -> Unit,
     name: String,
     detail: String?,
@@ -290,13 +308,18 @@ private fun FindMyRow(
     onClick: (() -> Unit)?,
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
+            .widthIn(max = FindMyContentMaxWidth)
             .fillMaxWidth()
             .then(
                 if (clickable && onClick != null) {
-                    Modifier.clickable(onClick = onClick)
+                    Modifier.clickable(
+                        onClick = onClick,
+                        onClickLabel = "Open in Maps",
+                        role = Role.Button,
+                    )
                 } else {
                     Modifier
                 },
@@ -342,7 +365,9 @@ private fun FindMyRow(
 private fun LoadingState() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
+            // Initial full-screen loads use the morphing indicator (the small
+            // circular one stays for inline busy marks like the refresh icon).
+            LoadingIndicator()
             Spacer(modifier = Modifier.padding(8.dp))
             Text(
                 text = "Loading last known data…",
@@ -375,7 +400,7 @@ private fun EmptyState(title: String, detail: String) {
                 }
             }
             Spacer(modifier = Modifier.padding(8.dp))
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(text = title, style = MaterialTheme.typography.titleLargeEmphasized)
             Text(
                 text = detail,
                 style = MaterialTheme.typography.bodyMedium,
@@ -457,15 +482,6 @@ private fun deviceIcon(model: String): ImageVector = when {
     model.contains("ipad", ignoreCase = true) ||
         model.contains("tablet", ignoreCase = true) -> Icons.Rounded.Tablet
     else -> Icons.Rounded.Smartphone
-}
-
-/** Stable avatar color for friends (same palette idea as the chat list). */
-private fun avatarColorFor(seed: String): Long {
-    val palette = longArrayOf(
-        0xFF7C4FDF, 0xFF4C8BF5, 0xFF00897B, 0xFFD81B60, 0xFFF4511E,
-        0xFF6D4C41, 0xFF3949AB, 0xFF43A047,
-    )
-    return palette[abs(seed.hashCode()) % palette.size]
 }
 
 // --------------------------------------------------------------------- previews

@@ -3,10 +3,7 @@ package app.openbubbles.nativeapp.ui.onboarding
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -31,9 +28,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,11 +43,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.ProvisionScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.login.isProvisioned
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.slowSpatialSpec
 
 /** Horizontal screen padding shared by every onboarding step. */
 internal val OnboardingPadding = 24.dp
@@ -99,6 +101,13 @@ fun OnboardingScreen(
     val goBack: () -> Unit = { step = step.previousStep() }
     BackHandler(enabled = step != OnboardingStep.Welcome, onBack = goBack)
 
+    // Full-screen step changes ride the theme's motion scheme (Slow spatial
+    // tier) instead of hand-rolled springs; reduced-motion users get snaps.
+    val stepEnterSpatial = slowSpatialSpec<IntOffset>()
+    val stepExitSpatial = fastSpatialSpec<IntOffset>()
+    val stepFadeIn = defaultEffectsSpec<Float>()
+    val stepFadeOut = fastEffectsSpec<Float>()
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -115,17 +124,11 @@ fun OnboardingScreen(
                 transitionSpec = {
                     val forward = targetState.ordinal >= initialState.ordinal
                     val enter = slideInHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    ) { full -> if (forward) full / 3 else -full / 3 } + fadeIn(tween(260))
+                        animationSpec = stepEnterSpatial,
+                    ) { full -> if (forward) full / 3 else -full / 3 } + fadeIn(stepFadeIn)
                     val exit = slideOutHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    ) { full -> if (forward) -full / 3 else full / 3 } + fadeOut(tween(180))
+                        animationSpec = stepExitSpatial,
+                    ) { full -> if (forward) -full / 3 else full / 3 } + fadeOut(stepFadeOut)
                     enter togetherWith exit
                 },
                 label = "onboarding-step",
@@ -185,6 +188,8 @@ private fun ConnectStep(
     modifier: Modifier = Modifier,
     onRedoSetup: () -> Unit = {},
 ) {
+    val gateFadeIn = defaultEffectsSpec<Float>()
+    val gateFadeOut = fastEffectsSpec<Float>()
     Column(modifier = modifier) {
         OnboardingTopBar(onBack = onBack, activeSegment = 2)
         Column(Modifier.padding(horizontal = OnboardingPadding)) {
@@ -206,7 +211,9 @@ private fun ConnectStep(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) },
+            transitionSpec = {
+                fadeIn(gateFadeIn) togetherWith fadeOut(gateFadeOut)
+            },
             label = "provision-gate",
         ) { gate ->
             when {
@@ -226,7 +233,7 @@ private fun ConnectStep(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator()
+                    LoadingIndicator()
                 }
                 gate == false -> ProvisionScreen(
                     confDir = confDir,
@@ -282,6 +289,7 @@ private fun StepSegments(active: Int, modifier: Modifier = Modifier) {
             val isActive = index == active
             val width by animateDpAsState(
                 targetValue = if (isActive) 22.dp else 10.dp,
+                animationSpec = fastSpatialSpec(),
                 label = "segment-width-$index",
             )
             val color by animateColorAsState(
@@ -290,6 +298,7 @@ private fun StepSegments(active: Int, modifier: Modifier = Modifier) {
                 } else {
                     MaterialTheme.colorScheme.surfaceContainerHighest
                 },
+                animationSpec = fastEffectsSpec(),
                 label = "segment-color-$index",
             )
             Box(

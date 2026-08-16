@@ -2,7 +2,6 @@ package app.openbubbles.nativeapp.ui.attachmentviewer
 
 import android.content.res.Configuration
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,7 +53,11 @@ import app.openbubbles.nativeapp.data.AttachmentProvider
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import java.io.File
 
 /** Viewer zoom limits for the pinch gesture. */
@@ -81,7 +84,8 @@ fun AttachmentViewerScreen(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    BackHandler(onBack = onBack)
+    // No BackHandler here: NavDisplay's own back handling covers the pop, and
+    // an inner handler would swallow the predictive-back preview gesture.
 
     Box(
         modifier = modifier
@@ -138,6 +142,8 @@ fun AttachmentViewerScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .aspectRatio(aspect)
+                                // Flies in from the transcript thumbnail.
+                                .sharedAttachment(guid)
                                 .graphicsLayer(
                                     scaleX = scale,
                                     scaleY = scale,
@@ -164,6 +170,8 @@ fun AttachmentViewerScreen(
                     }
                 }
             },
+            // The parent box centers content; the chrome must anchor to the top.
+            modifier = Modifier.align(Alignment.TopCenter),
         )
     }
 }
@@ -175,11 +183,13 @@ private fun ViewerChrome(
     subtitle: String,
     onBack: () -> Unit,
     onShare: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = slideInVertically(initialOffsetY = { -it / 2 }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut(),
+        modifier = modifier,
+        enter = slideInVertically(defaultSpatialSpec()) { -it / 2 } + fadeIn(defaultEffectsSpec()),
+        exit = slideOutVertically(defaultSpatialSpec()) { -it / 2 } + fadeOut(fastEffectsSpec()),
     ) {
         Row(
             modifier = Modifier

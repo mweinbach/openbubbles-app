@@ -16,22 +16,31 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.VerticalDragHandle
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.layout.AdaptStrategy
+import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldDefaults
+import androidx.compose.material3.adaptive.layout.PaneExpansionAnchor
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
 import androidx.compose.material3.toShape
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -45,10 +54,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import app.openbubbles.nativeapp.BuildConfig
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
@@ -70,6 +82,10 @@ import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
+import app.openbubbles.nativeapp.ui.common.LocalAppSharedTransitionScope
+import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -180,8 +196,14 @@ fun OpenBubblesApp(
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
 
     // A conversation shown beside its list must not offer a back arrow, and the
-    // navigation container stays visible in that layout.
-    val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
+    // navigation container stays visible in that layout. The directive is the
+    // v2 window-info variant with the two-panes-on-medium override: a messaging
+    // client is the canonical list-detail app, so foldables and portrait
+    // tablets get list|chat instead of a stretched phone layout, and from
+    // 1200dp up conversation details get the third pane.
+    val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(
+        currentWindowAdaptiveInfoV2(),
+    )
     val isMultiPane = directive.maxHorizontalPartitions > 1
 
     fun navigateTo(key: NavKey) {
@@ -205,6 +227,10 @@ fun OpenBubblesApp(
     fun openChat(chatId: Long) {
         val key = ChatKey(chatId)
         if (backStack.lastOrNull() == key) return
+        // A conversation belongs to the Chats tab: entering one from another
+        // top-level destination (notification tap while in Settings) replaces
+        // it so the detail pane never renders orphaned beside nothing.
+        backStack.removeAll { it is SettingsKey || it is FindMyKey }
         while (backStack.size > 1 &&
             (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
         ) {
@@ -221,19 +247,37 @@ fun OpenBubblesApp(
         null
     }
 
-    /** Top-level switches reset to a single-entry stack rooted at the chat list. */
+    /**
+     * Tab switches preserve the Chats conversation stack: Chats pops back to
+     * whatever the user had open; other destinations sit on top of it and
+     * replace each other. Clearing the stack on every tab tap threw away the
+     * open conversation, which is not what tabs do.
+     */
     fun navigateTopLevel(destination: TopLevelDestination) {
         if (backStack.lastOrNull() == destination.key) return
-        backStack.clear()
-        backStack.add(ChatsKey)
-        if (destination.key != ChatsKey) backStack.add(destination.key)
+        if (destination.key == ChatsKey) {
+            while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        } else {
+            backStack.removeAll { it is SettingsKey || it is FindMyKey }
+            backStack.add(destination.key)
+        }
+    }
+
+    /** Restores the persisted route at the recorded depth (chat info keeps its chat underneath). */
+    fun restoreResumeRoute() {
+        if (backStack.lastOrNull() != ChatsKey) return
+        when (val key = resumeRoute?.takeIf { it != Routes.CHATS }?.let(::routeToKey)) {
+            is ChatInfoKey -> {
+                backStack.add(ChatKey(key.chatId))
+                backStack.add(key)
+            }
+            null -> Unit
+            else -> backStack.add(key)
+        }
     }
 
     LaunchedEffect(resumeRoute, startChatGuid) {
-        val target = resumeRoute?.takeIf { it != Routes.CHATS } ?: return@LaunchedEffect
-        if (startChatGuid == null && backStack.lastOrNull() == ChatsKey) {
-            routeToKey(target)?.let(backStack::add)
-        }
+        if (startChatGuid == null) restoreResumeRoute()
     }
 
     LaunchedEffect(current) {
@@ -242,12 +286,17 @@ fun OpenBubblesApp(
 
     // Deep link from a notification tap: resolve the guid to a chat id and
     // navigate once, then clear the pending static so config changes (and
-    // any recomposition) don't re-trigger it.
+    // any recomposition) don't re-trigger it. When resolution fails, the
+    // user still gets the route their previous session left behind.
     LaunchedEffect(startChatGuid) {
         val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
         if (chatId != null && chatId > 0L) {
-            openChat(chatId)
+            if (backStack.none { it is ChatKey && it.chatId == chatId }) {
+                openChat(chatId)
+            }
+        } else {
+            restoreResumeRoute()
         }
         NativeMainActivity.pendingChatGuid = null
     }
@@ -294,11 +343,24 @@ fun OpenBubblesApp(
 
     // User-resizable split: the drag handle between the panes is the Material
     // affordance for pane expansion, and PaneExpansionState remembers where the
-    // user put it.
-    val paneExpansionState = rememberPaneExpansionState()
+    // user put it. Anchors keep the split at sane proportions instead of
+    // letting either pane be dragged to an unusable sliver.
+    val paneExpansionState = rememberPaneExpansionState(
+        anchors = listOf(
+            PaneExpansionAnchor.Proportion(0.4f),
+            PaneExpansionAnchor.Proportion(0.5f),
+            PaneExpansionAnchor.Proportion(0.6f),
+        ),
+    )
     val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>(
         directive = directive,
         paneExpansionState = paneExpansionState,
+        // Two panes can't fit list + chat + details: details levitate as a
+        // dialog there instead of hiding outright (the default), which made
+        // the details button a dead end on foldables and portrait tablets.
+        adaptStrategies = ListDetailPaneScaffoldDefaults.adaptStrategies(
+            extraPaneAdaptStrategy = AdaptStrategy.Levitate(),
+        ),
         paneExpansionDragHandle = { state ->
             // One interaction source for both the drag modifier and the handle,
             // so the handle's pressed shape morph tracks the actual drag.
@@ -309,6 +371,10 @@ fun OpenBubblesApp(
             )
         },
     )
+
+    // Hoisted spec reads: the transition lambdas are not composable.
+    val navEnterSpec = defaultEffectsSpec<Float>()
+    val navExitSpec = fastEffectsSpec<Float>()
 
     val appContent: @Composable () -> Unit = {
         // In two-pane the panes sit on a surfaceContainer canvas and separate
@@ -322,10 +388,23 @@ fun OpenBubblesApp(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
+        CompositionLocalProvider(LocalIsMultiPane provides isMultiPane) {
+        SharedTransitionLayout {
+        CompositionLocalProvider(LocalAppSharedTransitionScope provides this@SharedTransitionLayout) {
         NavDisplay(
             backStack = backStack,
             onBack = { popBack() },
             sceneStrategies = listOf(listDetailStrategy),
+            sharedTransitionScope = this@SharedTransitionLayout,
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                // Per-entry ViewModelStores: popping a conversation clears its
+                // ChatViewModel instead of accumulating one per opened chat.
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
+            transitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
+            popTransitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
+            predictivePopTransitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
             modifier = Modifier.fillMaxSize(),
             entryProvider = entryProvider {
                 entry<ChatsKey>(
@@ -429,6 +508,9 @@ fun OpenBubblesApp(
                         chat = chat,
                         participants = participants,
                         onBack = { popBack() },
+                        // A visible extra pane (or levitated dialog) has
+                        // nothing to navigate back to.
+                        showBackButton = !isMultiPane,
                         onRename = { name ->
                             AppGraph.chatInfoActions.rename(chatId, name)
                         },
@@ -524,6 +606,9 @@ fun OpenBubblesApp(
             },
         )
         }
+        }
+        }
+        }
     }
 
     // The navigation container belongs on top-level destinations, and also
@@ -531,31 +616,36 @@ fun OpenBubblesApp(
     val showNavigationSuite = TopLevelDestinations.any { it.key == current } ||
         (isMultiPane && (current is ChatKey || current is ChatInfoKey))
 
-    if (showNavigationSuite) {
-        NavigationSuiteScaffold(
-            modifier = modifier,
-            navigationSuiteItems = {
-                TopLevelDestinations.forEach { destination ->
-                    val selected = current == destination.key ||
-                        (destination.key == ChatsKey && (current is ChatKey || current is ChatInfoKey))
-                    item(
-                        selected = selected,
-                        onClick = { navigateTopLevel(destination) },
-                        icon = {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = null,
-                            )
-                        },
-                        label = { Text(destination.label) },
-                    )
-                }
-            },
-            content = appContent,
-        )
-    } else {
-        Box(modifier = modifier.fillMaxSize()) { appContent() }
+    // The scaffold stays mounted and animates its navigation component in and
+    // out — conditionally composing it used to dispose and recreate the whole
+    // NavDisplay subtree on every full-screen transition.
+    val suiteState = rememberNavigationSuiteScaffoldState()
+    LaunchedEffect(showNavigationSuite) {
+        if (showNavigationSuite) suiteState.show() else suiteState.hide()
     }
+
+    NavigationSuiteScaffold(
+        state = suiteState,
+        modifier = modifier,
+        navigationSuiteItems = {
+            TopLevelDestinations.forEach { destination ->
+                val selected = current == destination.key ||
+                    (destination.key == ChatsKey && (current is ChatKey || current is ChatInfoKey))
+                item(
+                    selected = selected,
+                    onClick = { navigateTopLevel(destination) },
+                    icon = {
+                        Icon(
+                            imageVector = destination.icon,
+                            contentDescription = null,
+                        )
+                    },
+                    label = { Text(destination.label) },
+                )
+            }
+        },
+        content = appContent,
+    )
 }
 
 /**
@@ -613,7 +703,6 @@ private fun SignInBanner(onSignIn: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 1.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -655,10 +744,10 @@ private fun SignInBanner(onSignIn: () -> Unit) {
     }
 }
 
-/** Small, always-visible smoke-test status (uniffi boot + core greeting). */
+/** Small smoke-test status (uniffi boot + core greeting) — debug builds only. */
 @Composable
 private fun DebugStatusFooter(lines: List<String>) {
-    if (lines.isEmpty()) return
+    if (lines.isEmpty() || !BuildConfig.DEBUG) return
     Column(
         modifier = Modifier
             .fillMaxWidth()

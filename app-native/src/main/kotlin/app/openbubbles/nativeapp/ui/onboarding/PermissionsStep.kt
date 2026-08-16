@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -28,6 +27,7 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -229,6 +231,9 @@ internal fun PermissionsStep(
                                     smsDenied = false
                                 }
                             },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Enable SMS relay"
+                            },
                         )
                     }
                 },
@@ -237,10 +242,10 @@ internal fun PermissionsStep(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = onContinue,
+                shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
-                shape = RoundedCornerShape(18.dp),
             ) {
                 Text(text = "Continue", style = MaterialTheme.typography.titleMedium)
             }
@@ -278,7 +283,7 @@ private fun PermissionCard(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
@@ -329,7 +334,7 @@ private fun PermissionCard(
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 } else {
-                    FilledTonalButton(onClick = onRequest) { Text("Allow") }
+                    FilledTonalButton(onClick = onRequest, shapes = ButtonDefaults.shapes()) { Text("Allow") }
                 }
             }
             action()
@@ -342,7 +347,7 @@ private fun PermissionCard(
 private fun Tag(text: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(7.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Text(

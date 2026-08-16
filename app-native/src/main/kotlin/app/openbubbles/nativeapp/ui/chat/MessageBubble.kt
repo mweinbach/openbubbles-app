@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.Color
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -59,6 +60,7 @@ import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlin.math.PI
@@ -95,6 +97,19 @@ private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerS
     val top = if (tightTop) GroupedCornerRadius else BubbleCornerRadius
     val bottom = if (tightBottom) GroupedCornerRadius else BubbleCornerRadius
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
+}
+
+/**
+ * Bubble container/content pair. Outgoing iMessage uses the theme primary;
+ * outgoing SMS uses the fixed green service identity (the green-bubble
+ * metaphor is business-critical, so it never follows dynamic color).
+ * Incoming bubbles sit on the surfaceContainer ramp like the rest of the app.
+ */
+@Composable
+private fun bubbleColors(isFromMe: Boolean, smsChat: Boolean): Pair<Color, Color> = when {
+    isFromMe && smsChat -> smsServiceColors().let { it.container to it.content }
+    isFromMe -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.onPrimary
+    else -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurface
 }
 
 @Composable
@@ -155,6 +170,8 @@ fun MessageBubble(
     onOpenReplyThread: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
+    /** True when this conversation is carrier SMS — outgoing bubbles go green. */
+    smsChat: Boolean = false,
 ) {
     when {
         message.isGroupEvent -> {
@@ -264,23 +281,17 @@ fun MessageBubble(
                         InvisibleInkBubble(
                             message = message,
                             shape = shape,
+                            smsChat = smsChat,
                             onLongPress = onLongPressPart?.let { callback ->
                                 { callback(textPart) }
                             },
                         )
                     } else {
+                        val (bubbleColor, bubbleContent) = bubbleColors(message.isFromMe, smsChat)
                         Surface(
                             shape = shape,
-                            color = if (message.isFromMe) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            contentColor = if (message.isFromMe) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
+                            color = bubbleColor,
+                            contentColor = bubbleContent,
                             modifier = if (onLongPressPart != null) {
                                 Modifier.combinedClickable(
                                     onClick = {},
@@ -344,6 +355,7 @@ private fun InvisibleInkBubble(
     message: MessageItem,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
+    smsChat: Boolean = false,
     onLongPress: (() -> Unit)? = null,
 ) {
     var revealed by remember(message.id) { mutableStateOf(false) }
@@ -353,18 +365,11 @@ private fun InvisibleInkBubble(
             revealed = false
         }
     }
+    val (bubbleColor, bubbleContent) = bubbleColors(message.isFromMe, smsChat)
     Surface(
         shape = shape,
-        color = if (message.isFromMe) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        contentColor = if (message.isFromMe) {
-            MaterialTheme.colorScheme.onPrimary
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        color = bubbleColor,
+        contentColor = bubbleContent,
         modifier = modifier.then(
             if (onLongPress != null) {
                 Modifier.combinedClickable(
@@ -420,13 +425,23 @@ fun UploadProgressRow(done: Long, total: Long, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        LinearProgressIndicator(
-            progress = { fraction ?: 0.1f },
-            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-            modifier = Modifier
-                .weight(1f)
-                .height(4.dp),
-        )
+        // Unknown total must not fake a determinate 10% — run indeterminate.
+        if (fraction == null) {
+            LinearProgressIndicator(
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(4.dp),
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction },
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(4.dp),
+            )
+        }
         Text(
             text = if (fraction != null) {
                 "Uploading ${(fraction * 100).toInt()}%"
@@ -506,7 +521,7 @@ fun DaySeparatorRow(label: String, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
         ) {
             Text(

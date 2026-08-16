@@ -28,18 +28,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 
 /** iMessage-blue brand gradient for the welcome bubble (light surfaces). */
 private val LightBubbleGradient = Brush.linearGradient(
@@ -72,8 +75,9 @@ internal fun WelcomeStep(
             Spacer(Modifier.height(40.dp))
             Text(
                 text = "OpenBubbles",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.SemiBold,
+                // The expressive emphasized display role — a real Medium weight
+                // instead of synthetic-bold smear from FontWeight.SemiBold.
+                style = MaterialTheme.typography.displaySmallEmphasized,
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -84,10 +88,12 @@ internal fun WelcomeStep(
             Spacer(Modifier.height(56.dp))
             Button(
                 onClick = onGetStarted,
+                // Expressive defaults: full-round resting shape with a press
+                // morph; the static 18dp override suppressed it.
+                shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                shape = RoundedCornerShape(18.dp),
             ) {
                 Text(text = "Get Started", style = MaterialTheme.typography.titleMedium)
             }
@@ -118,16 +124,22 @@ internal fun WelcomeStep(
 @Composable
 private fun BrandBubble(modifier: Modifier = Modifier) {
     val gradient = if (isSystemInDarkTheme()) DarkBubbleGradient else LightBubbleGradient
+    // Ambient loops stop for users who removed animations at the OS level.
+    val reduceMotion = LocalReduceMotion.current
     val float = rememberInfiniteTransition(label = "brand-float")
-    val bob by float.animateFloat(
-        initialValue = -5f,
-        targetValue = 5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "brand-bob",
-    )
+    val bob by if (reduceMotion) {
+        remember { mutableStateOf(0f) }
+    } else {
+        float.animateFloat(
+            initialValue = -5f,
+            targetValue = 5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "brand-bob",
+        )
+    }
     Box(
         modifier = modifier
             .size(250.dp)

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,7 +77,11 @@ private fun EffectOptionCard(
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(
+            onClick = onClick,
+            onClickLabel = "Send with ${option.label}",
+            role = Role.Button,
+        ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
@@ -110,7 +115,11 @@ fun PendingEffectChip(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant,
         ),
-        modifier = modifier.clickable(onClick = onClear),
+        modifier = modifier.clickable(
+            onClick = onClear,
+            onClickLabel = "Remove ${option.label} effect",
+            role = Role.Button,
+        ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),

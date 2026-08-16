@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -66,8 +69,11 @@ import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
+import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +109,11 @@ fun ChatInfoScreen(
     onSetBackground: suspend (File) -> Unit = {},
     onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
+    /**
+     * False when this screen renders as the visible extra pane (or a levitated
+     * dialog) beside the conversation: there is nothing to navigate back to.
+     */
+    showBackButton: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -162,8 +173,10 @@ fun ChatInfoScreen(
             TopAppBar(
                 title = { Text("Conversation Details") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (showBackButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
             )
@@ -189,11 +202,16 @@ fun ChatInfoScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedButton(onClick = { renameDialog = true }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { renameDialog = true },
+                        shapes = ButtonDefaults.shapes(),
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text("Rename")
                     }
                     OutlinedButton(
                         onClick = { pickGroupPhoto.launch("image/*") },
+                        shapes = ButtonDefaults.shapes(),
                         modifier = Modifier.weight(1f),
                     ) { Text("Group photo") }
                 }
@@ -218,12 +236,20 @@ fun ChatInfoScreen(
                 )
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        // Keep the last row above the gesture bar; only the
+                        // group-only leave button used to carry this inset.
+                        bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
                 ) {
-                    items(participants, key = { it.address }) { participant ->
+                    itemsIndexed(participants, key = { _, it -> it.address }) { index, participant ->
                         ParticipantListRow(
                             participant = participant,
+                            shape = segmentedRowShape(index, participants.size),
                             onRemove = if (isGroup) {
                                 { launchAction(action = { onRemoveParticipant(participant.address) }) }
                             } else {
@@ -235,6 +261,7 @@ fun ChatInfoScreen(
                         item(key = "add-participant") {
                             OutlinedButton(
                                 onClick = { addDialog = true },
+                                shapes = ButtonDefaults.shapes(),
                                 modifier = Modifier.fillMaxWidth(),
                             ) { Text("Add participant") }
                         }
@@ -252,7 +279,7 @@ fun ChatInfoScreen(
             if (isGroup) {
                 OutlinedButton(
                     onClick = { confirmLeave = true },
-                    shape = MaterialTheme.shapes.medium,
+                    shapes = ButtonDefaults.shapes(shape = MaterialTheme.shapes.medium),
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
@@ -383,7 +410,7 @@ private fun BackgroundSection(
     val file = remember(path) { path?.let(::File)?.takeIf { it.isFile } }
     val decoded = rememberDecodedImage(file, maxDimensionPx = 720)
     Surface(
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
@@ -393,7 +420,8 @@ private fun BackgroundSection(
                     bitmap = decoded.image,
                     contentDescription = "Current chat background",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(2.4f).clip(RoundedCornerShape(24.dp)),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(2.4f)
+                        .clip(MaterialTheme.shapes.largeIncreased),
                 )
             }
             Column(
@@ -441,14 +469,16 @@ private fun PosterHeaderCard(
     participantCount: Int,
 ) {
     // Posters are portrait; clamp extreme aspect ratios so a landscape
-    // picture doesn't collapse the card or blow it up.
+    // picture doesn't collapse the card or blow it up. The height cap keeps
+    // the poster from swallowing the extra pane (participants must survive).
     val clamped = aspectRatio.coerceIn(0.6f, 1.4f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 16.dp)
+            .heightIn(max = 280.dp)
             .aspectRatio(clamped)
-            .clip(RoundedCornerShape(28.dp)),
+            .clip(MaterialTheme.shapes.extraLarge),
     ) {
         Image(
             bitmap = image,
@@ -529,10 +559,14 @@ private fun rememberPosterFile(address: String?): File? =
     }.value
 
 @Composable
-private fun ParticipantListRow(participant: ParticipantRow, onRemove: (() -> Unit)? = null) {
+private fun ParticipantListRow(
+    participant: ParticipantRow,
+    shape: RoundedCornerShape,
+    onRemove: (() -> Unit)? = null,
+) {
     val displayName = participant.name ?: participant.address
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -543,7 +577,7 @@ private fun ParticipantListRow(participant: ParticipantRow, onRemove: (() -> Uni
         ) {
             ChatAvatar(
                 title = displayName,
-                avatarColor = avatarColorForAddress(participant.address),
+                avatarColor = avatarColorFor(participant.address),
                 size = 40.dp,
                 avatarPath = participant.avatarPath,
             )
@@ -642,15 +676,6 @@ private suspend fun prepareChatBackground(context: Context, uri: Uri): File = wi
     if (outputBitmap !== source) outputBitmap.recycle()
     source.recycle()
     destination
-}
-
-/** Stable avatar color for an address (same palette idea as the chat list). */
-private fun avatarColorForAddress(address: String): Long {
-    val palette = longArrayOf(
-        0xFF7C4FDF, 0xFF4C8BF5, 0xFF00897B, 0xFFD81B60, 0xFFF4511E,
-        0xFF6D4C41, 0xFF3949AB, 0xFF43A047,
-    )
-    return palette[kotlin.math.abs(address.hashCode()) % palette.size]
 }
 
 /**

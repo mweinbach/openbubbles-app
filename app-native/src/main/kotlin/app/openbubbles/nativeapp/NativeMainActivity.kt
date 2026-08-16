@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.data.OfficialEngineProbe
@@ -32,12 +33,13 @@ class NativeMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AppearancePrefs.init(this)
 
-        // Notification deep link: only a fresh launch carries a new tap
-        // (config-change recreations would re-fire the original intent and
-        // re-trigger navigation; process death still works via the launch
-        // intent extras).
-        if (savedInstanceState == null) readPendingChatGuid(intent)
+        // Notification deep link. Always read the extra: process death is
+        // exactly the case where savedInstanceState != null, and OpenBubblesApp
+        // consumes the guid idempotently (it navigates only when the chat is
+        // not already on the restored stack, then clears the static).
+        readPendingChatGuid(intent)
 
         // Boot the Rust runtime (state dirs + keystore) before any UI can
         // provision or sign in — onboarding reaches Rust before the push

@@ -5,7 +5,6 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.webkit.WebView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,10 +17,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,11 +32,12 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -44,7 +45,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,8 +56,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -70,6 +70,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material3.LocalTextStyle
+import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -133,7 +134,9 @@ fun LoginScreenBody(
                 .imePadding(),
         ) {
             if (state.isBusy()) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+                // Indeterminate account round-trips — the wavy indicator is
+                // the expressive form of exactly this kind of wait.
+                LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             }
             when (state) {
                 is LoginScreen.Form -> FormStep(state, events, onRedoSetup)
@@ -169,6 +172,11 @@ private fun FormStep(
             .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Forms center-cap at 480dp on wide windows instead of stretching.
+        Column(
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
         AppBadge()
         Spacer(Modifier.height(20.dp))
         Text(
@@ -215,6 +223,7 @@ private fun FormStep(
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = { events.submitCredentials(username.trim(), password) },
+            shapes = ButtonDefaults.shapes(),
             enabled = !state.busy && username.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -224,6 +233,7 @@ private fun FormStep(
             Spacer(Modifier.height(12.dp))
             FilledTonalButton(
                 onClick = { events.submitCredentials(null, null) },
+                shapes = ButtonDefaults.shapes(),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -238,6 +248,7 @@ private fun FormStep(
             ) {
                 Text("Use a different device setup method")
             }
+        }
         }
     }
 }
@@ -282,6 +293,7 @@ private fun DeviceCodeStep(state: LoginScreen.DeviceCode, events: LoginEvents) {
         ErrorRow(state.error, events)
         Button(
             onClick = { events.submitCode(code) },
+            shapes = ButtonDefaults.shapes(),
             enabled = !state.busy && code.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -315,6 +327,8 @@ private fun SmsPhoneChooserStep(state: LoginScreen.SmsPhoneChooser, events: Logi
         Spacer(Modifier.height(20.dp))
         state.options.forEach { option ->
             val rowId = option.id.toInt()
+            // A single-select set is a radio group: the row carries the role
+            // and selection, the RadioButton is its visual.
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = if (selectedId == rowId) {
@@ -322,12 +336,17 @@ private fun SmsPhoneChooserStep(state: LoginScreen.SmsPhoneChooser, events: Logi
                 } else {
                     MaterialTheme.colorScheme.surfaceContainer
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .selectable(
+                        selected = selectedId == rowId,
+                        onClick = { selectedId = rowId },
+                        role = Role.RadioButton,
+                    ),
             ) {
                 Row(
-                    modifier = Modifier
-                        .clickable { selectedId = rowId }
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -347,6 +366,7 @@ private fun SmsPhoneChooserStep(state: LoginScreen.SmsPhoneChooser, events: Logi
         ErrorRow(state.error, events)
         Button(
             onClick = { events.pickPhone(selectedId.toUInt()) },
+            shapes = ButtonDefaults.shapes(),
             enabled = !state.busy && selectedId >= 0,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -391,6 +411,7 @@ private fun SmsCodeStep(state: LoginScreen.SmsCode, events: LoginEvents) {
         ErrorRow(state.error, events)
         Button(
             onClick = { events.submitSmsCode(code) },
+            shapes = ButtonDefaults.shapes(),
             enabled = !state.busy && code.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -438,6 +459,7 @@ private fun ExtraStepScreen(state: LoginScreen.ExtraStep, events: LoginEvents) {
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = events::acceptExtraStep,
+            shapes = ButtonDefaults.shapes(),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -516,6 +538,7 @@ private fun BlockedStep(state: LoginScreen.Blocked) {
                         // No handler for the URL; the text still tells the story.
                     }
                 },
+                shapes = ButtonDefaults.shapes(),
             ) {
                 Text(state.actionLabel)
             }
@@ -566,10 +589,7 @@ private fun LoginTextField(
         trailingIcon = trailingIcon,
         textStyle = textStyle,
         shape = MaterialTheme.shapes.medium,
-        colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-        ),
+        colors = pillTextFieldColors(),
     )
 }
 

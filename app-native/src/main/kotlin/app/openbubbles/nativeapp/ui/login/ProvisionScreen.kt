@@ -2,12 +2,17 @@ package app.openbubbles.nativeapp.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -94,63 +100,78 @@ fun ProvisionScreen(
         return
     }
 
+    // Shown both standalone (full-screen route) and embedded in onboarding;
+    // the safeDrawing/IME padding is a no-op where a parent already consumed
+    // the insets, and essential where it hasn't.
     Column(
         modifier = modifier
+            .fillMaxSize()
+            .safeDrawingPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Self-hosted device setup", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Scan the hardware QR code generated on your Mac, or paste its " +
-                "exported activation payload. After this one-time transfer, " +
-                "Apple validation runs locally on this Android device; the " +
-                "OpenBubbles hosted relay is not used.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "This build includes the version-pinned on-device validation engine. " +
-                "If its compatibility check fails, setup stops instead of " +
-                "sending hardware data to a hosted relay.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Button(
-            enabled = !busy,
-            onClick = { scanning = true },
-            modifier = Modifier.fillMaxWidth(),
+        Column(
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Scan Mac hardware QR code")
-        }
-        OutlinedTextField(
-            value = activationPayload,
-            onValueChange = { activationPayload = it },
-            label = { Text("Mac activation payload") },
-            supportingText = { Text("OABS base64 or 517-byte validation data") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 4,
-        )
-        Button(
-            enabled = !busy && activationPayload.isNotBlank(),
-            onClick = {
-                provision(classifyProvisioningInput(bytes = null, text = activationPayload))
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Use local Mac hardware")
-        }
-
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let {
+            Text("Self-hosted device setup", style = MaterialTheme.typography.headlineSmall)
             Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
+                "Scan the hardware QR code generated on your Mac, or paste its " +
+                    "exported activation payload. After this one-time transfer, " +
+                    "Apple validation runs locally on this Android device; the " +
+                    "OpenBubbles hosted relay is not used.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "This build includes the version-pinned on-device validation engine. " +
+                    "If its compatibility check fails, setup stops instead of " +
+                    "sending hardware data to a hosted relay.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Button(
+                enabled = !busy,
+                onClick = { scanning = true },
+                shapes = ButtonDefaults.shapes(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Scan Mac hardware QR code")
+            }
+            OutlinedTextField(
+                value = activationPayload,
+                onValueChange = { activationPayload = it },
+                label = { Text("Mac activation payload") },
+                supportingText = { Text("OABS base64 or 517-byte validation data") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 4,
+            )
+            Button(
+                enabled = !busy && activationPayload.isNotBlank(),
+                onClick = {
+                    provision(classifyProvisioningInput(bytes = null, text = activationPayload))
+                },
+                shapes = ButtonDefaults.shapes(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Use local Mac hardware")
+            }
+
+            // Indeterminate provisioning is exactly the wavy indicator's job.
+            if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+            error?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            TextButton(onClick = onBack) { Text("Back") }
         }
-        TextButton(onClick = onBack) { Text("Back") }
     }
 }
 

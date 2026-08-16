@@ -3,10 +3,8 @@ package app.openbubbles.nativeapp.ui.chatcreator
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,17 +38,22 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,9 +68,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -80,11 +83,15 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.ServiceColorPair
+import app.openbubbles.nativeapp.ui.theme.iMessageServiceColors
+import app.openbubbles.nativeapp.ui.theme.serviceColors
+import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 
 // ---------------------------------------------------------------------------
 // Recipient model + address parsing
@@ -117,21 +124,6 @@ private fun parseAddress(raw: String): ParsedAddress? {
 /** Case-insensitive dedupe key (emails only — phones are digit-normalized). */
 private fun keyOf(address: ParsedAddress): String =
     if (address.isEmail) address.display.lowercase() else address.display
-
-/** Stable avatar color from the same palette the chat list uses. */
-private fun avatarColorFor(seed: String): Long {
-    val palette = longArrayOf(
-        0xFF7C4FDF, 0xFF4C8BF5, 0xFF00897B, 0xFFD81B60, 0xFFF4511E,
-        0xFF6D4C41, 0xFF3949AB, 0xFF43A047, 0xFF8D6E63, 0xFFC0CA33,
-    )
-    return palette[abs(seed.hashCode()) % palette.size]
-}
-
-private fun iMessageBlue(dark: Boolean): Color =
-    if (dark) Color(0xFF0A84FF) else Color(0xFF007AFF)
-
-private fun smsGreen(dark: Boolean): Color =
-    if (dark) Color(0xFF30D158) else Color(0xFF34C759)
 
 /** Flattened, filtered + sorted contact row model for the picker list. */
 private data class ContactRowUi(
@@ -188,7 +180,6 @@ fun NewChatScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val dark = isSystemInDarkTheme()
 
     val chips = remember { mutableStateListOf<RecipientChip>() }
     var input by rememberSaveable { mutableStateOf("") }
@@ -279,7 +270,7 @@ fun NewChatScreen(
     val query = input.trim()
     val rows = remember(contacts, query) { buildRows(contacts.orEmpty(), query) }
     val addedKeys = remember(chips) { chips.map { it.key }.toSet() }
-    val serviceColor = if (useSms) smsGreen(dark) else iMessageBlue(dark)
+    val serviceColors = serviceColors(useSms)
 
     Scaffold(
         modifier = modifier,
@@ -324,7 +315,7 @@ fun NewChatScreen(
                     enabled = chips.isNotEmpty(),
                     creating = creating,
                     useSms = useSms,
-                    accent = serviceColor,
+                    accent = serviceColors,
                     onClick = { createChat() },
                 )
             }
@@ -347,7 +338,7 @@ fun NewChatScreen(
                             .padding(48.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        LoadingIndicator()
                     }
                 }
                 rows.isEmpty() -> item(key = "empty") {
@@ -361,7 +352,6 @@ fun NewChatScreen(
                         ContactRowView(
                             row = row,
                             added = row.primaryKey in addedKeys,
-                            accent = serviceColor,
                             onClick = { addChip(row.primaryRaw) },
                         )
                     }
@@ -391,7 +381,7 @@ private fun RecipientField(
         input.all { it.isDigit() || it in "+()-. " }
     Column(modifier = modifier) {
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = MaterialTheme.shapes.largeIncreased,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -433,7 +423,8 @@ private fun RecipientField(
                         keyboardActions = KeyboardActions(onDone = { onCommit() }),
                         modifier = Modifier
                             .weight(1f, fill = false)
-                            .defaultMinSize(minWidth = 96.dp, minHeight = 32.dp),
+                            .defaultMinSize(minWidth = 96.dp, minHeight = 32.dp)
+                            .semantics { contentDescription = "Recipient address" },
                         decorationBox = { innerTextField ->
                             Box(
                                 contentAlignment = Alignment.CenterStart,
@@ -479,19 +470,20 @@ private fun ServiceSelector(
     onUseSmsChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dark = isSystemInDarkTheme()
+    // An exclusive either/or, so the pills are a connected toggle group: the
+    // checked service morphs to a full pill and carries real toggle semantics.
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
-        ServicePill(
-            selected = !useSms,
+        ServiceToggle(
+            checked = !useSms,
+            onSelect = { onUseSmsChange(false) },
             label = "iMessage",
-            selectedColor = iMessageBlue(dark),
-            onClick = { onUseSmsChange(false) },
+            colors = iMessageServiceColors(),
+            shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
             icon = {
                 Icon(
                     Icons.AutoMirrored.Filled.Chat,
@@ -499,12 +491,14 @@ private fun ServiceSelector(
                     modifier = Modifier.size(16.dp),
                 )
             },
+            modifier = Modifier.weight(1f),
         )
-        ServicePill(
-            selected = useSms,
+        ServiceToggle(
+            checked = useSms,
+            onSelect = { onUseSmsChange(true) },
             label = "SMS",
-            selectedColor = smsGreen(dark),
-            onClick = { onUseSmsChange(true) },
+            colors = smsServiceColors(),
+            shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
             icon = {
                 Icon(
                     Icons.Filled.Sms,
@@ -512,36 +506,36 @@ private fun ServiceSelector(
                     modifier = Modifier.size(16.dp),
                 )
             },
+            modifier = Modifier.weight(1f),
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ServicePill(
-    selected: Boolean,
+private fun ServiceToggle(
+    checked: Boolean,
+    onSelect: () -> Unit,
     label: String,
-    selectedColor: Color,
-    onClick: () -> Unit,
+    colors: ServiceColorPair,
+    shapes: ToggleButtonShapes,
     icon: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (selected) selectedColor else MaterialTheme.colorScheme.surfaceContainerHighest,
-        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier,
+    ToggleButton(
+        checked = checked,
+        onCheckedChange = { onSelect() },
+        shapes = shapes,
+        colors = ToggleButtonDefaults.toggleButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            checkedContainerColor = colors.container,
+            checkedContentColor = colors.content,
+        ),
+        modifier = modifier.defaultMinSize(minHeight = 48.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            icon()
-            Text(text = label, style = MaterialTheme.typography.labelLarge)
-        }
+        icon()
+        Spacer(Modifier.width(6.dp))
+        Text(text = label, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -550,17 +544,19 @@ private fun CreateChatButton(
     enabled: Boolean,
     creating: Boolean,
     useSms: Boolean,
-    accent: Color,
+    accent: ServiceColorPair,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Button(
         onClick = onClick,
+        // Expressive overload: the resting silhouette stays, and the button
+        // morphs its corners on press instead of pinning a static shape.
+        shapes = ButtonDefaults.shapes(shape = MaterialTheme.shapes.large),
         enabled = enabled && !creating,
-        shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = accent,
-            contentColor = Color.White,
+            containerColor = accent.container,
+            contentColor = accent.content,
         ),
         modifier = modifier
             .fillMaxWidth()
@@ -571,7 +567,7 @@ private fun CreateChatButton(
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
-                color = Color.White,
+                color = accent.content,
             )
         } else {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
@@ -606,7 +602,7 @@ private fun TypedAddressRow(text: String, onAdd: () -> Unit, modifier: Modifier 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.largeIncreased)
             .clickable(onClick = onAdd)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -645,14 +641,13 @@ private fun TypedAddressRow(text: String, onAdd: () -> Unit, modifier: Modifier 
 private fun ContactRowView(
     row: ContactRowUi,
     added: Boolean,
-    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.largeIncreased)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -660,7 +655,7 @@ private fun ContactRowView(
     ) {
         ChatAvatar(
             title = row.name,
-            avatarColor = avatarColorFor(row.name),
+            avatarColor = avatarColorFor(row.primaryKey),
             size = 40.dp,
             avatarPath = row.avatarPath,
         )
@@ -683,7 +678,7 @@ private fun ContactRowView(
             Icon(
                 Icons.Filled.Check,
                 contentDescription = "Added",
-                tint = accent,
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -717,7 +712,7 @@ private fun PermissionCard(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier
             .fillMaxWidth()

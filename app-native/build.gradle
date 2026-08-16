@@ -67,6 +67,9 @@ android {
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
             "-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
+            // SharedTransitionLayout / LocalSharedTransitionScope (NavDisplay
+            // shared elements) are still experimental in compose-animation.
+            "-opt-in=androidx.compose.animation.ExperimentalSharedTransitionApi",
         ]
     }
     // The screenshot plugin requires this here as well as in gradle.properties.
@@ -75,6 +78,8 @@ android {
     buildFeatures {
         compose true
         viewBinding true
+        // BuildConfig.DEBUG gates the on-screen smoke-test footer.
+        buildConfig true
     }
 }
 
@@ -138,6 +143,7 @@ dependencies {
     implementation libs.androidx.lifecycle.runtime.ktx
     implementation libs.androidx.lifecycle.viewmodel.compose
     implementation libs.androidx.lifecycle.runtime.compose
+    implementation libs.androidx.lifecycle.viewmodel.navigation3
 
     // JVM unit tests for the sms/ receive->ingest builders (same objectbox
     // desktop runtime :db/:core tests use, so the ingest integration can open
