@@ -309,6 +309,7 @@ fun OpenBubblesApp(
                             AppGraph.stickerSender,
                             AppGraph.typing,
                             AppGraph.readReceipts,
+                            AppGraph.faceTimeCaller,
                         ),
                     )
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -328,6 +329,8 @@ fun OpenBubblesApp(
                         onUnsend = viewModel::unsend,
                         onCancelComposerAction = viewModel::cancelComposerAction,
                         onActionErrorShown = viewModel::clearActionError,
+                        onStartFaceTime = viewModel::startFaceTime,
+                        onFaceTimeLaunchConsumed = viewModel::consumeFaceTimeLaunch,
                         onBack = { popBack() },
                         // Beside its own list there is nothing to go back to.
                         showBackButton = !isMultiPane,
