@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.core.sync.TranscriptBackgroundUpdate
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
@@ -343,7 +342,7 @@ class NativePushService : Service(), MsgReceiver {
             }
 
             if (pollMode) {
-                runPollOnce(live, generation)
+                runPollOnce(live, generation, handles)
                 return@launch
             }
             reconnectJob?.cancel()
@@ -391,14 +390,14 @@ class NativePushService : Service(), MsgReceiver {
      * one incremental CloudKit sync, notify chats that gained unread
      * messages, then exit until the next WorkManager tick.
      */
-    private fun runPollOnce(live: NativePushState, generation: Int) {
+    private fun runPollOnce(live: NativePushState, generation: Int, handles: Set<String>) {
         scope.launch {
             try {
                 val appCtx = applicationContext
                 app.openbubbles.nativeapp.data.CoreGraph.pollOnce(
                     appCtx, live,
-                    onNewUnread = { chatId, title, body ->
-                        notifyPollResult(chatId, title, body)
+                    onNewUnread = { chatId, body ->
+                        notifyPollResult(chatId, body, handles)
                     },
                 )
             } catch (error: Throwable) {
@@ -415,16 +414,24 @@ class NativePushService : Service(), MsgReceiver {
         }
     }
 
-    private fun notifyPollResult(chatId: Long, title: String, body: String) {
+    private fun notifyPollResult(chatId: Long, body: String, handles: Set<String>) {
         val chat = CoreGraph.store?.boxFor(app.openbubbles.db.Chat::class.java)?.get(chatId) ?: return
         val guid = chat.guid ?: return
+        val latest = chat.dbLatestMessage.target
+        val identity = CoreGraph.messageNotificationIdentity(
+            chat = chat,
+            senderAddress = latest?.handleRelation?.target?.address,
+            myHandles = handles,
+        )
         Notifications.postIncoming(
             context = this,
             chatId = chatId,
             chatGuid = guid,
-            title = title,
+            title = identity.title,
             text = body,
-            isGroup = chat.isGroupConversation(),
+            isGroup = identity.isGroup,
+            senderName = identity.senderName,
+            messageGuid = latest?.guid,
         )
     }
 
@@ -484,44 +491,16 @@ class NativePushService : Service(), MsgReceiver {
             getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
         ) return
 
-        val isGroup = target.isGroupConversation()
-
-        // Prefer the linked contact's name over the raw handle. Without this the
-        // shade shows phone numbers and email addresses even when the contact is
-        // known, because formattedAddress is still just the address.
-        fun displayNameFor(address: String?): String? =
-            address?.let { CoreGraph.contactDisplayInfo(it)?.first }?.takeIf { it.isNotBlank() }
-
-        fun app.openbubbles.db.Handle.contactOrAddress(): String =
-            displayNameFor(address) ?: formattedAddress ?: address
-
-        val rawSender = inst.sender?.removePrefix("tel:")?.removePrefix("mailto:")
-        val senderName = target.handles
-            .firstOrNull { handle -> handle.address == rawSender }
-            ?.contactOrAddress()
-            ?: displayNameFor(rawSender)
-            ?: rawSender
-        val chatTitle = if (isGroup) {
-            target.displayName
-                ?: target.apnTitle
-                ?: target.title
-                ?: target.handles.joinToString(", ") { it.contactOrAddress() }
-                    .ifBlank { "Group" }
-        } else {
-            target.displayName
-                ?: target.handles.firstOrNull()?.contactOrAddress()
-                ?: senderName
-                ?: "Message"
-        }
+        val identity = CoreGraph.messageNotificationIdentity(target, inst.sender)
 
         Notifications.postIncoming(
             context = this,
             chatId = target.id,
             chatGuid = target.guid ?: return,
-            title = chatTitle,
+            title = identity.title,
             text = body,
-            isGroup = isGroup,
-            senderName = senderName,
+            isGroup = identity.isGroup,
+            senderName = identity.senderName,
             messageGuid = inst.id,
         )
     }

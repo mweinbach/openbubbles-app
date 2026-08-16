@@ -272,6 +272,27 @@ class ContactSync(private val store: BoxStore) {
         return HandleDisplayInfo(name = name, avatar = contact?.avatarPath)
     }
 
+    /**
+     * Resolves a saved contact directly from an address, without requiring a
+     * persisted Handle relation. Contact sync and message ingestion are
+     * independent streams, so a notification can arrive after the contact is
+     * stored but before its newly-created handle has been linked.
+     */
+    fun displayInfoForAddress(address: String): HandleDisplayInfo? = store.callInReadTx {
+        val targetKeys = addressMatchKeys(address)
+        if (targetKeys.isEmpty()) return@callInReadTx null
+        contactsByPreference().firstOrNull { contact ->
+            contact.addresses.any { candidate ->
+                addressMatchKeys(candidate).any(targetKeys::contains)
+            }
+        }?.let { contact ->
+            HandleDisplayInfo(
+                name = computedDisplayName(contact).takeIf { it.isNotEmpty() },
+                avatar = contact.avatarPath,
+            )
+        }
+    }
+
     fun preferredContacts(includeNativeContacts: Boolean = true): List<RawContact> =
         store.callInReadTx {
             val claimedAddresses = HashSet<String>()

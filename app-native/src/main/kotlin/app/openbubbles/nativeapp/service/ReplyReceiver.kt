@@ -79,9 +79,7 @@ class ReplyReceiver : BroadcastReceiver() {
             return
         }
         resolvedGuid = chatGuid ?: chat.guid
-        title = chat.displayName
-            ?: chat.handles.firstOrNull()?.formattedAddress
-            ?: "Message"
+        title = CoreGraph.messageNotificationIdentity(chat).title
         val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
 
         if (notificationReplyTransport(chat) == NotificationReplyTransport.SMS) {

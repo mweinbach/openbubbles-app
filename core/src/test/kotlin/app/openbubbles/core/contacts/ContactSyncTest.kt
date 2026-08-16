@@ -219,6 +219,29 @@ class ContactSyncTest {
     }
 
     @Test
+    fun `displayInfoForAddress resolves contact before handle exists`() {
+        sync.upsertContacts(
+            listOf(
+                raw(
+                    "icloud:early-notification",
+                    displayName = "Early Contact",
+                    avatarPath = "/av/early.png",
+                    addresses = listOf("Friend@iCloud.com", "+1 (555) 123-4567"),
+                ),
+            ),
+        )
+
+        assertEquals(
+            HandleDisplayInfo("Early Contact", "/av/early.png"),
+            sync.displayInfoForAddress("mailto:friend@icloud.com"),
+        )
+        assertEquals(
+            HandleDisplayInfo("Early Contact", "/av/early.png"),
+            sync.displayInfoForAddress("tel:+15551234567"),
+        )
+    }
+
+    @Test
     fun `iCloud contact wins and native contact becomes fallback`() {
         val handle = seedHandle("friend@icloud.com")
         sync.upsertContacts(

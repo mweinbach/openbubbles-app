@@ -198,7 +198,7 @@ object CoreGraph {
     fun pollOnce(
         context: android.content.Context,
         state: NativePushState,
-        onNewUnread: (chatId: Long, title: String, body: String) -> Unit,
+        onNewUnread: (chatId: Long, body: String) -> Unit,
     ) {
         val st = store ?: return
         val chatBox = st.boxFor(Chat::class.java)
@@ -227,7 +227,6 @@ object CoreGraph {
                                 val latest = chat.dbLatestMessage.target
                                 onNewUnread(
                                     chat.id,
-                                    chat.displayName ?: chat.guid,
                                     latest?.text?.takeIf { it.isNotBlank() } ?: "New message",
                                 )
                             }
@@ -262,6 +261,17 @@ object CoreGraph {
      */
     fun contactDisplayInfo(address: String): Pair<String?, String?>? =
         CoreContacts.displayInfo(address)
+
+    internal fun messageNotificationIdentity(
+        chat: Chat,
+        senderAddress: String? = null,
+        myHandles: Set<String> = PushStateHolder.myHandles,
+    ): MessageNotificationIdentity = resolveMessageNotificationIdentity(
+        chat = chat,
+        senderAddress = senderAddress,
+        myHandles = myHandles,
+        contactNameFor = { address -> contactDisplayInfo(address)?.first },
+    )
 
     fun preferredContacts(includeNativeContacts: Boolean = true): List<app.openbubbles.core.contacts.RawContact> =
         CoreContacts.preferredContacts(includeNativeContacts)
@@ -734,18 +744,21 @@ private object CoreContacts {
     /** (name, avatarPath) for a handle address, or null when unknown. */
     fun displayInfo(address: String): Pair<String?, String?>? {
         val contactSync = sync ?: return null
-        val handle = handleFor(address) ?: return null
-        var infoByHandle = displayInfoIndex
-        if (infoByHandle == null) {
-            synchronized(this) {
-                infoByHandle = displayInfoIndex
-                if (infoByHandle == null) {
-                    infoByHandle = contactSync.displayInfoByHandleId()
-                    displayInfoIndex = infoByHandle
+        val handle = handleFor(address)
+        if (handle != null) {
+            var infoByHandle = displayInfoIndex
+            if (infoByHandle == null) {
+                synchronized(this) {
+                    infoByHandle = displayInfoIndex
+                    if (infoByHandle == null) {
+                        infoByHandle = contactSync.displayInfoByHandleId()
+                        displayInfoIndex = infoByHandle
+                    }
                 }
             }
+            infoByHandle?.get(handle.id)?.let { info -> return info.name to info.avatar }
         }
-        return infoByHandle?.get(handle.id)?.let { info -> info.name to info.avatar }
+        return contactSync.displayInfoForAddress(address)?.let { info -> info.name to info.avatar }
     }
 }
 
