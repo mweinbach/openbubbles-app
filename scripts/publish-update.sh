@@ -61,6 +61,8 @@ done
 [[ "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "--version-name must look like 2.0.1, got: $VERSION_NAME"
 
 # --------------------------------------------------------------- notes -----
+# Resolution order: --notes/--notes-file, then the matching `## v<version>`
+# section of assets/changelog/changelog.md, then the commit log.
 if [ -n "$NOTES_FILE" ] && [ -n "$NOTES" ]; then
     die "pass either --notes or --notes-file, not both"
 fi
@@ -68,7 +70,28 @@ if [ -n "$NOTES_FILE" ]; then
     [ -f "$NOTES_FILE" ] || die "notes file not found: $NOTES_FILE"
     NOTES="$(cat "$NOTES_FILE")"
 fi
-: "${NOTES:=Release $VERSION_NAME.}"
+if [ -z "$NOTES" ] && [ -f "$REPO_ROOT/assets/changelog/changelog.md" ]; then
+    NOTES="$(python3 - "$VERSION_NAME" "$REPO_ROOT/assets/changelog/changelog.md" <<'PY'
+import re, sys
+version, changelog = sys.argv[1:3]
+text = open(changelog).read()
+pat = re.compile(
+    r'^## (?:v)?' + re.escape(version) + r'(?=\s|$)(.*?)(?=^## |\Z)',
+    re.M | re.S,
+)
+m = pat.search(text)
+print(m.group(1).strip() if m else '')
+PY
+)"
+fi
+if [ -z "$NOTES" ]; then
+    PREV_TAG="$(git -C "$REPO_ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+    if [ -n "$PREV_TAG" ]; then
+        NOTES="$(git -C "$REPO_ROOT" log --oneline "$PREV_TAG..HEAD")"
+    else
+        NOTES="$(git -C "$REPO_ROOT" log --oneline -20)"
+    fi
+fi
 [ "$NOTES" != "$(printf '%s' "$NOTES" | head -c 4000)" ] && \
     log "warning: notes longer than 4000 chars will be trimmed"
 

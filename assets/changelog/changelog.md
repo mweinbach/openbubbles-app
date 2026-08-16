@@ -1,6 +1,29 @@
 # What's new?
 
-Below are the last few BlueBubbles App release changelogs
+Below are the last few OpenBubbles App release changelogs
+
+## v2.0.0
+
+### Native client
+
+- The app is rebuilt as a native Kotlin + Rust client: no Dart/Flutter runtime,
+  same application id, in-place upgrade over the previous client with chats
+  and attachments preserved.
+- Direct Apple messaging without a Mac server: provisioning via a self-hosted
+  OABS payload, live APNs push or 15-minute battery-saver polling.
+- Full chat features: reactions/tapbacks, replies, edits, unsend, group
+  controls, pinned/muted/archived chats, notifications with reply and
+  mark-read actions.
+- SIM SMS/MMS with default-SMS role, carrier MMS attachments, and iCloud
+  Keychain credential provider and autofill services.
+- FaceTime calls, Find My, shared media, and chat backgrounds.
+
+### Self-updating
+
+- In-app updates published through GitHub Releases: the app checks daily and
+  on open, downloads and SHA-256-verifies the update, and installs it with
+  one tap (no Play Store needed).
+- CI builds and signs each release automatically on push to main.
 
 ## v1.15.0
 

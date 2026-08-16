@@ -185,16 +185,38 @@ jobs:
           SHA256=$(shasum -a 256 "${{ steps.ver.outputs.asset }}" | awk '{print $1}')
           BYTES=$(wc -c < "${{ steps.ver.outputs.asset }}" | tr -d ' ')
 
-          # Release notes: dispatch input wins; otherwise the commit log since
-          # the previous release tag (or the last 20 commits).
+          # Release notes, in order of preference:
+          #   1. workflow_dispatch `notes` input
+          #   2. the `## v<versionName>` section of assets/changelog/changelog.md
+          #      (kept current for each release; this is the documented path)
+          #   3. the commit log since the previous release tag
           if [ -n "${{ github.event.inputs.notes }}" ]; then
             printf '%s\n' "${{ github.event.inputs.notes }}" > release-notes.md
           else
-            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
-            if [ -n "$PREV_TAG" ]; then
-              git log --oneline "$PREV_TAG..HEAD" > release-notes.md
-            else
-              git log --oneline -20 > release-notes.md
+            python3 - "${{ steps.ver.outputs.version_name }}" \
+              assets/changelog/changelog.md release-notes.md <<'PY'
+            import re, sys
+            version, changelog, out = sys.argv[1:4]
+            text = open(changelog).read() if __import__('os').path.exists(changelog) else ''
+            # Match "## v2.0.0" or "## 2.0.0" (prefix-numeric-only, not 2.0.0-rc1)
+            pat = re.compile(
+                r'^## (?:v)?' + re.escape(version) + r'(?=\s|$)(.*?)(?=^## |\Z)',
+                re.M | re.S,
+            )
+            m = pat.search(text)
+            if m and m.group(1).strip():
+                body = m.group(1).strip()
+            else:
+                body = ''
+            open(out, 'w').write(body)
+            PY
+            if [ ! -s release-notes.md ]; then
+              PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+              if [ -n "$PREV_TAG" ]; then
+                git log --oneline "$PREV_TAG..HEAD" > release-notes.md
+              else
+                git log --oneline -20 > release-notes.md
+              fi
             fi
           fi
 
