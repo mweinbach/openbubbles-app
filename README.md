@@ -92,6 +92,26 @@ by the Rust validation backend. A debug-only broadcast performs the complete
 Apple certificate, key-establishment, and signing round trip without account
 credentials.
 
+## Releases and self-updates
+
+The app updates itself from GitHub Releases — no Play Store. Every push to
+`main` with code changes makes the `Self-update release` GitHub Action build
+the production-signed APK and publish it with an `update.json` feed; installed
+devices check daily and on app open, then download, verify (SHA-256 +
+signature), and install with one tap.
+
+To cut a named version:
+
+1. Bump `versionName`/`versionCode` in `app-native/build.gradle` (CI
+   auto-increments the code past the last release if you don't).
+2. Add a `## v<version>` section to `assets/changelog/changelog.md` — it
+   becomes the release notes shown on GitHub and in the app.
+3. Push to `main`. The next CI release carries your version.
+
+Full mechanics — signing keys and backup, the versionCode rules, notes
+resolution, manual dispatch, and private-submodule CI access — are in
+[docs/RELEASES.md](docs/RELEASES.md).
+
 ## Data compatibility
 
 Android retains the shipping application ID, `com.openbubbles.messaging`, and
