@@ -77,4 +77,9 @@ class UpdateInstallReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             getParcelableExtra(Intent.EXTRA_INTENT)
         }
+
+    private companion object {
+        // Serialized: at most one install pipeline should ever be running.
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    }
 }
