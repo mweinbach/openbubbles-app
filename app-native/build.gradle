@@ -103,6 +103,7 @@ dependencies {
     implementation libs.androidx.biometric
     implementation libs.androidx.autofill
     implementation libs.androidx.appcompat
+    implementation libs.androidx.exifinterface
     implementation libs.google.material
     implementation libs.cbor
     implementation libs.okhttp

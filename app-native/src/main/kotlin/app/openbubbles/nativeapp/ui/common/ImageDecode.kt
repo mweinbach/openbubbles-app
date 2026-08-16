@@ -1,6 +1,8 @@
 package app.openbubbles.nativeapp.ui.common
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.util.LruCache
 import androidx.compose.runtime.Composable
@@ -9,13 +11,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.exifinterface.media.ExifInterface
 import app.openbubbles.nativeapp.data.MemoryCaches
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 import java.util.Locale
 
-/** A decoded bitmap plus the source aspect ratio (width / height). */
+/** A decoded bitmap plus its display-oriented aspect ratio (width / height). */
 data class DecodedImage(
     val image: ImageBitmap,
     val aspectRatio: Float,
@@ -51,11 +55,55 @@ object ImageDecodeCache {
 /** Fallback aspect ratio when the file's dimensions cannot be read. */
 const val FallbackAspectRatio = 4f / 3f
 
+private data class ImageOrientation(
+    val flipHorizontal: Boolean = false,
+    val rotationDegrees: Int = 0,
+)
+
+private val NormalImageOrientation = ImageOrientation()
+
+private fun ExifInterface.imageOrientation() = ImageOrientation(
+    flipHorizontal = isFlipped,
+    rotationDegrees = rotationDegrees,
+)
+
+private fun File.readImageOrientation(): ImageOrientation =
+    runCatching { ExifInterface(this).imageOrientation() }
+        .getOrDefault(NormalImageOrientation)
+
+private fun readImageOrientation(openStream: () -> InputStream?): ImageOrientation =
+    runCatching {
+        openStream()?.use { ExifInterface(it).imageOrientation() }
+    }.getOrNull() ?: NormalImageOrientation
+
+/** Applies EXIF's required horizontal flip first, then clockwise rotation. */
+private fun Bitmap.applyImageOrientation(orientation: ImageOrientation): Bitmap {
+    var oriented = this
+    if (orientation.flipHorizontal) {
+        oriented = oriented.transformed(
+            Matrix().apply { setScale(-1f, 1f) },
+        )
+    }
+    if (orientation.rotationDegrees != 0) {
+        oriented = oriented.transformed(
+            Matrix().apply { setRotate(orientation.rotationDegrees.toFloat()) },
+        )
+    }
+    return oriented
+}
+
+private fun Bitmap.transformed(matrix: Matrix): Bitmap {
+    val transformed = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
+    if (transformed !== this) recycle()
+    return transformed
+}
+
 /**
  * Decodes [file] off the main thread, downsampled so neither side exceeds
- * [maxDimensionPx] (bubbles use 512, the viewer a larger budget). Returns
- * null while decoding, when the file is missing, or when decoding fails —
- * callers render a placeholder in that case.
+ * [maxDimensionPx] (bubbles use 512, the viewer a larger budget), then
+ * normalizes EXIF orientation before caching. Returns null while decoding,
+ * when the file is missing, or when decoding fails — callers render a
+ * placeholder in that case.
  */
 @Composable
 fun rememberDecodedImage(
@@ -74,6 +122,7 @@ fun rememberDecodedImage(
         val decoded = withContext(Dispatchers.IO) {
             runCatching {
                 if (!file!!.isFile) return@runCatching null
+                val orientation = file.readImageOrientation()
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(file.absolutePath, bounds)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
@@ -87,9 +136,10 @@ fun rememberDecodedImage(
                 val options = BitmapFactory.Options().apply { inSampleSize = sample }
                 val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
                     ?: return@runCatching null
+                val oriented = bitmap.applyImageOrientation(orientation)
                 DecodedImage(
-                    image = bitmap.asImageBitmap(),
-                    aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat(),
+                    image = oriented.asImageBitmap(),
+                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
                 )
             }.getOrNull()
         }
@@ -101,8 +151,9 @@ fun rememberDecodedImage(
 /**
  * Decodes an image referenced by a string URI (contact photo URIs are
  * `content://` lookups; plain file paths also work) off the main thread,
- * downsampled so neither side exceeds [maxDimensionPx]. Returns null while
- * decoding, for null/blank input, or on failure — callers fall back.
+ * downsampled so neither side exceeds [maxDimensionPx], with EXIF orientation
+ * normalized before caching. Returns null while decoding, for null/blank
+ * input, or on failure — callers fall back.
  */
 @Composable
 fun rememberDecodedUriImage(
@@ -127,6 +178,7 @@ fun rememberDecodedUriImage(
                     else -> File(uri).takeIf { it.isFile }?.inputStream()
                 }
 
+                val orientation = readImageOrientation(::openStream)
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 openStream()?.use { BitmapFactory.decodeStream(it, null, bounds) }
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
@@ -141,9 +193,10 @@ fun rememberDecodedUriImage(
                 val bitmap = openStream()?.use {
                     BitmapFactory.decodeStream(it, null, options)
                 } ?: return@runCatching null
+                val oriented = bitmap.applyImageOrientation(orientation)
                 DecodedImage(
-                    image = bitmap.asImageBitmap(),
-                    aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat(),
+                    image = oriented.asImageBitmap(),
+                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
                 )
             }.getOrNull()
         }
@@ -152,7 +205,7 @@ fun rememberDecodedUriImage(
     }.value
 }
 
-/** Decodes embedded image bytes off the main thread for rich-link previews. */
+/** Decodes and EXIF-normalizes embedded image bytes for rich-link previews. */
 @Composable
 fun rememberDecodedBytes(
     bytes: ByteArray?,
@@ -172,6 +225,7 @@ fun rememberDecodedBytes(
         val decoded = withContext(Dispatchers.Default) {
             runCatching {
                 val source = bytes ?: return@runCatching null
+                val orientation = readImageOrientation { source.inputStream() }
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
@@ -185,9 +239,10 @@ fun rememberDecodedBytes(
                 val options = BitmapFactory.Options().apply { inSampleSize = sample }
                 val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, options)
                     ?: return@runCatching null
+                val oriented = bitmap.applyImageOrientation(orientation)
                 DecodedImage(
-                    image = bitmap.asImageBitmap(),
-                    aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat(),
+                    image = oriented.asImageBitmap(),
+                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
                 )
             }.getOrNull()
         }

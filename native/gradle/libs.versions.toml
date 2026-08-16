@@ -38,6 +38,7 @@ credentials = "1.6.0"
 biometric = "1.1.0"
 autofill = "1.3.0"
 appcompat = "1.8.0"
+exifInterface = "1.4.2"
 materialComponents = "1.12.0"
 
 # --- persistence / native --------------------------------------------------
@@ -93,6 +94,7 @@ androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "a
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 androidx-autofill = { module = "androidx.autofill:autofill", version.ref = "autofill" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifInterface" }
 google-material = { module = "com.google.android.material:material", version.ref = "materialComponents" }
 
 # --- camerax + ml kit (QR pairing) -----------------------------------------
