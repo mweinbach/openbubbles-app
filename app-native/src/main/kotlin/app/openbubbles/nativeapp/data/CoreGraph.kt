@@ -24,6 +24,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1038,18 +1039,24 @@ private object CoreReadReceiptSender : ReadReceiptSender {
             ?: false
         val notifyOthers = chat.autoSendReadReceipts || globalReceipts
         val conversation = readReceiptConversation(chat, sender, receiptGuid, notifyOthers)
-        runCatching {
+        try {
             runInterruptible(Dispatchers.IO) {
                 state.sendRead(conversation, sender, receiptGuid)
             }
-        }.onFailure { error ->
-            PushStateHolder.reportError(
-                "Conversation was marked read locally, but the Apple receipt failed: " +
-                    (error.message ?: error.javaClass.simpleName),
-            )
+        } catch (error: Throwable) {
+            val failureMessage = appleReadReceiptFailureMessage(error) ?: throw error
+            PushStateHolder.reportError(failureMessage)
         }
     }
 }
+
+internal fun appleReadReceiptFailureMessage(error: Throwable): String? =
+    if (error is CancellationException) {
+        null
+    } else {
+        "Conversation was marked read locally, but the Apple receipt failed: " +
+            (error.message ?: error.javaClass.simpleName)
+    }
 
 internal fun shouldSendAppleReadReceipt(chat: Chat): Boolean = chat.isRpSms != true
 

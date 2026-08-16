@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.data
 
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Handle
+import kotlinx.coroutines.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -140,5 +141,16 @@ class SendRoutingTest {
     fun `SIM chats never send Apple read receipts`() {
         assertFalse(shouldSendAppleReadReceipt(Chat().apply { isRpSms = true }))
         assertTrue(shouldSendAppleReadReceipt(Chat().apply { isRpSms = false }))
+    }
+
+    @Test
+    fun `receipt cancellation is a coroutine signal rather than a push failure`() {
+        val cancelled = CancellationException("Job was cancelled")
+
+        assertNull(appleReadReceiptFailureMessage(cancelled))
+        assertEquals(
+            "Conversation was marked read locally, but the Apple receipt failed: offline",
+            appleReadReceiptFailureMessage(IllegalStateException("offline")),
+        )
     }
 }
