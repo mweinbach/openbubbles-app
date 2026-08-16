@@ -44,6 +44,7 @@ Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). D
 - Keep the Android Rust build Dart-free: direct Cargo + pinned NDK only.
 - SIM (`isRpSms`) attachments go through Android MMS, never MMCS.
 - Default path is self-hosted OABS + on-device validation. Do not require a hosted hardware relay.
+- After completing and verifying requested changes, commit them and push the current branch automatically unless the user explicitly asks not to.
 - Commit rustpush changes inside the submodule first, then the parent pointer separately.
 - Never commit credentials, `hw_info.plist` / `gsa.plist` / `id.plist`, keystores, `android/key.properties`, APNs proxy certs, or replay traffic.
 

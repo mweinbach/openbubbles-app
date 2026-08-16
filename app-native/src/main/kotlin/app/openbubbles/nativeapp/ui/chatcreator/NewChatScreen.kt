@@ -68,8 +68,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -183,6 +185,7 @@ fun NewChatScreen(
     initialUseSms: Boolean = false,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -197,6 +200,7 @@ fun NewChatScreen(
     val chips = remember { mutableStateListOf<RecipientChip>() }
     var input by rememberSaveable { mutableStateOf("") }
     var showInvalid by remember { mutableStateOf(false) }
+    var showContactResults by rememberSaveable { mutableStateOf(initialRecipients.isEmpty()) }
     var useSms by rememberSaveable(initialUseSms) {
         mutableStateOf(initialUseSms && smsAvailable)
     }
@@ -232,7 +236,18 @@ fun NewChatScreen(
     }
 
     LaunchedEffect(initialRecipients) {
-        initialRecipients.forEach(::addChip)
+        var recipientAdded = false
+        initialRecipients.forEach { recipient ->
+            if (addChip(recipient)) recipientAdded = true
+        }
+        if (recipientAdded) showContactResults = false
+    }
+
+    fun dismissContactSearch() {
+        input = ""
+        showInvalid = false
+        showContactResults = false
+        focusManager.clearFocus()
     }
 
     fun commitInput() {
@@ -242,8 +257,7 @@ fun NewChatScreen(
             return
         }
         if (addChip(token)) {
-            input = ""
-            showInvalid = false
+            dismissContactSearch()
         } else {
             showInvalid = true
         }
@@ -254,17 +268,25 @@ fun NewChatScreen(
     // so far already parses, so spaced phone entry keeps working.
     fun onInputChange(newValue: String) {
         showInvalid = false
+        showContactResults = true
+        var recipientAdded = false
         var rest = newValue
         while (true) {
             val separator = rest.indexOfFirst { it == ',' || it == ';' }
             if (separator < 0) break
             val token = rest.substring(0, separator).trim()
             rest = rest.substring(separator + 1)
-            if (token.isNotEmpty() && !addChip(token)) showInvalid = true
+            if (token.isNotEmpty()) {
+                if (addChip(token)) recipientAdded = true else showInvalid = true
+            }
         }
         val trimmed = rest.trim()
-        if (trimmed.isNotEmpty() && rest != trimmed && addChip(trimmed)) rest = ""
+        if (trimmed.isNotEmpty() && rest != trimmed && addChip(trimmed)) {
+            recipientAdded = true
+            rest = ""
+        }
         input = rest
+        if (recipientAdded && rest.isBlank()) dismissContactSearch()
     }
 
     fun createChat() {
@@ -285,7 +307,9 @@ fun NewChatScreen(
     }
 
     val query = input.trim()
-    val rows = remember(contacts, query) { buildRows(contacts.orEmpty(), query) }
+    val rows = remember(contacts, query, showContactResults) {
+        if (showContactResults) buildRows(contacts.orEmpty(), query) else emptyList()
+    }
     val addedKeys = remember(chips) { chips.map { it.key }.toSet() }
     val serviceColors = serviceColors(useSms)
 
@@ -319,6 +343,9 @@ fun NewChatScreen(
                     onInputChange = { onInputChange(it) },
                     onCommit = { commitInput() },
                     onRemoveChip = { chip -> chips.remove(chip) },
+                    onFocusChanged = { focused ->
+                        if (focused) showContactResults = true
+                    },
                 )
             }
             if (smsAvailable) {
@@ -343,36 +370,40 @@ fun NewChatScreen(
                     TypedAddressRow(text = query, onAdd = { commitInput() })
                 }
             }
-            when {
-                !contactsPermission -> item(key = "permission") {
-                    PermissionCard(
-                        requested = permissionRequested,
-                        onGrant = { permissionLauncher.launch(Manifest.permission.READ_CONTACTS) },
-                    )
-                }
-                contacts == null -> item(key = "loading") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        LoadingIndicator()
-                    }
-                }
-                rows.isEmpty() -> item(key = "empty") {
-                    EmptyContacts(query = query)
-                }
-                else -> {
-                    item(key = "contacts-header") {
-                        SectionLabel(if (query.isEmpty()) "Contacts" else "Matches")
-                    }
-                    items(rows, key = { "${it.contactId}|${it.primaryKey}" }) { row ->
-                        ContactRowView(
-                            row = row,
-                            added = row.primaryKey in addedKeys,
-                            onClick = { addChip(row.primaryRaw) },
+            if (showContactResults) {
+                when {
+                    !contactsPermission -> item(key = "permission") {
+                        PermissionCard(
+                            requested = permissionRequested,
+                            onGrant = { permissionLauncher.launch(Manifest.permission.READ_CONTACTS) },
                         )
+                    }
+                    contacts == null -> item(key = "loading") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            LoadingIndicator()
+                        }
+                    }
+                    rows.isEmpty() -> item(key = "empty") {
+                        EmptyContacts(query = query)
+                    }
+                    else -> {
+                        item(key = "contacts-header") {
+                            SectionLabel(if (query.isEmpty()) "Contacts" else "Matches")
+                        }
+                        items(rows, key = { "${it.contactId}|${it.primaryKey}" }) { row ->
+                            ContactRowView(
+                                row = row,
+                                added = row.primaryKey in addedKeys,
+                                onClick = {
+                                    if (addChip(row.primaryRaw)) dismissContactSearch()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -393,6 +424,7 @@ private fun RecipientField(
     onInputChange: (String) -> Unit,
     onCommit: () -> Unit,
     onRemoveChip: (RecipientChip) -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Swap the keyboard once the buffer clearly looks like a phone number.
@@ -441,6 +473,7 @@ private fun RecipientField(
                         ),
                         keyboardActions = KeyboardActions(onDone = { onCommit() }),
                         modifier = Modifier
+                            .onFocusChanged { onFocusChanged(it.isFocused) }
                             .weight(1f, fill = false)
                             .defaultMinSize(minWidth = 96.dp, minHeight = 32.dp)
                             .semantics { contentDescription = "Recipient address" },
