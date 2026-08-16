@@ -209,50 +209,25 @@ jobs:
           if [ -n "${{ github.event.inputs.notes }}" ]; then
             printf '%s\n' "${{ github.event.inputs.notes }}" > release-notes.md
           else
-            python3 - "${{ steps.ver.outputs.version_name }}" \
-              assets/changelog/changelog.md release-notes.md <<'PY'
-            import re, sys
-            version, changelog, out = sys.argv[1:4]
-            text = open(changelog).read() if __import__('os').path.exists(changelog) else ''
-            # Match "## v2.0.0" or "## 2.0.0" (prefix-numeric-only, not 2.0.0-rc1)
-            pat = re.compile(
-                r'^## (?:v)?' + re.escape(version) + r'(?=\s|$)(.*?)(?=^## |\Z)',
-                re.M | re.S,
-            )
-            m = pat.search(text)
-            if m and m.group(1).strip():
-                body = m.group(1).strip()
-            else:
-                body = ''
-            open(out, 'w').write(body)
-            PY
-            if [ ! -s release-notes.md ]; then
-              PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
-              if [ -n "$PREV_TAG" ]; then
-                git log --oneline "$PREV_TAG..HEAD" > release-notes.md
-              else
-                git log --oneline -20 > release-notes.md
-              fi
+            python3 scripts/extract-release-notes.py \
+              "${{ steps.ver.outputs.version_name }}" > release-notes.md
+          fi
+          if [ ! -s release-notes.md ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            if [ -n "$PREV_TAG" ]; then
+              git log --oneline "$PREV_TAG..HEAD" > release-notes.md
+            else
+              git log --oneline -20 > release-notes.md
             fi
           fi
 
-          python3 - "${{ steps.ver.outputs.version_code }}" \
-            "${{ steps.ver.outputs.display }}" \
-            "${{ steps.ver.outputs.asset }}" \
-            "$SHA256" "$BYTES" "$(cat release-notes.md)" > update.json <<'PY'
-          import json, sys
-          code, display, asset, sha, size, notes = sys.argv[1:7]
-          json.dump({
-              "versionCode": int(code),
-              "versionName": display,
-              "apkAsset": asset,
-              "sha256": sha,
-              "bytes": int(size),
-              "notes": notes[:4000],
-              "minVersionCode": 0,
-          }, sys.stdout, indent=2)
-          print()
-          PY
+          python3 scripts/update-feed.py \
+            --code "${{ steps.ver.outputs.version_code }}" \
+            --display "${{ steps.ver.outputs.display }}" \
+            --asset "${{ steps.ver.outputs.asset }}" \
+            --sha256 "$SHA256" \
+            --bytes "$BYTES" \
+            --notes-file release-notes.md > update.json
           cat update.json
 
       - name: Publish GitHub release

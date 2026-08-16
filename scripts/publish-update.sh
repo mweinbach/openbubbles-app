@@ -71,18 +71,8 @@ if [ -n "$NOTES_FILE" ]; then
     NOTES="$(cat "$NOTES_FILE")"
 fi
 if [ -z "$NOTES" ] && [ -f "$REPO_ROOT/assets/changelog/changelog.md" ]; then
-    NOTES="$(python3 - "$VERSION_NAME" "$REPO_ROOT/assets/changelog/changelog.md" <<'PY'
-import re, sys
-version, changelog = sys.argv[1:3]
-text = open(changelog).read()
-pat = re.compile(
-    r'^## (?:v)?' + re.escape(version) + r'(?=\s|$)(.*?)(?=^## |\Z)',
-    re.M | re.S,
-)
-m = pat.search(text)
-print(m.group(1).strip() if m else '')
-PY
-)"
+    NOTES="$("$REPO_ROOT/scripts/extract-release-notes.py" "$VERSION_NAME" \
+        "$REPO_ROOT/assets/changelog/changelog.md")"
 fi
 if [ -z "$NOTES" ]; then
     PREV_TAG="$(git -C "$REPO_ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
