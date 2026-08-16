@@ -1129,10 +1129,12 @@ private object CoreGraphStageHolder {
         repos.computeIfAbsent(store) { MessageRepo(it) }
 }
 
-/** Prefer the sender explicitly associated with this chat (legacy ensureHandle). */
-internal fun sendingHandle(chat: Chat, handles: Set<String> = PushStateHolder.myHandles): String? {
-    return selectSendingHandle(chat, handles)
-}
+/** Prefer the chat sender, then the user's default, then registration order. */
+internal fun sendingHandle(
+    chat: Chat,
+    handles: Set<String> = PushStateHolder.myHandles,
+    defaultHandle: String? = AppContext.current?.let { MessagingPrefs(it).defaultSendingHandle },
+): String? = selectSendingHandle(chat, handles, defaultHandle)
 
 /**
  * Legacy `Chat.getConversationData`: retain the stable chat identity and the

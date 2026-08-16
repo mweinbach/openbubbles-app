@@ -27,6 +27,16 @@ class SendRoutingTest {
     }
 
     @Test
+    fun `global default wins over registration order when chat has no sender`() {
+        val handles = linkedSetOf("tel:+15551234567", "mailto:me@icloud.com")
+
+        assertEquals(
+            "mailto:me@icloud.com",
+            sendingHandle(Chat(), handles, defaultHandle = "me@icloud.com"),
+        )
+    }
+
+    @Test
     fun `conversation preserves chat identity anchor and rust handle prefixes`() {
         val chat = Chat().apply {
             guid = "stable-group-guid"

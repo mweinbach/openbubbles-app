@@ -4,14 +4,21 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Chat
 import uniffi.rust_lib_bluebubbles.UConversation
 
-fun selectSendingHandle(chat: Chat, handles: Set<String>): String? {
-    val preferred = chat.usingHandle
-    if (preferred != null) {
-        handles.firstOrNull { candidate ->
-            candidate == preferred ||
-                MessageMapper.normalizeAddress(candidate) == MessageMapper.normalizeAddress(preferred)
-        }?.let { return it }
+fun resolveRegisteredHandle(preferred: String?, handles: Set<String>): String? {
+    val requested = preferred?.takeIf { it.isNotBlank() } ?: return null
+    return handles.firstOrNull { candidate ->
+        candidate == requested ||
+            MessageMapper.normalizeAddress(candidate) == MessageMapper.normalizeAddress(requested)
     }
+}
+
+fun selectSendingHandle(
+    chat: Chat,
+    handles: Set<String>,
+    defaultHandle: String? = null,
+): String? {
+    resolveRegisteredHandle(chat.usingHandle, handles)?.let { return it }
+    resolveRegisteredHandle(defaultHandle, handles)?.let { return it }
     return handles.firstOrNull()
 }
 

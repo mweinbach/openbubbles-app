@@ -21,6 +21,30 @@ class ConversationRoutingTest {
     }
 
     @Test
+    fun `default sending handle is used when chat has no registered preference`() {
+        val selected = selectSendingHandle(
+            chat = Chat(),
+            handles = linkedSetOf("tel:+15550000000", "mailto:me@icloud.com"),
+            defaultHandle = "me@icloud.com",
+        )
+
+        assertEquals("mailto:me@icloud.com", selected)
+    }
+
+    @Test
+    fun `chat sending handle wins over global default`() {
+        val chat = Chat().apply { usingHandle = "tel:+15550000000" }
+
+        val selected = selectSendingHandle(
+            chat = chat,
+            handles = linkedSetOf("tel:+15550000000", "mailto:me@icloud.com"),
+            defaultHandle = "mailto:me@icloud.com",
+        )
+
+        assertEquals("tel:+15550000000", selected)
+    }
+
+    @Test
     fun `conversation preserves protocol routing metadata`() {
         val chat = Chat().apply {
             guid = "iMessage;+;group-guid"

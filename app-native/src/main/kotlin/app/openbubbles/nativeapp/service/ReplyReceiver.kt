@@ -100,7 +100,7 @@ class ReplyReceiver : BroadcastReceiver() {
             }
             val inst = runCatching {
                 pushState.sendText(
-                    sendConversation(chat, afterGuid),
+                    sendConversation(chat, afterGuid, sender),
                     sender,
                     text,
                     // replyGuid, replyPart, effect, subject

@@ -110,7 +110,7 @@ private enum class SettingsSection(val title: String, val supporting: String) {
     Account("Account", "Registration, handles, sign out"),
     ICloud("iCloud", "History, Keychain, contacts"),
     Notifications("Notifications", "Previews, replies, reactions"),
-    Messaging("Messaging", "Read receipts and SMS"),
+    Messaging("Messaging", "Sending address, read receipts, SMS"),
     Power("Power", "Battery saver"),
     Appearance("Appearance", "Theme and color"),
     Storage("Storage & backup", "Attachments and local backup"),
@@ -140,7 +140,21 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+    val registeredHandles by PushStateHolder.myHandlesFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
+    val messagingPrefs = remember(context) { MessagingPrefs(context) }
+    var defaultSendingHandle by remember {
+        mutableStateOf(messagingPrefs.defaultSendingHandle)
+    }
+    var showDefaultSendingHandleDialog by remember { mutableStateOf(false) }
+    val availableSendingHandles = remember(registeredHandles) {
+        registeredHandles.sortedWith(
+            compareBy<String>(
+                { if (it.startsWith("tel:")) 0 else 1 },
+                { sendingHandleLabel(it).lowercase() },
+            ),
+        )
+    }
 
     val syncManager = CloudSyncWiring.manager
     val syncProgress by syncManager?.progress?.collectAsStateWithLifecycle()
@@ -716,10 +730,17 @@ fun SettingsScreen(
             SettingsGroup(
                 title = if (showTitles) "Messaging" else null,
             ) {
-                val messagingPrefs = remember { MessagingPrefs(context) }
                 var sendReadReceipts by remember {
                     mutableStateOf(messagingPrefs.sendReadReceipts)
                 }
+                SettingsActionItem(
+                    title = "Default sending address",
+                    supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
+                    onClick = { showDefaultSendingHandleDialog = true },
+                    index = 0,
+                    count = 2,
+                    enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
+                )
                 SettingsToggleItem(
                     title = "Send read receipts",
                     supporting = "Tell people in direct iMessage chats when you read their messages",
@@ -728,8 +749,8 @@ fun SettingsScreen(
                         sendReadReceipts = enabled
                         messagingPrefs.sendReadReceipts = enabled
                     },
-                    index = 0,
-                    count = 1,
+                    index = 1,
+                    count = 2,
                 )
             }
 
@@ -1039,6 +1060,61 @@ fun SettingsScreen(
         }
     }
 
+    if (showDefaultSendingHandleDialog) {
+        val optionCount = availableSendingHandles.size + 1
+        AlertDialog(
+            onDismissRequest = { showDefaultSendingHandleDialog = false },
+            title = { Text("Default sending address") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Used for new conversations and replies when a chat does not already have a saved sender.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SettingsGroup {
+                        SettingsChoiceItem(
+                            title = "Automatic",
+                            supporting = "Use the conversation address, then the first registered address",
+                            selected = defaultSendingHandle == null,
+                            onClick = {
+                                defaultSendingHandle = null
+                                messagingPrefs.defaultSendingHandle = null
+                                showDefaultSendingHandleDialog = false
+                            },
+                            index = 0,
+                            count = optionCount,
+                        )
+                        availableSendingHandles.forEachIndexed { index, handle ->
+                            SettingsChoiceItem(
+                                title = sendingHandleLabel(handle),
+                                supporting = sendingHandleType(handle),
+                                selected = defaultSendingHandle == handle,
+                                onClick = {
+                                    defaultSendingHandle = handle
+                                    messagingPrefs.defaultSendingHandle = handle
+                                    showDefaultSendingHandleDialog = false
+                                },
+                                index = index + 1,
+                                count = optionCount,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDefaultSendingHandleDialog = false }) {
+                    Text("Done")
+                }
+            },
+        )
+    }
+
     if (showCliqueJoin) {
         val requiredLength = selectedBottle?.numericLength?.toInt()?.takeIf { it > 0 }
         val passcodeValid = trustedDevicePasscode.isNotEmpty() &&
@@ -1227,6 +1303,14 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+private fun sendingHandleLabel(handle: String): String = handle.substringAfter(':', handle)
+
+private fun sendingHandleType(handle: String): String = when {
+    handle.startsWith("tel:") -> "Phone number"
+    handle.startsWith("mailto:") -> "Email address"
+    else -> "Registered address"
 }
 
 private fun UViableBottle.displayName(): String = buildString {

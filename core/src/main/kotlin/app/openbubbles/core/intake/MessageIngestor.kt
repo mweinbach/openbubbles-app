@@ -775,7 +775,8 @@ class MessageIngestor(
                 if (chat.dateDeleted != null) chat.dateDeleted = null // Chat.unDelete
                 if (saved.isFromMe) chat.hasUnreadMessage = false else chat.hasUnreadMessage = true
                 if (chat.usingHandle == null) {
-                    chat.usingHandle = myHandles.firstOrNull()
+                    chat.usingHandle = inst.sender?.takeIf { it in myHandles }
+                        ?: inst.conversation?.participants?.firstOrNull { it in myHandles }
                 }
             }
             chatBox.put(chat)

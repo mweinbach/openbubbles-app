@@ -206,6 +206,47 @@ internal fun SettingsToggleItem(
 }
 
 @Composable
+internal fun SettingsChoiceItem(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    index: Int,
+    count: Int,
+    supporting: String? = null,
+) {
+    SettingsItemDivider(index)
+    ListItem(
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        supportingContent = supportingContent(supporting, multiline = false),
+        trailingContent = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
+            null
+        },
+        shapes = flatItemShapes(),
+        colors = settingsItemColors(),
+        contentPadding = SettingsItemPadding,
+    ) {
+        Text(
+            text = title,
+            style = if (selected) {
+                MaterialTheme.typography.bodyLargeEmphasized
+            } else {
+                MaterialTheme.typography.bodyLarge
+            },
+        )
+    }
+}
+
+@Composable
 internal fun SettingsCategoryItem(
     title: String,
     supporting: String,

@@ -248,6 +248,25 @@ class MessageIngestorTest {
         assertEquals(listOf("friend@icloud.com"), chatRow.handles.map { it.address })
     }
 
+    @Test
+    fun `outgoing echo records the actual sending handle instead of registration order`() = runBlocking<Unit> {
+        val phone = "tel:+15551234567"
+        val handles = linkedSetOf(me, phone)
+        ingestor.ingest(
+            push(
+                textInst(
+                    id = "msg-phone",
+                    sender = phone,
+                    text = "sent from phone",
+                    conv = conversation(phone, friend),
+                ),
+            ),
+            handles,
+        )
+
+        assertEquals(phone, chatBox().all.single().usingHandle)
+    }
+
     // ------------------------------------------------------------------
     // Receipts + send lifecycle
     // ------------------------------------------------------------------
