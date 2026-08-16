@@ -144,6 +144,7 @@ dependencies {
     implementation libs.androidx.lifecycle.viewmodel.compose
     implementation libs.androidx.lifecycle.runtime.compose
     implementation libs.androidx.lifecycle.viewmodel.navigation3
+    implementation libs.kotlinx.serialization.json
 
     // JVM unit tests for the sms/ receive->ingest builders (same objectbox
     // desktop runtime :db/:core tests use, so the ingest integration can open

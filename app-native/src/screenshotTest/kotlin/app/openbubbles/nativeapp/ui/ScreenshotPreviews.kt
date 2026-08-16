@@ -8,6 +8,7 @@ import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
@@ -46,6 +47,51 @@ private fun sampleState() = ChatListUiState(
             unread = 3,
             pinned = true,
             avatarColor = 0xFF6750A4,
+        ),
+        ChatListItem(
+            id = 5,
+            title = "Carolina",
+            snippet = "Landing in twenty minutes",
+            date = FIXED_NOW - 18 * 60_000L,
+            unread = 0,
+            pinned = true,
+            avatarColor = 0xFF8C4A60,
+        ),
+        ChatListItem(
+            id = 6,
+            title = "Emily",
+            snippet = "Shared a photo",
+            date = FIXED_NOW - 24 * 60_000L,
+            unread = 0,
+            pinned = true,
+            avatarColor = 0xFF5066A8,
+        ),
+        ChatListItem(
+            id = 7,
+            title = "Weekend Crew",
+            snippet = "Meet at the trailhead",
+            date = FIXED_NOW - 31 * 60_000L,
+            unread = 1,
+            pinned = true,
+            avatarColor = 0xFF386A20,
+        ),
+        ChatListItem(
+            id = 8,
+            title = "Design Team",
+            snippet = "New mocks are ready",
+            date = FIXED_NOW - 42 * 60_000L,
+            unread = 0,
+            pinned = true,
+            avatarColor = 0xFF006C4C,
+        ),
+        ChatListItem(
+            id = 9,
+            title = "Neighbors",
+            snippet = "Block party on Sunday",
+            date = FIXED_NOW - 48 * 60_000L,
+            unread = 2,
+            pinned = true,
+            avatarColor = 0xFF9C4146,
         ),
     ),
     chats = listOf(
@@ -155,7 +201,13 @@ fun ChatListRowSelectedScreenshot() {
     }
 }
 
-private fun message(id: Long, text: String, fromMe: Boolean, status: MessageStatus = MessageStatus.READ) =
+private fun message(
+    id: Long,
+    text: String,
+    fromMe: Boolean,
+    status: MessageStatus = MessageStatus.READ,
+    richLink: RichLinkPreview? = null,
+) =
     MessageItem(
         id = id,
         text = text,
@@ -164,6 +216,7 @@ private fun message(id: Long, text: String, fromMe: Boolean, status: MessageStat
         status = status,
         isGroupEvent = false,
         reactionEmoji = null,
+        richLink = richLink,
     )
 
 /**
@@ -190,7 +243,21 @@ fun ChatScreenScreenshot() {
                 ),
                 messages = listOf(
                     message(1, "hey! still on for the hike saturday?", fromMe = false),
-                    message(2, "yes! 8am trailhead, i'll drive", fromMe = true),
+                    message(
+                        id = 2,
+                        text = "https://www.nps.gov/yose/index.htm",
+                        fromMe = false,
+                        richLink = RichLinkPreview(
+                            url = "https://www.nps.gov/yose/index.htm",
+                            displayHost = "nps.gov",
+                            title = "Yosemite National Park",
+                            summary = "Plan the route, check conditions, and get ready for Saturday's hike.",
+                            imageBytes = null,
+                            imageMime = null,
+                            iconBytes = null,
+                            iconMime = null,
+                        ),
+                    ),
                     message(3, "grabbing coffee now, want anything?", fromMe = true, status = MessageStatus.DELIVERED),
                 ),
                 typingSenders = listOf("alex@icloud.com"),

@@ -96,6 +96,8 @@ data class MessageItem(
     val associatedMessageGuid: String?,
     /** Expressive send style (screen effects), e.g. "com.apple.MobileSMS.expressivesend.gentle". */
     val expressiveSendStyleId: String?,
+    /** Serialized Apple LinkPresentation metadata for rich URL previews. */
+    val richLinkMetadataJson: String? = null,
     /** Active positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
 )

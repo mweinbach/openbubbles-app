@@ -152,6 +152,50 @@ fun rememberDecodedUriImage(
     }.value
 }
 
+/** Decodes embedded image bytes off the main thread for rich-link previews. */
+@Composable
+fun rememberDecodedBytes(
+    bytes: ByteArray?,
+    maxDimensionPx: Int = 512,
+): DecodedImage? {
+    val cacheKey = remember(bytes?.contentHashCode(), bytes?.size, maxDimensionPx) {
+        bytes?.takeIf { it.isNotEmpty() }?.let {
+            "bytes:${it.contentHashCode()}:${it.size}:$maxDimensionPx"
+        }
+    }
+    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        val key = cacheKey ?: return@produceState
+        ImageDecodeCache.get(key)?.let {
+            value = it
+            return@produceState
+        }
+        val decoded = withContext(Dispatchers.Default) {
+            runCatching {
+                val source = bytes ?: return@runCatching null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
+                    bounds.outHeight / (sample * 2) >= maxDimensionPx
+                ) {
+                    sample *= 2
+                }
+                val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, options)
+                    ?: return@runCatching null
+                DecodedImage(
+                    image = bitmap.asImageBitmap(),
+                    aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat(),
+                )
+            }.getOrNull()
+        }
+        if (decoded != null) ImageDecodeCache.put(key, decoded)
+        value = decoded
+    }.value
+}
+
 /** Human-readable byte size: "412 KB", "18.9 MB". */
 fun formatBytes(sizeBytes: Long?): String {
     if (sizeBytes == null || sizeBytes <= 0) return ""

@@ -73,6 +73,18 @@ data class StickerPlacement(
     val downloaded: Boolean,
 )
 
+/** Apple LinkPresentation metadata projected into a platform-friendly card. */
+data class RichLinkPreview(
+    val url: String,
+    val displayHost: String,
+    val title: String?,
+    val summary: String?,
+    val imageBytes: ByteArray?,
+    val imageMime: String?,
+    val iconBytes: ByteArray?,
+    val iconMime: String?,
+)
+
 data class MessageItem(
     val id: Long,
     val text: String,
@@ -115,6 +127,8 @@ data class MessageItem(
     val replyPartLocators: Map<Long, String> = emptyMap(),
     /** Parent-part summary resolved independently of the progressive page. */
     val replyPreviewText: String? = null,
+    /** Rich web preview supplied by Apple, or a URL-only fallback for plain links. */
+    val richLink: RichLinkPreview? = null,
     /** Positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
 )

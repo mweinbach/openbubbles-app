@@ -183,7 +183,11 @@ class MessageRepo(
 
     /** Delivery status for a bubble, mirroring `Message.indicatorToShow`. */
     fun statusOf(message: Message): MessageStatus {
-        if (message.guid.startsWith("error") || message.error != null || message.errorMessage != null) {
+        if (
+            message.guid.startsWith("error") ||
+            message.error?.let { it != 0L } == true ||
+            message.errorMessage != null
+        ) {
             return MessageStatus.FAILED
         }
         if (!message.isFromMe) return MessageStatus.SENT
@@ -227,6 +231,9 @@ class MessageRepo(
             replyPartLocators = MessageMapper.decodeReplyPartLocators(message.dbAttributedBody),
             associatedMessageGuid = message.associatedMessageGuid,
             expressiveSendStyleId = message.expressiveSendStyleId,
+            richLinkMetadataJson = message.dbMetadata.takeIf {
+                message.balloonBundleId == "com.apple.messages.URLBalloonProvider"
+            },
             stickers = activeReactions.flatMap(::stickerPlacements),
         )
     }

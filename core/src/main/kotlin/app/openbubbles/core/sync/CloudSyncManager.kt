@@ -511,14 +511,15 @@ class CloudSyncManager(
             guid = cloud.guid
             ckRecordId = recordId
             ckSyncState = true
-            error = cloud.error
+            error = cloud.error.takeUnless { it == 0L }
             dateCreated = dateFromAppleNs(cloud.time)
             isFromMe = (cloud.flagsBits and FLAG_IS_FROM_ME) != 0L
             text = cloud.text
             subject = cloud.subject
             hasAttachments = cloud.hasAttachments
             balloonBundleId = cloud.balloonBundleId
-            hasApplePayloadData = cloud.hasPayloadData
+            dbMetadata = cloud.linkJson
+            hasApplePayloadData = cloud.hasPayloadData && cloud.linkJson == null
             dbMessageSummaryInfo = cloud.summaryInfoJson
             expressiveSendStyleId = cloud.effect
             dateRead = cloud.dateReadNs?.let(::dateFromAppleNs)

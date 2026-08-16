@@ -188,22 +188,27 @@ class CloudSyncManagerTest {
         sender: String = "tel:+15551234567",
         time: Long = 700_000_000_000_000_000L, // ~2023-03 in Apple ns
         flags: Long = 0,
+        error: Long = 0,
         attachmentGuids: List<String> = emptyList(),
+        balloonBundleId: String? = null,
+        linkJson: String? = null,
+        hasPayloadData: Boolean = false,
     ) = UCloudMessage(
         guid = guid,
         chatId = chatId,
         sender = sender,
         time = time,
         msgType = 0,
-        error = 0,
+        error = error,
         service = "iMessage",
         flagsBits = flags,
         text = text,
         subject = null,
         hasAttachments = attachmentGuids.isNotEmpty(),
         attachmentGuids = attachmentGuids,
-        balloonBundleId = null,
-        hasPayloadData = false,
+        balloonBundleId = balloonBundleId,
+        linkJson = linkJson,
+        hasPayloadData = hasPayloadData,
         summaryInfoJson = null,
         effect = null,
         dateReadNs = null,
@@ -304,6 +309,7 @@ class CloudSyncManagerTest {
         val second = messageByGuid("m2")
         assertNotNull(second)
         assertTrue(second.isFromMe) // flags bit 2 (4)
+        assertNull(second.error) // CloudKit eCode 0 means success, not failure.
         assertTrue(second.handleRelation.target.address.isNotEmpty())
 
         // Latest-message wiring: newest message wins, and historical
@@ -311,6 +317,59 @@ class CloudSyncManagerTest {
         assertEquals(second.id, dm.dbLatestMessage.targetId)
         assertEquals(second.dateCreated, dm.dbOnlyLatestMessageDate)
         assertFalse(dm.hasUnreadMessage)
+    }
+
+    @Test
+    fun `cloud message retains nonzero send error`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-failed",
+                cloudMessage(
+                    "rec-failed",
+                    chatId = "iMessage;-;+15551234567",
+                    flags = 4,
+                    error = 12,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        runSync()
+
+        assertEquals(12L, messageByGuid("msg-rec-failed")?.error)
+    }
+
+    @Test
+    fun `cloud URL balloon retains rich link metadata`() {
+        val linkJson = """{"data":{"URL":{"NS.base":"${'$'}null","NS.relative":"https://example.com"},"title":"Example"},"attachments":[]}"""
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-link",
+                cloudMessage(
+                    "rec-link",
+                    chatId = "iMessage;-;+15551234567",
+                    text = "https://example.com",
+                    balloonBundleId = "com.apple.messages.URLBalloonProvider",
+                    linkJson = linkJson,
+                    hasPayloadData = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        runSync()
+
+        val message = messageByGuid("msg-rec-link")
+        assertNotNull(message)
+        assertEquals(linkJson, message.dbMetadata)
+        assertEquals("com.apple.messages.URLBalloonProvider", message.balloonBundleId)
+        assertFalse(message.hasApplePayloadData)
     }
 
     @Test

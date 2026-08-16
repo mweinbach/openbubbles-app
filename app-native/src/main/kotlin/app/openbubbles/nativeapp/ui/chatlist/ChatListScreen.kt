@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,8 +28,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
@@ -54,6 +55,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -147,27 +149,23 @@ fun ChatListScreen(
                             )
                         }
                         Box {
+                            // Overflow affordance, not a person glyph: the menu
+                            // holds app destinations (Find My, Settings), not a
+                            // profile page.
                             IconButton(onClick = { profileMenuExpanded = true }) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Person,
-                                            contentDescription = "Open app menu",
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    }
-                                }
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "More options",
+                                )
                             }
                             DropdownMenu(
                                 expanded = profileMenuExpanded,
                                 onDismissRequest = { profileMenuExpanded = false },
                             ) {
+                                // Plain overload: flat full-width rows inside
+                                // the rounded popup. The contained item shapes
+                                // are for grouped/selectable menus; on two
+                                // navigation actions they read as a nested card.
                                 DropdownMenuItem(
                                     text = { Text("Find My") },
                                     leadingIcon = {
@@ -321,20 +319,15 @@ private fun ChatSections(
             Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { header() }
         }
         if (uiState.pinned.isNotEmpty()) {
-            item(key = "header-pinned") {
-                SectionHeader("Pinned", Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth())
-            }
-            items(
-                items = uiState.pinned,
-                key = { "chat-${it.id}" },
-                contentType = { "conversation" },
-            ) { chat ->
-                ChatListRow(
-                    chat = chat,
-                    onClick = onChatClick,
-                    onLongClick = onChatLongClick,
-                    selected = chat.id == selectedChatId,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
+            item(key = "pinned-grid", contentType = "pinned-grid") {
+                PinnedChatsGrid(
+                    chats = uiState.pinned,
+                    onChatClick = onChatClick,
+                    onChatLongClick = onChatLongClick,
+                    selectedChatId = selectedChatId,
+                    modifier = Modifier
+                        .widthIn(max = ListContentMaxWidth)
+                        .fillMaxWidth()
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -388,6 +381,111 @@ private fun ChatSections(
         }
         item(key = "footer") {
             Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { footer() }
+        }
+    }
+}
+
+@Composable
+private fun PinnedChatsGrid(
+    chats: List<ChatListItem>,
+    onChatClick: (ChatListItem) -> Unit,
+    onChatLongClick: (ChatListItem) -> Unit,
+    selectedChatId: Long?,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+        val columns = when {
+            maxWidth >= 760.dp -> 6
+            maxWidth >= 560.dp -> 4
+            else -> 3
+        }
+        val avatarSize = if (columns >= 4) 76.dp else 72.dp
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            chats.chunked(columns).forEach { rowChats ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    rowChats.forEach { chat ->
+                        key(chat.id) {
+                            PinnedChatTile(
+                                chat = chat,
+                                onClick = onChatClick,
+                                onLongClick = onChatLongClick,
+                                selected = chat.id == selectedChatId,
+                                avatarSize = avatarSize,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    repeat(columns - rowChats.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PinnedChatTile(
+    chat: ChatListItem,
+    onClick: (ChatListItem) -> Unit,
+    onLongClick: (ChatListItem) -> Unit,
+    selected: Boolean,
+    avatarSize: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    val unread = chat.unread > 0
+    val avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress)
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        modifier = modifier
+            .padding(horizontal = 2.dp)
+            .sharedChatContainer(chat.id)
+            .combinedClickable(
+                onClick = { onClick(chat) },
+                onLongClick = { onLongClick(chat) },
+                onLongClickLabel = "Conversation actions",
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box {
+                ChatAvatar(
+                    title = chat.title,
+                    avatarColor = chat.avatarColor,
+                    size = avatarSize,
+                    avatarPath = avatarPath,
+                )
+                if (unread) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .size(16.dp),
+                    ) {}
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = chat.title,
+                style = if (unread) {
+                    MaterialTheme.typography.titleSmallEmphasized
+                } else {
+                    MaterialTheme.typography.titleSmall
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

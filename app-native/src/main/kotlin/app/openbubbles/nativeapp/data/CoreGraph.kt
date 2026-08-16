@@ -539,6 +539,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     replyToPart = item.threadOriginatorPart,
     replyToPartLocator = item.threadOriginatorLocator,
     replyPartLocators = item.replyPartLocators,
+    richLink = parseRichLinkPreview(item.richLinkMetadataJson, item.text),
     stickers = item.stickers.map { sticker ->
         StickerPlacement(
             reactionGuid = sticker.reactionGuid,

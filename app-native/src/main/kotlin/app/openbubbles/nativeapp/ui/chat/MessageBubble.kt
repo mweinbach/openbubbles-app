@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -44,8 +46,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -56,9 +60,11 @@ import androidx.compose.ui.graphics.Color
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
@@ -98,6 +104,8 @@ private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerS
     val bottom = if (tightBottom) GroupedCornerRadius else BubbleCornerRadius
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
+
+private fun normalizedPreviewUrl(value: String): String = value.trim().trimEnd('/')
 
 /**
  * Bubble container/content pair. Outgoing iMessage uses the theme primary;
@@ -143,6 +151,105 @@ private fun StickerOverlay(
             .graphicsLayer(rotationZ = (sticker.rotation * 180.0 / PI).toFloat())
             .zIndex(4f),
     )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RichLinkCard(
+    preview: RichLinkPreview,
+    modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null,
+) {
+    val uriHandler = LocalUriHandler.current
+    val previewImage = rememberDecodedBytes(preview.imageBytes, maxDimensionPx = 640)
+    val previewIcon = rememberDecodedBytes(preview.iconBytes, maxDimensionPx = 160)
+    val openLink: () -> Unit = {
+        try {
+            uriHandler.openUri(preview.url)
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.then(
+            if (onLongPress != null) {
+                Modifier.combinedClickable(
+                    onClick = openLink,
+                    onLongClick = onLongPress,
+                    onLongClickLabel = "Message actions",
+                )
+            } else {
+                Modifier.clickable(onClick = openLink)
+            },
+        ),
+    ) {
+        Column {
+            if (previewImage != null) {
+                Image(
+                    bitmap = previewImage.image,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(previewImage.aspectRatio.coerceIn(1.25f, 2.2f)),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(96.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (previewIcon != null) {
+                        Image(
+                            bitmap = previewIcon.image,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(52.dp),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = preview.title ?: preview.displayHost,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                preview.summary?.let { summary ->
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = preview.displayHost,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -191,6 +298,10 @@ fun MessageBubble(
     val attachments = message.attachmentMetas.ifEmpty {
         listOfNotNull(message.attachmentMeta)
     }
+    val richLink = message.richLink
+    val showTextBubble = message.text.isNotBlank() && (
+        richLink == null || normalizedPreviewUrl(message.text) != normalizedPreviewUrl(richLink.url)
+    )
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
@@ -275,7 +386,28 @@ fun MessageBubble(
             message.uploadProgress?.let { progress ->
                 UploadProgressRow(done = progress.first, total = progress.second)
             }
-            if (message.text.isNotBlank()) {
+            richLink?.let { preview ->
+                Box {
+                    RichLinkCard(
+                        preview = preview,
+                        onLongPress = onLongPressPart?.let { callback ->
+                            { callback(textPart) }
+                        },
+                    )
+                    if (attachments.isEmpty() && !showTextBubble) {
+                        message.reactionEmoji?.let { emoji ->
+                            ReactionChip(
+                                emoji = emoji,
+                                isFromMe = message.isFromMe,
+                                modifier = Modifier.align(
+                                    if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+            if (showTextBubble) {
                 Box {
                     if (isInvisibleInk(message.expressiveSendStyleId)) {
                         InvisibleInkBubble(

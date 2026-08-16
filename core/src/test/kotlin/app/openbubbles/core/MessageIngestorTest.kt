@@ -362,6 +362,21 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `zero cloud error code is not rendered as failed`() {
+        val historical = Message().apply {
+            guid = "cloud-outgoing"
+            text = "sent from another device"
+            isFromMe = true
+            error = 0L
+        }
+
+        assertEquals(
+            app.openbubbles.core.model.MessageStatus.SENT,
+            messageRepo.statusOf(historical),
+        )
+    }
+
+    @Test
     fun `sms confirm promotes staging guid`() = runBlocking<Unit> {
         // Dart-convention staged row: temp guid + rust staging guid.
         val chat = chatForFixture()

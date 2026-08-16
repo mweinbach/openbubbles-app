@@ -18,3 +18,9 @@ if [ -z "$LIB" ]; then
     exit 1
 fi
 cargo run --locked --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin
+GENERATED_BINDING=../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt
+perl -pi -e 's/[ \t]+$//' "$GENERATED_BINDING"
+mkdir -p ../core/src/test/kotlin/uniffi/rust_lib_bluebubbles
+cp \
+    "$GENERATED_BINDING" \
+    ../core/src/test/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt

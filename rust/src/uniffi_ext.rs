@@ -48,7 +48,7 @@ use crate::RUNTIME;
 use prost::Message as ProstMessage;
 // All message-model types are re-exported at the rustpush crate root.
 use rustpush::{
-    ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage,
+    ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage, LinkMeta,
     IndexedMessagePart, Message, MessageInst, MessagePart, MessageParts, MessageType,
     MoveToRecycleBinMessage, NormalMessage, OperatedChat, PartExtension, PermanentDeleteMessage,
     ReactMessage, ReactMessageType, Reaction, RenameMessage, SetTranscriptBackgroundMessage,
@@ -2049,6 +2049,8 @@ pub struct UCloudMessage {
     /// Local-form attachment guids (`at_X_Y` cloud form converted).
     pub attachment_guids: Vec<String>,
     pub balloon_bundle_id: Option<String>,
+    /// Apple LinkPresentation payload serialized to JSON for URL balloons.
+    pub link_json: Option<String>,
     /// An app balloon payload is attached (raw payload decode is a later
     /// batch; the flag preserves `hasApplePayloadData`).
     pub has_payload_data: bool,
@@ -2326,6 +2328,14 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
             .ok()
             .and_then(|s| serde_json::to_string(&s).ok())
     });
+    let link_json = match (
+        proto.balloon_bundle_id.as_deref(),
+        proto.payload_data.as_deref(),
+    ) {
+        (Some("com.apple.messages.URLBalloonProvider"), Some(payload_data)) =>
+            LinkMeta::from_payload_data(payload_data).ok().map(|link| j(&link)),
+        _ => None,
+    };
 
     UCloudMessage {
         guid: c.guid.clone(),
@@ -2341,6 +2351,7 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
         has_attachments: !attachment_guids.is_empty(),
         attachment_guids,
         balloon_bundle_id: proto.balloon_bundle_id.clone(),
+        link_json,
         has_payload_data: proto.payload_data.is_some(),
         summary_info_json,
         effect: proto.effect.clone(),

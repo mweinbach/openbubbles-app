@@ -1467,16 +1467,16 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 // For large crates we prevent `MethodTooLargeException` (see #2340)
-// N.B. the name of the extension is very misleading, since it is 
-// rather `InterfaceTooLargeException`, caused by too many methods 
+// N.B. the name of the extension is very misleading, since it is
+// rather `InterfaceTooLargeException`, caused by too many methods
 // in the interface for large crates.
 //
 // By splitting the otherwise huge interface into two parts
-// * UniffiLib 
+// * UniffiLib
 // * IntegrityCheckingUniffiLib (this)
 // we allow for ~2x as many methods in the UniffiLib interface.
-// 
-// The `ffi_uniffi_contract_version` method and all checksum methods are put 
+//
+// The `ffi_uniffi_contract_version` method and all checksum methods are put
 // into `IntegrityCheckingUniffiLib` and these methods are called only once,
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
@@ -1825,8 +1825,8 @@ internal interface UniffiLib : Library {
         internal val INSTANCE: UniffiLib by lazy {
             val componentName = "rust_lib_bluebubbles"
             // For large crates we prevent `MethodTooLargeException` (see #2340)
-            // N.B. the name of the extension is very misleading, since it is 
-            // rather `InterfaceTooLargeException`, caused by too many methods 
+            // N.B. the name of the extension is very misleading, since it is
+            // rather `InterfaceTooLargeException`, caused by too many methods
             // in the interface for large crates.
             //
             // By splitting the otherwise huge interface into two parts
@@ -1834,7 +1834,7 @@ internal interface UniffiLib : Library {
             // * IntegrityCheckingUniffiLib
             // And all checksum methods are put into `IntegrityCheckingUniffiLib`
             // we allow for ~2x as many methods in the UniffiLib interface.
-            // 
+            //
             // Thus we first load the library with `loadIndirect` as `IntegrityCheckingUniffiLib`
             // so that we can call `uniffiCheckApiChecksums`...
             loadIndirect<IntegrityCheckingUniffiLib>(componentName)
@@ -1849,7 +1849,7 @@ internal interface UniffiLib : Library {
             // to trigger this issue, the performance impact is negligible, running on
             // a macOS M1 machine the `loadIndirect` call takes ~50ms.
             val lib = loadIndirect<UniffiLib>(componentName)
-            // No need to check the contract version and checksums, since 
+            // No need to check the contract version and checksums, since
             // we already did that with `IntegrityCheckingUniffiLib` above.
             uniffiCallbackInterfaceAvailableGroupsCallback.register(lib)
             uniffiCallbackInterfaceCarrierHandler.register(lib)
@@ -1867,7 +1867,7 @@ internal interface UniffiLib : Library {
             // Loading of library with integrity check done.
             lib
         }
-        
+
         // The Cleaner for the whole library
         internal val CLEANER: UniffiCleaner by lazy {
             UniffiCleaner.create()
@@ -1875,443 +1875,443 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_rust_lib_bluebubbles_fn_clone_availablegroupscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_rust_lib_bluebubbles_fn_clone_availablegroupscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_availablegroupscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_availablegroupscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_availablegroupscallback(`vtable`: UniffiVTableCallbackInterfaceAvailableGroupsCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_availablegroupscallback_groups(`ptr`: Pointer,`groups`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_availablegroupscallback_groups(`ptr`: Pointer,`groups`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_carrierhandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_carrierhandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_carrierhandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_carrierhandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_carrierhandler(`vtable`: UniffiVTableCallbackInterfaceCarrierHandler,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_carrierhandler_got_gateway(`ptr`: Pointer,`gateway`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_carrierhandler_got_gateway(`ptr`: Pointer,`gateway`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_handlewifinetworkscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_handlewifinetworkscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_handlewifinetworkscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_handlewifinetworkscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_handlewifinetworkscallback(`vtable`: UniffiVTableCallbackInterfaceHandleWifiNetworksCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_handlewifinetworkscallback_handle_wifi_networks(`ptr`: Pointer,`networks`: RustBuffer.ByValue,`userApprove`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_handlewifinetworkscallback_handle_wifi_networks(`ptr`: Pointer,`networks`: RustBuffer.ByValue,`userApprove`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_insertkeychaincallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_insertkeychaincallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_insertkeychaincallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_insertkeychaincallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_insertkeychaincallback(`vtable`: UniffiVTableCallbackInterfaceInsertKeychainCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_insertkeychaincallback_done(`ptr`: Pointer,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_insertkeychaincallback_done(`ptr`: Pointer,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_kotlinfilepackager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_kotlinfilepackager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_kotlinfilepackager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_kotlinfilepackager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_kotlinfilepackager(`vtable`: UniffiVTableCallbackInterfaceKotlinFilePackager,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_kotlinfilepackager_get_file(`ptr`: Pointer,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_kotlinfilepackager_get_file(`ptr`: Pointer,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_kotlinfilepackager_scan_files(`ptr`: Pointer,`paths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_kotlinfilepackager_scan_files(`ptr`: Pointer,`paths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_msgreceiver(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_msgreceiver(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_msgreceiver(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_msgreceiver(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_msgreceiver(`vtable`: UniffiVTableCallbackInterfaceMsgReceiver,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_receieved_msg(`ptr`: Pointer,`msg`: Long,`retry`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_receieved_msg(`ptr`: Pointer,`msg`: Long,`retry`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_ready(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_ready(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_twofa_event(`ptr`: Pointer,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_twofa_event(`ptr`: Pointer,`success`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_finish(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_finish(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_nativekeystore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_nativekeystore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_nativekeystore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_nativekeystore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_nativekeystore(`vtable`: UniffiVTableCallbackInterfaceNativeKeystore,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_supports_import(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_supports_import(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_create_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`type`: RustBuffer.ByValue,`accessRules`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_create_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`type`: RustBuffer.ByValue,`accessRules`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_destroy_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_destroy_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_list_keys(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_list_keys(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_import_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`type`: RustBuffer.ByValue,`wrappedKey`: RustBuffer.ByValue,`accessRules`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_import_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`type`: RustBuffer.ByValue,`wrappedKey`: RustBuffer.ByValue,`accessRules`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_import_wrap_key(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_import_wrap_key(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_key_type(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_key_type(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_sign(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`digest`: RustBuffer.ByValue,`padding`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_sign(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`digest`: RustBuffer.ByValue,`padding`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_verify(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`digest`: RustBuffer.ByValue,`padding`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`sig`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_verify(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`digest`: RustBuffer.ByValue,`padding`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`sig`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_public_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_get_public_key(`ptr`: Pointer,`alias`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_derive(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_derive(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`peer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_encrypt(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_encrypt(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`plaintext`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_decrypt(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`ciphertext`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_decrypt(`ptr`: Pointer,`alias`: RustBuffer.ByValue,`ciphertext`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(`ptr`: Pointer,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(`ptr`: Pointer,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Int
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(`ptr`: Pointer,`groupsCallback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_cached_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_cached_beacon_items(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_contacts_headers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_contacts_headers(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_ft_link(`ptr`: Pointer,`usage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_ft_link(`ptr`: Pointer,`usage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_my_phone_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_my_phone_handles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_regstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_regstate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(`ptr`: Pointer,`site`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(`ptr`: Pointer,`site`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_viable_bottles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_viable_bottles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(`ptr`: Pointer,`escrowData`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`devicePassword`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(`ptr`: Pointer,`escrowData`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`devicePassword`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`recordId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`tag`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`recordId`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,`tag`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`messageGuid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`messageGuid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`msgWidth`: Double,`normalizedX`: Double,`normalizedY`: Double,`rotation`: Double,`scale`: Double,`effectType`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`msgWidth`: Double,`normalizedX`: Double,`normalizedY`: Double,`rotation`: Double,`scale`: Double,`effectType`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(`ptr`: Pointer,`naming`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(`ptr`: Pointer,`naming`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachments(`ptr`: Pointer,`uploads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachments(`ptr`: Pointer,`uploads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_chats(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_chats(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`chatRecordId`: RustBuffer.ByValue,`chatBlob`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`chatRecordId`: RustBuffer.ByValue,`chatBlob`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_retrievekeyscallback(`vtable`: UniffiVTableCallbackInterfaceRetrieveKeysCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_retrievekeyscallback_keys(`ptr`: Pointer,`passwords`: RustBuffer.ByValue,`passkeys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_retrievekeyscallback_keys(`ptr`: Pointer,`passwords`: RustBuffer.ByValue,`passkeys`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_specialappleauthcallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_specialappleauthcallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_specialappleauthcallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_specialappleauthcallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_specialappleauthcallback(`vtable`: UniffiVTableCallbackInterfaceSpecialAppleAuthCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(`ptr`: Pointer,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(`ptr`: Pointer,`token`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_uattachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_iris(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_iris(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_is_inline(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_is_inline(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_mime(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_mime(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_name(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_name(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_part_index(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_part_index(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_save_attachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_save_attachment(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_total_size(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_total_size(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_uti(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uattachment_uti(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_ucallposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_low_res_image(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_low_res_image(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_text_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_text_metadata(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_to_record(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ucallposter_to_record(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_ueapakahandler(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ueapakahandler(`vtable`: UniffiVTableCallbackInterfaceUEapAkaHandler,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ueapakahandler_process_challenge(`ptr`: Pointer,`challenge`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ueapakahandler_process_challenge(`ptr`: Pointer,`challenge`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_ulogindelegate(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_ulogindelegate(`vtable`: UniffiVTableCallbackInterfaceULoginDelegate,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_stage(`ptr`: Pointer,`stage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_stage(`ptr`: Pointer,`stage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_state(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_state(`ptr`: Pointer,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_circle_session(`ptr`: Pointer,`sid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_circle_session(`ptr`: Pointer,`sid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_error(`ptr`: Pointer,`reason`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_uloginsession(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_auth_phone(`ptr`: Pointer,`subscription`: Long,`number`: RustBuffer.ByValue,`sig`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_auth_phone(`ptr`: Pointer,`subscription`: Long,`number`: RustBuffer.ByValue,`sig`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_choose_sms_phone(`ptr`: Pointer,`phoneId`: Int,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_choose_sms_phone(`ptr`: Pointer,`phoneId`: Int,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_complete_update_account(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_complete_update_account(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_connect(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_connect(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_device_info(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_device_info(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_export_phone_users(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_export_phone_users(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_sms_phone_options(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_sms_phone_options(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_update_account_page(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_update_account_page(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_username(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_get_username(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_import_phone_user(`ptr`: Pointer,`subscription`: Long,`serialized`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_import_phone_user(`ptr`: Pointer,`subscription`: Long,`serialized`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_login(`ptr`: Pointer,`username`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_login(`ptr`: Pointer,`username`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_register(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_register(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_request_sms_fallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_request_sms_fallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_reset_connection(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_reset_connection(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_set_new_identity(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_set_new_identity(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_sms_less_auth(`ptr`: Pointer,`subscription`: Long,`mccmnc`: RustBuffer.ByValue,`subscriber`: RustBuffer.ByValue,`imei`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_sms_less_auth(`ptr`: Pointer,`subscription`: Long,`mccmnc`: RustBuffer.ByValue,`subscriber`: RustBuffer.ByValue,`imei`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_submit_2fa_code(`ptr`: Pointer,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uloginsession_submit_2fa_code(`ptr`: Pointer,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_clone_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_uprogresscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_uprogresscallback(`vtable`: UniffiVTableCallbackInterfaceUProgressCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(`ptr`: Pointer,`done`: Long,`total`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(`ptr`: Pointer,`done`: Long,`total`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_clone_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_usyncpagecallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_init_callback_vtable_usyncpagecallback(`vtable`: UniffiVTableCallbackInterfaceUSyncPageCallback,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(`ptr`: Pointer,`records`: RustBuffer.ByValue,`chatsDone`: Long,`messagesDone`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(`ptr`: Pointer,`records`: RustBuffer.ByValue,`chatsDone`: Long,`messagesDone`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_keep_going(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_keep_going(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_clone_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_clone_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_free_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_free_utranscriptposter(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_kind(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_photo_files(`ptr`: Pointer,`assetIndex`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_save(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_title_luminance(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_title_luminance(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Double
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_to_payload(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_to_payload(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_watch(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_watch(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_do_lock(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_do_lock(uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_get_carrier(`handler`: Pointer,`mccmnc`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_get_carrier(`handler`: Pointer,`mccmnc`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_has_hardware_config(`dir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_has_hardware_config(`dir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_func_has_saved_users(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_has_saved_users(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_init_native(`dir`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_is_locked(uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(`id`: Long,`success`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(`id`: Long,`success`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_parse_call_poster(`record`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_parse_call_poster(`record`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_parse_poster(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_parse_poster(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_encoded(`dir`: RustBuffer.ByValue,`encoded`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_encoded(`dir`: RustBuffer.ByValue,`encoded`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`host`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(`xml`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(`xml`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_restore_call_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_call_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_restore_transcript_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_restore_transcript_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_saved_login_username(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(`dir`: RustBuffer.ByValue,`keystore`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(`dir`: RustBuffer.ByValue,`keystore`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_start(`dir`: RustBuffer.ByValue,`packager`: Pointer,`wifi`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_rust_lib_bluebubbles_fn_func_start(`dir`: RustBuffer.ByValue,`packager`: Pointer,`wifi`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun ffi_rust_lib_bluebubbles_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun ffi_rust_lib_bluebubbles_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun ffi_rust_lib_bluebubbles_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2319,7 +2319,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_u8(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_u8(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 fun ffi_rust_lib_bluebubbles_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2327,7 +2327,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_i8(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_i8(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 fun ffi_rust_lib_bluebubbles_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2335,7 +2335,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_u16(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_u16(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Short
 fun ffi_rust_lib_bluebubbles_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2343,7 +2343,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_i16(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_i16(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Short
 fun ffi_rust_lib_bluebubbles_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2351,7 +2351,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_u32(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_u32(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Int
 fun ffi_rust_lib_bluebubbles_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2359,7 +2359,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_i32(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_i32(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Int
 fun ffi_rust_lib_bluebubbles_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2367,7 +2367,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_u64(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_u64(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Long
 fun ffi_rust_lib_bluebubbles_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2375,7 +2375,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_i64(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_i64(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Long
 fun ffi_rust_lib_bluebubbles_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2383,7 +2383,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_f32(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_f32(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Float
 fun ffi_rust_lib_bluebubbles_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2391,7 +2391,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_f64(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_f64(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Double
 fun ffi_rust_lib_bluebubbles_rust_future_poll_pointer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2399,7 +2399,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_pointer(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_pointer(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
 fun ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2407,7 +2407,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_rust_buffer(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun ffi_rust_lib_bluebubbles_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -2415,7 +2415,7 @@ fun ffi_rust_lib_bluebubbles_rust_future_cancel_void(`handle`: Long,
 ): Unit
 fun ffi_rust_lib_bluebubbles_rust_future_free_void(`handle`: Long,
 ): Unit
-fun ffi_rust_lib_bluebubbles_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_rust_lib_bluebubbles_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 
 }
@@ -2977,7 +2977,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
-/** 
+/**
  * Used to instantiate an interface without an actual pointer, for fakes in tests, mostly.
  *
  * @suppress
@@ -3430,9 +3430,9 @@ private class JavaLangRefCleanable(
     override fun clean() = cleanable.clean()
 }
 public interface AvailableGroupsCallback {
-    
+
     fun `groups`(`groups`: Map<kotlin.String, kotlin.String>)
-    
+
     companion object
 }
 
@@ -3519,22 +3519,22 @@ open class AvailableGroupsCallbackImpl: Disposable, AutoCloseable, AvailableGrou
     }
 
     override fun `groups`(`groups`: Map<kotlin.String, kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_availablegroupscallback_groups(
         it, FfiConverterMapStringString.lower(`groups`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
 // to free the callback once it's dropped by Rust.
@@ -3731,9 +3731,9 @@ public object FfiConverterTypeAvailableGroupsCallback: FfiConverter<AvailableGro
 
 
 public interface CarrierHandler {
-    
+
     fun `gotGateway`(`gateway`: kotlin.String?, `error`: kotlin.String?)
-    
+
     companion object
 }
 
@@ -3820,22 +3820,22 @@ open class CarrierHandlerImpl: Disposable, AutoCloseable, CarrierHandler
     }
 
     override fun `gotGateway`(`gateway`: kotlin.String?, `error`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_carrierhandler_got_gateway(
         it, FfiConverterOptionalString.lower(`gateway`),FfiConverterOptionalString.lower(`error`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -4002,9 +4002,9 @@ public object FfiConverterTypeCarrierHandler: FfiConverter<CarrierHandler, Point
 
 
 public interface HandleWifiNetworksCallback {
-    
+
     fun `handleWifiNetworks`(`networks`: Map<kotlin.String, kotlin.String>, `userApprove`: kotlin.Boolean)
-    
+
     companion object
 }
 
@@ -4091,22 +4091,22 @@ open class HandleWifiNetworksCallbackImpl: Disposable, AutoCloseable, HandleWifi
     }
 
     override fun `handleWifiNetworks`(`networks`: Map<kotlin.String, kotlin.String>, `userApprove`: kotlin.Boolean)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_handlewifinetworkscallback_handle_wifi_networks(
         it, FfiConverterMapStringString.lower(`networks`),FfiConverterBoolean.lower(`userApprove`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -4273,9 +4273,9 @@ public object FfiConverterTypeHandleWifiNetworksCallback: FfiConverter<HandleWif
 
 
 public interface InsertKeychainCallback {
-    
+
     fun `done`(`error`: kotlin.String?)
-    
+
     companion object
 }
 
@@ -4362,22 +4362,22 @@ open class InsertKeychainCallbackImpl: Disposable, AutoCloseable, InsertKeychain
     }
 
     override fun `done`(`error`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_insertkeychaincallback_done(
         it, FfiConverterOptionalString.lower(`error`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -4543,11 +4543,11 @@ public object FfiConverterTypeInsertKeychainCallback: FfiConverter<InsertKeychai
 
 
 public interface KotlinFilePackager {
-    
+
     fun `getFile`(`path`: kotlin.String): PackagedFile
-    
+
     fun `scanFiles`(`paths`: List<kotlin.String>)
-    
+
     companion object
 }
 
@@ -4643,25 +4643,25 @@ open class KotlinFilePackagerImpl: Disposable, AutoCloseable, KotlinFilePackager
     }
     )
     }
-    
+
 
     override fun `scanFiles`(`paths`: List<kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_kotlinfilepackager_scan_files(
         it, FfiConverterSequenceString.lower(`paths`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -4840,17 +4840,17 @@ public object FfiConverterTypeKotlinFilePackager: FfiConverter<KotlinFilePackage
 
 
 public interface MsgReceiver {
-    
+
     fun `receievedMsg`(`msg`: kotlin.ULong, `retry`: kotlin.ULong)
-    
+
     fun `nativeReady`(`state`: NativePushState?)
-    
+
     fun `nativeError`(`reason`: kotlin.String)
-    
+
     fun `twofaEvent`(`success`: kotlin.Boolean)
-    
+
     fun `finish`()
-    
+
     companion object
 }
 
@@ -4937,66 +4937,66 @@ open class MsgReceiverImpl: Disposable, AutoCloseable, MsgReceiver
     }
 
     override fun `receievedMsg`(`msg`: kotlin.ULong, `retry`: kotlin.ULong)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_receieved_msg(
         it, FfiConverterULong.lower(`msg`),FfiConverterULong.lower(`retry`),_status)
 }
     }
-    
-    
+
+
 
     override fun `nativeReady`(`state`: NativePushState?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_ready(
         it, FfiConverterOptionalTypeNativePushState.lower(`state`),_status)
 }
     }
-    
-    
+
+
 
     override fun `nativeError`(`reason`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_native_error(
         it, FfiConverterString.lower(`reason`),_status)
 }
     }
-    
-    
+
+
 
     override fun `twofaEvent`(`success`: kotlin.Boolean)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_twofa_event(
         it, FfiConverterBoolean.lower(`success`),_status)
 }
     }
-    
-    
+
+
 
     override fun `finish`()
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_msgreceiver_finish(
         it, _status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -5214,33 +5214,33 @@ public object FfiConverterTypeMsgReceiver: FfiConverter<MsgReceiver, Pointer> {
 
 
 public interface NativeKeystore {
-    
+
     fun `supportsImport`(): kotlin.Boolean
-    
+
     fun `createKey`(`alias`: kotlin.String, `type`: KeyType, `accessRules`: KeystoreAccessRules)
-    
+
     fun `destroyKey`(`alias`: kotlin.String)
-    
+
     fun `listKeys`(): List<kotlin.String>
-    
+
     fun `importKey`(`alias`: kotlin.String, `type`: KeyType, `wrappedKey`: kotlin.ByteArray, `accessRules`: KeystoreAccessRules)
-    
+
     fun `getImportWrapKey`(): kotlin.ByteArray
-    
+
     fun `getKeyType`(`alias`: kotlin.String): KeyType?
-    
+
     fun `sign`(`alias`: kotlin.String, `digest`: KeystoreDigest, `padding`: KeystorePadding, `data`: kotlin.ByteArray): kotlin.ByteArray
-    
+
     fun `verify`(`alias`: kotlin.String, `digest`: KeystoreDigest, `padding`: KeystorePadding, `data`: kotlin.ByteArray, `sig`: kotlin.ByteArray): kotlin.Boolean
-    
+
     fun `getPublicKey`(`alias`: kotlin.String): kotlin.ByteArray
-    
+
     fun `derive`(`alias`: kotlin.String, `peer`: kotlin.ByteArray): kotlin.ByteArray
-    
+
     fun `encrypt`(`alias`: kotlin.String, `plaintext`: kotlin.ByteArray, `mode`: EncryptMode): kotlin.ByteArray
-    
+
     fun `decrypt`(`alias`: kotlin.String, `ciphertext`: kotlin.ByteArray, `mode`: EncryptMode): kotlin.ByteArray
-    
+
     companion object
 }
 
@@ -5326,7 +5326,7 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
         }
     }
 
-    
+
     @Throws(NativeKeystoreException::class)override fun `supportsImport`(): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithPointer {
@@ -5337,33 +5337,33 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `createKey`(`alias`: kotlin.String, `type`: KeyType, `accessRules`: KeystoreAccessRules)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(NativeKeystoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_create_key(
         it, FfiConverterString.lower(`alias`),FfiConverterTypeKeyType.lower(`type`),FfiConverterTypeKeystoreAccessRules.lower(`accessRules`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     @Throws(NativeKeystoreException::class)override fun `destroyKey`(`alias`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(NativeKeystoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_destroy_key(
         it, FfiConverterString.lower(`alias`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     @Throws(NativeKeystoreException::class)override fun `listKeys`(): List<kotlin.String> {
             return FfiConverterSequenceString.lift(
     callWithPointer {
@@ -5374,21 +5374,21 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `importKey`(`alias`: kotlin.String, `type`: KeyType, `wrappedKey`: kotlin.ByteArray, `accessRules`: KeystoreAccessRules)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(NativeKeystoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativekeystore_import_key(
         it, FfiConverterString.lower(`alias`),FfiConverterTypeKeyType.lower(`type`),FfiConverterByteArray.lower(`wrappedKey`),FfiConverterTypeKeystoreAccessRules.lower(`accessRules`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     @Throws(NativeKeystoreException::class)override fun `getImportWrapKey`(): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5399,9 +5399,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `getKeyType`(`alias`: kotlin.String): KeyType? {
             return FfiConverterOptionalTypeKeyType.lift(
     callWithPointer {
@@ -5412,9 +5412,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `sign`(`alias`: kotlin.String, `digest`: KeystoreDigest, `padding`: KeystorePadding, `data`: kotlin.ByteArray): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5425,9 +5425,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `verify`(`alias`: kotlin.String, `digest`: KeystoreDigest, `padding`: KeystorePadding, `data`: kotlin.ByteArray, `sig`: kotlin.ByteArray): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithPointer {
@@ -5438,9 +5438,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `getPublicKey`(`alias`: kotlin.String): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5451,9 +5451,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `derive`(`alias`: kotlin.String, `peer`: kotlin.ByteArray): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5464,9 +5464,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `encrypt`(`alias`: kotlin.String, `plaintext`: kotlin.ByteArray, `mode`: EncryptMode): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5477,9 +5477,9 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
+
+
     @Throws(NativeKeystoreException::class)override fun `decrypt`(`alias`: kotlin.String, `ciphertext`: kotlin.ByteArray, `mode`: EncryptMode): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithPointer {
@@ -5490,14 +5490,14 @@ open class NativeKeystoreImpl: Disposable, AutoCloseable, NativeKeystore
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -5898,22 +5898,22 @@ public object FfiConverterTypeNativeKeystore: FfiConverter<NativeKeystore, Point
 
 
 public interface NativePushStateInterface {
-    
+
     /**
      * Accept a pending item share (the `BeaconShared` push payload's id).
      */
     fun `acceptBeaconShare`(`shareId`: kotlin.String)
-    
+
     /**
      * Approve a knock-to-join request (answer_ft_request).
      */
     fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
-    
+
     /**
      * Cancel/hang up a call by guid.
      */
     fun `cancelFacetime`(`guid`: kotlin.String)
-    
+
     /**
      * Set the full participant list of a group (add/remove inferred by
      * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
@@ -5921,43 +5921,43 @@ public interface NativePushStateInterface {
      * (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
      */
     fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst
-    
+
     /**
      * Whether CloudKit message-history sync can run on this state.
      */
     fun `cloudSyncState`(): USyncState
-    
+
     /**
      * Start an outgoing call.
      */
     fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
-    
+
     fun `declineFacetime`(`guid`: kotlin.String)
-    
+
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
     fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
-    
+
     /**
      * Delete a shared item.
      */
     fun `deleteBeaconShare`(`shareId`: kotlin.String)
-    
+
     /**
      * Push local deletions to iCloud BEFORE pulling (`delete_chats`);
      * otherwise the pull resurrects rows the user removed. Flushes the
      * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
      */
     fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
-    
+
     /**
      * Push local message deletions to iCloud (`delete_messages`).
      */
     fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
-    
+
     fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
-    
+
     /**
      * Download an incoming attachment to `dest_path` (Kotlin chose the
      * path; parent directories are created). Mirrors the api.rs
@@ -5965,18 +5965,18 @@ public interface NativePushStateInterface {
      * written straight to the file).
      */
     fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
-    
+
     /**
      * Download one Messages-in-iCloud attachment asset directly to `path`.
      */
     fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
-    
+
     /**
      * Download a bare MMCS file (e.g. a group icon from
      * `UMessage.IconChange.icon_xml`) to `dest_path`.
      */
     fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
-    
+
     /**
      * Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
      * original message GUID, `edit_part` the part index being replaced,
@@ -5986,34 +5986,34 @@ public interface NativePushStateInterface {
      * transferred.
      */
     fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
-    
+
     /**
      * api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
      * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
      * sender's shared name + avatar + poster.
      */
     fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord
-    
+
     /**
      * Active + known FaceTime sessions (caller resolution for the UI).
      */
     fun `ftSessions`(): List<UFtSession>
-    
+
     fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt
-    
+
     fun `getAvailableGroups`(`groupsCallback`: AvailableGroupsCallback)
-    
+
     /**
      * Own + shared FindMy items (AirTags etc.), syncing positions first
      * (api.rs `get_beacon_items`).
      */
     fun `getBeaconItems`(): List<UFmItem>
-    
+
     /**
      * Last persisted own + shared Find My items without a network refresh.
      */
     fun `getCachedBeaconItems`(): List<UFmItem>
-    
+
     /**
      * Authenticated headers for the account's iCloud CardDAV endpoint. This
      * reuses the on-device Apple session; Kotlin never receives the password
@@ -6021,105 +6021,105 @@ public interface NativePushStateInterface {
      * the original OpenBubbles CardDAV client used.
      */
     fun `getContactsHeaders`(): Map<kotlin.String, kotlin.String>
-    
+
     /**
      * Devices on this Apple ID, from cache (creates the client on first
      * call — its constructor already fetches the device list).
      */
     fun `getDevices`(): List<UFmDevice>
-    
+
     /**
      * Friends this account follows, from the fmfd daemon cache (may be
      * empty before the first refresh).
      */
     fun `getFollowing`(): List<UFmFriend>
-    
+
     /**
      * FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
      */
     fun `getFtLink`(`usage`: kotlin.String): kotlin.String
-    
+
     /**
      * All handles (emails + phone numbers) registered for this account.
      * The intake layer uses these to decide `isFromMe`.
      */
     fun `getHandles`(): List<kotlin.String>
-    
+
     /**
      * Only the tel: handles registered for this account.
      */
     fun `getMyPhoneHandles`(): List<kotlin.String>
-    
+
     /**
      * IDS registration health of the live client (drives the
      * "registering..." / retry UI).
      */
     fun `getRegstate`(): URegisterState
-    
+
     fun `getSiteConfig`(`site`: kotlin.String, `callback`: RetrieveKeysCallback)
-    
+
     fun `getState`(): kotlin.ULong
-    
+
     /**
      * Trusted-device escrow bottles available for non-destructive iCloud
      * Keychain recovery. Empty means the account has no recoverable bottle;
      * callers must not silently reset encrypted iCloud data in that case.
      */
     fun `getViableBottles`(): List<UViableBottle>
-    
+
     /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
      */
     fun `isInClique`(): kotlin.Boolean
-    
+
     /**
      * Join the end-to-end encrypted iCloud Keychain clique with a selected
      * trusted-device bottle. `password` is that device's passcode;
      * `device_password` is a newly generated recovery code for this device.
      */
     fun `joinCliqueWithBottle`(`escrowData`: kotlin.ByteArray, `password`: kotlin.String, `devicePassword`: kotlin.String)
-    
+
     fun `keychainPasskeyInsert`(`site`: kotlin.String, `recordId`: kotlin.String, `id`: kotlin.ByteArray, `tag`: kotlin.ByteArray, `key`: kotlin.ByteArray, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
-    
+
     fun `keychainPasswordInsert`(`site`: kotlin.String, `user`: kotlin.String, `password`: kotlin.String, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
-    
+
     /**
      * Leave a group chat: sends ChangeParticipants with `sender` removed
      * (Dart `leaveChat`). The removal matches the sender with or without
      * its `tel:`/`mailto:` prefix.
      */
     fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
-    
+
     fun `publishStatus`(`guid`: kotlin.String?)
-    
+
     /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
      */
     fun `refreshDevices`(): List<UFmDevice>
-    
+
     /**
      * Friends this account follows, after a server refresh.
      */
     fun `refreshFollowing`(): List<UFmFriend>
-    
+
     /**
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
      */
     fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
-    
+
     /**
      * Rename a group chat (Dart `renameChat`).
      */
     fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
-    
+
     /**
      * Dart rotateIncomingLink parity: preserve the current link as old,
      * promote nextincomingcall to current, then mint a fresh next link.
      */
     fun `rotateIncomingLinks`()
-    
+
     /**
      * Upload a local file and send it as an attachment message in one call
      * (the Dart `sendAttachment` flow). `text` is an optional caption part
@@ -6127,22 +6127,22 @@ public interface NativePushStateInterface {
      * the staging GUID to persist.
      */
     fun `sendAttachment`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `text`: kotlin.String?, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
-    
+
     /**
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
      */
     fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst
-    
+
     /**
      * Send (or remove, with `enable: false`) a tapback.
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
      * 5 question; 6 + `emoji` for custom emoji tapbacks.
      */
     fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean): UMessageInst
-    
+
     fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String, `messageGuid`: kotlin.String)
-    
+
     /**
      * Send a text over the SMS relay (`MessageType::SMS`). `using_number`
      * is the tel:-prefixed number of mine to route through (when None,
@@ -6151,29 +6151,29 @@ public interface NativePushStateInterface {
      * `send_text`.
      */
     fun `sendSms`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `usingNumber`: kotlin.String?, `fromHandle`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
-    
+
     /**
      * Upload an image and attach it as a positional sticker to one message
      * part. Coordinates are normalized to the target bubble (0..1), rotation
      * is in radians, and scale is relative to the sticker's natural size.
      */
     fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst
-    
+
     /**
      * Send a plain (optionally formatted-later) text message. Returns the
      * staged MessageInst — `id` is the staging GUID to persist.
      */
     fun `sendText`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
-    
+
     fun `sendTyping`(`conversation`: UConversation, `sender`: kotlin.String, `typing`: kotlin.Boolean)
-    
+
     /**
      * Set the group photo: uploads the local image to MMCS (Dart
      * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
      * message. The file should be a 570x570 PNG.
      */
     fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
-    
+
     /**
      * api.rs `set_profile` — publish this account's shared name/image/
      * poster. `existing_json` is the previously returned profile JSON
@@ -6182,13 +6182,13 @@ public interface NativePushStateInterface {
      * to contacts with `send_profile`.
      */
     fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String
-    
+
     /**
      * api.rs `get_sms_targets` — SMS relay targets for a handle.
      * `refresh` forces an IDS re-lookup.
      */
     fun `smsTargetsFor`(`handle`: kotlin.String, `refresh`: kotlin.Boolean): List<USmsTarget>
-    
+
     /**
      * Validate every peer, reserve the next FaceTime link, rotate it into
      * the active slot, and create the outgoing session as one native action.
@@ -6196,29 +6196,29 @@ public interface NativePushStateInterface {
      * against session creation.
      */
     fun `startFacetimeCall`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>): kotlin.String
-    
+
     fun `startLoop`(`handler`: MsgReceiver)
-    
+
     /**
      * Stop the current receive loop and close its live Apple resources
      * without deleting registration or account state. The caller may restore
      * a fresh state afterward (battery-saver transitions and service reloads).
      */
     fun `stopLoop`()
-    
+
     /**
      * Pull one page of attachment metadata. Payload bytes stay remote until
      * `download_cloud_attachment` is called for a visible attachment.
      */
     fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage
-    
+
     /**
      * Pull one page of chat changes (`sync_chats`). Pass the previous
      * page's `next_cursor` (none for the first page); persist the returned
      * cursor after applying the records. `more == false` ends the zone.
      */
     fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage
-    
+
     /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
@@ -6232,13 +6232,13 @@ public interface NativePushStateInterface {
      * aborts on transport errors.
      */
     fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome
-    
+
     /**
      * Pull one page of message changes (`sync_messages`). Same cursor
      * contract as `sync_chats_page`.
      */
     fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
-    
+
     /**
      * Tear down the push connection and (with `logout`) deregister from
      * iMessage and clear the saved Apple account. Hardware validation
@@ -6247,28 +6247,28 @@ public interface NativePushStateInterface {
      * re-inits via `init_native` after a fresh login.
      */
     fun `teardown`(`logout`: kotlin.Boolean)
-    
+
     fun `teardown2fa`(`action`: kotlin.String, `txnid`: kotlin.String)
-    
+
     /**
      * Unsend (remove for everyone) a previously-sent message part
      * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
      * the part index to retract.
      */
     fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst
-    
+
     /**
      * Rename / re-emoji an item (`update_beacon_name`).
      */
     fun `updateBeaconName`(`naming`: UFmNaming)
-    
+
     /**
      * Upload a local file to MMCS without sending a message (api.rs
      * `upload_attachment`). Persist the result XML before sending if the
      * send may be retried after a restart.
      */
     fun `uploadAttachment`(`filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `progress`: UProgressCallback?): UAttachment
-    
+
     /**
      * api.rs `upload_cloud_attachments` + `save_attachments` in one call
      * (the attachment half of Dart `uploadMessages`): uploads each local
@@ -6277,14 +6277,14 @@ public interface NativePushStateInterface {
      * are per-record; a transport failure fails the call.
      */
     fun `uploadAttachments`(`uploads`: List<UCkAttachmentUpload>): List<UCkSaveResult>
-    
+
     /**
      * api.rs `save_chats` — push chat records back to iCloud. Each entry
      * is a `UChatChange.blob` (restored to a `CloudChat`); restore
      * failures are reported per record without aborting the batch.
      */
     fun `uploadChats`(`records`: List<UCkBlob>): List<UCkSaveResult>
-    
+
     /**
      * api.rs `upload_group_photo` + `save_chats` (Dart `uploadChats`'s
      * photo step): uploads the image file, grafts the asset onto the
@@ -6292,14 +6292,14 @@ public interface NativePushStateInterface {
      * saves the chat back to iCloud.
      */
     fun `uploadGroupPhoto`(`filePath`: kotlin.String, `chatRecordId`: kotlin.String, `chatBlob`: kotlin.ByteArray): UCkSaveResult
-    
+
     /**
      * api.rs `save_messages` — push message records back to iCloud, from
      * their `UMessageChange.blob` payloads. Same per-record contract as
      * `upload_chats`.
      */
     fun `uploadMessages`(`records`: List<UCkBlob>): List<UCkSaveResult>
-    
+
     companion object
 }
 
@@ -6385,52 +6385,52 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         }
     }
 
-    
+
     /**
      * Accept a pending item share (the `BeaconShared` push payload's id).
      */
     @Throws(UException::class)override fun `acceptBeaconShare`(`shareId`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(
         it, FfiConverterString.lower(`shareId`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Approve a knock-to-join request (answer_ft_request).
      */
     @Throws(UException::class)override fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(
         it, FfiConverterByteArray.lower(`sharedSecret`),FfiConverterString.lower(`pseud`),FfiConverterString.lower(`requestor`),FfiConverterOptionalString.lower(`nickname`),FfiConverterByteArray.lower(`token`),FfiConverterOptionalString.lower(`delegationUuid`),FfiConverterOptionalString.lower(`usage`),FfiConverterOptionalString.lower(`approvedGroup`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Cancel/hang up a call by guid.
      */
     @Throws(UException::class)override fun `cancelFacetime`(`guid`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(
         it, FfiConverterString.lower(`guid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Set the full participant list of a group (add/remove inferred by
      * comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
@@ -6447,9 +6447,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Whether CloudKit message-history sync can run on this state.
      */override fun `cloudSyncState`(): USyncState {
@@ -6462,108 +6462,108 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Start an outgoing call.
      */
     @Throws(UException::class)override fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(
         it, FfiConverterString.lower(`uuid`),FfiConverterString.lower(`handle`),FfiConverterSequenceString.lower(`participants`),_status)
 }
     }
-    
-    
+
+
 
     override fun `declineFacetime`(`guid`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(
         it, FfiConverterString.lower(`guid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
     @Throws(UException::class)override fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(
         it, FfiConverterSequenceString.lower(`recordIds`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Delete a shared item.
      */
     @Throws(UException::class)override fun `deleteBeaconShare`(`shareId`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(
         it, FfiConverterString.lower(`shareId`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Push local deletions to iCloud BEFORE pulling (`delete_chats`);
      * otherwise the pull resurrects rows the user removed. Flushes the
      * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
      */
     @Throws(UException::class)override fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(
         it, FfiConverterSequenceString.lower(`recordIds`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Push local message deletions to iCloud (`delete_messages`).
      */
     @Throws(UException::class)override fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(
         it, FfiConverterSequenceString.lower(`recordIds`),_status)
 }
     }
-    
-    
+
+
 
     override fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(
         it, FfiConverterString.lower(`clientDataHash`),FfiConverterTypeSpecialAppleAuthCallback.lower(`callback`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Download an incoming attachment to `dest_path` (Kotlin chose the
      * path; parent directories are created). Mirrors the api.rs
@@ -6571,48 +6571,48 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * written straight to the file).
      */
     @Throws(UException::class)override fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(
         it, FfiConverterTypeUAttachment.lower(`attachment`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Download one Messages-in-iCloud attachment asset directly to `path`.
      */
     @Throws(UException::class)override fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
         it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Download a bare MMCS file (e.g. a group icon from
      * `UMessage.IconChange.icon_xml`) to `dest_path`.
      */
     @Throws(UException::class)override fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(
         it, FfiConverterString.lower(`mmcsXml`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
      * original message GUID, `edit_part` the part index being replaced,
@@ -6631,9 +6631,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
      * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
@@ -6649,9 +6649,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Active + known FaceTime sessions (caller resolution for the UI).
      */
@@ -6665,7 +6665,7 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
+
 
     override fun `getAuthCode`(`txnid`: kotlin.String): kotlin.UInt {
             return FfiConverterUInt.lift(
@@ -6677,20 +6677,20 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
+
 
     override fun `getAvailableGroups`(`groupsCallback`: AvailableGroupsCallback)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_available_groups(
         it, FfiConverterTypeAvailableGroupsCallback.lower(`groupsCallback`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Own + shared FindMy items (AirTags etc.), syncing positions first
      * (api.rs `get_beacon_items`).
@@ -6705,9 +6705,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Last persisted own + shared Find My items without a network refresh.
      */
@@ -6721,9 +6721,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Authenticated headers for the account's iCloud CardDAV endpoint. This
      * reuses the on-device Apple session; Kotlin never receives the password
@@ -6740,9 +6740,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Devices on this Apple ID, from cache (creates the client on first
      * call — its constructor already fetches the device list).
@@ -6757,9 +6757,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Friends this account follows, from the fmfd daemon cache (may be
      * empty before the first refresh).
@@ -6774,9 +6774,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * FaceTime link for a usage slot ("incomingcall" / "nextincomingcall").
      */
@@ -6790,9 +6790,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * All handles (emails + phone numbers) registered for this account.
      * The intake layer uses these to decide `isFromMe`.
@@ -6807,9 +6807,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Only the tel: handles registered for this account.
      */
@@ -6823,9 +6823,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * IDS registration health of the live client (drives the
      * "registering..." / retry UI).
@@ -6840,18 +6840,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
+
 
     override fun `getSiteConfig`(`site`: kotlin.String, `callback`: RetrieveKeysCallback)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_site_config(
         it, FfiConverterString.lower(`site`),FfiConverterTypeRetrieveKeysCallback.lower(`callback`),_status)
 }
     }
-    
-    
+
+
 
     override fun `getState`(): kotlin.ULong {
             return FfiConverterULong.lift(
@@ -6863,9 +6863,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Trusted-device escrow bottles available for non-destructive iCloud
      * Keychain recovery. Empty means the account has no recoverable bottle;
@@ -6881,9 +6881,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
@@ -6898,48 +6898,48 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Join the end-to-end encrypted iCloud Keychain clique with a selected
      * trusted-device bottle. `password` is that device's passcode;
      * `device_password` is a newly generated recovery code for this device.
      */
     @Throws(UException::class)override fun `joinCliqueWithBottle`(`escrowData`: kotlin.ByteArray, `password`: kotlin.String, `devicePassword`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(
         it, FfiConverterByteArray.lower(`escrowData`),FfiConverterString.lower(`password`),FfiConverterString.lower(`devicePassword`),_status)
 }
     }
-    
-    
+
+
 
     override fun `keychainPasskeyInsert`(`site`: kotlin.String, `recordId`: kotlin.String, `id`: kotlin.ByteArray, `tag`: kotlin.ByteArray, `key`: kotlin.ByteArray, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_insert(
         it, FfiConverterString.lower(`site`),FfiConverterString.lower(`recordId`),FfiConverterByteArray.lower(`id`),FfiConverterByteArray.lower(`tag`),FfiConverterByteArray.lower(`key`),FfiConverterTypeInsertKeychainCallback.lower(`callback`),FfiConverterOptionalString.lower(`group`),_status)
 }
     }
-    
-    
+
+
 
     override fun `keychainPasswordInsert`(`site`: kotlin.String, `user`: kotlin.String, `password`: kotlin.String, `callback`: InsertKeychainCallback, `group`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(
         it, FfiConverterString.lower(`site`),FfiConverterString.lower(`user`),FfiConverterString.lower(`password`),FfiConverterTypeInsertKeychainCallback.lower(`callback`),FfiConverterOptionalString.lower(`group`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Leave a group chat: sends ChangeParticipants with `sender` removed
      * (Dart `leaveChat`). The removal matches the sender with or without
@@ -6955,20 +6955,20 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
+
 
     override fun `publishStatus`(`guid`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(
         it, FfiConverterOptionalString.lower(`guid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
      */
@@ -6982,9 +6982,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Friends this account follows, after a server refresh.
      */
@@ -6998,9 +6998,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
@@ -7015,9 +7015,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Rename a group chat (Dart `renameChat`).
      */
@@ -7031,25 +7031,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Dart rotateIncomingLink parity: preserve the current link as old,
      * promote nextincomingcall to current, then mint a fresh next link.
      */
     @Throws(UException::class)override fun `rotateIncomingLinks`()
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(
         it, _status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Upload a local file and send it as an attachment message in one call
      * (the Dart `sendAttachment` flow). `text` is an optional caption part
@@ -7066,9 +7066,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
@@ -7083,9 +7083,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Send (or remove, with `enable: false`) a tapback.
      * `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
@@ -7101,21 +7101,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     @Throws(UException::class)override fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String, `messageGuid`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`messageGuid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Send a text over the SMS relay (`MessageType::SMS`). `using_number`
      * is the tel:-prefixed number of mine to route through (when None,
@@ -7133,9 +7133,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Upload an image and attach it as a positional sticker to one message
      * part. Coordinates are normalized to the target bubble (0..1), rotation
@@ -7151,9 +7151,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Send a plain (optionally formatted-later) text message. Returns the
      * staged MessageInst — `id` is the staging GUID to persist.
@@ -7168,21 +7168,21 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     @Throws(UException::class)override fun `sendTyping`(`conversation`: UConversation, `sender`: kotlin.String, `typing`: kotlin.Boolean)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterBoolean.lower(`typing`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Set the group photo: uploads the local image to MMCS (Dart
      * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
@@ -7198,9 +7198,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `set_profile` — publish this account's shared name/image/
      * poster. `existing_json` is the previously returned profile JSON
@@ -7218,9 +7218,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `get_sms_targets` — SMS relay targets for a handle.
      * `refresh` forces an IDS re-lookup.
@@ -7235,9 +7235,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Validate every peer, reserve the next FaceTime link, rotate it into
      * the active slot, and create the outgoing session as one native action.
@@ -7254,36 +7254,36 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
+
 
     override fun `startLoop`(`handler`: MsgReceiver)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(
         it, FfiConverterTypeMsgReceiver.lower(`handler`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Stop the current receive loop and close its live Apple resources
      * without deleting registration or account state. The caller may restore
      * a fresh state afterward (battery-saver transitions and service reloads).
      */override fun `stopLoop`()
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(
         it, _status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Pull one page of attachment metadata. Payload bytes stay remote until
      * `download_cloud_attachment` is called for a visible attachment.
@@ -7298,9 +7298,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Pull one page of chat changes (`sync_chats`). Pass the previous
      * page's `next_cursor` (none for the first page); persist the returned
@@ -7316,9 +7316,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
@@ -7341,9 +7341,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Pull one page of message changes (`sync_messages`). Same cursor
      * contract as `sync_chats_page`.
@@ -7358,9 +7358,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Tear down the push connection and (with `logout`) deregister from
      * iMessage and clear the saved Apple account. Hardware validation
@@ -7369,28 +7369,28 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * re-inits via `init_native` after a fresh login.
      */
     @Throws(UException::class)override fun `teardown`(`logout`: kotlin.Boolean)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(
         it, FfiConverterBoolean.lower(`logout`),_status)
 }
     }
-    
-    
+
+
 
     override fun `teardown2fa`(`action`: kotlin.String, `txnid`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(
         it, FfiConverterString.lower(`action`),FfiConverterString.lower(`txnid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Unsend (remove for everyone) a previously-sent message part
      * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
@@ -7406,24 +7406,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Rename / re-emoji an item (`update_beacon_name`).
      */
     @Throws(UException::class)override fun `updateBeaconName`(`naming`: UFmNaming)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(
         it, FfiConverterTypeUFmNaming.lower(`naming`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Upload a local file to MMCS without sending a message (api.rs
      * `upload_attachment`). Persist the result XML before sending if the
@@ -7439,9 +7439,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `upload_cloud_attachments` + `save_attachments` in one call
      * (the attachment half of Dart `uploadMessages`): uploads each local
@@ -7459,9 +7459,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `save_chats` — push chat records back to iCloud. Each entry
      * is a `UChatChange.blob` (restored to a `CloudChat`); restore
@@ -7477,9 +7477,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `upload_group_photo` + `save_chats` (Dart `uploadChats`'s
      * photo step): uploads the image file, grafts the asset onto the
@@ -7496,9 +7496,9 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `save_messages` — push message records back to iCloud, from
      * their `UMessageChange.blob` payloads. Same per-record contract as
@@ -7514,14 +7514,14 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -7652,9 +7652,9 @@ public object FfiConverterTypeNativePushState: FfiConverter<NativePushState, Poi
 
 
 public interface RetrieveKeysCallback {
-    
+
     fun `keys`(`passwords`: List<SavedPassword>, `passkeys`: List<SavedPasskey>)
-    
+
     companion object
 }
 
@@ -7741,22 +7741,22 @@ open class RetrieveKeysCallbackImpl: Disposable, AutoCloseable, RetrieveKeysCall
     }
 
     override fun `keys`(`passwords`: List<SavedPassword>, `passkeys`: List<SavedPasskey>)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_retrievekeyscallback_keys(
         it, FfiConverterSequenceTypeSavedPassword.lower(`passwords`),FfiConverterSequenceTypeSavedPasskey.lower(`passkeys`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -7923,9 +7923,9 @@ public object FfiConverterTypeRetrieveKeysCallback: FfiConverter<RetrieveKeysCal
 
 
 public interface SpecialAppleAuthCallback {
-    
+
     fun `gotVerification`(`token`: Map<kotlin.String, kotlin.String>, `error`: kotlin.String?)
-    
+
     companion object
 }
 
@@ -8012,22 +8012,22 @@ open class SpecialAppleAuthCallbackImpl: Disposable, AutoCloseable, SpecialApple
     }
 
     override fun `gotVerification`(`token`: Map<kotlin.String, kotlin.String>, `error`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_specialappleauthcallback_got_verification(
         it, FfiConverterMapStringString.lower(`token`),FfiConverterOptionalString.lower(`error`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -8200,39 +8200,39 @@ public object FfiConverterTypeSpecialAppleAuthCallback: FfiConverter<SpecialAppl
  * blob the Dart app kept under `attachment.metadata["rustpush"]`.
  */
 public interface UAttachmentInterface {
-    
+
     /**
      * Live-photo / iris flag.
      */
     fun `iris`(): kotlin.Boolean
-    
+
     /**
      * Whether the attachment payload is embedded inline (already have the
      * bytes — no MMCS transfer needed; `total_size` is the payload length).
      */
     fun `isInline`(): kotlin.Boolean
-    
+
     fun `mime`(): kotlin.String
-    
+
     fun `name`(): kotlin.String
-    
+
     /**
      * Part index this attachment occupies in its message.
      */
     fun `partIndex`(): kotlin.ULong
-    
+
     /**
      * Serialize for persistence (mirrors api.rs `save_attachment`).
      */
     fun `saveAttachment`(): kotlin.String
-    
+
     /**
      * Transfer size in bytes (inline payload length or MMCS file size).
      */
     fun `totalSize`(): kotlin.ULong
-    
+
     fun `uti`(): kotlin.String
-    
+
     companion object
 }
 
@@ -8324,7 +8324,7 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
         }
     }
 
-    
+
     /**
      * Live-photo / iris flag.
      */override fun `iris`(): kotlin.Boolean {
@@ -8337,9 +8337,9 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Whether the attachment payload is embedded inline (already have the
      * bytes — no MMCS transfer needed; `total_size` is the payload length).
@@ -8353,7 +8353,7 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
+
 
     override fun `mime`(): kotlin.String {
             return FfiConverterString.lift(
@@ -8365,7 +8365,7 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
+
 
     override fun `name`(): kotlin.String {
             return FfiConverterString.lift(
@@ -8377,9 +8377,9 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Part index this attachment occupies in its message.
      */override fun `partIndex`(): kotlin.ULong {
@@ -8392,9 +8392,9 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Serialize for persistence (mirrors api.rs `save_attachment`).
      */
@@ -8408,9 +8408,9 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Transfer size in bytes (inline payload length or MMCS file size).
      */override fun `totalSize`(): kotlin.ULong {
@@ -8423,7 +8423,7 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
+
 
     override fun `uti`(): kotlin.String {
             return FfiConverterString.lift(
@@ -8435,14 +8435,14 @@ open class UAttachment: Disposable, AutoCloseable, UAttachmentInterface
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -8576,37 +8576,37 @@ public object FfiConverterTypeUAttachment: FfiConverter<UAttachment, Pointer> {
  * Parsed incoming-call / contact poster (`SimplifiedIncomingCallPoster`).
  */
 public interface UCallPosterInterface {
-    
+
     /**
      * Which poster flavor this is.
      */
     fun `kind`(): UPosterKind
-    
+
     /**
      * Low-res preview image bytes.
      */
     fun `lowResImage`(): kotlin.ByteArray
-    
+
     /**
      * All files of the idx'th photo asset (empty for non-photo posters).
      */
     fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile>
-    
+
     /**
      * api.rs `parse_poster_save` — binary plist for persistence.
      */
     fun `save`(): kotlin.ByteArray
-    
+
     /**
      * Text styling (font color/size, background color, type).
      */
     fun `textMetadata`(): UWallpaperMetadata
-    
+
     /**
      * api.rs `from_poster` — rebuild the raw record (for `set_profile`).
      */
     fun `toRecord`(): UPosterRecord
-    
+
     companion object
 }
 
@@ -8695,7 +8695,7 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
         }
     }
 
-    
+
     /**
      * Which poster flavor this is.
      */override fun `kind`(): UPosterKind {
@@ -8708,9 +8708,9 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Low-res preview image bytes.
      */override fun `lowResImage`(): kotlin.ByteArray {
@@ -8723,9 +8723,9 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * All files of the idx'th photo asset (empty for non-photo posters).
      */override fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile> {
@@ -8738,9 +8738,9 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `parse_poster_save` — binary plist for persistence.
      */
@@ -8754,9 +8754,9 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Text styling (font color/size, background color, type).
      */override fun `textMetadata`(): UWallpaperMetadata {
@@ -8769,9 +8769,9 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `from_poster` — rebuild the raw record (for `set_profile`).
      */
@@ -8785,14 +8785,14 @@ open class UCallPoster: Disposable, AutoCloseable, UCallPosterInterface
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -8928,9 +8928,9 @@ public object FfiConverterTypeUCallPoster: FfiConverter<UCallPoster, Pointer> {
  * into Rust. Return an empty string to signal failure.
  */
 public interface UEapAkaHandler {
-    
+
     fun `processChallenge`(`challenge`: kotlin.String): kotlin.String
-    
+
     companion object
 }
 
@@ -9031,14 +9031,14 @@ open class UEapAkaHandlerImpl: Disposable, AutoCloseable, UEapAkaHandler
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -9209,31 +9209,31 @@ public object FfiConverterTypeUEapAkaHandler: FfiConverter<UEapAkaHandler, Point
  * session (or any other UniFFI export) from inside them.
  */
 public interface ULoginDelegate {
-    
+
     /**
      * Coarse progress (each step of the internal state machine).
      */
     fun `onStage`(`stage`: ULoginStage)
-    
+
     /**
      * Emitted whenever the machine settles: at the end of `login`,
      * `submit_2fa_code`, `choose_sms_phone`, and `request_sms_fallback`.
      */
     fun `onState`(`state`: ULoginState)
-    
+
     /**
      * Circle proximity pairing session (mirrors the Dart
      * `circle-proximity-session` method-channel call): `Some(sid)` starts
      * the nearby-device pairing surface, `None` clears it.
      */
     fun `onCircleSession`(`sid`: kotlin.String?)
-    
+
     /**
      * Non-fatal diagnostics (e.g. no trusted phone numbers available).
      * Fatal failures are returned as `UError` from the calling method.
      */
     fun `onError`(`reason`: kotlin.String)
-    
+
     companion object
 }
 
@@ -9324,72 +9324,72 @@ open class ULoginDelegateImpl: Disposable, AutoCloseable, ULoginDelegate
         }
     }
 
-    
+
     /**
      * Coarse progress (each step of the internal state machine).
      */override fun `onStage`(`stage`: ULoginStage)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_stage(
         it, FfiConverterTypeULoginStage.lower(`stage`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Emitted whenever the machine settles: at the end of `login`,
      * `submit_2fa_code`, `choose_sms_phone`, and `request_sms_fallback`.
      */override fun `onState`(`state`: ULoginState)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_state(
         it, FfiConverterTypeULoginState.lower(`state`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Circle proximity pairing session (mirrors the Dart
      * `circle-proximity-session` method-channel call): `Some(sid)` starts
      * the nearby-device pairing surface, `None` clears it.
      */override fun `onCircleSession`(`sid`: kotlin.String?)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_circle_session(
         it, FfiConverterOptionalString.lower(`sid`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Non-fatal diagnostics (e.g. no trusted phone numbers available).
      * Fatal failures are returned as `UError` from the calling method.
      */override fun `onError`(`reason`: kotlin.String)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_ulogindelegate_on_error(
         it, FfiConverterString.lower(`reason`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -9597,69 +9597,69 @@ public object FfiConverterTypeULoginDelegate: FfiConverter<ULoginDelegate, Point
  * Stateful login driver. Create with [`create_login_session`].
  */
 public interface ULoginSessionInterface {
-    
+
     /**
      * SMS-gateway phone registration: `number` + `sig` are the gateway
      * response parts (the Dart side split on "|"), `sig` the hex-decoded
      * signature bytes.
      */
     fun `authPhone`(`subscription`: kotlin.Long, `number`: kotlin.String, `sig`: kotlin.ByteArray)
-    
+
     /**
      * Send the SMS 2FA code to the chosen phone; then await
      * `submit_2fa_code`.
      */
     fun `chooseSmsPhone`(`phoneId`: kotlin.UInt): ULoginState
-    
+
     /**
      * Finish the terms/account-update flow (calls `do_login` with the
      * stored `UpdateAccountFinish`), producing the Apple IDS user.
      */
     fun `completeUpdateAccount`(): ULoginState
-    
+
     /**
      * Establish the APS connection + anisette (wraps `setup_push` +
      * `make_anisette`). `login()` calls this automatically; it is separate
      * so phone registration can connect before any Apple ID login.
      */
     fun `connect`()
-    
+
     /**
      * Identity (name/serial/OS) of the emulated hardware. `name` containing
      * "iPhone"/"iPad"/"iPod" gates phone-number registration, like Dart.
      */
     fun `deviceInfo`(): UDeviceInfo
-    
+
     /**
      * Serialized phone users for Kotlin-side persistence. Restore with
      * `import_phone_user` on future runs to skip carrier auth.
      */
     fun `exportPhoneUsers`(): List<UPhoneUser>
-    
+
     /**
      * Trusted phone numbers for SMS 2FA (cached from the last pump).
      */
     fun `getSmsPhoneOptions`(): List<UTrustedPhone>
-    
+
     /**
      * Fetch the account-update (terms) page HTML. Mirrors Dart's
      * `updateAccountUi` webview source; the page is finished with
      * `complete_update_account`.
      */
     fun `getUpdateAccountPage`(): kotlin.String
-    
+
     /**
      * Display name of the logged-in Apple account.
      */
     fun `getUsername`(): kotlin.String
-    
+
     /**
      * Restore a cached phone user. Returns `false` (and drops it) when the
      * user's certificate no longer validates against the live connection —
      * Kotlin should discard the cached entry then, like Dart did.
      */
     fun `importPhoneUser`(`subscription`: kotlin.Long, `serialized`: kotlin.String): kotlin.Boolean
-    
+
     /**
      * Start (or resume) Apple ID login. With `username`+`password` the
      * stored credentials are replaced (fresh login); without them the
@@ -9667,7 +9667,7 @@ public interface ULoginSessionInterface {
      * state machine and returns the state requiring user action next.
      */
     fun `login`(`username`: kotlin.String?, `password`: kotlin.String?): ULoginState
-    
+
     /**
      * Register all collected users (Apple ID + phone numbers) with IDS.
      * On `Registered`, `id.plist` is written — rebuild the live state with
@@ -9675,27 +9675,27 @@ public interface ULoginSessionInterface {
      * support-alert dialog (registration stopped until acknowledged).
      */
     fun `register`(): URegistrationResult
-    
+
     /**
      * Switch a device-2FA prompt to SMS 2FA (the "send code to phone
      * instead" button in the Dart 2FA page).
      */
     fun `requestSmsFallback`(): ULoginState
-    
+
     /**
      * Tear down and re-establish the APS connection with a fresh push token
      * (required before SMS-gateway phone registration, like Dart's PNR
      * flow). Kept: account, users, login state.
      */
     fun `resetConnection`()
-    
+
     /**
      * Rotate the NGM identity: generates a fresh identity, persists it via
      * `set_identity`, resets anisette, and tears the session down to
      * `NeedsLogin` (mirrors Dart `configureHostedDevice`'s reset).
      */
     fun `setNewIdentity`()
-    
+
     /**
      * SMS-less carrier authentication (EAP-AKA): `mccmnc`/`subscriber`/`imei`
      * come from the Android telephony stack (see native `get_carrier` for the
@@ -9704,19 +9704,19 @@ public interface ULoginSessionInterface {
      * for `register`.
      */
     fun `smsLessAuth`(`subscription`: kotlin.Long, `mccmnc`: kotlin.String, `subscriber`: kotlin.String, `imei`: kotlin.String, `handler`: UEapAkaHandler)
-    
+
     /**
      * Current login state snapshot.
      */
     fun `state`(): ULoginState
-    
+
     /**
      * Submit a 2FA code — either the trusted-device code (after
      * `Needs2FaVerification`) or the SMS code (after
      * `NeedsSms2FaVerification`). Pumps the machine afterwards.
      */
     fun `submit2faCode`(`code`: kotlin.String): ULoginState
-    
+
     companion object
 }
 
@@ -9805,24 +9805,24 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
         }
     }
 
-    
+
     /**
      * SMS-gateway phone registration: `number` + `sig` are the gateway
      * response parts (the Dart side split on "|"), `sig` the hex-decoded
      * signature bytes.
      */
     @Throws(UException::class)override fun `authPhone`(`subscription`: kotlin.Long, `number`: kotlin.String, `sig`: kotlin.ByteArray)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_auth_phone(
         it, FfiConverterLong.lower(`subscription`),FfiConverterString.lower(`number`),FfiConverterByteArray.lower(`sig`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Send the SMS 2FA code to the chosen phone; then await
      * `submit_2fa_code`.
@@ -9837,9 +9837,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Finish the terms/account-update flow (calls `do_login` with the
      * stored `UpdateAccountFinish`), producing the Apple IDS user.
@@ -9854,26 +9854,26 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Establish the APS connection + anisette (wraps `setup_push` +
      * `make_anisette`). `login()` calls this automatically; it is separate
      * so phone registration can connect before any Apple ID login.
      */
     @Throws(UException::class)override fun `connect`()
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_connect(
         it, _status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Identity (name/serial/OS) of the emulated hardware. `name` containing
      * "iPhone"/"iPad"/"iPod" gates phone-number registration, like Dart.
@@ -9888,9 +9888,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Serialized phone users for Kotlin-side persistence. Restore with
      * `import_phone_user` on future runs to skip carrier auth.
@@ -9904,9 +9904,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Trusted phone numbers for SMS 2FA (cached from the last pump).
      */
@@ -9920,9 +9920,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Fetch the account-update (terms) page HTML. Mirrors Dart's
      * `updateAccountUi` webview source; the page is finished with
@@ -9938,9 +9938,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Display name of the logged-in Apple account.
      */
@@ -9954,9 +9954,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Restore a cached phone user. Returns `false` (and drops it) when the
      * user's certificate no longer validates against the live connection —
@@ -9972,9 +9972,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Start (or resume) Apple ID login. With `username`+`password` the
      * stored credentials are replaced (fresh login); without them the
@@ -9991,9 +9991,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Register all collected users (Apple ID + phone numbers) with IDS.
      * On `Registered`, `id.plist` is written — rebuild the live state with
@@ -10010,9 +10010,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Switch a device-2FA prompt to SMS 2FA (the "send code to phone
      * instead" button in the Dart 2FA page).
@@ -10027,43 +10027,43 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Tear down and re-establish the APS connection with a fresh push token
      * (required before SMS-gateway phone registration, like Dart's PNR
      * flow). Kept: account, users, login state.
      */
     @Throws(UException::class)override fun `resetConnection`()
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_reset_connection(
         it, _status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Rotate the NGM identity: generates a fresh identity, persists it via
      * `set_identity`, resets anisette, and tears the session down to
      * `NeedsLogin` (mirrors Dart `configureHostedDevice`'s reset).
      */
     @Throws(UException::class)override fun `setNewIdentity`()
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_set_new_identity(
         it, _status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * SMS-less carrier authentication (EAP-AKA): `mccmnc`/`subscriber`/`imei`
      * come from the Android telephony stack (see native `get_carrier` for the
@@ -10072,17 +10072,17 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
      * for `register`.
      */
     @Throws(UException::class)override fun `smsLessAuth`(`subscription`: kotlin.Long, `mccmnc`: kotlin.String, `subscriber`: kotlin.String, `imei`: kotlin.String, `handler`: UEapAkaHandler)
-        = 
+        =
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uloginsession_sms_less_auth(
         it, FfiConverterLong.lower(`subscription`),FfiConverterString.lower(`mccmnc`),FfiConverterString.lower(`subscriber`),FfiConverterString.lower(`imei`),FfiConverterTypeUEapAkaHandler.lower(`handler`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Current login state snapshot.
      */override fun `state`(): ULoginState {
@@ -10095,9 +10095,9 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
+
+
     /**
      * Submit a 2FA code — either the trusted-device code (after
      * `Needs2FaVerification`) or the SMS code (after
@@ -10113,14 +10113,14 @@ open class ULoginSession: Disposable, AutoCloseable, ULoginSessionInterface
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -10257,9 +10257,9 @@ public object FfiConverterTypeULoginSession: FfiConverter<ULoginSession, Pointer
  * treat the thread as unspecified and never re-enter Rust from one.
  */
 public interface UProgressCallback {
-    
+
     fun `onProgress`(`done`: kotlin.ULong, `total`: kotlin.ULong)
-    
+
     companion object
 }
 
@@ -10352,22 +10352,22 @@ open class UProgressCallbackImpl: Disposable, AutoCloseable, UProgressCallback
     }
 
     override fun `onProgress`(`done`: kotlin.ULong, `total`: kotlin.ULong)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_uprogresscallback_on_progress(
         it, FfiConverterULong.lower(`done`),FfiConverterULong.lower(`total`),_status)
 }
     }
-    
-    
 
-    
 
-    
-    
+
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -10539,20 +10539,20 @@ public object FfiConverterTypeUProgressCallback: FfiConverter<UProgressCallback,
  * persist/emit there, but never re-enter Rust from inside them.
  */
 public interface USyncPageCallback {
-    
+
     /**
      * One page of changes with running totals. Chat pages arrive first
      * (records contain only `USyncRecord::Chat`), then message pages.
      */
     fun `onPage`(`records`: List<USyncRecord>, `chatsDone`: kotlin.ULong, `messagesDone`: kotlin.ULong)
-    
+
     /**
      * Cooperative cancellation — checked before every page. Return false
      * to stop the run (already-received pages stay applied; the outcome
      * carries the cursors reached).
      */
     fun `keepGoing`(): kotlin.Boolean
-    
+
     companion object
 }
 
@@ -10643,22 +10643,22 @@ open class USyncPageCallbackImpl: Disposable, AutoCloseable, USyncPageCallback
         }
     }
 
-    
+
     /**
      * One page of changes with running totals. Chat pages arrive first
      * (records contain only `USyncRecord::Chat`), then message pages.
      */override fun `onPage`(`records`: List<USyncRecord>, `chatsDone`: kotlin.ULong, `messagesDone`: kotlin.ULong)
-        = 
+        =
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_usyncpagecallback_on_page(
         it, FfiConverterSequenceTypeUSyncRecord.lower(`records`),FfiConverterULong.lower(`chatsDone`),FfiConverterULong.lower(`messagesDone`),_status)
 }
     }
-    
-    
 
-    
+
+
+
     /**
      * Cooperative cancellation — checked before every page. Return false
      * to stop the run (already-received pages stay applied; the outcome
@@ -10673,14 +10673,14 @@ open class USyncPageCallbackImpl: Disposable, AutoCloseable, USyncPageCallback
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 
@@ -10865,37 +10865,37 @@ public object FfiConverterTypeUSyncPageCallback: FfiConverter<USyncPageCallback,
  * packs a (possibly unchanged) poster back into sendable bytes.
  */
 public interface UTranscriptPosterInterface {
-    
+
     /**
      * Which poster flavor this is (colors / initials / identifiers).
      */
     fun `kind`(): UPosterKind
-    
+
     /**
      * All files of the idx'th photo asset (empty for non-photo posters).
      */
     fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile>
-    
+
     /**
      * api.rs `transcript_poster_save` — binary plist for persistence.
      */
     fun `save`(): kotlin.ByteArray
-    
+
     /**
      * Title luminance (0..1) — pick contrasting text color against it.
      */
     fun `titleLuminance`(): kotlin.Double
-    
+
     /**
      * api.rs `pack_transcript_poster` — serialize back to the zip payload.
      */
     fun `toPayload`(): kotlin.ByteArray
-    
+
     /**
      * The watch/chat background half (contains the wallpaper image bytes).
      */
     fun `watch`(): UWatchBackground
-    
+
     companion object
 }
 
@@ -10986,7 +10986,7 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
         }
     }
 
-    
+
     /**
      * Which poster flavor this is (colors / initials / identifiers).
      */override fun `kind`(): UPosterKind {
@@ -10999,9 +10999,9 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
+
+
     /**
      * All files of the idx'th photo asset (empty for non-photo posters).
      */override fun `photoFiles`(`assetIndex`: kotlin.ULong): List<UPosterFile> {
@@ -11014,9 +11014,9 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `transcript_poster_save` — binary plist for persistence.
      */
@@ -11030,9 +11030,9 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
+
+
     /**
      * Title luminance (0..1) — pick contrasting text color against it.
      */override fun `titleLuminance`(): kotlin.Double {
@@ -11045,9 +11045,9 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
+
+
     /**
      * api.rs `pack_transcript_poster` — serialize back to the zip payload.
      */
@@ -11061,9 +11061,9 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
+
+
     /**
      * The watch/chat background half (contains the wallpaper image bytes).
      */override fun `watch`(): UWatchBackground {
@@ -11076,14 +11076,14 @@ open class UTranscriptPoster: Disposable, AutoCloseable, UTranscriptPosterInterf
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -11117,12 +11117,12 @@ public object FfiConverterTypeUTranscriptPoster: FfiConverter<UTranscriptPoster,
 
 
 data class FileInfo (
-    var `duration`: kotlin.Double?, 
-    var `width`: kotlin.UInt, 
-    var `height`: kotlin.UInt, 
+    var `duration`: kotlin.Double?,
+    var `width`: kotlin.UInt,
+    var `height`: kotlin.UInt,
     var `thumbnail`: kotlin.ByteArray?
 ) {
-    
+
     companion object
 }
 
@@ -11157,18 +11157,18 @@ public object FfiConverterTypeFileInfo: FfiConverterRustBuffer<FileInfo> {
 
 
 data class KeystoreAccessRules (
-    var `blockModes`: List<EncryptMode>, 
-    var `digests`: List<KeystoreDigest>, 
-    var `encryptionPaddings`: List<KeystorePadding>, 
-    var `mgf1Digests`: List<KeystoreDigest>, 
-    var `signaturePadding`: List<KeystorePadding>, 
-    var `requireUser`: kotlin.Boolean, 
-    var `canAgree`: kotlin.Boolean, 
-    var `canSign`: kotlin.Boolean, 
-    var `canEncrypt`: kotlin.Boolean, 
+    var `blockModes`: List<EncryptMode>,
+    var `digests`: List<KeystoreDigest>,
+    var `encryptionPaddings`: List<KeystorePadding>,
+    var `mgf1Digests`: List<KeystoreDigest>,
+    var `signaturePadding`: List<KeystorePadding>,
+    var `requireUser`: kotlin.Boolean,
+    var `canAgree`: kotlin.Boolean,
+    var `canSign`: kotlin.Boolean,
+    var `canEncrypt`: kotlin.Boolean,
     var `canDecrypt`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -11221,12 +11221,12 @@ public object FfiConverterTypeKeystoreAccessRules: FfiConverterRustBuffer<Keysto
 
 
 data class SavedPasskey (
-    var `credId`: kotlin.String, 
-    var `id`: kotlin.ByteArray, 
-    var `tag`: kotlin.ByteArray, 
+    var `credId`: kotlin.String,
+    var `id`: kotlin.ByteArray,
+    var `tag`: kotlin.ByteArray,
     var `key`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -11261,12 +11261,12 @@ public object FfiConverterTypeSavedPasskey: FfiConverterRustBuffer<SavedPasskey>
 
 
 data class SavedPassword (
-    var `credId`: kotlin.String, 
-    var `username`: kotlin.String, 
-    var `password`: kotlin.String, 
+    var `credId`: kotlin.String,
+    var `username`: kotlin.String,
+    var `password`: kotlin.String,
     var `otp`: kotlin.UInt?
 ) {
-    
+
     companion object
 }
 
@@ -11304,10 +11304,10 @@ public object FfiConverterTypeSavedPassword: FfiConverterRustBuffer<SavedPasswor
  * One attachment-zone change: `attachment == None` is a tombstone.
  */
 data class UAttachmentChange (
-    var `recordId`: kotlin.String, 
+    var `recordId`: kotlin.String,
     var `attachment`: UCloudAttachment?
 ) {
-    
+
     companion object
 }
 
@@ -11339,12 +11339,12 @@ public object FfiConverterTypeUAttachmentChange: FfiConverterRustBuffer<UAttachm
  * A page from the attachment zone (`sync_attachments`).
  */
 data class UAttachmentSyncPage (
-    var `records`: List<UAttachmentChange>, 
-    var `nextCursor`: kotlin.ByteArray, 
-    var `more`: kotlin.Boolean, 
+    var `records`: List<UAttachmentChange>,
+    var `nextCursor`: kotlin.ByteArray,
+    var `more`: kotlin.Boolean,
     var `status`: kotlin.Int
 ) {
-    
+
     companion object
 }
 
@@ -11382,8 +11382,8 @@ public object FfiConverterTypeUAttachmentSyncPage: FfiConverterRustBuffer<UAttac
  * One chat-zone change: `chat == None` is a tombstone.
  */
 data class UChatChange (
-    var `recordId`: kotlin.String, 
-    var `chat`: UCloudChat?, 
+    var `recordId`: kotlin.String,
+    var `chat`: UCloudChat?,
     /**
      * Re-uploadable record payload (binary plist of the rustpush
      * `CloudChat`). Persist alongside the local row; feed back through
@@ -11391,7 +11391,7 @@ data class UChatChange (
      */
     var `blob`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -11426,18 +11426,18 @@ public object FfiConverterTypeUChatChange: FfiConverterRustBuffer<UChatChange> {
  * A page from the chat zone (`sync_chats`).
  */
 data class UChatSyncPage (
-    var `records`: List<UChatChange>, 
+    var `records`: List<UChatChange>,
     /**
      * Continuation token for the next page — persist after applying.
      */
-    var `nextCursor`: kotlin.ByteArray, 
+    var `nextCursor`: kotlin.ByteArray,
     /**
      * CloudKit zone status reached 3 (no more changes pending).
      */
-    var `more`: kotlin.Boolean, 
+    var `more`: kotlin.Boolean,
     var `status`: kotlin.Int
 ) {
-    
+
     companion object
 }
 
@@ -11478,11 +11478,11 @@ public object FfiConverterTypeUChatSyncPage: FfiConverterRustBuffer<UChatSyncPag
  * "pathc", "mdh", "aui" — same map Dart's `getAttachmentMeta` built).
  */
 data class UCkAttachmentUpload (
-    var `filePath`: kotlin.String, 
-    var `recordId`: kotlin.String, 
+    var `filePath`: kotlin.String,
+    var `recordId`: kotlin.String,
     var `metaJson`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -11518,10 +11518,10 @@ public object FfiConverterTypeUCkAttachmentUpload: FfiConverterRustBuffer<UCkAtt
  * from a `UChatChange` / `UMessageChange` during sync.
  */
 data class UCkBlob (
-    var `recordId`: kotlin.String, 
+    var `recordId`: kotlin.String,
     var `blob`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -11553,11 +11553,11 @@ public object FfiConverterTypeUCkBlob: FfiConverterRustBuffer<UCkBlob> {
  * Per-record outcome of an upload call.
  */
 data class UCkSaveResult (
-    var `recordId`: kotlin.String, 
-    var `ok`: kotlin.Boolean, 
+    var `recordId`: kotlin.String,
+    var `ok`: kotlin.Boolean,
     var `error`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -11595,18 +11595,18 @@ data class UCloudAttachment (
     /**
      * Local-form guid (`at_<part>_<messageGuid>` -> `<messageGuid>_<part>`).
      */
-    var `guid`: kotlin.String, 
+    var `guid`: kotlin.String,
     /**
      * Message guid encoded into the cloud attachment guid, when present.
      */
-    var `messageGuid`: kotlin.String?, 
-    var `uti`: kotlin.String?, 
-    var `mimeType`: kotlin.String?, 
-    var `isOutgoing`: kotlin.Boolean, 
-    var `transferName`: kotlin.String?, 
+    var `messageGuid`: kotlin.String?,
+    var `uti`: kotlin.String?,
+    var `mimeType`: kotlin.String?,
+    var `isOutgoing`: kotlin.Boolean,
+    var `transferName`: kotlin.String?,
     var `totalBytes`: kotlin.Long
 ) {
-    
+
     companion object
 }
 
@@ -11657,49 +11657,49 @@ data class UCloudChat (
     /**
      * Chat guid (`iMessage;+/-;chatIdentifier`).
      */
-    var `guid`: kotlin.String, 
+    var `guid`: kotlin.String,
     /**
      * 43 = group chat, 45 = normal.
      */
-    var `style`: kotlin.Long, 
-    var `chatIdentifier`: kotlin.String, 
+    var `style`: kotlin.Long,
+    var `chatIdentifier`: kotlin.String,
     /**
      * Cloud-side chat guid (`Chat.cloudGuid`).
      */
-    var `groupId`: kotlin.String, 
+    var `groupId`: kotlin.String,
     /**
      * "iMessage" for real chats; the Dart loop skipped everything else.
      */
-    var `serviceName`: kotlin.String, 
+    var `serviceName`: kotlin.String,
     /**
      * Participant uris (`tel:`/`mailto:` prefixed), including mine.
      */
-    var `participants`: List<kotlin.String>, 
+    var `participants`: List<kotlin.String>,
     /**
      * The account handle that last addressed the chat.
      */
-    var `lastAddressedHandle`: kotlin.String, 
-    var `displayName`: kotlin.String?, 
+    var `lastAddressedHandle`: kotlin.String,
+    var `displayName`: kotlin.String?,
     /**
      * `CloudProp.pv` — group version; only apply changes when the cloud
      * version is newer than the local one.
      */
-    var `groupVersion`: kotlin.UInt?, 
+    var `groupVersion`: kotlin.UInt?,
     /**
      * `CloudProp.lastSeenMessageGuid` → `Chat.lastReadMessageGuid`.
      */
-    var `lastSeenMessageGuid`: kotlin.String?, 
+    var `lastSeenMessageGuid`: kotlin.String?,
     /**
      * ns since the Apple epoch (2001-01-01) → `Chat.dbOnlyLatestMessageDate`.
      */
-    var `lastReadMessageTimestamp`: kotlin.Long, 
+    var `lastReadMessageTimestamp`: kotlin.Long,
     /**
      * A group-photo asset rides on the record (the image itself downloads
      * through the attachment batch).
      */
     var `hasGroupPhoto`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -11764,74 +11764,78 @@ public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
  * thread/association/receipt fields.
  */
 data class UCloudMessage (
-    var `guid`: kotlin.String, 
+    var `guid`: kotlin.String,
     /**
      * Chat reference: `iMessage;+/-;chatIdentifier` (contains `;`) or the
      * chat's cloud guid / rust guid.
      */
-    var `chatId`: kotlin.String, 
+    var `chatId`: kotlin.String,
     /**
      * Sender (`tel:`/`mailto:` handle) — empty for some system messages.
      */
-    var `sender`: kotlin.String, 
+    var `sender`: kotlin.String,
     /**
      * ns since the Apple epoch.
      */
-    var `time`: kotlin.Long, 
-    var `msgType`: kotlin.Long, 
-    var `error`: kotlin.Long, 
-    var `service`: kotlin.String, 
+    var `time`: kotlin.Long,
+    var `msgType`: kotlin.Long,
+    var `error`: kotlin.Long,
+    var `service`: kotlin.String,
     /**
      * Raw `MessageFlags` bits (bit 2 = IS_FROM_ME).
      */
-    var `flagsBits`: kotlin.Long, 
+    var `flagsBits`: kotlin.Long,
     /**
      * Flattened text: the plain `text` field, else the attributed-body
      * string.
      */
-    var `text`: kotlin.String?, 
-    var `subject`: kotlin.String?, 
+    var `text`: kotlin.String?,
+    var `subject`: kotlin.String?,
     /**
      * Attributed body contains file-transfer runs.
      */
-    var `hasAttachments`: kotlin.Boolean, 
+    var `hasAttachments`: kotlin.Boolean,
     /**
      * Local-form attachment guids (`at_X_Y` cloud form converted).
      */
-    var `attachmentGuids`: List<kotlin.String>, 
-    var `balloonBundleId`: kotlin.String?, 
+    var `attachmentGuids`: List<kotlin.String>,
+    var `balloonBundleId`: kotlin.String?,
+    /**
+     * Apple LinkPresentation payload serialized to JSON for URL balloons.
+     */
+    var `linkJson`: kotlin.String?,
     /**
      * An app balloon payload is attached (raw payload decode is a later
      * batch; the flag preserves `hasApplePayloadData`).
      */
-    var `hasPayloadData`: kotlin.Boolean, 
+    var `hasPayloadData`: kotlin.Boolean,
     /**
      * `msgProto.messageSummaryInfo` (edits/retractions) serialized to JSON.
      */
-    var `summaryInfoJson`: kotlin.String?, 
-    var `effect`: kotlin.String?, 
+    var `summaryInfoJson`: kotlin.String?,
+    var `effect`: kotlin.String?,
     /**
      * ns since the Apple epoch, 0 mapped to none.
      */
-    var `dateReadNs`: kotlin.Long?, 
-    var `dateDeliveredNs`: kotlin.Long?, 
+    var `dateReadNs`: kotlin.Long?,
+    var `dateDeliveredNs`: kotlin.Long?,
     /**
      * Raw associated-message type code (2 sticker, 2000+ tapback,
      * 3000+ tapback-removed) — the caller maps to the REACTION_* strings.
      */
-    var `associatedMessageType`: kotlin.Long?, 
-    var `associatedMessageGuid`: kotlin.String?, 
+    var `associatedMessageType`: kotlin.Long?,
+    var `associatedMessageGuid`: kotlin.String?,
     /**
      * Parsed from `msgProto2.reply` (`r:<part>:<guid>`).
      */
-    var `threadOriginatorGuid`: kotlin.String?, 
-    var `threadOriginatorPart`: kotlin.String?, 
+    var `threadOriginatorGuid`: kotlin.String?,
+    var `threadOriginatorPart`: kotlin.String?,
     /**
      * From `msgProto4`.
      */
     var `associatedMessageEmoji`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -11853,6 +11857,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
@@ -11881,6 +11886,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterBoolean.allocationSize(value.`hasAttachments`) +
             FfiConverterSequenceString.allocationSize(value.`attachmentGuids`) +
             FfiConverterOptionalString.allocationSize(value.`balloonBundleId`) +
+            FfiConverterOptionalString.allocationSize(value.`linkJson`) +
             FfiConverterBoolean.allocationSize(value.`hasPayloadData`) +
             FfiConverterOptionalString.allocationSize(value.`summaryInfoJson`) +
             FfiConverterOptionalString.allocationSize(value.`effect`) +
@@ -11907,6 +11913,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterBoolean.write(value.`hasAttachments`, buf)
             FfiConverterSequenceString.write(value.`attachmentGuids`, buf)
             FfiConverterOptionalString.write(value.`balloonBundleId`, buf)
+            FfiConverterOptionalString.write(value.`linkJson`, buf)
             FfiConverterBoolean.write(value.`hasPayloadData`, buf)
             FfiConverterOptionalString.write(value.`summaryInfoJson`, buf)
             FfiConverterOptionalString.write(value.`effect`, buf)
@@ -11923,12 +11930,12 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
 
 
 data class UConversation (
-    var `participants`: List<kotlin.String>, 
-    var `cvName`: kotlin.String?, 
-    var `senderGuid`: kotlin.String?, 
+    var `participants`: List<kotlin.String>,
+    var `cvName`: kotlin.String?,
+    var `senderGuid`: kotlin.String?,
     var `afterGuid`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -11966,11 +11973,11 @@ public object FfiConverterTypeUConversation: FfiConverterRustBuffer<UConversatio
  * Mirror of api.rs `DeviceInfo` (the emulated Mac's identity).
  */
 data class UDeviceInfo (
-    var `name`: kotlin.String, 
-    var `serial`: kotlin.String, 
+    var `name`: kotlin.String,
+    var `serial`: kotlin.String,
     var `osVersion`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -12005,16 +12012,16 @@ public object FfiConverterTypeUDeviceInfo: FfiConverterRustBuffer<UDeviceInfo> {
  * Mirror of rustpush findmy `Address` (reverse-geocode of a location).
  */
 data class UFmAddress (
-    var `administrativeArea`: kotlin.String?, 
-    var `country`: kotlin.String, 
-    var `countryCode`: kotlin.String, 
-    var `formattedAddressLines`: List<kotlin.String>?, 
-    var `locality`: kotlin.String?, 
-    var `stateCode`: kotlin.String?, 
-    var `streetAddress`: kotlin.String?, 
+    var `administrativeArea`: kotlin.String?,
+    var `country`: kotlin.String,
+    var `countryCode`: kotlin.String,
+    var `formattedAddressLines`: List<kotlin.String>?,
+    var `locality`: kotlin.String?,
+    var `stateCode`: kotlin.String?,
+    var `streetAddress`: kotlin.String?,
     var `streetName`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -12065,46 +12072,46 @@ public object FfiConverterTypeUFmAddress: FfiConverterRustBuffer<UFmAddress> {
  * Dart FindMy UI consumed them.
  */
 data class UFmDevice (
-    var `deviceModel`: kotlin.String?, 
-    var `lowPowerMode`: kotlin.Boolean?, 
-    var `passcodeLength`: kotlin.Long?, 
-    var `id`: kotlin.String?, 
-    var `batteryStatus`: kotlin.String?, 
-    var `lostModeCapable`: kotlin.Boolean?, 
+    var `deviceModel`: kotlin.String?,
+    var `lowPowerMode`: kotlin.Boolean?,
+    var `passcodeLength`: kotlin.Long?,
+    var `id`: kotlin.String?,
+    var `batteryStatus`: kotlin.String?,
+    var `lostModeCapable`: kotlin.Boolean?,
     /**
      * 0.0 - 1.0.
      */
-    var `batteryLevel`: kotlin.Double?, 
-    var `locationEnabled`: kotlin.Boolean?, 
-    var `isConsideredAccessory`: kotlin.Boolean?, 
-    var `location`: UFmLocation?, 
-    var `modelDisplayName`: kotlin.String?, 
-    var `deviceColor`: kotlin.String?, 
-    var `activationLocked`: kotlin.Boolean?, 
-    var `rm2State`: kotlin.Long?, 
-    var `locFoundEnabled`: kotlin.Boolean?, 
-    var `nwd`: kotlin.Boolean?, 
-    var `deviceStatus`: kotlin.String?, 
-    var `fmlyShare`: kotlin.Boolean?, 
-    var `features`: Map<kotlin.String, kotlin.Boolean>, 
-    var `thisDevice`: kotlin.Boolean?, 
-    var `lostModeEnabled`: kotlin.Boolean?, 
-    var `deviceDisplayName`: kotlin.String?, 
-    var `name`: kotlin.String?, 
-    var `canWipeAfterLock`: kotlin.Boolean?, 
-    var `isMac`: kotlin.Boolean?, 
-    var `rawDeviceModel`: kotlin.String?, 
-    var `baUuid`: kotlin.String?, 
-    var `deviceDiscoveryId`: kotlin.String?, 
-    var `scd`: kotlin.Boolean?, 
-    var `locationCapable`: kotlin.Boolean?, 
-    var `wipeInProgress`: kotlin.Boolean?, 
-    var `darkWake`: kotlin.Boolean?, 
-    var `deviceWithYou`: kotlin.Boolean?, 
-    var `maxMsgChar`: kotlin.Long?, 
+    var `batteryLevel`: kotlin.Double?,
+    var `locationEnabled`: kotlin.Boolean?,
+    var `isConsideredAccessory`: kotlin.Boolean?,
+    var `location`: UFmLocation?,
+    var `modelDisplayName`: kotlin.String?,
+    var `deviceColor`: kotlin.String?,
+    var `activationLocked`: kotlin.Boolean?,
+    var `rm2State`: kotlin.Long?,
+    var `locFoundEnabled`: kotlin.Boolean?,
+    var `nwd`: kotlin.Boolean?,
+    var `deviceStatus`: kotlin.String?,
+    var `fmlyShare`: kotlin.Boolean?,
+    var `features`: Map<kotlin.String, kotlin.Boolean>,
+    var `thisDevice`: kotlin.Boolean?,
+    var `lostModeEnabled`: kotlin.Boolean?,
+    var `deviceDisplayName`: kotlin.String?,
+    var `name`: kotlin.String?,
+    var `canWipeAfterLock`: kotlin.Boolean?,
+    var `isMac`: kotlin.Boolean?,
+    var `rawDeviceModel`: kotlin.String?,
+    var `baUuid`: kotlin.String?,
+    var `deviceDiscoveryId`: kotlin.String?,
+    var `scd`: kotlin.Boolean?,
+    var `locationCapable`: kotlin.Boolean?,
+    var `wipeInProgress`: kotlin.Boolean?,
+    var `darkWake`: kotlin.Boolean?,
+    var `deviceWithYou`: kotlin.Boolean?,
+    var `maxMsgChar`: kotlin.Long?,
     var `deviceClass`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -12236,26 +12243,26 @@ public object FfiConverterTypeUFmDevice: FfiConverterRustBuffer<UFmDevice> {
  * including the last known location when present.
  */
 data class UFmFriend (
-    var `createTimestamp`: kotlin.Long, 
-    var `expires`: kotlin.Long, 
-    var `id`: kotlin.String, 
-    var `invitationAcceptedHandles`: List<kotlin.String>, 
-    var `invitationFromHandles`: List<kotlin.String>, 
-    var `isFromMessages`: kotlin.Boolean, 
-    var `offerId`: kotlin.String?, 
-    var `onlyInEvent`: kotlin.Boolean, 
-    var `personIdHash`: kotlin.String, 
-    var `secureLocationsCapable`: kotlin.Boolean, 
-    var `shallowOrLiveSecureLocationsCapable`: kotlin.Boolean, 
-    var `source`: kotlin.String, 
-    var `tkPermission`: kotlin.Boolean, 
-    var `updateTimestamp`: kotlin.Long, 
-    var `fallbackToLegacyAllowed`: kotlin.Boolean?, 
-    var `optedNotToShare`: kotlin.Boolean?, 
-    var `lastLocation`: UFmLocation?, 
+    var `createTimestamp`: kotlin.Long,
+    var `expires`: kotlin.Long,
+    var `id`: kotlin.String,
+    var `invitationAcceptedHandles`: List<kotlin.String>,
+    var `invitationFromHandles`: List<kotlin.String>,
+    var `isFromMessages`: kotlin.Boolean,
+    var `offerId`: kotlin.String?,
+    var `onlyInEvent`: kotlin.Boolean,
+    var `personIdHash`: kotlin.String,
+    var `secureLocationsCapable`: kotlin.Boolean,
+    var `shallowOrLiveSecureLocationsCapable`: kotlin.Boolean,
+    var `source`: kotlin.String,
+    var `tkPermission`: kotlin.Boolean,
+    var `updateTimestamp`: kotlin.Long,
+    var `fallbackToLegacyAllowed`: kotlin.Boolean?,
+    var `optedNotToShare`: kotlin.Boolean?,
+    var `lastLocation`: UFmLocation?,
     var `locateInProgress`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -12336,28 +12343,28 @@ public object FfiConverterTypeUFmFriend: FfiConverterRustBuffer<UFmFriend> {
  * naming record flattened and the optional share info inlined.
  */
 data class UFmItem (
-    var `emoji`: kotlin.String, 
-    var `name`: kotlin.String, 
-    var `associatedBeacon`: kotlin.String, 
-    var `roleId`: kotlin.Long, 
-    var `lastReport`: UFmReport?, 
-    var `productId`: kotlin.Long, 
-    var `batteryLevel`: kotlin.Long?, 
-    var `vendorId`: kotlin.Long, 
-    var `model`: kotlin.String, 
-    var `systemVersion`: kotlin.String, 
+    var `emoji`: kotlin.String,
+    var `name`: kotlin.String,
+    var `associatedBeacon`: kotlin.String,
+    var `roleId`: kotlin.Long,
+    var `lastReport`: UFmReport?,
+    var `productId`: kotlin.Long,
+    var `batteryLevel`: kotlin.Long?,
+    var `vendorId`: kotlin.Long,
+    var `model`: kotlin.String,
+    var `systemVersion`: kotlin.String,
     /**
      * Stable beacon identifier (record key).
      */
-    var `id`: kotlin.String, 
+    var `id`: kotlin.String,
     /**
      * Present for items shared TO this account.
      */
-    var `shareId`: kotlin.String?, 
-    var `acceptanceState`: kotlin.Long?, 
+    var `shareId`: kotlin.String?,
+    var `acceptanceState`: kotlin.Long?,
     var `ownerHandle`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -12425,26 +12432,26 @@ public object FfiConverterTypeUFmItem: FfiConverterRustBuffer<UFmItem> {
  * Mirror of rustpush findmy `Location` (shared by devices and friends).
  */
 data class UFmLocation (
-    var `address`: UFmAddress?, 
-    var `altitude`: kotlin.Double, 
-    var `floorLevel`: kotlin.Long, 
-    var `horizontalAccuracy`: kotlin.Double, 
-    var `isInaccurate`: kotlin.Boolean, 
-    var `latitude`: kotlin.Double, 
-    var `locationId`: kotlin.String?, 
+    var `address`: UFmAddress?,
+    var `altitude`: kotlin.Double,
+    var `floorLevel`: kotlin.Long,
+    var `horizontalAccuracy`: kotlin.Double,
+    var `isInaccurate`: kotlin.Boolean,
+    var `latitude`: kotlin.Double,
+    var `locationId`: kotlin.String?,
     /**
      * Ms since the Apple epoch (2001-01-01), like every fmf timestamp.
      */
-    var `locationTimestamp`: kotlin.Long?, 
-    var `longitude`: kotlin.Double, 
-    var `secureLocationTs`: kotlin.Long, 
-    var `timestamp`: kotlin.Long, 
-    var `verticalAccuracy`: kotlin.Double, 
-    var `positionType`: kotlin.String?, 
-    var `isOld`: kotlin.Boolean?, 
+    var `locationTimestamp`: kotlin.Long?,
+    var `longitude`: kotlin.Double,
+    var `secureLocationTs`: kotlin.Long,
+    var `timestamp`: kotlin.Long,
+    var `verticalAccuracy`: kotlin.Double,
+    var `positionType`: kotlin.String?,
+    var `isOld`: kotlin.Boolean?,
     var `locationFinished`: kotlin.Boolean?
 ) {
-    
+
     companion object
 }
 
@@ -12516,12 +12523,12 @@ public object FfiConverterTypeUFmLocation: FfiConverterRustBuffer<UFmLocation> {
  * `BeaconNamingRecord`).
  */
 data class UFmNaming (
-    var `emoji`: kotlin.String, 
-    var `name`: kotlin.String, 
-    var `associatedBeacon`: kotlin.String, 
+    var `emoji`: kotlin.String,
+    var `name`: kotlin.String,
+    var `associatedBeacon`: kotlin.String,
     var `roleId`: kotlin.Long
 ) {
-    
+
     companion object
 }
 
@@ -12559,18 +12566,18 @@ public object FfiConverterTypeUFmNaming: FfiConverterRustBuffer<UFmNaming> {
  * Mirror of rustpush findmy `LocationReport` (FindMy-item beacon ping).
  */
 data class UFmReport (
-    var `lat`: kotlin.Float, 
-    var `long`: kotlin.Float, 
-    var `horizontalAccuracy`: kotlin.UByte, 
-    var `status`: kotlin.UByte, 
-    var `confidence`: kotlin.UByte, 
+    var `lat`: kotlin.Float,
+    var `long`: kotlin.Float,
+    var `horizontalAccuracy`: kotlin.UByte,
+    var `status`: kotlin.UByte,
+    var `confidence`: kotlin.UByte,
     /**
      * Ms since the Unix epoch.
      */
-    var `timestampMs`: kotlin.ULong, 
+    var `timestampMs`: kotlin.ULong,
     var `keyIndex`: kotlin.ULong
 ) {
-    
+
     companion object
 }
 
@@ -12614,10 +12621,10 @@ public object FfiConverterTypeUFmReport: FfiConverterRustBuffer<UFmReport> {
 
 
 data class UFtMember (
-    var `nickname`: kotlin.String?, 
+    var `nickname`: kotlin.String?,
     var `handle`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -12650,12 +12657,12 @@ public object FfiConverterTypeUFtMember: FfiConverterRustBuffer<UFtMember> {
  * resolution and group calls.
  */
 data class UFtSession (
-    var `groupId`: kotlin.String, 
-    var `myHandles`: List<kotlin.String>, 
-    var `members`: List<UFtMember>, 
+    var `groupId`: kotlin.String,
+    var `myHandles`: List<kotlin.String>,
+    var `members`: List<UFtMember>,
     var `startTime`: kotlin.ULong?
 ) {
-    
+
     companion object
 }
 
@@ -12690,13 +12697,13 @@ public object FfiConverterTypeUFtSession: FfiConverterRustBuffer<UFtSession> {
 
 
 data class UHwExtra (
-    var `version`: kotlin.String, 
-    var `protocolVersion`: kotlin.UInt, 
-    var `deviceId`: kotlin.String, 
-    var `icloudUa`: kotlin.String, 
+    var `version`: kotlin.String,
+    var `protocolVersion`: kotlin.UInt,
+    var `deviceId`: kotlin.String,
+    var `icloudUa`: kotlin.String,
     var `aoskitVersion`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -12734,14 +12741,14 @@ public object FfiConverterTypeUHwExtra: FfiConverterRustBuffer<UHwExtra> {
 
 
 data class UIndexedPart (
-    var `part`: UPart, 
-    var `idx`: kotlin.ULong?, 
+    var `part`: UPart,
+    var `idx`: kotlin.ULong?,
     /**
      * Serialized `PartExtension`, including sticker placement metadata.
      */
     var `extJson`: kotlin.String?
 ) {
-    
+
     companion object
 }
 
@@ -12776,8 +12783,8 @@ public object FfiConverterTypeUIndexedPart: FfiConverterRustBuffer<UIndexedPart>
  * One message-zone change: `message == None` is a tombstone.
  */
 data class UMessageChange (
-    var `recordId`: kotlin.String, 
-    var `message`: UCloudMessage?, 
+    var `recordId`: kotlin.String,
+    var `message`: UCloudMessage?,
     /**
      * Re-uploadable record payload (batch-8 blob format of the rustpush
      * `CloudMessage`). Persist alongside the local row; feed back through
@@ -12785,7 +12792,7 @@ data class UMessageChange (
      */
     var `blob`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -12820,15 +12827,15 @@ data class UMessageInst (
     /**
      * Staging GUID; matches `Message.stagingGuid` on the persistence side.
      */
-    var `id`: kotlin.String, 
-    var `sender`: kotlin.String?, 
-    var `conversation`: UConversation?, 
-    var `message`: UMessage, 
-    var `sentTimestamp`: kotlin.ULong, 
-    var `sendDelivered`: kotlin.Boolean, 
+    var `id`: kotlin.String,
+    var `sender`: kotlin.String?,
+    var `conversation`: UConversation?,
+    var `message`: UMessage,
+    var `sentTimestamp`: kotlin.ULong,
+    var `sendDelivered`: kotlin.Boolean,
     var `verificationFailed`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -12875,12 +12882,12 @@ public object FfiConverterTypeUMessageInst: FfiConverterRustBuffer<UMessageInst>
  * A page from the message zone (`sync_messages`).
  */
 data class UMessageSyncPage (
-    var `records`: List<UMessageChange>, 
-    var `nextCursor`: kotlin.ByteArray, 
-    var `more`: kotlin.Boolean, 
+    var `records`: List<UMessageChange>,
+    var `nextCursor`: kotlin.ByteArray,
+    var `more`: kotlin.Boolean,
     var `status`: kotlin.Int
 ) {
-    
+
     companion object
 }
 
@@ -12920,13 +12927,13 @@ public object FfiConverterTypeUMessageSyncPage: FfiConverterRustBuffer<UMessageS
  * record (parse with `parse_call_poster`).
  */
 data class UNicknameRecord (
-    var `name`: kotlin.String, 
-    var `first`: kotlin.String, 
-    var `last`: kotlin.String, 
-    var `image`: kotlin.ByteArray?, 
+    var `name`: kotlin.String,
+    var `first`: kotlin.String,
+    var `last`: kotlin.String,
+    var `image`: kotlin.ByteArray?,
     var `poster`: UPosterRecord?
 ) {
-    
+
     companion object
 }
 
@@ -12968,10 +12975,10 @@ public object FfiConverterTypeUNicknameRecord: FfiConverterRustBuffer<UNicknameR
  * (mirrors the Dart `sms-auth-<subscription>` cachedCodes entries).
  */
 data class UPhoneUser (
-    var `subscription`: kotlin.Long, 
+    var `subscription`: kotlin.Long,
     var `serialized`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -13003,12 +13010,12 @@ public object FfiConverterTypeUPhoneUser: FfiConverterRustBuffer<UPhoneUser> {
  * RGBA color as used by poster backgrounds / text.
  */
 data class UPosterColor (
-    var `alpha`: kotlin.Double, 
-    var `blue`: kotlin.Double, 
-    var `green`: kotlin.Double, 
+    var `alpha`: kotlin.Double,
+    var `blue`: kotlin.Double,
+    var `green`: kotlin.Double,
     var `red`: kotlin.Double
 ) {
-    
+
     companion object
 }
 
@@ -13046,10 +13053,10 @@ public object FfiConverterTypeUPosterColor: FfiConverterRustBuffer<UPosterColor>
  * One file inside a photo-poster asset (the actual image layers).
  */
 data class UPosterFile (
-    var `filename`: kotlin.String, 
+    var `filename`: kotlin.String,
     var `data`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -13083,11 +13090,11 @@ public object FfiConverterTypeUPosterFile: FfiConverterRustBuffer<UPosterFile> {
  * `parse_call_poster` to render.
  */
 data class UPosterRecord (
-    var `lowResPoster`: kotlin.ByteArray, 
-    var `package`: kotlin.ByteArray, 
+    var `lowResPoster`: kotlin.ByteArray,
+    var `package`: kotlin.ByteArray,
     var `meta`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -13119,11 +13126,11 @@ public object FfiConverterTypeUPosterRecord: FfiConverterRustBuffer<UPosterRecor
 
 
 data class UQueuedJournal (
-    var `id`: kotlin.ULong, 
-    var `attempts`: kotlin.UByte, 
+    var `id`: kotlin.ULong,
+    var `attempts`: kotlin.UByte,
     var `message`: UPushMessage
 ) {
-    
+
     companion object
 }
 
@@ -13159,14 +13166,14 @@ public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJour
  * account (used by relay routing).
  */
 data class USmsTarget (
-    var `uuid`: kotlin.String?, 
-    var `deviceName`: kotlin.String?, 
-    var `token`: kotlin.ByteArray, 
-    var `isHsaTrusted`: kotlin.Boolean, 
-    var `identities`: List<kotlin.String>, 
+    var `uuid`: kotlin.String?,
+    var `deviceName`: kotlin.String?,
+    var `token`: kotlin.ByteArray,
+    var `isHsaTrusted`: kotlin.Boolean,
+    var `identities`: List<kotlin.String>,
     var `subServices`: List<kotlin.String>
 ) {
-    
+
     companion object
 }
 
@@ -13211,11 +13218,11 @@ public object FfiConverterTypeUSmsTarget: FfiConverterRustBuffer<USmsTarget> {
  * persist so an interrupted run resumes where it stopped.
  */
 data class USyncOutcome (
-    var `summary`: USyncSummary, 
-    var `chatCursor`: kotlin.ByteArray, 
+    var `summary`: USyncSummary,
+    var `chatCursor`: kotlin.ByteArray,
     var `messageCursor`: kotlin.ByteArray
 ) {
-    
+
     companion object
 }
 
@@ -13250,17 +13257,17 @@ public object FfiConverterTypeUSyncOutcome: FfiConverterRustBuffer<USyncOutcome>
  * Totals for one `sync_history` run.
  */
 data class USyncSummary (
-    var `chatsDone`: kotlin.ULong, 
-    var `chatTombstones`: kotlin.ULong, 
-    var `messagesDone`: kotlin.ULong, 
-    var `messageTombstones`: kotlin.ULong, 
-    var `durationMs`: kotlin.ULong, 
+    var `chatsDone`: kotlin.ULong,
+    var `chatTombstones`: kotlin.ULong,
+    var `messagesDone`: kotlin.ULong,
+    var `messageTombstones`: kotlin.ULong,
+    var `durationMs`: kotlin.ULong,
     /**
      * Stopped early because `keep_going` returned false.
      */
     var `cancelled`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -13304,12 +13311,12 @@ public object FfiConverterTypeUSyncSummary: FfiConverterRustBuffer<USyncSummary>
  * Mirror of rustpush `TrustedPhoneNumber` (SMS 2FA target choice).
  */
 data class UTrustedPhone (
-    var `numberWithDialCode`: kotlin.String, 
-    var `lastTwoDigits`: kotlin.String, 
-    var `pushMode`: kotlin.String, 
+    var `numberWithDialCode`: kotlin.String,
+    var `lastTwoDigits`: kotlin.String,
+    var `pushMode`: kotlin.String,
     var `id`: kotlin.UInt
 ) {
-    
+
     companion object
 }
 
@@ -13350,12 +13357,12 @@ public object FfiConverterTypeUTrustedPhone: FfiConverterRustBuffer<UTrustedPhon
  * [`NativePushState::join_clique_with_bottle`].
  */
 data class UViableBottle (
-    var `escrowData`: kotlin.ByteArray, 
-    var `numericLength`: kotlin.ULong, 
-    var `deviceName`: kotlin.String, 
+    var `escrowData`: kotlin.ByteArray,
+    var `numericLength`: kotlin.ULong,
+    var `deviceName`: kotlin.String,
     var `modelClass`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -13393,15 +13400,15 @@ public object FfiConverterTypeUViableBottle: FfiConverterRustBuffer<UViableBottl
  * Text styling of an incoming-call poster (WallpaperMetadata).
  */
 data class UWallpaperMetadata (
-    var `backgroundColor`: UPosterColor?, 
-    var `fontColor`: UPosterColor, 
-    var `fontName`: kotlin.String, 
-    var `fontSize`: kotlin.Float, 
-    var `fontWeight`: kotlin.Float, 
-    var `isVertical`: kotlin.Boolean, 
+    var `backgroundColor`: UPosterColor?,
+    var `fontColor`: UPosterColor,
+    var `fontName`: kotlin.String,
+    var `fontSize`: kotlin.Float,
+    var `fontWeight`: kotlin.Float,
+    var `isVertical`: kotlin.Boolean,
     var `typeKey`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -13448,15 +13455,15 @@ public object FfiConverterTypeUWallpaperMetadata: FfiConverterRustBuffer<UWallpa
  * Watch-background half of a transcript poster.
  */
 data class UWatchBackground (
-    var `isHighKey`: kotlin.Boolean, 
-    var `luminance`: kotlin.Double, 
+    var `isHighKey`: kotlin.Boolean,
+    var `luminance`: kotlin.Double,
     /**
      * Raw image bytes for the chat-background wallpaper.
      */
-    var `backgroundImage`: kotlin.ByteArray, 
+    var `backgroundImage`: kotlin.ByteArray,
     var `extensionIdentifier`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -13492,7 +13499,7 @@ public object FfiConverterTypeUWatchBackground: FfiConverterRustBuffer<UWatchBac
 
 
 enum class EcCurve {
-    
+
     P256,
     P384;
     companion object
@@ -13521,17 +13528,17 @@ public object FfiConverterTypeEcCurve: FfiConverterRustBuffer<EcCurve> {
 
 
 sealed class EncryptMode {
-    
+
     data class Rsa(
         val v1: KeystorePadding) : EncryptMode() {
         companion object
     }
-    
-    object Gcm : EncryptMode()
-    
-    
 
-    
+    object Gcm : EncryptMode()
+
+
+
+
     companion object
 }
 
@@ -13585,24 +13592,24 @@ public object FfiConverterTypeEncryptMode : FfiConverterRustBuffer<EncryptMode>{
 
 
 sealed class KeyType {
-    
+
     data class Rsa(
         val v1: kotlin.UShort) : KeyType() {
         companion object
     }
-    
+
     data class Ec(
         val v1: EcCurve) : KeyType() {
         companion object
     }
-    
+
     data class Aes(
         val v1: kotlin.UShort) : KeyType() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -13676,7 +13683,7 @@ public object FfiConverterTypeKeyType : FfiConverterRustBuffer<KeyType>{
 
 
 enum class KeystoreDigest {
-    
+
     SHA384,
     SHA256,
     SHA1;
@@ -13706,21 +13713,21 @@ public object FfiConverterTypeKeystoreDigest: FfiConverterRustBuffer<KeystoreDig
 
 
 sealed class KeystorePadding {
-    
+
     object Pkcs1 : KeystorePadding()
-    
-    
+
+
     data class Oaep(
-        val `md`: KeystoreDigest, 
+        val `md`: KeystoreDigest,
         val `mgf1`: KeystoreDigest) : KeystorePadding() {
         companion object
     }
-    
-    object None : KeystorePadding()
-    
-    
 
-    
+    object None : KeystorePadding()
+
+
+
+
     companion object
 }
 
@@ -13790,21 +13797,21 @@ public object FfiConverterTypeKeystorePadding : FfiConverterRustBuffer<KeystoreP
 
 
 sealed class NativeKeystoreException: kotlin.Exception() {
-    
+
     class NativeException(
-        
+
         val v1: kotlin.String
         ) : NativeKeystoreException() {
         override val message
             get() = "v1=${ v1 }"
     }
-    
+
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<NativeKeystoreException> {
         override fun lift(error_buf: RustBuffer.ByValue): NativeKeystoreException = FfiConverterTypeNativeKeystoreError.lift(error_buf)
     }
 
-    
+
 }
 
 /**
@@ -13812,7 +13819,7 @@ sealed class NativeKeystoreException: kotlin.Exception() {
  */
 public object FfiConverterTypeNativeKeystoreError : FfiConverterRustBuffer<NativeKeystoreException> {
     override fun read(buf: ByteBuffer): NativeKeystoreException {
-        
+
 
         return when(buf.getInt()) {
             1 -> NativeKeystoreException.NativeException(
@@ -13847,19 +13854,19 @@ public object FfiConverterTypeNativeKeystoreError : FfiConverterRustBuffer<Nativ
 
 
 sealed class PackagedFile {
-    
+
     data class Info(
         val v1: FileInfo) : PackagedFile() {
         companion object
     }
-    
+
     data class Failure(
         val v1: kotlin.String) : PackagedFile() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -13922,64 +13929,64 @@ public object FfiConverterTypePackagedFile : FfiConverterRustBuffer<PackagedFile
  * Error type crossing the FFI boundary (UniFFI rejects bare String throws).
  */
 sealed class UException: kotlin.Exception() {
-    
+
     class SendFailed(
-        
+
         val `reason`: kotlin.String
         ) : UException() {
         override val message
             get() = "reason=${ `reason` }"
     }
-    
+
     class InvalidArgument(
-        
+
         val `reason`: kotlin.String
         ) : UException() {
         override val message
             get() = "reason=${ `reason` }"
     }
-    
+
     /**
      * Apple ID / 2FA / registration failed. `reason` carries the upstream
      * (GS/IDS) error text — surface it verbatim like the Dart wizard did.
      */
     class LoginFailed(
-        
+
         val `reason`: kotlin.String
         ) : UException() {
         override val message
             get() = "reason=${ `reason` }"
     }
-    
+
     /**
      * The session is in the wrong state for this call (not connected, no
      * account, not awaiting a code, ...).
      */
     class NotReady(
-        
+
         val `reason`: kotlin.String
         ) : UException() {
         override val message
             get() = "reason=${ `reason` }"
     }
-    
+
     /**
      * A post-login lookup on the live state failed.
      */
     class Failed(
-        
+
         val `reason`: kotlin.String
         ) : UException() {
         override val message
             get() = "reason=${ `reason` }"
     }
-    
+
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<UException> {
         override fun lift(error_buf: RustBuffer.ByValue): UException = FfiConverterTypeUError.lift(error_buf)
     }
 
-    
+
 }
 
 /**
@@ -13987,7 +13994,7 @@ sealed class UException: kotlin.Exception() {
  */
 public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
     override fun read(buf: ByteBuffer): UException {
-        
+
 
         return when(buf.getInt()) {
             1 -> UException.SendFailed(
@@ -14074,68 +14081,68 @@ public object FfiConverterTypeUError : FfiConverterRustBuffer<UException> {
 
 
 sealed class UFtMessage {
-    
+
     data class LetMeInRequest(
-        val `sharedSecret`: kotlin.ByteArray, 
-        val `pseud`: kotlin.String, 
-        val `requestor`: kotlin.String, 
-        val `nickname`: kotlin.String?, 
-        val `token`: kotlin.ByteArray, 
-        val `delegationUuid`: kotlin.String?, 
+        val `sharedSecret`: kotlin.ByteArray,
+        val `pseud`: kotlin.String,
+        val `requestor`: kotlin.String,
+        val `nickname`: kotlin.String?,
+        val `token`: kotlin.ByteArray,
+        val `delegationUuid`: kotlin.String?,
         val `usage`: kotlin.String?) : UFtMessage() {
         companion object
     }
-    
+
     data class LinkChanged(
         val `guid`: kotlin.String) : UFtMessage() {
         companion object
     }
-    
+
     data class JoinEvent(
-        val `guid`: kotlin.String, 
-        val `participant`: kotlin.ULong, 
-        val `handle`: kotlin.String, 
+        val `guid`: kotlin.String,
+        val `participant`: kotlin.ULong,
+        val `handle`: kotlin.String,
         val `ring`: kotlin.Boolean) : UFtMessage() {
         companion object
     }
-    
+
     data class AddMembers(
-        val `guid`: kotlin.String, 
-        val `members`: List<UFtMember>, 
+        val `guid`: kotlin.String,
+        val `members`: List<UFtMember>,
         val `ring`: kotlin.Boolean) : UFtMessage() {
         companion object
     }
-    
+
     data class RemoveMembers(
-        val `guid`: kotlin.String, 
+        val `guid`: kotlin.String,
         val `members`: List<UFtMember>) : UFtMessage() {
         companion object
     }
-    
+
     data class LeaveEvent(
-        val `guid`: kotlin.String, 
-        val `participant`: kotlin.ULong, 
+        val `guid`: kotlin.String,
+        val `participant`: kotlin.ULong,
         val `handle`: kotlin.String) : UFtMessage() {
         companion object
     }
-    
+
     data class Ring(
         val `guid`: kotlin.String) : UFtMessage() {
         companion object
     }
-    
+
     data class Decline(
         val `guid`: kotlin.String) : UFtMessage() {
         companion object
     }
-    
+
     data class RespondedElsewhere(
         val `guid`: kotlin.String) : UFtMessage() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -14344,7 +14351,7 @@ public object FfiConverterTypeUFtMessage : FfiConverterRustBuffer<UFtMessage>{
  */
 
 enum class ULoginStage {
-    
+
     /**
      * Establishing the APS connection + anisette (`setup_push`).
      */
@@ -14393,37 +14400,37 @@ public object FfiConverterTypeULoginStage: FfiConverterRustBuffer<ULoginStage> {
  * for display only.
  */
 sealed class ULoginState {
-    
+
     object LoggedIn : ULoginState()
-    
-    
+
+
     /**
      * A trusted device should be showing the code prompt.
      */
     object NeedsDevice2Fa : ULoginState()
-    
-    
+
+
     /**
      * Device 2FA is armed; submit the code shown on the trusted device.
      */
     object Needs2FaVerification : ULoginState()
-    
-    
+
+
     /**
      * A trusted phone must be chosen (see `get_sms_phone_options`).
      */
     object NeedsSms2Fa : ULoginState()
-    
-    
+
+
     /**
      * SMS 2FA was sent to `phone_id`; submit the received code.
      */
     data class NeedsSms2FaVerification(
-        val `phoneId`: kotlin.UInt, 
+        val `phoneId`: kotlin.UInt,
         val `mode`: kotlin.String) : ULoginState() {
         companion object
     }
-    
+
     /**
      * Apple wants extra account steps (terms); see
      * `get_update_account_page` / `complete_update_account`.
@@ -14432,12 +14439,12 @@ sealed class ULoginState {
         val `detail`: kotlin.String) : ULoginState() {
         companion object
     }
-    
-    object NeedsLogin : ULoginState()
-    
-    
 
-    
+    object NeedsLogin : ULoginState()
+
+
+
+
     companion object
 }
 
@@ -14553,159 +14560,159 @@ public object FfiConverterTypeULoginState : FfiConverterRustBuffer<ULoginState>{
 
 
 sealed class UMessage {
-    
+
     data class Normal(
-        val `parts`: List<UIndexedPart>, 
-        val `effect`: kotlin.String?, 
-        val `replyGuid`: kotlin.String?, 
-        val `replyPart`: kotlin.String?, 
-        val `subject`: kotlin.String?, 
-        val `voice`: kotlin.Boolean, 
-        val `isSms`: kotlin.Boolean, 
-        val `appJson`: kotlin.String?, 
+        val `parts`: List<UIndexedPart>,
+        val `effect`: kotlin.String?,
+        val `replyGuid`: kotlin.String?,
+        val `replyPart`: kotlin.String?,
+        val `subject`: kotlin.String?,
+        val `voice`: kotlin.Boolean,
+        val `isSms`: kotlin.Boolean,
+        val `appJson`: kotlin.String?,
         val `linkJson`: kotlin.String?) : UMessage() {
         companion object
     }
-    
+
     data class React(
-        val `toUuid`: kotlin.String, 
-        val `toPart`: kotlin.ULong?, 
-        val `reactionJson`: kotlin.String, 
-        val `toText`: kotlin.String, 
+        val `toUuid`: kotlin.String,
+        val `toPart`: kotlin.ULong?,
+        val `reactionJson`: kotlin.String,
+        val `toText`: kotlin.String,
         /**
          * Attachment/object body for sticker and app-extension reactions.
          */
         val `parts`: List<UIndexedPart>) : UMessage() {
         companion object
     }
-    
+
     data class Rename(
         val `newName`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class ChangeParticipants(
-        val `newParticipants`: List<kotlin.String>, 
+        val `newParticipants`: List<kotlin.String>,
         val `groupVersion`: kotlin.ULong) : UMessage() {
         companion object
     }
-    
+
     object Delivered : UMessage()
-    
-    
+
+
     object Read : UMessage()
-    
-    
+
+
     data class Typing(
         val `typing`: kotlin.Boolean) : UMessage() {
         companion object
     }
-    
+
     data class Unsend(
-        val `tuuid`: kotlin.String, 
+        val `tuuid`: kotlin.String,
         val `editPart`: kotlin.ULong) : UMessage() {
         companion object
     }
-    
+
     data class Edit(
-        val `tuuid`: kotlin.String, 
-        val `editPart`: kotlin.ULong, 
+        val `tuuid`: kotlin.String,
+        val `editPart`: kotlin.ULong,
         val `parts`: List<UIndexedPart>) : UMessage() {
         companion object
     }
-    
+
     /**
      * `icon_xml` is the serialized `MMCSFile` (plist XML) when a new group
      * photo was attached — pass it to `NativePushState.download_mmcs` to
      * fetch the image.
      */
     data class IconChange(
-        val `json`: kotlin.String, 
+        val `json`: kotlin.String,
         val `iconXml`: kotlin.String?) : UMessage() {
         companion object
     }
-    
+
     data class SmsConfirmSent(
         val `status`: kotlin.Boolean) : UMessage() {
         companion object
     }
-    
+
     data class EnableSmsActivation(
         val `enable`: kotlin.Boolean) : UMessage() {
         companion object
     }
-    
+
     object MessageReadOnDevice : UMessage()
-    
-    
+
+
     object MarkUnread : UMessage()
-    
-    
+
+
     data class Error(
-        val `forUuid`: kotlin.String, 
-        val `status`: kotlin.ULong, 
+        val `forUuid`: kotlin.String,
+        val `status`: kotlin.ULong,
         val `statusStr`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class MoveToRecycleBin(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class RecoverChat(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class PermanentDelete(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class UpdateProfile(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class UpdateProfileSharing(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class ShareProfile(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
+
     data class SetTranscriptBackground(
-        val `json`: kotlin.String, 
-        val `version`: kotlin.ULong, 
-        val `chatId`: kotlin.String?, 
-        val `remove`: kotlin.Boolean, 
+        val `json`: kotlin.String,
+        val `version`: kotlin.ULong,
+        val `chatId`: kotlin.String?,
+        val `remove`: kotlin.Boolean,
         /**
          * Serialized MMCS descriptor for the poster payload when setting.
          */
         val `mmcsXml`: kotlin.String?) : UMessage() {
         companion object
     }
-    
+
     data class UpdateExtension(
         val `json`: kotlin.String) : UMessage() {
         companion object
     }
-    
-    object Unschedule : UMessage()
-    
-    
-    object PeerCacheInvalidate : UMessage()
-    
-    
-    object NotifyAnyways : UMessage()
-    
-    
 
-    
+    object Unschedule : UMessage()
+
+
+    object PeerCacheInvalidate : UMessage()
+
+
+    object NotifyAnyways : UMessage()
+
+
+
+
     companion object
 }
 
@@ -15164,41 +15171,41 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
 
 
 sealed class UPart {
-    
+
     data class Text(
-        val `text`: kotlin.String, 
+        val `text`: kotlin.String,
         val `formatJson`: kotlin.String) : UPart() {
         companion object
     }
-    
+
     /**
      * `xml` is the serialized rustpush `Attachment` (plist XML) — persist it
      * (the Dart app stored it as `attachment.metadata["rustpush"]`) and feed
      * it back through `restore_attachment` to download later.
      */
     data class Attachment(
-        val `part`: kotlin.ULong, 
-        val `uti`: kotlin.String, 
-        val `mime`: kotlin.String, 
-        val `name`: kotlin.String, 
-        val `iris`: kotlin.Boolean, 
+        val `part`: kotlin.ULong,
+        val `uti`: kotlin.String,
+        val `mime`: kotlin.String,
+        val `name`: kotlin.String,
+        val `iris`: kotlin.Boolean,
         val `xml`: kotlin.String) : UPart() {
         companion object
     }
-    
+
     data class Mention(
-        val `mention`: kotlin.String, 
+        val `mention`: kotlin.String,
         val `text`: kotlin.String) : UPart() {
         companion object
     }
-    
+
     data class Object(
         val `json`: kotlin.String) : UPart() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -15310,38 +15317,38 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
  * Which poster flavor this is, with the cheap display fields inline.
  */
 sealed class UPosterKind {
-    
+
     data class Photo(
         val `assetCount`: kotlin.ULong) : UPosterKind() {
         companion object
     }
-    
+
     data class Monogram(
-        val `initials`: kotlin.String, 
-        val `background`: UPosterColor, 
-        val `topBackground`: UPosterColor, 
+        val `initials`: kotlin.String,
+        val `background`: UPosterColor,
+        val `topBackground`: UPosterColor,
         val `monogramSupportedForName`: kotlin.Boolean) : UPosterKind() {
         companion object
     }
-    
+
     data class Memoji(
-        val `background`: UPosterColor, 
+        val `background`: UPosterColor,
         val `hasBody`: kotlin.Boolean) : UPosterKind() {
         companion object
     }
-    
+
     data class TranscriptDynamic(
         val `identifier`: kotlin.String) : UPosterKind() {
         companion object
     }
-    
+
     data class TranscriptGradient(
         val `colors`: List<UPosterColor>) : UPosterKind() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -15456,63 +15463,63 @@ public object FfiConverterTypeUPosterKind : FfiConverterRustBuffer<UPosterKind>{
 
 
 sealed class UPushMessage {
-    
+
     data class IMessage(
         val `inst`: UMessageInst) : UPushMessage() {
         companion object
     }
-    
+
     data class SendConfirm(
-        val `uuid`: kotlin.String, 
+        val `uuid`: kotlin.String,
         val `error`: kotlin.String?) : UPushMessage() {
         companion object
     }
-    
+
     object RegistrationState : UPushMessage()
-    
-    
+
+
     data class NewPhotostream(
         val `json`: kotlin.String) : UPushMessage() {
         companion object
     }
-    
+
     data class FaceTime(
         val `message`: UFtMessage) : UPushMessage() {
         companion object
     }
-    
+
     data class StatusUpdate(
-        val `user`: kotlin.String, 
-        val `mode`: kotlin.String?, 
+        val `user`: kotlin.String,
+        val `mode`: kotlin.String?,
         val `allowed`: kotlin.Boolean) : UPushMessage() {
         companion object
     }
-    
+
     data class Idms(
         val `debug`: kotlin.String) : UPushMessage() {
         companion object
     }
-    
+
     data class TwoFaAuthEvent(
         val `success`: kotlin.Boolean) : UPushMessage() {
         companion object
     }
-    
+
     object CircleFinishEvent : UPushMessage()
-    
-    
+
+
     data class BeaconShared(
-        val `sender`: kotlin.String, 
-        val `beacon`: kotlin.String, 
+        val `sender`: kotlin.String,
+        val `beacon`: kotlin.String,
         val `attributesJson`: kotlin.String) : UPushMessage() {
         companion object
     }
-    
-    object ProcessQueue : UPushMessage()
-    
-    
 
-    
+    object ProcessQueue : UPushMessage()
+
+
+
+
     companion object
 }
 
@@ -15712,23 +15719,23 @@ public object FfiConverterTypeUPushMessage : FfiConverterRustBuffer<UPushMessage
  * client — `NativePushState::get_regstate`).
  */
 sealed class URegisterState {
-    
+
     data class Registered(
         val `nextS`: kotlin.Long) : URegisterState() {
         companion object
     }
-    
+
     object Registering : URegisterState()
-    
-    
+
+
     data class Failed(
-        val `retryWait`: kotlin.ULong?, 
+        val `retryWait`: kotlin.ULong?,
         val `error`: kotlin.String) : URegisterState() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -15803,26 +15810,26 @@ public object FfiConverterTypeURegisterState : FfiConverterRustBuffer<URegisterS
  * Result of `ULoginSession::register`.
  */
 sealed class URegistrationResult {
-    
+
     /**
      * `id.plist` was written. Rebuild the live state with `init_native`.
      */
     object Registered : URegistrationResult()
-    
-    
+
+
     /**
      * Apple refused registration and wants the user to read this first.
      */
     data class AppleBlocked(
-        val `title`: kotlin.String, 
-        val `body`: kotlin.String, 
-        val `actionUrl`: kotlin.String?, 
+        val `title`: kotlin.String,
+        val `body`: kotlin.String,
+        val `actionUrl`: kotlin.String?,
         val `actionLabel`: kotlin.String?) : URegistrationResult() {
         companion object
     }
-    
 
-    
+
+
     companion object
 }
 
@@ -15889,7 +15896,7 @@ public object FfiConverterTypeURegistrationResult : FfiConverterRustBuffer<URegi
  */
 
 enum class USyncMode {
-    
+
     /**
      * Backfill: ignore stored cursors, start both zones from scratch.
      */
@@ -15927,23 +15934,23 @@ public object FfiConverterTypeUSyncMode: FfiConverterRustBuffer<USyncMode> {
  * A single changed record inside a `sync_history` page.
  */
 sealed class USyncRecord {
-    
-    data class Chat(
-        val `recordId`: kotlin.String, 
-        val `chat`: UCloudChat?, 
-        val `blob`: kotlin.ByteArray) : USyncRecord() {
-        companion object
-    }
-    
-    data class Message(
-        val `recordId`: kotlin.String, 
-        val `message`: UCloudMessage?, 
-        val `blob`: kotlin.ByteArray) : USyncRecord() {
-        companion object
-    }
-    
 
-    
+    data class Chat(
+        val `recordId`: kotlin.String,
+        val `chat`: UCloudChat?,
+        val `blob`: kotlin.ByteArray) : USyncRecord() {
+        companion object
+    }
+
+    data class Message(
+        val `recordId`: kotlin.String,
+        val `message`: UCloudMessage?,
+        val `blob`: kotlin.ByteArray) : USyncRecord() {
+        companion object
+    }
+
+
+
     companion object
 }
 
@@ -16017,7 +16024,7 @@ public object FfiConverterTypeUSyncRecord : FfiConverterRustBuffer<USyncRecord>{
  */
 
 enum class USyncState {
-    
+
     /**
      * iCloud services + the cloud-messages client are live; sync can run.
      */
@@ -17535,13 +17542,13 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         }
     }
 } fun `completeMessage`(`ptr`: kotlin.String)
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_complete_message(
         FfiConverterString.lower(`ptr`),_status)
 }
-    
-    
+
+
 
         /**
          * Create a login session from a provisioned hardware config
@@ -17556,31 +17563,31 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
  fun `doLock`()
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_do_lock(
         _status)
 }
-    
-    
+
+
  fun `finishUnlock`()
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_finish_unlock(
         _status)
 }
-    
-    
+
+
  fun `getCarrier`(`handler`: CarrierHandler, `mccmnc`: kotlin.String)
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_get_carrier(
         FfiConverterTypeCarrierHandler.lower(`handler`),FfiConverterString.lower(`mccmnc`),_status)
 }
-    
-    
+
+
 
         /**
          * True when hw_info.plist exists and parses — gates the login UI's
@@ -17593,7 +17600,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * Whether `id.plist` holds registered IDS users (i.e. setup previously
@@ -17606,15 +17613,15 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
  fun `initNative`(`dir`: kotlin.String, `handle`: kotlin.String?, `handler`: MsgReceiver)
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_init_native(
         FfiConverterString.lower(`dir`),FfiConverterOptionalString.lower(`handle`),FfiConverterTypeMsgReceiver.lower(`handler`),_status)
 }
-    
-    
+
+
  fun `isLocked`(): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
@@ -17623,16 +17630,16 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
     @Throws(UException::class) fun `markJournalAttempt`(`id`: kotlin.ULong, `success`: kotlin.Boolean)
-        = 
+        =
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_mark_journal_attempt(
         FfiConverterULong.lower(`id`),FfiConverterBoolean.lower(`success`),_status)
 }
-    
-    
+
+
 
         /**
          * api.rs `parse_poster` — decode a raw `IMessagePosterRecord` (from
@@ -17646,7 +17653,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * api.rs `parse_transcript_poster` — decode a transcript-background zip
@@ -17660,7 +17667,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * Provision from an encoded HwInfo blob — the QR pairing payload after
@@ -17668,38 +17675,38 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
          * full config incl. version strings, so no HwExtra needed.
          */
     @Throws(UException::class) fun `provisionFromEncoded`(`dir`: kotlin.String, `encoded`: kotlin.ByteArray)
-        = 
+        =
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_encoded(
         FfiConverterString.lower(`dir`),FfiConverterByteArray.lower(`encoded`),_status)
 }
-    
-    
+
+
 
         /**
          * Provision via a hosted relay slot (hw.openbubbles.app-style bridge).
          */
     @Throws(UException::class) fun `provisionFromRelay`(`dir`: kotlin.String, `code`: kotlin.String, `host`: kotlin.String, `token`: kotlin.String?)
-        = 
+        =
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(
         FfiConverterString.lower(`dir`),FfiConverterString.lower(`code`),FfiConverterString.lower(`host`),FfiConverterOptionalString.lower(`token`),_status)
 }
-    
-    
+
+
 
         /**
          * Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
          * from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
          */
     @Throws(UException::class) fun `provisionFromValidationData`(`dir`: kotlin.String, `data`: kotlin.ByteArray, `extra`: UHwExtra)
-        = 
+        =
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(
         FfiConverterString.lower(`dir`),FfiConverterByteArray.lower(`data`),FfiConverterTypeUHwExtra.lower(`extra`),_status)
 }
-    
-    
+
+
  fun `ptrToMessage`(`ptr`: kotlin.String): UPushMessage? {
             return FfiConverterOptionalTypeUPushMessage.lift(
     uniffiRustCall() { _status ->
@@ -17708,7 +17715,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
  fun `readQueuedJournal`(): UQueuedJournal? {
             return FfiConverterOptionalTypeUQueuedJournal.lift(
     uniffiRustCall() { _status ->
@@ -17717,15 +17724,15 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
  fun `recoverKeychain`()
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(
         _status)
 }
-    
-    
+
+
 
         /**
          * Parse a persisted attachment (plist XML from `UPart::Attachment.xml` or
@@ -17739,7 +17746,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * api.rs `from_poster_save` (with its tolerant fallback for the older
@@ -17753,7 +17760,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * api.rs `from_transcript_poster_save` — restore a poster persisted via
@@ -17767,7 +17774,7 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
 
         /**
          * Username persisted in `gsa.plist`, if a previous login saved credentials.
@@ -17779,22 +17786,22 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
     )
     }
-    
+
  fun `setupKeystore`(`dir`: kotlin.String, `keystore`: NativeKeystore)
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_setup_keystore(
         FfiConverterString.lower(`dir`),FfiConverterTypeNativeKeystore.lower(`keystore`),_status)
 }
-    
-    
+
+
  fun `start`(`dir`: kotlin.String, `packager`: KotlinFilePackager, `wifi`: HandleWifiNetworksCallback)
-        = 
+        =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_start(
         FfiConverterString.lower(`dir`),FfiConverterTypeKotlinFilePackager.lower(`packager`),FfiConverterTypeHandleWifiNetworksCallback.lower(`wifi`),_status)
 }
-    
-    
+
+
 
 
