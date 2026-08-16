@@ -24,20 +24,29 @@ class UpdateInstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             // "Update ready" notification tap (or Settings install button
-            // relaying through here).
-            ApkInstaller.ACTION_INSTALL_RESULT -> handleInstallResult(context, intent)
+            // relaying through here). Streaming a multi-hundred-megabyte APK
+            // into the installer session can outlast the ~10s broadcast
+            // window, so hold the receiver open and work off the main thread.
             UpdateCoordinator.ACTION_INSTALL_NOW -> {
-                when (UpdateCoordinator.installNow(context)) {
-                    UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission ->
-                        runCatching {
-                            context.startActivity(
-                                ApkInstaller.unknownSourcesIntent(context)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
+                val pendingResult = goAsync()
+                executor.execute {
+                    try {
+                        when (UpdateCoordinator.installNow(context)) {
+                            UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission ->
+                                runCatching {
+                                    context.startActivity(
+                                        ApkInstaller.unknownSourcesIntent(context)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                            else -> Unit
                         }
-                    else -> Unit
+                    } finally {
+                        pendingResult.finish()
+                    }
                 }
             }
+            ApkInstaller.ACTION_INSTALL_RESULT -> handleInstallResult(context, intent)
         }
     }
 
