@@ -154,6 +154,11 @@ class CloudSyncManager(
             code in 3000..3999 -> TAPBACK_TYPES.getOrNull((code - 3000).toInt())?.let { "-$it" }
             else -> null
         }
+
+        internal fun shouldReplaceLatestMessage(chat: Chat, candidateDate: Date?): Boolean =
+            chat.dbLatestMessage.targetId == 0L ||
+                (candidateDate != null &&
+                    (chat.dbOnlyLatestMessageDate == null || candidateDate.after(chat.dbOnlyLatestMessageDate)))
     }
 
     private val chatBox = store.boxFor(Chat::class.java)
@@ -812,12 +817,10 @@ class CloudSyncManager(
         }
 
         // Latest-message wiring (Chat.setLatestMessage) — but unlike the
-        // live intake, historical backfills never touch unread state.
-        val latest = chat.dbLatestMessage.target
-        val isNewer = latest == null ||
-            (message.dateCreated != null &&
-                (latest.dateCreated == null || message.dateCreated.after(latest.dateCreated)))
-        if (isNewer) {
+        // live intake, historical backfills never touch unread state. Use the
+        // persisted relation id/date instead of resolving the full latest
+        // Message, which may contain multi-megabyte payload strings.
+        if (shouldReplaceLatestMessage(chat, message.dateCreated)) {
             chat.dbLatestMessage.target = message
             chat.dbOnlyLatestMessageDate = message.dateCreated
             if (chat.dateDeleted != null) chat.dateDeleted = null // Chat.unDelete

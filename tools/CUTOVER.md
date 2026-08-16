@@ -49,6 +49,23 @@ already-completed mechanical cutover.
 - [ ] Upgrade from a real Flutter-era backup preserves chats and attachments.
 - [ ] Sign-out and fresh sign-in clear/rebuild the correct native state.
 
+## Self-update acceptance (GitHub Releases feed)
+
+- [ ] Publish path: `scripts/publish-update.sh --set --version-name <v> --version-code <n>`
+      creates a release with `openbubbles-<v>.apk` + `update.json`; re-running with a
+      non-increasing version code aborts.
+- [ ] First self-update on hardware: token entry in Settings → About, background check
+      downloads and verifies the APK, "Install unknown apps" grant flow works, the system
+      install confirmation appears, and the update installs in place.
+- [ ] Data survives a self-update: chats, attachments, and the ObjectBox store at
+      `{dataDir}/app_flutter/objectbox` are intact; the push service restarts via
+      `MY_PACKAGE_REPLACED`.
+- [ ] Second self-update installs without a confirmation dialog (installer-of-record,
+      Android 12+).
+- [ ] A corrupted APK (mismatched SHA-256 in the feed) is refused and cleaned up.
+- [ ] A feed versionCode at or below the installed one is ignored as "up to date";
+      "Skip this version" hides the notification until the next release.
+
 ## Product parity
 
 - [x] Send reactions/tapbacks, threaded replies, edits, and unsend from Android UI.

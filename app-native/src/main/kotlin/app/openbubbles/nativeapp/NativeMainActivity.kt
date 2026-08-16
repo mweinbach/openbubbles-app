@@ -139,6 +139,9 @@ class NativeMainActivity : ComponentActivity() {
         uiReleaseJob?.cancel()
         uiReleaseJob = null
         if (uiDetached) renderUi()
+        // Self-update: schedule the daily check and run a throttled (6h)
+        // on-open check. No-op without a stored GitHub token.
+        app.openbubbles.nativeapp.update.UpdateCoordinator.maybeCheckOnAppOpen(this)
     }
 
     override fun onStop() {

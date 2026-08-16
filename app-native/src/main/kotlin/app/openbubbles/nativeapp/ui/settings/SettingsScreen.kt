@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Devices
@@ -78,6 +79,9 @@ import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
 import app.openbubbles.nativeapp.sms.SmsRole
+import app.openbubbles.nativeapp.update.UpdateCoordinator
+import app.openbubbles.nativeapp.update.UpdateDecision
+import app.openbubbles.nativeapp.update.UpdateSettings
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
@@ -278,6 +282,68 @@ fun SettingsScreen(
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
             .getOrNull()
+    }
+
+    // ------------------------------------------------------------------
+    // Self-update (GitHub Releases feed + PackageInstaller)
+    // ------------------------------------------------------------------
+    var updateBusy by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+    var updateError by remember { mutableStateOf<String?>(null) }
+    var updateRefresh by remember { mutableStateOf(0) }
+    var showTokenDialog by remember { mutableStateOf(false) }
+    var tokenInput by remember { mutableStateOf("") }
+    val pendingUpdate = remember(updateRefresh) {
+        UpdateCoordinator.pendingUpdate(context)
+    }
+
+    fun runUpdateCheck() {
+        if (updateBusy) return
+        updateBusy = true
+        updateStatus = null
+        updateError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { UpdateCoordinator.checkNow(context) }
+            updateBusy = false
+            when (result) {
+                UpdateCoordinator.CheckResult.NoToken -> showTokenDialog = true
+                is UpdateCoordinator.CheckResult.Done -> when (val decision = result.decision) {
+                    UpdateDecision.UpToDate ->
+                        updateStatus = "You're up to date${versionName?.let { " (version $it)" } ?: ""}"
+                    UpdateDecision.RollbackBlocked ->
+                        updateStatus = "You're up to date (ignored an older feed)"
+                    is UpdateDecision.Deferred ->
+                        updateStatus = "Version ${decision.versionCode} is skipped; you're up to date"
+                    is UpdateDecision.Available, is UpdateDecision.Mandatory ->
+                        if (result.downloaded) {
+                            updateStatus = "Update downloaded — ready to install"
+                        } else {
+                            updateError = "Update found but the download did not complete"
+                        }
+                }
+                is UpdateCoordinator.CheckResult.Failed -> updateError = result.message
+            }
+            updateRefresh++
+        }
+    }
+
+    fun runInstallPending() {
+        when (val installResult = UpdateCoordinator.installNow(context)) {
+            UpdateCoordinator.InstallNowResult.NothingPending -> updateRefresh++
+            UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission -> {
+                updateStatus = "Allow \"Install unknown apps\" for OpenBubbles, then tap Install again"
+                runCatching {
+                    context.startActivity(
+                        app.openbubbles.nativeapp.update.ApkInstaller.unknownSourcesIntent(context)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            UpdateCoordinator.InstallNowResult.Installing ->
+                updateStatus = "Installing… the app will restart when done"
+            is UpdateCoordinator.InstallNowResult.Failed -> updateError = installResult.message
+        }
+        updateRefresh++
     }
 
     var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }
@@ -842,15 +908,62 @@ fun SettingsScreen(
             }
 
             }
-            if (filter == null || filter == SettingsSection.About) SettingsGroup(
-                title = if (showTitles) "About" else null,
-            ) {
-                SettingsInfoItem(
-                    title = "OpenBubbles",
-                    supporting = "Version ${versionName ?: "unknown"}",
-                    index = 0,
-                    count = 1,
-                )
+            if (filter == null || filter == SettingsSection.About) {
+                val hasStatusRow = updateStatus != null || updateError != null
+                val aboutCount = 1 + (if (pendingUpdate != null) 2 else 1) +
+                    (if (hasStatusRow) 1 else 0)
+                SettingsGroup(title = if (showTitles) "About" else null) {
+                    SettingsInfoItem(
+                        title = "OpenBubbles",
+                        supporting = "Version ${versionName ?: "unknown"}",
+                        index = 0,
+                        count = aboutCount,
+                    )
+                    if (pendingUpdate != null) {
+                        SettingsActionItem(
+                            title = "Install update ${pendingUpdate.versionName}",
+                            supporting = pendingUpdate.notes?.take(200)?.ifBlank { null },
+                            onClick = { runInstallPending() },
+                            index = 1,
+                            count = aboutCount,
+                            multiline = true,
+                        )
+                        SettingsActionItem(
+                            title = "Skip this version",
+                            supporting = "Hide this update until the next release",
+                            onClick = {
+                                UpdateSettings.deferVersionCode(context, pendingUpdate.versionCode)
+                                updateRefresh++
+                            },
+                            index = 2,
+                            count = aboutCount,
+                        )
+                    } else {
+                        SettingsActionItem(
+                            title = "Check for updates",
+                            supporting = "Internal releases are served from GitHub",
+                            onClick = { runUpdateCheck() },
+                            index = 1,
+                            count = aboutCount,
+                            busy = updateBusy,
+                            enabled = !updateBusy,
+                        )
+                    }
+                    if (hasStatusRow) {
+                        SettingsInfoItem(
+                            title = if (updateError != null) "Update problem" else "Updates",
+                            supporting = updateError ?: updateStatus ?: "",
+                            index = aboutCount - 1,
+                            count = aboutCount,
+                            multiline = true,
+                            titleColor = if (updateError != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                Color.Unspecified
+                            },
+                        )
+                    }
+                }
             }
         }
         }
@@ -1114,6 +1227,54 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingRestoreUri = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // One-time GitHub token entry for the self-update feed. The repo is
+    // private, so a fine-grained read-only token is required to read
+    // releases. Stored encrypted (Android Keystore), never logged.
+    if (showTokenDialog) {
+        AlertDialog(
+            onDismissRequest = { showTokenDialog = false },
+            title = { Text("Connect update feed") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Updates are published to the private GitHub repository. " +
+                            "Paste a fine-grained personal access token with " +
+                            "Contents: Read-only access to that repository.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = tokenInput,
+                        onValueChange = { tokenInput = it },
+                        singleLine = true,
+                        label = { Text("Access token") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val token = tokenInput.trim()
+                        if (token.isNotEmpty()) {
+                            runCatching { UpdateSettings.storeGithubToken(context, token) }
+                            tokenInput = ""
+                            showTokenDialog = false
+                            runUpdateCheck()
+                        }
+                    },
+                    enabled = tokenInput.isNotBlank(),
+                ) { Text("Save & check") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        tokenInput = ""
+                        showTokenDialog = false
+                    },
+                ) { Text("Cancel") }
             },
         )
     }

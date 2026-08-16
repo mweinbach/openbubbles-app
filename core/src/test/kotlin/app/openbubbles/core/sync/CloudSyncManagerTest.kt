@@ -335,6 +335,33 @@ class CloudSyncManagerTest {
     }
 
     @Test
+    fun `latest ordering does not resolve the persisted message relation`() {
+        val existingDate = Date(1_000L)
+        val chat = Chat().apply {
+            guid = "lazy-latest-chat"
+            chatIdentifier = "lazy-latest-chat"
+            dbOnlyLatestMessageDate = existingDate
+        }
+        store.boxFor(Chat::class.java).put(chat)
+        val existing = Message().apply {
+            guid = "large-latest-message"
+            dateCreated = existingDate
+            dbPayloadData = "x".repeat(1_000_000)
+            this.chat.target = chat
+        }
+        store.boxFor(Message::class.java).put(existing)
+        chat.dbLatestMessage.target = existing
+        store.boxFor(Chat::class.java).put(chat)
+
+        val persisted = requireNotNull(chatByGuid("lazy-latest-chat"))
+        assertFalse(persisted.dbLatestMessage.isResolved)
+        assertFalse(CloudSyncManager.shouldReplaceLatestMessage(persisted, Date(999L)))
+        assertFalse(persisted.dbLatestMessage.isResolved)
+        assertTrue(CloudSyncManager.shouldReplaceLatestMessage(persisted, Date(1_001L)))
+        assertFalse(persisted.dbLatestMessage.isResolved)
+    }
+
+    @Test
     fun `cloud message retains nonzero send error`() {
         port.chatPages += chatPage(
             UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),

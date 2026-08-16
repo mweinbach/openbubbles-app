@@ -155,6 +155,8 @@ dependencies {
     testImplementation libs.objectbox.java
     testImplementation libs.kotlinx.coroutines.core
     testImplementation libs.kotlinx.coroutines.test
+    // Self-update feed/download tests against a local HTTP server.
+    testImplementation libs.okhttp.mockwebserver
 }
 
 // UniFFI-generated Kotlin bindings live in :core.
