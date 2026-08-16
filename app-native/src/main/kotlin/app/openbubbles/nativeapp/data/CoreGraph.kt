@@ -1137,8 +1137,8 @@ internal fun sendingHandle(
 
 /**
  * Legacy `Chat.getConversationData`: retain the stable chat identity and the
- * latest confirmed message anchor on every send. Without these fields Rust
- * creates a new sender guid, which can split group conversations.
+ * latest confirmed message anchor when one exists. A first message must not
+ * use the chat id as `afterGuid` because it is not a message identifier.
  */
 internal fun sendConversation(chat: Chat, afterGuid: String?, sender: String? = null): UConversation =
     buildSendConversation(chat, afterGuid, sender)

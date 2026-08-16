@@ -72,10 +72,10 @@ class SendRoutingTest {
     }
 
     @Test
-    fun `conversation falls back to chat guid when history is empty`() {
+    fun `conversation has no message anchor when history is empty`() {
         val chat = Chat().apply { guid = "new-chat-guid" }
 
-        assertEquals("new-chat-guid", sendConversation(chat, null).afterGuid)
+        assertNull(sendConversation(chat, null).afterGuid)
     }
 
     @Test

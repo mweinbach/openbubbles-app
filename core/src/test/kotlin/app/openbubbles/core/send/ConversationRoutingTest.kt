@@ -4,6 +4,7 @@ import app.openbubbles.db.Chat
 import app.openbubbles.db.Handle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class ConversationRoutingTest {
     @Test
@@ -67,5 +68,22 @@ class ConversationRoutingTest {
         assertEquals("Group", conversation.cvName)
         assertEquals("iMessage;+;group-guid", conversation.senderGuid)
         assertEquals("previous-message", conversation.afterGuid)
+    }
+
+    @Test
+    fun `first message does not invent a previous message anchor`() {
+        val chat = Chat().apply {
+            guid = "local-chat-guid"
+            handles.add(Handle().apply { address = "friend@icloud.com" })
+        }
+
+        val conversation = buildSendConversation(
+            chat = chat,
+            afterGuid = null,
+            sender = "mailto:me@icloud.com",
+        )
+
+        assertEquals("local-chat-guid", conversation.senderGuid)
+        assertNull(conversation.afterGuid)
     }
 }

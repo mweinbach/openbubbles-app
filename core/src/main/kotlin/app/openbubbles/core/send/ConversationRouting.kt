@@ -33,5 +33,5 @@ fun buildSendConversation(
     }.distinct(),
     cvName = chat.apnTitle ?: chat.displayName,
     senderGuid = chat.guid,
-    afterGuid = afterGuid ?: chat.guid,
+    afterGuid = afterGuid,
 )
