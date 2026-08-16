@@ -219,6 +219,40 @@ class ContactSyncTest {
     }
 
     @Test
+    fun `iCloud contact wins and native contact becomes fallback`() {
+        val handle = seedHandle("friend@icloud.com")
+        sync.upsertContacts(
+            listOf(
+                raw(
+                    "android:friend",
+                    displayName = "Android Friend",
+                    avatarPath = "content://android/friend",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+                raw(
+                    "icloud:friend",
+                    displayName = "iOS Friend",
+                    avatarPath = "/avatars/icloud-friend.img",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+            ),
+        )
+
+        assertEquals("icloud:friend", sync.contactsForHandles()[handle.id]?.nativeContactId)
+        assertEquals("iOS Friend", sync.displayInfoFor(handle).name)
+        assertEquals("/avatars/icloud-friend.img", sync.displayInfoFor(handle).avatar)
+        assertEquals("iOS Friend", sync.displayInfoByHandleId()[handle.id]?.name)
+        assertEquals(listOf("icloud:friend"), sync.preferredContacts().map { it.id })
+
+        sync.removeContacts(listOf("icloud:friend"))
+
+        assertEquals("android:friend", sync.contactsForHandles()[handle.id]?.nativeContactId)
+        assertEquals("Android Friend", sync.displayInfoFor(handle).name)
+        assertEquals("content://android/friend", sync.displayInfoFor(handle).avatar)
+        assertTrue(sync.preferredContacts(includeNativeContacts = false).isEmpty())
+    }
+
+    @Test
     fun `nickname wins over structured name`() {
         seedHandle("bob@icloud.com")
         sync.upsertContacts(

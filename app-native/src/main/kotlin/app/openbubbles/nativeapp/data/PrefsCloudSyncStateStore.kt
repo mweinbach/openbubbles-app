@@ -56,12 +56,14 @@ object CloudSyncWiring {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stateStore = PrefsCloudSyncStateStore(prefs)
         val port = UniffiCloudSyncPort(state)
+        val transcriptBackgroundStore = TranscriptBackgroundStore(context.applicationContext) { state }
         managerRef.set(
             CloudSyncManager(
                 store,
                 port,
                 stateStore,
                 AttachmentStore(store, File(context.dataDir, "app_flutter")),
+                transcriptBackgroundStore,
             ),
         )
 

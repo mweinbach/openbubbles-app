@@ -219,14 +219,13 @@ class ContactSync(private val store: BoxStore) {
     }
 
     /**
-     * Resolves every handle that belongs to a contact:
-     * `handleId → ContactV2` (first contact wins when several link the same
-     * handle, matching Dart's `contactsV2.firstOrNull` reads).
+     * Resolves every handle that belongs to a contact. Synced iCloud contacts
+     * win, then native/platform contacts, then legacy rows.
      */
     fun contactsForHandles(): Map<Long, ContactV2> {
         return store.callInReadTx {
             val resolved = HashMap<Long, ContactV2>()
-            contactBox.all.sortedByDescending { it.isNative }.forEach { contact ->
+            contactsByPreference().forEach { contact ->
                 contact.handles.forEach { handle ->
                     resolved.getOrPut(handle.id) { contact }
                 }
@@ -242,7 +241,7 @@ class ContactSync(private val store: BoxStore) {
      */
     fun displayInfoByHandleId(): Map<Long, HandleDisplayInfo> = store.callInReadTx {
         val resolved = HashMap<Long, HandleDisplayInfo>()
-        contactBox.all.sortedByDescending { it.isNative }.forEach { contact ->
+        contactsByPreference().forEach { contact ->
             val name = computedDisplayName(contact).takeIf { it.isNotEmpty() }
             val info = HandleDisplayInfo(name = name, avatar = contact.avatarPath)
             contact.handles.forEach { handle ->
@@ -255,23 +254,75 @@ class ContactSync(private val store: BoxStore) {
     /**
      * Name + avatar path the UI should render for [handle] — the port of
      * `Handle.displayName` / `HandleState._resolveAvatarPath`: prefer the
-     * linked (native-first) contact's computed name and avatar; fall back to
-     * the formatted address, then the raw address. Business handles show as
-     * "Business".
+     * linked iCloud contact, then the native contact, then the formatted or
+     * raw address. Business handles show as "Business".
      */
     fun displayInfoFor(handle: Handle): HandleDisplayInfo {
         if (handle.address.startsWith("urn:biz")) {
             return HandleDisplayInfo(name = "Business", avatar = null)
         }
-        val contacts = handle.contactsV2
-        val contact = contacts.firstOrNull { it.isNative } ?: contacts.firstOrNull()
+        val contact = store.callInReadTx {
+            contactsByPreference().firstOrNull { candidate ->
+                candidate.handles.any { it.id == handle.id }
+            }
+        }
         val name = contact?.let { computedDisplayName(it) }?.takeIf { it.isNotEmpty() }
             ?: handle.formattedAddress?.takeIf { it.isNotEmpty() }
             ?: handle.address
         return HandleDisplayInfo(name = name, avatar = contact?.avatarPath)
     }
 
+    fun preferredContacts(includeNativeContacts: Boolean = true): List<RawContact> =
+        store.callInReadTx {
+            val claimedAddresses = HashSet<String>()
+            contactsByPreference().mapNotNull { contact ->
+                if (!includeNativeContacts && !isICloudContact(contact)) return@mapNotNull null
+                val addresses = contact.addresses.distinct().filter { address ->
+                    val keys = addressMatchKeys(address)
+                    if (keys.any(claimedAddresses::contains)) {
+                        false
+                    } else {
+                        claimedAddresses += keys
+                        true
+                    }
+                }
+                if (addresses.isEmpty()) return@mapNotNull null
+                RawContact(
+                    id = contact.nativeContactId ?: "contact:${contact.id}",
+                    displayName = computedDisplayName(contact).takeIf(String::isNotEmpty),
+                    firstName = contact.firstName,
+                    lastName = contact.lastName,
+                    avatarPath = contact.avatarPath,
+                    addresses = addresses,
+                )
+            }
+        }
+
+    private fun contactsByPreference(): List<ContactV2> =
+        contactBox.all.sortedWith(contactPreferenceComparator)
+
+    private fun addressMatchKeys(address: String): Set<String> =
+        if (address.contains('@')) {
+            setOf(normalizeEmail(address))
+        } else {
+            phoneNumberVariants(address)
+        }
+
     companion object {
+        private const val ICLOUD_CONTACT_PREFIX = "icloud:"
+
+        private val contactPreferenceComparator =
+            compareBy<ContactV2> { contactPreference(it) }.thenBy { it.id }
+
+        private fun contactPreference(contact: ContactV2): Int = when {
+            isICloudContact(contact) -> 0
+            contact.isNative -> 1
+            else -> 2
+        }
+
+        private fun isICloudContact(contact: ContactV2): Boolean =
+            contact.nativeContactId?.startsWith(ICLOUD_CONTACT_PREFIX) == true
+
         private fun withoutAddressScheme(address: String): String {
             val trimmed = address.trim()
             return when {

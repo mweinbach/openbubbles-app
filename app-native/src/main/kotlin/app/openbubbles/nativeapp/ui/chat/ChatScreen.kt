@@ -458,10 +458,7 @@ fun ChatScreen(
         if (nearTop) onLoadOlder()
     }
 
-    val backgroundPath = uiState.chat?.effectiveBackgroundPath()
-    val backgroundFile = remember(backgroundPath) {
-        backgroundPath?.let(::File)?.takeIf { it.isFile }
-    }
+    val backgroundFile = uiState.chat?.effectiveBackgroundPath()?.let(::File)
     val background = rememberDecodedImage(backgroundFile, maxDimensionPx = 1440)
     // The scrim keeps bubbles readable over a photo; dark themes need the
     // heavier dim because both the wallpaper and the incoming bubbles are dark.

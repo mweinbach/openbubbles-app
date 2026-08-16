@@ -82,6 +82,7 @@ import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.sms.SmsPermissions
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -169,6 +170,8 @@ private fun buildRows(contacts: List<RawContact>, query: String): List<ContactRo
 /**
  * New-conversation screen: recipient entry (typed addresses + contact
  * picker), iMessage/SMS service selection, then opens (or creates) the chat.
+ * The SMS segment appears only when SMS can actually be sent and received;
+ * otherwise the chat is always iMessage and the selector stays hidden.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,10 +186,20 @@ fun NewChatScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Offering SMS only makes sense when we can both send and receive it —
+    // the senders hard-require SEND_SMS, and a one-way chat is worse than not
+    // showing the segment. Setup (default-SMS role, permissions) lives in
+    // Settings → SMS & MMS, not on this screen.
+    val smsAvailable = remember {
+        SmsPermissions.canSendSms(context) && SmsPermissions.canReceiveSms(context)
+    }
+
     val chips = remember { mutableStateListOf<RecipientChip>() }
     var input by rememberSaveable { mutableStateOf("") }
     var showInvalid by remember { mutableStateOf(false) }
-    var useSms by rememberSaveable(initialUseSms) { mutableStateOf(initialUseSms) }
+    var useSms by rememberSaveable(initialUseSms) {
+        mutableStateOf(initialUseSms && smsAvailable)
+    }
     var creating by remember { mutableStateOf(false) }
     var contactsPermission by remember { mutableStateOf(DeviceContacts.hasPermission(context)) }
     var permissionRequested by rememberSaveable { mutableStateOf(false) }
@@ -199,15 +212,13 @@ fun NewChatScreen(
     }
 
     val contacts by produceState<List<RawContact>?>(initialValue = null, contactsPermission) {
-        value = if (contactsPermission) DeviceContacts.read(context) else emptyList()
-    }
-
-    // Push freshly-read contacts into the core sync so the created chat (and
-    // the chat list behind it) resolves participant names right away.
-    LaunchedEffect(contacts) {
-        val loaded = contacts ?: return@LaunchedEffect
-        if (loaded.isNotEmpty()) {
-            withContext(Dispatchers.IO) { runCatching { CoreGraph.syncContacts(loaded) } }
+        val nativeContacts = if (contactsPermission) DeviceContacts.read(context) else emptyList()
+        value = withContext(Dispatchers.IO) {
+            if (nativeContacts.isNotEmpty()) {
+                runCatching { CoreGraph.syncContacts(nativeContacts) }
+            }
+            CoreGraph.preferredContacts(includeNativeContacts = contactsPermission)
+                .ifEmpty { nativeContacts }
         }
     }
 
@@ -310,11 +321,13 @@ fun NewChatScreen(
                     onRemoveChip = { chip -> chips.remove(chip) },
                 )
             }
-            item(key = "service") {
-                ServiceSelector(
-                    useSms = useSms,
-                    onUseSmsChange = { useSms = it },
-                )
+            if (smsAvailable) {
+                item(key = "service") {
+                    ServiceSelector(
+                        useSms = useSms,
+                        onUseSmsChange = { useSms = it },
+                    )
+                }
             }
             item(key = "create") {
                 CreateChatButton(

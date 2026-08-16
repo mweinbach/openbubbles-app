@@ -11757,12 +11757,6 @@ public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
 
 
 
-/**
- * Mirror of the `MessageEncryptedv3` CloudKit record with the gzipped
- * `msgProto` already decoded: flattened text (plain field or attributed
- * body), attachment guids (converted to the local `<msgGuid>_<part>` form),
- * thread/association/receipt fields.
- */
 data class UCloudMessage (
     var `guid`: kotlin.String,
     /**
@@ -11809,6 +11803,10 @@ data class UCloudMessage (
      * batch; the flag preserves `hasApplePayloadData`).
      */
     var `hasPayloadData`: kotlin.Boolean,
+    /**
+     * Parsed type-138 transcript-background update from `payloadData`.
+     */
+    var `transcriptBackground`: UTranscriptBackground?,
     /**
      * `msgProto.messageSummaryInfo` (edits/retractions) serialized to JSON.
      */
@@ -11860,6 +11858,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalTypeUTranscriptBackground.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalLong.read(buf),
@@ -11888,6 +11887,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalString.allocationSize(value.`balloonBundleId`) +
             FfiConverterOptionalString.allocationSize(value.`linkJson`) +
             FfiConverterBoolean.allocationSize(value.`hasPayloadData`) +
+            FfiConverterOptionalTypeUTranscriptBackground.allocationSize(value.`transcriptBackground`) +
             FfiConverterOptionalString.allocationSize(value.`summaryInfoJson`) +
             FfiConverterOptionalString.allocationSize(value.`effect`) +
             FfiConverterOptionalLong.allocationSize(value.`dateReadNs`) +
@@ -11915,6 +11915,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalString.write(value.`balloonBundleId`, buf)
             FfiConverterOptionalString.write(value.`linkJson`, buf)
             FfiConverterBoolean.write(value.`hasPayloadData`, buf)
+            FfiConverterOptionalTypeUTranscriptBackground.write(value.`transcriptBackground`, buf)
             FfiConverterOptionalString.write(value.`summaryInfoJson`, buf)
             FfiConverterOptionalString.write(value.`effect`, buf)
             FfiConverterOptionalLong.write(value.`dateReadNs`, buf)
@@ -13302,6 +13303,52 @@ public object FfiConverterTypeUSyncSummary: FfiConverterRustBuffer<USyncSummary>
             FfiConverterULong.write(value.`messageTombstones`, buf)
             FfiConverterULong.write(value.`durationMs`, buf)
             FfiConverterBoolean.write(value.`cancelled`, buf)
+    }
+}
+
+
+
+/**
+ * Mirror of the `MessageEncryptedv3` CloudKit record with the gzipped
+ * `msgProto` already decoded: flattened text (plain field or attributed
+ * body), attachment guids (converted to the local `<msgGuid>_<part>` form),
+ * thread/association/receipt fields.
+ */
+data class UTranscriptBackground (
+    var `version`: kotlin.ULong,
+    var `chatId`: kotlin.String?,
+    var `remove`: kotlin.Boolean,
+    var `mmcsXml`: kotlin.String?
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUTranscriptBackground: FfiConverterRustBuffer<UTranscriptBackground> {
+    override fun read(buf: ByteBuffer): UTranscriptBackground {
+        return UTranscriptBackground(
+            FfiConverterULong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UTranscriptBackground) = (
+            FfiConverterULong.allocationSize(value.`version`) +
+            FfiConverterOptionalString.allocationSize(value.`chatId`) +
+            FfiConverterBoolean.allocationSize(value.`remove`) +
+            FfiConverterOptionalString.allocationSize(value.`mmcsXml`)
+    )
+
+    override fun write(value: UTranscriptBackground, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`version`, buf)
+            FfiConverterOptionalString.write(value.`chatId`, buf)
+            FfiConverterBoolean.write(value.`remove`, buf)
+            FfiConverterOptionalString.write(value.`mmcsXml`, buf)
     }
 }
 
@@ -16665,6 +16712,38 @@ public object FfiConverterOptionalTypeUQueuedJournal: FfiConverterRustBuffer<UQu
         } else {
             buf.put(1)
             FfiConverterTypeUQueuedJournal.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUTranscriptBackground: FfiConverterRustBuffer<UTranscriptBackground?> {
+    override fun read(buf: ByteBuffer): UTranscriptBackground? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUTranscriptBackground.read(buf)
+    }
+
+    override fun allocationSize(value: UTranscriptBackground?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUTranscriptBackground.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UTranscriptBackground?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUTranscriptBackground.write(value, buf)
         }
     }
 }

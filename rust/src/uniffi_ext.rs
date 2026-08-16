@@ -2026,6 +2026,14 @@ pub struct UCloudChat {
 /// body), attachment guids (converted to the local `<msgGuid>_<part>` form),
 /// thread/association/receipt fields.
 #[derive(uniffi::Record)]
+pub struct UTranscriptBackground {
+    pub version: u64,
+    pub chat_id: Option<String>,
+    pub remove: bool,
+    pub mmcs_xml: Option<String>,
+}
+
+#[derive(uniffi::Record)]
 pub struct UCloudMessage {
     pub guid: String,
     /// Chat reference: `iMessage;+/-;chatIdentifier` (contains `;`) or the
@@ -2054,6 +2062,8 @@ pub struct UCloudMessage {
     /// An app balloon payload is attached (raw payload decode is a later
     /// batch; the flag preserves `hasApplePayloadData`).
     pub has_payload_data: bool,
+    /// Parsed type-138 transcript-background update from `payloadData`.
+    pub transcript_background: Option<UTranscriptBackground>,
     /// `msgProto.messageSummaryInfo` (edits/retractions) serialized to JSON.
     pub summary_info_json: Option<String>,
     pub effect: Option<String>,
@@ -2336,6 +2346,10 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
             LinkMeta::from_payload_data(payload_data).ok().map(|link| j(&link)),
         _ => None,
     };
+    let transcript_background = decode_cloud_transcript_background(
+        c.r#type,
+        proto.payload_data.as_deref(),
+    );
 
     UCloudMessage {
         guid: c.guid.clone(),
@@ -2353,6 +2367,7 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
         balloon_bundle_id: proto.balloon_bundle_id.clone(),
         link_json,
         has_payload_data: proto.payload_data.is_some(),
+        transcript_background,
         summary_info_json,
         effect: proto.effect.clone(),
         date_read_ns: proto.date_read.filter(|t| *t != 0).map(|t| t as i64),
@@ -2362,6 +2377,67 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
         thread_originator_guid: thread_guid,
         thread_originator_part: thread_part,
         associated_message_emoji: c.msg_proto_4.as_ref().and_then(|p4| p4.0.associated_message_emoji.clone()),
+    }
+}
+
+const TRANSCRIPT_BACKGROUND_MESSAGE_TYPE: i64 = 138;
+
+fn decode_cloud_transcript_background(
+    msg_type: i64,
+    payload_data: Option<&[u8]>,
+) -> Option<UTranscriptBackground> {
+    if msg_type != TRANSCRIPT_BACKGROUND_MESSAGE_TYPE {
+        return None;
+    }
+    let background = plist::from_bytes::<SetTranscriptBackgroundMessage>(payload_data?).ok()?;
+    Some(match &background {
+        SetTranscriptBackgroundMessage::Remove { bid, chat_id, .. } => UTranscriptBackground {
+            version: *bid,
+            chat_id: chat_id.clone(),
+            remove: true,
+            mmcs_xml: None,
+        },
+        SetTranscriptBackgroundMessage::Set { bid, chat_id, .. } => UTranscriptBackground {
+            version: *bid,
+            chat_id: chat_id.clone(),
+            remove: false,
+            mmcs_xml: background
+                .to_mmcs()
+                .and_then(|file| to_plist_xml(&file).ok()),
+        },
+    })
+}
+
+#[cfg(test)]
+mod transcript_background_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_cloud_transcript_background_payload() {
+        let message = SetTranscriptBackgroundMessage::from_mmcs(
+            Some(MMCSFile {
+                signature: vec![1, 2, 3],
+                object: "object-id".to_string(),
+                url: "https://example.invalid/background".to_string(),
+                key: vec![4, 5, 6],
+                size: 42,
+            }),
+            9,
+            Some("iMessage;+;family".to_string()),
+        );
+        let mut payload = Vec::new();
+        plist::to_writer_binary(&mut payload, &message).unwrap();
+
+        let decoded = decode_cloud_transcript_background(138, Some(&payload)).unwrap();
+
+        assert_eq!(decoded.version, 9);
+        assert_eq!(decoded.chat_id.as_deref(), Some("iMessage;+;family"));
+        assert!(!decoded.remove);
+        let mmcs: MMCSFile = plist::from_reader_xml(
+            std::io::Cursor::new(decoded.mmcs_xml.unwrap()),
+        ).unwrap();
+        assert_eq!(mmcs.key, vec![4, 5, 6]);
+        assert_eq!(mmcs.size, 42);
     }
 }
 

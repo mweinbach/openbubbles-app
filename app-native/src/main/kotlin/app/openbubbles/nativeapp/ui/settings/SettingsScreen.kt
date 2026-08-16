@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,6 +102,17 @@ private data class ConnectionInfo(
 private const val NATIVE_SETUP_PREFS = "native_setup"
 private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
 
+private enum class SettingsSection(val title: String, val supporting: String) {
+    Account("Account", "Registration, handles, sign out"),
+    ICloud("iCloud", "History, Keychain, contacts"),
+    Notifications("Notifications", "Previews, replies, reactions"),
+    Messaging("Messaging", "Read receipts and SMS"),
+    Power("Power", "Battery saver"),
+    Appearance("Appearance", "Theme and color"),
+    Storage("Storage & backup", "Attachments and local backup"),
+    About("About", "App version"),
+}
+
 private fun describeRegstate(state: URegisterState): String = when (state) {
     is URegisterState.Registered ->
         if (state.nextS > 0) "Registered — next check-in in ${state.nextS}s" else "Registered"
@@ -107,10 +121,9 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 }
 
 /**
- * Settings: Material 3 preference groups in the Google Messages foldable
- * style — segmented [ListItem]s, no leading icons, no section chrome.
- * Compact windows keep the collapsing flexible bar; medium+ (foldables,
- * tablets) pin a small bar so the list uses the extra width.
+ * Settings: Messages-style preference cards (one surface, hairline
+ * dividers, section labels, chevrons on actions). Compact is a single
+ * column; medium+ is a category rail plus a narrow detail column.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -387,26 +400,27 @@ fun SettingsScreen(
             }
         },
     ) { padding ->
-        // Wide windows center the content column instead of stretching rows.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+        var selectedSectionName by rememberSaveable {
+            mutableStateOf(SettingsSection.Account.name)
+        }
+        val selectedSection = SettingsSection.valueOf(selectedSectionName)
+
+        @Composable
+        fun SectionColumn(
+            filter: SettingsSection?,
+            showTitles: Boolean,
+            modifier: Modifier = Modifier,
         ) {
         Column(
-            modifier = Modifier
-                .widthIn(max = 840.dp)
-                .align(Alignment.TopCenter)
+            modifier = modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(
-                    horizontal = if (isMediumWidth) 24.dp else 16.dp,
-                    vertical = 8.dp,
-                )
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
         ) {
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.Account) SettingsGroup(
+                title = if (showTitles) "Account" else null,
+            ) {
                 if (pushState == null) {
                     SettingsInfoItem(
                         title = "Not connected",
@@ -470,7 +484,9 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.ICloud) SettingsGroup(
+                title = if (showTitles) "iCloud" else null,
+            ) {
                 val savedRecoveryCode = if (inClique == true) {
                     context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
                         .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
@@ -563,7 +579,9 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.Power) SettingsGroup(
+                title = if (showTitles) "Power" else null,
+            ) {
                 val ctx = context
                 var batterySaver by remember {
                     androidx.compose.runtime.mutableStateOf(
@@ -571,22 +589,27 @@ fun SettingsScreen(
                 }
                 SettingsToggleItem(
                     title = "Battery saver",
-                    supporting = if (batterySaver) {
-                        "Checking iCloud every 15 min — messages may be delayed"
-                    } else {
-                        "Live connection — instant messages, uses more battery"
-                    },
+                    // Subtitle must not change with state — the switch carries
+                    // that. State-dependent copy reflows the row on toggle.
+                    supporting = "Check iCloud every 15 min instead of a live connection — messages may be delayed",
                     checked = batterySaver,
                     onCheckedChange = { enabled ->
-                        batterySaver = app.openbubbles.nativeapp.service.BatterySaver
-                            .setEnabled(ctx, enabled)
+                        // Flip the switch now; stopService + WorkManager +
+                        // startForegroundService are binder work that stalls
+                        // the tap frame if run inline.
+                        batterySaver = enabled
+                        scope.launch(Dispatchers.IO) {
+                            app.openbubbles.nativeapp.service.BatterySaver.setEnabled(ctx, enabled)
+                        }
                     },
                     index = 0,
                     count = 1,
                 )
             }
 
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.Notifications) SettingsGroup(
+                title = if (showTitles) "Notifications" else null,
+            ) {
                 val notifPrefs = remember { NotifPrefs(context) }
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
@@ -626,18 +649,17 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.Messaging) {
+            SettingsGroup(
+                title = if (showTitles) "Messaging" else null,
+            ) {
                 val messagingPrefs = remember { MessagingPrefs(context) }
                 var sendReadReceipts by remember {
                     mutableStateOf(messagingPrefs.sendReadReceipts)
                 }
                 SettingsToggleItem(
                     title = "Send read receipts",
-                    supporting = if (sendReadReceipts) {
-                        "Tell people in direct iMessage chats when you read their messages"
-                    } else {
-                        "Read state syncs privately to your Apple devices"
-                    },
+                    supporting = "Tell people in direct iMessage chats when you read their messages",
                     checked = sendReadReceipts,
                     onCheckedChange = { enabled ->
                         sendReadReceipts = enabled
@@ -648,7 +670,9 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroup {
+            SettingsGroup(
+                title = if (showTitles) "SMS & MMS" else null,
+            ) {
                 val smsCount = if (isDefaultSmsApp) 1 else 2
                 SettingsInfoItem(
                     title = if (isDefaultSmsApp) "Default SMS app" else "Finish SMS setup",
@@ -674,7 +698,10 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup {
+            }
+            if (filter == null) SettingsGroup(
+                title = if (showTitles) "Location" else null,
+            ) {
                 SettingsActionItem(
                     title = "Find My",
                     supporting = "Devices, friends and items",
@@ -684,8 +711,14 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroup {
-                val dynamicColor by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
+            if (filter == null || filter == SettingsSection.Appearance) SettingsGroup(
+                title = if (showTitles) "Appearance" else null,
+            ) {
+                val persistedDynamicColor by AppearancePrefs.dynamicColorFlow
+                    .collectAsStateWithLifecycle()
+                var dynamicColor by remember(persistedDynamicColor) {
+                    mutableStateOf(persistedDynamicColor)
+                }
                 SettingsInfoItem(
                     title = "Theme",
                     supporting = "System default",
@@ -694,19 +727,25 @@ fun SettingsScreen(
                 )
                 SettingsToggleItem(
                     title = "Dynamic color",
-                    supporting = if (dynamicColor) {
-                        "Colors follow your wallpaper (Material You)"
-                    } else {
-                        "OpenBubbles blue, always"
-                    },
+                    supporting = "Colors follow your wallpaper (Material You)",
                     checked = dynamicColor,
-                    onCheckedChange = { AppearancePrefs.dynamicColor = it },
+                    onCheckedChange = { enabled ->
+                        // The pref write re-themes the whole app; emitting it
+                        // off the tap frame keeps the switch animation smooth.
+                        dynamicColor = enabled
+                        scope.launch(Dispatchers.Default) {
+                            AppearancePrefs.dynamicColor = enabled
+                        }
+                    },
                     index = 1,
                     count = 2,
                 )
             }
 
-            SettingsGroup {
+            if (filter == null || filter == SettingsSection.Storage) {
+            SettingsGroup(
+                title = if (showTitles) "Storage" else null,
+            ) {
                 val cacheLabel = cacheBytes
                     ?.let { formatBytes(it).ifEmpty { "Empty" } }
                     ?: "Calculating…"
@@ -731,7 +770,9 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroup {
+            SettingsGroup(
+                title = if (showTitles) "Backup" else null,
+            ) {
                 val backupErrorText = backupError
                 val backupStageText = backupStage
                 val backupRows = buildList {
@@ -800,7 +841,10 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup {
+            }
+            if (filter == null || filter == SettingsSection.About) SettingsGroup(
+                title = if (showTitles) "About" else null,
+            ) {
                 SettingsInfoItem(
                     title = "OpenBubbles",
                     supporting = "Version ${versionName ?: "unknown"}",
@@ -809,6 +853,79 @@ fun SettingsScreen(
                 )
             }
         }
+        }
+
+        if (isMediumWidth) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(SettingsListPaneWidth)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding(),
+                ) {
+                    SettingsGroup {
+                        val sections = SettingsSection.entries
+                        sections.forEachIndexed { index, section ->
+                            SettingsCategoryItem(
+                                title = section.title,
+                                supporting = section.supporting,
+                                selected = section == selectedSection,
+                                onClick = { selectedSectionName = section.name },
+                                index = index,
+                                count = sections.size + 1,
+                            )
+                        }
+                        SettingsCategoryItem(
+                            title = "Find My",
+                            supporting = "Devices, friends and items",
+                            selected = false,
+                            onClick = onOpenFindMy,
+                            index = sections.size,
+                            count = sections.size + 1,
+                            showChevron = true,
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = SettingsDetailMaxWidth)
+                        .fillMaxHeight()
+                        .weight(1f, fill = false),
+                ) {
+                    Text(
+                        text = selectedSection.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+                    )
+                    SectionColumn(
+                        filter = selectedSection,
+                        showTitles = false,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                SectionColumn(
+                    filter = null,
+                    showTitles = true,
+                    modifier = Modifier
+                        .widthIn(max = SettingsSingleColumnMaxWidth)
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
         }
     }
 

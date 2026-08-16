@@ -263,6 +263,9 @@ object CoreGraph {
     fun contactDisplayInfo(address: String): Pair<String?, String?>? =
         CoreContacts.displayInfo(address)
 
+    fun preferredContacts(includeNativeContacts: Boolean = true): List<app.openbubbles.core.contacts.RawContact> =
+        CoreContacts.preferredContacts(includeNativeContacts)
+
     /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
      * state, stop the push service, and clear the holders — the sign-in
@@ -680,6 +683,9 @@ private object CoreContacts {
         displayInfoIndex = null
         return result
     }
+
+    fun preferredContacts(includeNativeContacts: Boolean): List<app.openbubbles.core.contacts.RawContact> =
+        sync?.preferredContacts(includeNativeContacts).orEmpty()
 
     @Volatile
     private var handleIndex: Map<String, Handle>? = null

@@ -106,6 +106,7 @@ class CloudSyncManager(
     private val port: CloudSyncPort,
     private val syncStore: CloudSyncStateStore = InMemoryCloudSyncStateStore(),
     private val attachmentStore: AttachmentStore? = null,
+    private val transcriptBackgroundHandler: TranscriptBackgroundHandler? = null,
     private val pageRetryDelaysMs: List<Long> = listOf(1_000L, 3_000L, 10_000L, 30_000L),
 ) {
 
@@ -115,6 +116,8 @@ class CloudSyncManager(
 
         /** `MessageFlags.IS_FROM_ME`. */
         private const val FLAG_IS_FROM_ME = 1L shl 2
+
+        private const val TRANSCRIPT_BACKGROUND_MESSAGE_TYPE = 138L
 
         /**
          * Commit history in bounded batches. A transaction per record caused
@@ -452,6 +455,7 @@ class CloudSyncManager(
 
     private suspend fun applyMessagePage(records: List<UMessageChange>) {
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+            val transcriptBackgrounds = mutableListOf<TranscriptBackgroundUpdate>()
             store.runInTx {
                 for (record in batch) {
                     val cloud = record.message
@@ -459,9 +463,33 @@ class CloudSyncManager(
                         deleteMessageByRecordIdLocked(record.recordId)
                         continue
                     }
+                    if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
+                        val background = requireNotNull(cloud.transcriptBackground) {
+                            "transcript background ${cloud.guid} has no decoded payload"
+                        }
+                        val chat = background.chatId
+                            ?.let(::chatForCloudMessage)
+                            ?: chatForCloudMessage(cloud.chatId)
+                            ?: error("transcript background ${cloud.guid} has no matching chat")
+                        removeLegacyTranscriptBackgroundMessageLocked(cloud.guid)
+                        transcriptBackgrounds += TranscriptBackgroundUpdate(
+                            chatId = chat.id,
+                            version = background.version.toLong(),
+                            remove = background.remove,
+                            mmcsXml = background.mmcsXml,
+                        )
+                        continue
+                    }
                     applyMessageLocked(record.recordId, cloud)
                 }
             }
+            val handler = transcriptBackgroundHandler
+            transcriptBackgrounds
+                .sortedBy(TranscriptBackgroundUpdate::version)
+                .forEach { update ->
+                    requireNotNull(handler) { "transcript background handler is unavailable" }
+                        .apply(update)
+                }
         }
         // Stale cloud duplicates found on this page are dropped remotely
         // after it applied (Dart's post-page dupDeleteMessages flush).
@@ -476,6 +504,28 @@ class CloudSyncManager(
             .forEach { message ->
                 message.dbAttachments.toList().forEach(::removeAttachmentLocked)
                 messageBox.remove(message)
+            }
+    }
+
+    private fun removeLegacyTranscriptBackgroundMessageLocked(guid: String) {
+        messageBox.query()
+            .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .forEach { message ->
+                val chat = message.chat.target
+                val wasLatest = chat?.dbLatestMessage?.targetId == message.id
+                message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+                messageBox.remove(message)
+                if (chat != null && wasLatest) {
+                    val latest = messageBox.query()
+                        .equal(Message_.chatId, chat.id)
+                        .build().use { it.find() }
+                        .filter { it.dateDeleted == null }
+                        .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+                    chat.dbLatestMessage.target = latest
+                    chat.dbOnlyLatestMessageDate = latest?.dateCreated
+                    chatBox.put(chat)
+                }
             }
     }
 

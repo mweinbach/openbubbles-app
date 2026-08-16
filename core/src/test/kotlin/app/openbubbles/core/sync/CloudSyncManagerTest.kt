@@ -24,7 +24,9 @@ import uniffi.rust_lib_bluebubbles.UCloudMessage
 import uniffi.rust_lib_bluebubbles.UMessageChange
 import uniffi.rust_lib_bluebubbles.UMessageSyncPage
 import uniffi.rust_lib_bluebubbles.USyncState
+import uniffi.rust_lib_bluebubbles.UTranscriptBackground
 import java.io.File
+import java.util.Date
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -128,6 +130,7 @@ class CloudSyncManagerTest {
     private lateinit var port: FakeCloudSyncPort
     private lateinit var syncStore: InMemoryCloudSyncStateStore
     private lateinit var manager: CloudSyncManager
+    private val backgroundUpdates = mutableListOf<TranscriptBackgroundUpdate>()
 
     @Before
     fun setUp() {
@@ -135,11 +138,13 @@ class CloudSyncManagerTest {
         store = MyObjectBox.builder().directory(testDir).build()
         port = FakeCloudSyncPort()
         syncStore = InMemoryCloudSyncStateStore()
+        backgroundUpdates.clear()
         manager = CloudSyncManager(
             store,
             port,
             syncStore,
             AttachmentStore(store, testDir),
+            TranscriptBackgroundHandler(backgroundUpdates::add),
             pageRetryDelaysMs = listOf(0L, 0L),
         )
     }
@@ -193,12 +198,14 @@ class CloudSyncManagerTest {
         balloonBundleId: String? = null,
         linkJson: String? = null,
         hasPayloadData: Boolean = false,
+        msgType: Long = 0,
+        transcriptBackground: UTranscriptBackground? = null,
     ) = UCloudMessage(
         guid = guid,
         chatId = chatId,
         sender = sender,
         time = time,
-        msgType = 0,
+        msgType = msgType,
         error = error,
         service = "iMessage",
         flagsBits = flags,
@@ -218,6 +225,7 @@ class CloudSyncManagerTest {
         threadOriginatorGuid = null,
         threadOriginatorPart = null,
         associatedMessageEmoji = null,
+        transcriptBackground = transcriptBackground,
     )
 
     private fun chatPage(vararg records: UChatChange, cursor: ByteArray = byteArrayOf(1), more: Boolean = false) =
@@ -370,6 +378,101 @@ class CloudSyncManagerTest {
         assertEquals(linkJson, message.dbMetadata)
         assertEquals("com.apple.messages.URLBalloonProvider", message.balloonBundleId)
         assertFalse(message.hasApplePayloadData)
+    }
+
+    @Test
+    fun `cloud transcript background updates chat state without creating a message`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-normal",
+                cloudMessage(
+                    "rec-normal",
+                    guid = "normal-message",
+                    chatId = "iMessage;-;+15551234567",
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        runSync()
+
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        val normal = requireNotNull(messageByGuid("normal-message"))
+        val legacy = Message().apply {
+            guid = "background-message"
+            ckRecordId = "legacy-background-record"
+            dateCreated = Date(requireNotNull(normal.dateCreated).time + 1)
+            this.chat.target = chat
+        }
+        store.boxFor(Message::class.java).put(legacy)
+        chat.dbLatestMessage.target = legacy
+        chat.dbOnlyLatestMessageDate = legacy.dateCreated
+        store.boxFor(Chat::class.java).put(chat)
+
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 7uL,
+                        chatId = "cloud-rec-chat",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 7, remove = false, mmcsXml = "<plist/>")),
+            backgroundUpdates,
+        )
+        assertNull(messageByGuid("background-message"))
+        val refreshed = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(normal.id, refreshed.dbLatestMessage.targetId)
+        assertEquals(normal.dateCreated, refreshed.dbOnlyLatestMessageDate)
+    }
+
+    @Test
+    fun `malformed cloud transcript background does not advance message cursor`() {
+        syncStore.saveMessageCursor(byteArrayOf(9))
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = null,
+                ),
+                blob = byteArrayOf(),
+            ),
+            cursor = byteArrayOf(10),
+        )
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNotNull(summary.error)
+        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(9)))
+        assertTrue(backgroundUpdates.isEmpty())
+        assertNull(messageByGuid("background-message"))
     }
 
     @Test

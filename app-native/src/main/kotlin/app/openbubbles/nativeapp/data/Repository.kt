@@ -40,9 +40,11 @@ data class ChatListItem(
     val transcriptBackgroundVersion: Long? = null,
 )
 
-/** Device-local wallpaper intentionally overrides the Apple-synced poster. */
+/** Device-local wallpaper overrides the Apple poster only while its file exists. */
 fun ChatListItem.effectiveBackgroundPath(): String? =
-    customBackgroundPath ?: transcriptBackgroundPath
+    sequenceOf(customBackgroundPath, transcriptBackgroundPath)
+        .filterNotNull()
+        .firstOrNull { File(it).isFile }
 
 /** Display metadata for an attachment shown in the transcript. */
 data class AttachmentMeta(

@@ -22,9 +22,9 @@ Levers: size, shape, color, motion. Pull one outside a hero. Shape change is a *
 | List pane | `surfaceContainerLow` |
 | Conversation pane | `surface` |
 | Selected list row | `secondaryContainer` + `extraLarge` shape |
-| Settings groups | segmented `ListItem`s on `surfaceContainerLowest` |
+| Settings groups | one `extraLarge` `surfaceContainerLowest` card + hairline dividers |
 | Find My groups | `surfaceContainer` cards or `segmentedRowShape` |
-| Section labels | uppercase `labelMedium` / `onSurfaceVariant` (Find My); Settings has none — grouping is the card |
+| Section labels | `titleSmall` / `onSurfaceVariant` in Settings; uppercase `labelMedium` in Find My |
 | Empty-state icon | `MaterialShapes` on `primaryContainer`, **static** |
 
 Theme: [`OpenBubblesTheme`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/ui/theme/Theme.kt)
@@ -125,9 +125,13 @@ Back chevron only when `showBackButton` (false in multi-pane for list-detail chi
 Long-press is part-aware — pass the Apple part index.
 
 **Settings row.** `SettingsGroup` + `SettingsInfoItem` / `SettingsActionItem` /
-`SettingsToggleItem` in `SettingsRows.kt`. Compact keeps the flexible bar; medium+ pins a
-small bar (Google Messages foldable pattern). Persist through `AppearancePrefs`,
-`MessagingPrefs`, `NotifPrefs`, or `BatterySaver`. Do not invent a second preferences API.
+`SettingsToggleItem` in `SettingsRows.kt`. Compact is a titled single column
+(max 600.dp). Medium+ is a 300.dp category rail plus a detail column capped at
+520.dp. Actions show a chevron; toggles show a switch; status rows have neither.
+Toggle subtitles describe the setting and must not change with its state —
+state-dependent copy reflows the row height on tap. Persist through
+`AppearancePrefs`, `MessagingPrefs`, `NotifPrefs`, or `BatterySaver`.
+Do not invent a second preferences API.
 
 **Tapbacks.** Indexes `❤️ 👍 👎 😂 ‼️ ❓` then custom at 6. Hidden on SMS chats.
 
