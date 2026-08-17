@@ -17,4 +17,10 @@ class ChatSemanticsTest {
         assertFalse(isGroupConversation(style = null, otherParticipantCount = 1))
         assertTrue(isGroupConversation(style = 43L, otherParticipantCount = 1))
     }
+
+    @Test
+    fun `direct style stays one-to-one even when self is stored as a handle`() {
+        assertFalse(isGroupConversation(style = 45L, otherParticipantCount = 2))
+        assertFalse(isGroupConversation(style = 45L, otherParticipantCount = 3))
+    }
 }

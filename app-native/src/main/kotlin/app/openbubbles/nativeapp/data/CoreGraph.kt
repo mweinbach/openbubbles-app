@@ -72,8 +72,13 @@ object CoreGraph {
         }.getOrNull()
     }
 
-    private val chatRepo: ChatRepo? by lazy { store?.let(::ChatRepo) }
-    private val messageRepo: MessageRepo? by lazy { store?.let { MessageRepo(it) } }
+    private val chatRepo: ChatRepo? by lazy {
+        store?.let { ChatRepo(it) { PushStateHolder.myHandles } }
+    }
+    private val messageRepo: MessageRepo? by lazy {
+        val chats = chatRepo ?: return@lazy null
+        store?.let { MessageRepo(it, chats) }
+    }
     val ingestor: MessageIngestor? by lazy {
         val st = store ?: return@lazy null
         val root = AppContext.current?.dataDir?.let { File(it, "app_flutter") }
@@ -263,6 +268,9 @@ object CoreGraph {
      */
     fun contactDisplayInfo(address: String): Pair<String?, String?>? =
         CoreContacts.displayInfo(address)
+
+    fun relatedDirectChatIds(chatId: Long): List<Long> =
+        chatRepo?.relatedDirectChatIds(chatId).orEmpty().ifEmpty { listOf(chatId) }
 
     internal fun messageNotificationIdentity(
         chat: Chat,

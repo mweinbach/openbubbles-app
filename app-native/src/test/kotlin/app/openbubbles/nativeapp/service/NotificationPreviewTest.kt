@@ -114,6 +114,7 @@ class NotificationPreviewTest {
     fun `conversation notification id is stable per chat`() {
         assertEquals(conversationNotificationId(42L), conversationNotificationId(42L))
         assertNotEquals(conversationNotificationId(42L), conversationNotificationId(43L))
+        assertEquals(conversationNotificationId(7L), conversationNotificationId(listOf(9L, 7L, 12L).min()))
     }
 
     @Test

@@ -88,17 +88,22 @@ object Notifications {
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
-        val notificationId = conversationNotificationId(chatId)
+        val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId)
+        val conversationChatId = relatedChatIds.minOrNull() ?: chatId
+        val conversationId = "chat-$conversationChatId"
+        val notificationId = conversationNotificationId(conversationChatId)
         val activeNotifications = nm.activeNotifications
         val duplicate = messageGuid != null && activeNotifications.any {
             it.id == notificationId &&
                 it.notification.extras.getString(EXTRA_MESSAGE_GUID) == messageGuid
         }
         activeNotifications
-            .filter {
-                it.id != notificationId &&
-                    it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId
+            .filter { active ->
+                val extras = active.notification.extras
+                extras.getLong(EXTRA_CHAT_ID) in relatedChatIds ||
+                    extras.getString(EXTRA_CONVERSATION_ID) == conversationId
             }
+            .filter { it.id != notificationId }
             .forEach { nm.cancel(it.id) }
         if (duplicate) return
 
@@ -107,7 +112,7 @@ object Notifications {
         val shownTitle = if (hide) "iMessage" else title
         val shownText = if (hide) "New message" else text
 
-        val channelId = ensureChannel(nm, chatGuid, title, isGroup)
+        val channelId = ensureChannel(nm, conversationId, title, isGroup)
         val requestCode = notificationId
 
         val contentIntent = PendingIntent.getActivity(
@@ -142,8 +147,8 @@ object Notifications {
             putString(EXTRA_CHAT_GUID, chatGuid)
             putLong(EXTRA_CHAT_ID, chatId)
             messageGuid?.let { putString(EXTRA_MESSAGE_GUID, it) }
-            putString(EXTRA_CONVERSATION_ID, chatGuid)
-            putString(EXTRA_SEARCH_KEY, chatGuid)
+            putString(EXTRA_CONVERSATION_ID, conversationId)
+            putString(EXTRA_SEARCH_KEY, conversationId)
         }
 
         val builder = NotificationCompat.Builder(context, channelId)
@@ -163,11 +168,12 @@ object Notifications {
                     } else {
                         readHistory(
                             chatId = chatId,
+                            relatedChatIds = relatedChatIds,
                             currentText = text,
                             currentMessageGuid = messageGuid,
                             isGroup = isGroup,
                             conversationTitle = title,
-                            conversationKey = chatGuid,
+                            conversationKey = conversationId,
                         )
                     },
                     currentText = shownText,
@@ -185,7 +191,7 @@ object Notifications {
             .setColor(ACCENT_COLOR)
             // The chat's conversation identity (Android Conversations API):
             // shortcutId == the conversation id, mirrored in the extras.
-            .setShortcutId(chatGuid)
+            .setShortcutId(conversationId)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 publicVersion(context, channelId, contentIntent),
@@ -368,8 +374,14 @@ object Notifications {
     fun cancelForChat(context: Context, chatId: Long) {
         if (chatId <= 0L) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId).toSet()
+        val conversationId = "chat-${relatedChatIds.minOrNull() ?: chatId}"
         nm.activeNotifications
-            .filter { it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId }
+            .filter { active ->
+                val extras = active.notification.extras
+                extras.getLong(EXTRA_CHAT_ID) in relatedChatIds ||
+                    extras.getString(EXTRA_CONVERSATION_ID) == conversationId
+            }
             .forEach { nm.cancel(it.id) }
     }
 
@@ -461,6 +473,7 @@ object Notifications {
      */
     private fun readHistory(
         chatId: Long,
+        relatedChatIds: List<Long> = listOf(chatId),
         currentText: String?,
         currentMessageGuid: String? = null,
         isGroup: Boolean,
@@ -471,11 +484,9 @@ object Notifications {
         val store = CoreGraph.store ?: return emptyList()
         return runCatching {
             val box = store.boxFor(app.openbubbles.db.Message::class.java)
+            val ids = relatedChatIds.ifEmpty { listOf(chatId) }.distinct().toLongArray()
             val rows = box.query()
-                .equal(
-                    app.openbubbles.db.Message_.chatId,
-                    chatId,
-                )
+                .`in`(app.openbubbles.db.Message_.chatId, ids)
                 .isNull(app.openbubbles.db.Message_.dateDeleted)
                 .orderDesc(app.openbubbles.db.Message_.dateCreated)
                 .build()

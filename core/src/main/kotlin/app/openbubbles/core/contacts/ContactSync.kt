@@ -289,6 +289,16 @@ class ContactSync(private val store: BoxStore) {
      * independent streams, so a notification can arrive after the contact is
      * stored but before its newly-created handle has been linked.
      */
+    fun contactIdForAddress(address: String): Long? = store.callInReadTx {
+        val targetKeys = addressMatchKeys(address)
+        if (targetKeys.isEmpty()) return@callInReadTx null
+        contactsByPreference().firstOrNull { contact ->
+            contact.addresses.any { candidate ->
+                addressMatchKeys(candidate).any(targetKeys::contains)
+            }
+        }?.id
+    }
+
     fun displayInfoForAddress(address: String): HandleDisplayInfo? = store.callInReadTx {
         val targetKeys = addressMatchKeys(address)
         if (targetKeys.isEmpty()) return@callInReadTx null
@@ -333,13 +343,6 @@ class ContactSync(private val store: BoxStore) {
     private fun contactsByPreference(): List<ContactV2> =
         contactBox.all.sortedWith(contactPreferenceComparator)
 
-    private fun addressMatchKeys(address: String): Set<String> =
-        if (address.contains('@')) {
-            setOf(normalizeEmail(address))
-        } else {
-            phoneNumberVariants(address)
-        }
-
     companion object {
         private const val ICLOUD_CONTACT_PREFIX = "icloud:"
 
@@ -370,6 +373,17 @@ class ContactSync(private val store: BoxStore) {
         /** Digits and `+` only — `ContactV2.normalizePhoneNumber`. */
         fun normalizePhoneNumber(phone: String): String =
             withoutAddressScheme(phone).replace(Regex("[^\\d+]"), "")
+
+        /** Comparable keys for one address — email or phone variants. */
+        fun addressMatchKeys(address: String): Set<String> {
+            val withoutScheme = withoutAddressScheme(address)
+            if (withoutScheme.isEmpty()) return emptySet()
+            return if (withoutScheme.contains('@')) {
+                setOf(normalizeEmail(withoutScheme))
+            } else {
+                phoneNumberVariants(withoutScheme)
+            }
+        }
 
         /** Emails lower-cased; phones digit/plus-normalized. */
         fun normalizeAddress(address: String): String {

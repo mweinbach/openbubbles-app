@@ -96,6 +96,72 @@ class ChatRepoContactTest {
     }
 
     @Test
+    fun `cloudkit one-to-one chats that include self still merge by contact`() {
+        val me = handle("me@icloud.com")
+        val mobile = handle("+15550000001")
+        val email = handle("jamie@icloud.com")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:jamie",
+                    displayName = "Jamie Example",
+                    firstName = "Jamie",
+                    lastName = "Example",
+                    avatarPath = "/avatars/jamie.png",
+                    addresses = listOf(mobile.address, email.address),
+                ),
+            ),
+        )
+        val fromIcloud = Chat().apply {
+            guid = "iMessage;-;+15550000001"
+            chatIdentifier = "+15550000001"
+            style = 45
+            isRpSms = false
+            usingHandle = "mailto:me@icloud.com"
+            handles.add(me)
+            handles.add(mobile)
+        }
+        store.boxFor(Chat::class.java).put(fromIcloud)
+        val live = chat("chat-email", email, "from email", 300L, unread = true)
+
+        val item = ChatRepo(store) { setOf("mailto:me@icloud.com") }.chats().single()
+
+        assertEquals("Jamie Example", item.title)
+        assertEquals("from email", item.snippet)
+        assertEquals(false, item.isGroup)
+        assertEquals(1, item.participantCount)
+        assertEquals(listOf(fromIcloud.id, live.id).sorted(), item.memberChatIds)
+        assertEquals(live.id, item.preferredChatId)
+    }
+
+    @Test
+    fun `new chat reuses the newest conversation for another address of the same contact`() {
+        val firstHandle = handle("+15550000001")
+        val secondHandle = handle("+15550000002")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:jamie",
+                    displayName = "Jamie Example",
+                    firstName = "Jamie",
+                    lastName = "Example",
+                    avatarPath = null,
+                    addresses = listOf(firstHandle.address, secondHandle.address),
+                ),
+            ),
+        )
+        val existing = chat("chat-first", firstHandle, "already chatting", 400L)
+
+        val opened = ChatRepo(store).findOrCreateByAddresses(
+            listOf("tel:+15550000002"),
+            "iMessage",
+        )
+
+        assertEquals(existing.id, opened.id)
+        assertEquals(1, ChatRepo(store).chats().size)
+    }
+
+    @Test
     fun `matching names without a shared contact never merge`() {
         val firstHandle = handle("first@example.com")
         val secondHandle = handle("second@example.com")

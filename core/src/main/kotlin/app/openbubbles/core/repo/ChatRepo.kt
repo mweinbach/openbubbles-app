@@ -6,7 +6,10 @@ import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.ChatListItem
 import app.openbubbles.core.model.ChatMute
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.GROUP_CHAT_STYLE
 import app.openbubbles.core.model.isGroupConversation
+import app.openbubbles.core.model.otherDirectHandle
+import app.openbubbles.core.model.otherDirectHandles
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.ContactV2
@@ -33,7 +36,10 @@ import kotlinx.coroutines.flow.merge
  * unread state. All queries run on [Dispatchers.IO]; flows re-emit on every
  * ObjectBox write that touches the underlying query.
  */
-class ChatRepo(private val store: BoxStore) {
+class ChatRepo(
+    private val store: BoxStore,
+    private val selfAddresses: () -> Set<String> = { emptySet() },
+) {
 
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
@@ -127,9 +133,12 @@ class ChatRepo(private val store: BoxStore) {
         )
         val candidates = builder.build().use { it.find() }
         candidates.firstOrNull { chat ->
-            val chatAddresses = chat.handles.map { it.address }
-            chatAddresses.size == participants.size && chatAddresses.containsAll(participants)
+            chatMatchesParticipants(chat, participants, isSms)
         }?.let { return it }
+
+        if (!isSms && participants.size == 1) {
+            existingDirectChatForAddress(participants.single())?.let { return it }
+        }
 
         val guid = "rp-${if (isSms) "sms" else "imsg"}-${participants.sorted().joinToString(",")}"
         val participantHandles = participants.map { HandleResolver.resolve(store, it, service) }
@@ -265,10 +274,10 @@ class ChatRepo(private val store: BoxStore) {
             muted = ChatMute.shouldMute(chat),
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
-            participantCount = chat.handles.size,
-            avatarAddress = chat.handles.singleOrNull()?.let { it.formattedAddress ?: it.address },
+            participantCount = otherHandles(chat).size,
+            avatarAddress = otherHandle(chat)?.let { it.formattedAddress ?: it.address },
             avatarPath = chat.customAvatarPath,
-            isGroup = chat.isGroupConversation(),
+            isGroup = isGroupConversation(chat.style, otherHandles(chat).size),
             customBackgroundPath = chat.customBackgroundPath,
             transcriptBackgroundPath = chat.transcriptPosterPath,
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
@@ -288,7 +297,7 @@ class ChatRepo(private val store: BoxStore) {
     ): List<ChatListItem> {
         val grouped = linkedMapOf<String, MutableList<ContactChatProjection>>()
         chats.forEach { chat ->
-            val handle = chat.handles.singleOrNull()
+            val handle = otherHandle(chat)
             val info = handle?.let { contactInfo[it.id] }
             val contactId = directContactId(chat, contactIds)
             val key = contactId?.let { "contact:$it" } ?: "chat:${chat.id}"
@@ -342,9 +351,45 @@ class ChatRepo(private val store: BoxStore) {
         chat: Chat,
         contactIds: Map<Long, Long>,
     ): Long? {
-        if (chat.isRpSms == true || chat.isGroupConversation()) return null
-        val handle = chat.handles.singleOrNull() ?: return null
+        if (chat.isRpSms == true || chat.style == GROUP_CHAT_STYLE) return null
+        val handle = otherHandle(chat) ?: return null
         return contactIds[handle.id]
+    }
+
+    private fun otherHandle(chat: Chat): Handle? =
+        chat.otherDirectHandle(selfAddresses())
+
+    private fun otherHandles(chat: Chat): List<Handle> =
+        chat.otherDirectHandles(selfAddresses())
+
+    private fun chatMatchesParticipants(
+        chat: Chat,
+        participants: List<String>,
+        isSms: Boolean,
+    ): Boolean {
+        if ((chat.isRpSms == true) != isSms) return false
+        if (chat.style == GROUP_CHAT_STYLE) {
+            val addresses = chat.handles.map { MessageMapper.normalizeAddress(it.address) }.toSet()
+            return addresses.size == participants.size && addresses.containsAll(participants)
+        }
+        val others = otherHandles(chat).map { MessageMapper.normalizeAddress(it.address) }
+        return others.size == participants.size && others.containsAll(participants)
+    }
+
+    private fun existingDirectChatForAddress(address: String): Chat? {
+        val contactId = contactSync.contactIdForAddress(address) ?: return null
+        val contactIds = contactSync.contactIdsByHandleId()
+        return chatBox.query()
+            .isNull(Chat_.dateDeleted)
+            .equal(Chat_.isRpSms, false)
+            .build().use { query ->
+                query.find()
+                    .filter { candidate -> directContactId(candidate, contactIds) == contactId }
+                    .maxWithOrNull(
+                        compareBy<Chat> { it.dbOnlyLatestMessageDate?.time ?: Long.MIN_VALUE }
+                            .thenBy { it.id },
+                    )
+            }
     }
 
     /** Chat list snippet for the latest message. */
@@ -400,7 +445,9 @@ class ChatRepo(private val store: BoxStore) {
         contactInfo: Map<Long, HandleDisplayInfo>,
     ): String {
         if (!chat.displayName.isNullOrEmpty()) return chat.displayName
-        val handles = chat.handles
+        val other = otherHandle(chat)
+        if (other != null) return handleDisplayName(other, contactInfo)
+        val handles = otherHandles(chat).ifEmpty { chat.handles }
         return when {
             handles.isEmpty() ->
                 if (chat.chatIdentifier?.startsWith("urn:biz") == true) "Business Chat"
