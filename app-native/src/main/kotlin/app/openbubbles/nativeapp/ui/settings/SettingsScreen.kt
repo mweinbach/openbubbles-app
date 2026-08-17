@@ -23,7 +23,46 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AlternateEmail
+import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.ManageHistory
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -62,6 +101,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Devices
@@ -103,24 +143,28 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** One-shot connection snapshot for the Connection section. */
+/** One-shot connection snapshot for the Account section. */
 private data class ConnectionInfo(
-    val regstate: String,
+    val regstate: URegisterState,
     val handles: List<String>,
 )
 
 private const val NATIVE_SETUP_PREFS = "native_setup"
 private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
 
-private enum class SettingsSection(val title: String, val supporting: String) {
-    Account("Account", "Registration, handles, sign out"),
-    ICloud("iCloud", "History, Keychain, contacts"),
-    Notifications("Notifications", "Previews, replies, reactions"),
-    Messaging("Messaging", "Sending address, read receipts, SMS"),
-    Power("Power", "Battery saver"),
-    Appearance("Appearance", "Theme and color"),
-    Storage("Storage & backup", "Attachments and local backup"),
-    About("About", "App version"),
+private enum class SettingsSection(
+    val title: String,
+    val supporting: String,
+    val icon: ImageVector,
+) {
+    Account("Account", "Registration, handles, sign out", Icons.Filled.AccountCircle),
+    ICloud("iCloud", "History, Keychain, contacts", Icons.Filled.Cloud),
+    Notifications("Notifications", "Previews, replies, reactions", Icons.Filled.Notifications),
+    Messaging("Messaging", "Sending address, read receipts, SMS", Icons.AutoMirrored.Filled.Chat),
+    Power("Power", "Battery saver", Icons.Filled.PowerSettingsNew),
+    Appearance("Appearance", "Theme and color", Icons.Filled.Palette),
+    Storage("Storage & backup", "Attachments and local backup", Icons.Filled.Storage),
+    About("About", "App version", Icons.Filled.Info),
 }
 
 private fun describeRegstate(state: URegisterState): String = when (state) {
@@ -131,9 +175,11 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 }
 
 /**
- * Settings: Messages-style preference cards (one surface, hairline
- * dividers, section labels, chevrons on actions). Compact is a single
- * column; medium+ is a category rail plus a narrow detail column.
+ * Settings: titled groups of segmented rows (one container per row, 2dp
+ * gaps, tonal icon chips up front, chevrons on actions, switches on
+ * toggles) so every setting is scannable and its affordance is visible.
+ * Compact is a single column; medium+ is a category rail plus a narrow
+ * detail column.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -295,7 +341,7 @@ fun SettingsScreen(
         val live = pushState ?: return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
-                ConnectionInfo(describeRegstate(live.getRegstate()), live.getHandles())
+                ConnectionInfo(live.getRegstate(), live.getHandles())
             }.getOrNull()
         }
     }
@@ -527,6 +573,12 @@ fun SettingsScreen(
                         index = 0,
                         count = 1,
                         multiline = pushError != null,
+                        icon = Icons.Filled.CloudOff,
+                        tone = if (pushError != null) {
+                            SettingsRowTone.Error
+                        } else {
+                            SettingsRowTone.Neutral
+                        },
                     )
                 } else {
                     val error = pushError
@@ -539,18 +591,34 @@ fun SettingsScreen(
                     val count = accountRows.size
                     accountRows.forEachIndexed { index, row ->
                         when (row) {
-                            "registration" -> SettingsInfoItem(
-                                title = "Registration",
-                                supporting = connection?.regstate ?: "Checking…",
-                                index = index,
-                                count = count,
-                            )
+                            "registration" -> {
+                                // Icon + chip tone carry the state at a glance;
+                                // the supporting text keeps the detail.
+                                val reg = connection?.regstate
+                                val (regIcon, regTone) = when (reg) {
+                                    is URegisterState.Registered ->
+                                        Icons.Filled.CheckCircle to SettingsRowTone.Active
+                                    is URegisterState.Failed ->
+                                        Icons.Filled.ErrorOutline to SettingsRowTone.Error
+                                    else ->
+                                        Icons.Filled.Sync to SettingsRowTone.Neutral
+                                }
+                                SettingsInfoItem(
+                                    title = "Registration",
+                                    supporting = reg?.let(::describeRegstate) ?: "Checking…",
+                                    index = index,
+                                    count = count,
+                                    icon = regIcon,
+                                    tone = regTone,
+                                )
+                            }
                             "handles" -> SettingsInfoItem(
                                 title = "Handles",
                                 supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
                                 index = index,
                                 count = count,
                                 multiline = true,
+                                icon = Icons.Filled.AlternateEmail,
                             )
                             "error" -> SettingsInfoItem(
                                 title = "Last push problem",
@@ -559,6 +627,8 @@ fun SettingsScreen(
                                 count = count,
                                 multiline = true,
                                 titleColor = MaterialTheme.colorScheme.error,
+                                icon = Icons.Filled.ErrorOutline,
+                                tone = SettingsRowTone.Error,
                             )
                             else -> SettingsActionItem(
                                 title = if (signingOut) "Signing out…" else "Sign out",
@@ -569,6 +639,7 @@ fun SettingsScreen(
                                 destructive = true,
                                 enabled = !signingOut,
                                 busy = signingOut,
+                                icon = Icons.AutoMirrored.Filled.Logout,
                             )
                         }
                     }
@@ -625,6 +696,7 @@ fun SettingsScreen(
                             index = index,
                             count = count,
                             multiline = true,
+                            icon = Icons.Filled.CloudSync,
                         )
                         "limit" -> SettingsActionItem(
                             title = "History download limit",
@@ -635,6 +707,7 @@ fun SettingsScreen(
                             count = count,
                             enabled = !syncing,
                             multiline = true,
+                            icon = Icons.Filled.ManageHistory,
                         )
                         "join" -> SettingsActionItem(
                             title = "Join iCloud Keychain",
@@ -644,6 +717,7 @@ fun SettingsScreen(
                             count = count,
                             enabled = !loadingBottles && !joiningClique,
                             busy = loadingBottles || joiningClique,
+                            icon = Icons.Filled.Key,
                         )
                         "stop" -> SettingsActionItem(
                             title = "Stop sync",
@@ -651,6 +725,7 @@ fun SettingsScreen(
                             onClick = CloudSyncWiring::cancelHistorySync,
                             index = index,
                             count = count,
+                            icon = Icons.Filled.Stop,
                         )
                         "sync" -> SettingsActionItem(
                             title = "Sync selected history now",
@@ -658,6 +733,7 @@ fun SettingsScreen(
                             onClick = ::syncAllHistory,
                             index = index,
                             count = count,
+                            icon = Icons.Filled.CloudDownload,
                         )
                         "recovery" -> SettingsActionItem(
                             title = "Device Keychain code",
@@ -669,6 +745,7 @@ fun SettingsScreen(
                             onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
                             index = index,
                             count = count,
+                            icon = Icons.Filled.Password,
                         )
                         else -> SettingsActionItem(
                             title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
@@ -678,6 +755,7 @@ fun SettingsScreen(
                             count = count,
                             enabled = pushState != null && !contactSyncing,
                             busy = contactSyncing,
+                            icon = Icons.Filled.Contacts,
                         )
                     }
                 }
@@ -708,6 +786,7 @@ fun SettingsScreen(
                     },
                     index = 0,
                     count = 1,
+                    icon = Icons.Filled.BatterySaver,
                 )
             }
 
@@ -728,6 +807,7 @@ fun SettingsScreen(
                     },
                     index = 0,
                     count = 3,
+                    icon = Icons.Filled.VisibilityOff,
                 )
                 SettingsToggleItem(
                     title = "Quick reply",
@@ -739,6 +819,7 @@ fun SettingsScreen(
                     },
                     index = 1,
                     count = 3,
+                    icon = Icons.AutoMirrored.Filled.Reply,
                 )
                 SettingsToggleItem(
                     title = "Reaction notifications",
@@ -750,6 +831,7 @@ fun SettingsScreen(
                     },
                     index = 2,
                     count = 3,
+                    icon = Icons.Filled.EmojiEmotions,
                 )
             }
 
@@ -765,8 +847,9 @@ fun SettingsScreen(
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 2,
+                    count = 3,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
+                    icon = Icons.AutoMirrored.Filled.Send,
                 )
                 SettingsToggleItem(
                     title = "Send read receipts",
@@ -777,36 +860,30 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 2,
+                    count = 3,
+                    icon = Icons.Filled.DoneAll,
                 )
-            }
-
-            SettingsGroup(
-                title = if (showTitles) "SMS & MMS" else null,
-            ) {
-                SettingsInfoItem(
-                    title = if (isDefaultSmsApp) "Default SMS app" else "Finish SMS setup",
-                    supporting = if (isDefaultSmsApp) {
-                        "Incoming and outgoing SMS stay in this app and in Android's message store"
-                    } else {
-                        "Set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
-                    },
-                    index = 0,
-                    count = 2,
-                    multiline = true,
-                )
+                // One row for the SMS role: the chip tone says whether it is
+                // active, the tap opens the system role picker either way.
                 SettingsActionItem(
-                    title = if (isDefaultSmsApp) "Change default SMS app" else "Set as default SMS app",
+                    title = "SMS & MMS",
                     supporting = if (isDefaultSmsApp) {
-                        "Open Android settings to pick another messaging app"
+                        "On — incoming and outgoing SMS stay in this app and in Android's message store"
                     } else {
-                        "Needed for incoming SMS/MMS while this is your messaging app"
+                        "Off — set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
                     },
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 1,
-                    count = 2,
+                    index = 2,
+                    count = 3,
+                    multiline = true,
+                    icon = Icons.Filled.Sms,
+                    iconTone = if (isDefaultSmsApp) {
+                        SettingsRowTone.Active
+                    } else {
+                        SettingsRowTone.Neutral
+                    },
                 )
             }
 
@@ -820,6 +897,7 @@ fun SettingsScreen(
                     onClick = onOpenFindMy,
                     index = 0,
                     count = 1,
+                    icon = Icons.Filled.LocationOn,
                 )
             }
 
@@ -836,6 +914,7 @@ fun SettingsScreen(
                     supporting = "System default",
                     index = 0,
                     count = 2,
+                    icon = Icons.Filled.DarkMode,
                 )
                 SettingsToggleItem(
                     title = "Dynamic color",
@@ -851,71 +930,65 @@ fun SettingsScreen(
                     },
                     index = 1,
                     count = 2,
+                    icon = Icons.Filled.Palette,
                 )
             }
 
             if (filter == null || filter == SettingsSection.Storage) {
             SettingsGroup(
-                title = if (showTitles) "Storage" else null,
+                title = if (showTitles) "Storage & backup" else null,
             ) {
                 val cacheLabel = cacheBytes
                     ?.let { formatBytes(it).ifEmpty { "Empty" } }
                     ?: "Calculating…"
-                SettingsInfoItem(
-                    title = "Attachments on disk",
-                    supporting = cacheLabel,
-                    index = 0,
-                    count = 2,
-                )
-                SettingsActionItem(
-                    title = "Clear attachment cache",
-                    supporting = "Removes downloaded files; they can be fetched again",
-                    onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
-                            cacheBytes = withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() }
-                        }
-                    },
-                    index = 1,
-                    count = 2,
-                    enabled = (cacheBytes ?: 0L) > 0L,
-                )
-            }
-
-            SettingsGroup(
-                title = if (showTitles) "Backup" else null,
-            ) {
                 val backupErrorText = backupError
                 val backupStageText = backupStage
-                val backupRows = buildList {
-                    add("info")
+                val storageRows = buildList {
+                    add("attachments")
+                    add("clear")
                     add("export")
                     add("restore")
                     if (backupStageText != null) add("working")
                     if (restarting) add("restarting")
                     if (backupErrorText != null) add("error")
                 }
-                val backupCount = backupRows.size
-                backupRows.forEachIndexed { backupIndex, row ->
+                val storageCount = storageRows.size
+                storageRows.forEachIndexed { storageIndex, row ->
                     when (row) {
-                        "info" -> SettingsInfoItem(
-                            title = "Local backup",
-                            supporting = "Export the database and attachments to a zip file, or restore from one",
-                            index = backupIndex,
-                            count = backupCount,
+                        "attachments" -> SettingsInfoItem(
+                            title = "Attachments on disk",
+                            supporting = cacheLabel,
+                            index = storageIndex,
+                            count = storageCount,
+                            icon = Icons.Filled.Folder,
+                        )
+                        "clear" -> SettingsActionItem(
+                            title = "Clear attachment cache",
+                            supporting = "Removes downloaded files; they can be fetched again",
+                            onClick = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
+                                    cacheBytes = withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() }
+                                }
+                            },
+                            index = storageIndex,
+                            count = storageCount,
+                            enabled = (cacheBytes ?: 0L) > 0L,
+                            icon = Icons.Filled.DeleteSweep,
                         )
                         "export" -> SettingsActionItem(
                             title = "Export backup",
                             supporting = "Save a zip of this device's messages and attachments",
                             onClick = { exportLauncher.launch(backupFileName()) },
-                            index = backupIndex,
-                            count = backupCount,
+                            index = storageIndex,
+                            count = storageCount,
                             enabled = !backupBusy,
                             busy = backupBusy && backupStageText != null && !restarting,
+                            icon = Icons.Filled.Upload,
                         )
                         "restore" -> SettingsActionItem(
                             title = "Restore backup",
-                            supporting = "Replace this device's data from a zip",
+                            supporting = "Replace this device's data from a zip; the app restarts afterwards",
                             onClick = {
                                 restoreLauncher.launch(
                                     arrayOf(
@@ -925,29 +998,34 @@ fun SettingsScreen(
                                     ),
                                 )
                             },
-                            index = backupIndex,
-                            count = backupCount,
+                            index = storageIndex,
+                            count = storageCount,
                             enabled = !backupBusy,
+                            icon = Icons.Filled.Restore,
                         )
                         "working" -> SettingsInfoItem(
                             title = "Working…",
                             supporting = backupStageText,
-                            index = backupIndex,
-                            count = backupCount,
+                            index = storageIndex,
+                            count = storageCount,
+                            icon = Icons.Filled.HourglassTop,
                         )
                         "restarting" -> SettingsInfoItem(
                             title = "Restore complete",
                             supporting = "Restarting to load the restored data…",
-                            index = backupIndex,
-                            count = backupCount,
+                            index = storageIndex,
+                            count = storageCount,
+                            icon = Icons.Filled.RestartAlt,
                         )
                         else -> SettingsInfoItem(
                             title = "Backup error",
                             supporting = backupErrorText,
-                            index = backupIndex,
-                            count = backupCount,
+                            index = storageIndex,
+                            count = storageCount,
                             multiline = true,
                             titleColor = MaterialTheme.colorScheme.error,
+                            icon = Icons.Filled.ErrorOutline,
+                            tone = SettingsRowTone.Error,
                         )
                     }
                 }
@@ -964,6 +1042,7 @@ fun SettingsScreen(
                         supporting = "Version ${versionName ?: "unknown"}",
                         index = 0,
                         count = aboutCount,
+                        icon = Icons.Filled.Info,
                     )
                     if (pendingUpdate != null) {
                         SettingsActionItem(
@@ -973,6 +1052,8 @@ fun SettingsScreen(
                             index = 1,
                             count = aboutCount,
                             multiline = true,
+                            icon = Icons.Filled.SystemUpdate,
+                            iconTone = SettingsRowTone.Active,
                         )
                         SettingsActionItem(
                             title = "Skip this version",
@@ -983,6 +1064,7 @@ fun SettingsScreen(
                             },
                             index = 2,
                             count = aboutCount,
+                            icon = Icons.Filled.SkipNext,
                         )
                     } else {
                         SettingsActionItem(
@@ -993,6 +1075,7 @@ fun SettingsScreen(
                             count = aboutCount,
                             busy = updateBusy,
                             enabled = !updateBusy,
+                            icon = Icons.Filled.Refresh,
                         )
                     }
                     if (hasStatusRow) {
@@ -1006,6 +1089,16 @@ fun SettingsScreen(
                                 MaterialTheme.colorScheme.error
                             } else {
                                 Color.Unspecified
+                            },
+                            icon = if (updateError != null) {
+                                Icons.Filled.ErrorOutline
+                            } else {
+                                Icons.Filled.CheckCircle
+                            },
+                            tone = if (updateError != null) {
+                                SettingsRowTone.Error
+                            } else {
+                                SettingsRowTone.Active
                             },
                         )
                     }
@@ -1039,6 +1132,7 @@ fun SettingsScreen(
                                 onClick = { selectedSectionName = section.name },
                                 index = index,
                                 count = sections.size + 1,
+                                icon = section.icon,
                             )
                         }
                         SettingsCategoryItem(
@@ -1048,6 +1142,7 @@ fun SettingsScreen(
                             onClick = onOpenFindMy,
                             index = sections.size,
                             count = sections.size + 1,
+                            icon = Icons.Filled.LocationOn,
                             showChevron = true,
                         )
                     }

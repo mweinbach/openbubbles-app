@@ -22,7 +22,7 @@ Levers: size, shape, color, motion. Pull one outside a hero. Shape change is a *
 | List pane | `surfaceContainerLow` |
 | Conversation pane | `surface` |
 | Selected list row | `secondaryContainer` + `extraLarge` shape |
-| Settings groups | one `extraLarge` `surfaceContainerLowest` card + hairline dividers |
+| Settings groups | segmented rows: `surfaceContainer` + `ListItemDefaults.segmentedShapes`, 2dp gaps, tonal icon chips |
 | Find My groups | `surfaceContainer` cards or `segmentedRowShape` |
 | Section labels | `titleSmall` / `onSurfaceVariant` in Settings; uppercase `labelMedium` in Find My |
 | Empty-state icon | `MaterialShapes` on `primaryContainer`, **static** |
@@ -128,7 +128,11 @@ Long-press is part-aware — pass the Apple part index.
 **Settings row.** `SettingsGroup` + `SettingsInfoItem` / `SettingsActionItem` /
 `SettingsToggleItem` in `SettingsRows.kt`. Compact is a titled single column
 (max 600.dp). Medium+ is a 300.dp category rail plus a detail column capped at
-520.dp. Actions show a chevron; toggles show a switch; status rows have neither.
+520.dp. Every row takes a leading `icon` rendered as a 40.dp tonal chip;
+`SettingsRowTone` marks healthy (`Active`) or problem/destructive (`Error`)
+states. Actions show a chevron; toggles show a switch; status rows have
+neither. Rows are segmented (`segmentedShapes(index, count)` + `SegmentedGap`),
+so press state morphs corners — do not flatten the shapes back to rectangles.
 Toggle subtitles describe the setting and must not change with its state —
 state-dependent copy reflows the row height on tap. Persist through
 `AppearancePrefs`, `MessagingPrefs`, `NotifPrefs`, or `BatterySaver`.

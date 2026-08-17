@@ -1,34 +1,38 @@
 package app.openbubbles.nativeapp.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Space between titled preference cards. */
+/** Space between titled preference groups. */
 internal val SettingsGroupSpacing = 20.dp
 
 /** Category rail on foldable / tablet. */
@@ -40,11 +44,47 @@ internal val SettingsDetailMaxWidth = 520.dp
 /** Single-column phone/compact cap. */
 internal val SettingsSingleColumnMaxWidth = 600.dp
 
-private val SettingsItemPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
+private val SettingsItemPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+
+/**
+ * What the leading icon chip of a settings row communicates. Neutral is the
+ * default wayfinding chip; Active marks an enabled or healthy state; Error
+ * marks a problem or a destructive action. Meaning comes from the theme role,
+ * never a hardcoded hue, so it survives dynamic color.
+ */
+internal enum class SettingsRowTone { Neutral, Active, Error }
+
+@Composable
+private fun SettingsRowIcon(icon: ImageVector, tone: SettingsRowTone) {
+    val (container, content) = when (tone) {
+        SettingsRowTone.Neutral ->
+            MaterialTheme.colorScheme.secondaryContainer to
+                MaterialTheme.colorScheme.onSecondaryContainer
+        SettingsRowTone.Active ->
+            MaterialTheme.colorScheme.primaryContainer to
+                MaterialTheme.colorScheme.onPrimaryContainer
+        SettingsRowTone.Error ->
+            MaterialTheme.colorScheme.errorContainer to
+                MaterialTheme.colorScheme.onErrorContainer
+    }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(container),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = content,
+        )
+    }
+}
 
 @Composable
 private fun settingsItemColors(
-    containerColor: Color = Color.Transparent,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
     selectedContainerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
 ) = ListItemDefaults.colors(
     containerColor = containerColor,
@@ -52,25 +92,13 @@ private fun settingsItemColors(
 )
 
 /**
- * Rows inside a [SettingsGroup] card must not morph: the expressive default
- * animates corner radius on press/checked, which makes a row inside one
- * shared surface look like it is sliding or bulging. Flat shapes keep press
- * feedback to ripple + color, which is the correct state signal here.
- */
-@Composable
-private fun flatItemShapes() = ListItemDefaults.shapes(
-    shape = RectangleShape,
-    selectedShape = RectangleShape,
-    pressedShape = RectangleShape,
-    focusedShape = RectangleShape,
-    hoveredShape = RectangleShape,
-    draggedShape = RectangleShape,
-)
-
-/**
- * One Messages-style preference card: a single rounded surface, a section
- * label above it, and hairline dividers between rows so the group reads as
- * one object and tappable rows stay visually distinct from status rows.
+ * One preference group: a section label above a segmented list. Each row is
+ * its own container with rounded outer corners, near-square inner corners,
+ * and the canonical 2dp gap, so the group reads as one object while every
+ * row stays a visibly distinct tappable target. Press state morphs the row's
+ * corners — correct here because rows no longer share one surface — and the
+ * theme's motion scheme collapses that morph when the user removed
+ * animations.
  */
 @Composable
 internal fun SettingsGroup(
@@ -87,15 +115,13 @@ internal fun SettingsGroup(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             )
         }
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics { isTraversalGroup = true },
-        ) {
-            Column(content = content)
-        }
+            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            content = content,
+        )
     }
 }
 
@@ -107,12 +133,14 @@ internal fun SettingsInfoItem(
     supporting: String? = null,
     multiline: Boolean = false,
     titleColor: Color = Color.Unspecified,
+    icon: ImageVector? = null,
+    tone: SettingsRowTone = SettingsRowTone.Neutral,
 ) {
-    SettingsItemDivider(index)
     ListItem(
         modifier = Modifier.fillMaxWidth(),
+        leadingContent = leadingContent(icon, tone),
         supportingContent = supportingContent(supporting, multiline),
-        shapes = flatItemShapes(),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = settingsItemColors(),
         contentPadding = SettingsItemPadding,
     ) {
@@ -131,13 +159,16 @@ internal fun SettingsActionItem(
     destructive: Boolean = false,
     busy: Boolean = false,
     multiline: Boolean = false,
+    icon: ImageVector? = null,
+    iconTone: SettingsRowTone? = null,
 ) {
+    val tone = iconTone ?: if (destructive) SettingsRowTone.Error else SettingsRowTone.Neutral
     val titleColor = if (destructive) MaterialTheme.colorScheme.error else Color.Unspecified
-    SettingsItemDivider(index)
     ListItem(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         enabled = enabled && !busy,
+        leadingContent = leadingContent(icon, tone),
         supportingContent = supportingContent(supporting, multiline),
         trailingContent = {
             if (busy) {
@@ -157,7 +188,7 @@ internal fun SettingsActionItem(
                 )
             }
         },
-        shapes = flatItemShapes(),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = settingsItemColors(),
         contentPadding = SettingsItemPadding,
     ) {
@@ -173,12 +204,13 @@ internal fun SettingsToggleItem(
     index: Int,
     count: Int,
     supporting: String? = null,
+    icon: ImageVector? = null,
 ) {
-    SettingsItemDivider(index)
     ListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
         modifier = Modifier.fillMaxWidth(),
+        leadingContent = leadingContent(icon, SettingsRowTone.Neutral),
         supportingContent = supportingContent(supporting, multiline = false),
         trailingContent = {
             Switch(
@@ -197,8 +229,22 @@ internal fun SettingsToggleItem(
                 },
             )
         },
-        shapes = flatItemShapes(),
-        colors = settingsItemColors(),
+        // The switch is the state carrier, so the row itself must not change
+        // when checked: selectedShape mirrors the resting shape (no swell)
+        // and the selected container matches every other row. Without this a
+        // checked row highlights secondaryContainer, which also camouflages
+        // the neutral icon chip painted on top of it.
+        shapes = ListItemDefaults.segmentedShapes(
+            index = index,
+            count = count,
+            defaultShapes = ListItemDefaults.shapes(
+                shape = MaterialTheme.shapes.extraSmall,
+                selectedShape = MaterialTheme.shapes.extraSmall,
+            ),
+        ),
+        colors = settingsItemColors(
+            selectedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
         contentPadding = SettingsItemPadding,
     ) {
         SettingsTitle(title)
@@ -214,7 +260,6 @@ internal fun SettingsChoiceItem(
     count: Int,
     supporting: String? = null,
 ) {
-    SettingsItemDivider(index)
     ListItem(
         selected = selected,
         onClick = onClick,
@@ -231,7 +276,7 @@ internal fun SettingsChoiceItem(
         } else {
             null
         },
-        shapes = flatItemShapes(),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = settingsItemColors(),
         contentPadding = SettingsItemPadding,
     ) {
@@ -254,13 +299,26 @@ internal fun SettingsCategoryItem(
     onClick: () -> Unit,
     index: Int,
     count: Int,
+    icon: ImageVector? = null,
     showChevron: Boolean = false,
 ) {
-    SettingsItemDivider(index)
     ListItem(
         selected = selected,
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
+        leadingContent = icon?.let { imageVector ->
+            {
+                Icon(
+                    imageVector = imageVector,
+                    contentDescription = null,
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        },
         supportingContent = {
             Text(
                 text = supporting,
@@ -281,7 +339,7 @@ internal fun SettingsCategoryItem(
         } else {
             null
         },
-        shapes = flatItemShapes(),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = settingsItemColors(),
         contentPadding = SettingsItemPadding,
     ) {
@@ -297,21 +355,20 @@ internal fun SettingsCategoryItem(
 }
 
 @Composable
-private fun SettingsItemDivider(index: Int) {
-    if (index <= 0) return
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.outlineVariant,
-    )
-}
-
-@Composable
 private fun SettingsTitle(title: String, color: Color = Color.Unspecified) {
     Text(
         text = title,
         style = MaterialTheme.typography.bodyLarge,
         color = color,
     )
+}
+
+private fun leadingContent(
+    icon: ImageVector?,
+    tone: SettingsRowTone,
+): (@Composable () -> Unit)? {
+    if (icon == null) return null
+    return { SettingsRowIcon(icon, tone) }
 }
 
 private fun supportingContent(
