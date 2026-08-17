@@ -422,9 +422,15 @@ fun MessageBubble(
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
                         shape = attachmentShape,
+                        fromMe = message.isFromMe,
+                        smsChat = smsChat,
                         modifier = if (onLongPressPart != null) {
                             Modifier.combinedClickable(
-                                onClick = { onOpenAttachment(attachment.guid) },
+                                // Audio plays inline; the viewer stays for
+                                // everything else.
+                                onClick = {
+                                    if (!attachment.isAudio) onOpenAttachment(attachment.guid)
+                                },
                                 onLongClick = { onLongPressPart(attachment.partIndex) },
                             )
                         } else {

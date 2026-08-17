@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
@@ -503,6 +504,8 @@ fun ChatScreen(
     fun startAudioRecording() {
         if (audioRecording != null) return
         focusManager.clearFocus()
+        // A memo playing in the transcript must not bleed into the take.
+        ChatAudioPlayer.stop()
         val session = AudioRecordingSession.start(context)
         if (session == null) {
             scope.launch { snackbarHostState.showSnackbar("Could not start recording") }
@@ -541,6 +544,11 @@ fun ChatScreen(
     val latestRecording = rememberUpdatedState(audioRecording)
     DisposableEffect(Unit) {
         onDispose { latestRecording.value?.discard() }
+    }
+
+    // Voice-memo playback belongs to this transcript; leaving it goes quiet.
+    DisposableEffect(Unit) {
+        onDispose { ChatAudioPlayer.stop() }
     }
 
     // Contact names for group sender labels and "<name> unsent a message"
@@ -717,6 +725,23 @@ fun ChatScreen(
                     onCancelRecording = {
                         audioRecording?.discard()
                         audioRecording = null
+                    },
+                    onFinishRecording = {
+                        // Stop-and-stage: the take becomes a draft attachment
+                        // (playable in the strip) so a caption can ride along;
+                        // the send circle stays the immediate stop-and-send.
+                        val session = audioRecording
+                        if (session != null) {
+                            audioRecording = null
+                            val recorded = session.finish()
+                            if (recorded == null) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Recording too short — try again")
+                                }
+                            } else {
+                                onStageAttachments(listOf(recorded))
+                            }
+                        }
                     },
                     pendingAttachments = uiState.pendingAttachments,
                     onRemovePendingAttachment = onRemovePendingAttachment,
@@ -1505,6 +1530,7 @@ private fun MessageInputBar(
     modifier: Modifier = Modifier,
     recording: RecordingUiState? = null,
     onCancelRecording: () -> Unit = {},
+    onFinishRecording: () -> Unit = {},
     pendingAttachments: List<OutgoingAttachment> = emptyList(),
     onRemovePendingAttachment: (OutgoingAttachment) -> Unit = {},
     pendingEffect: SendEffectOption? = null,
@@ -1701,6 +1727,7 @@ private fun MessageInputBar(
                         RecordingComposerRow(
                             state = recording,
                             onDiscard = onCancelRecording,
+                            onFinish = onFinishRecording,
                         )
                     } else {
                         Row(
@@ -1867,6 +1894,7 @@ private fun AttachMenuButton(
 private fun RecordingComposerRow(
     state: RecordingUiState,
     onDiscard: () -> Unit,
+    onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -1943,6 +1971,26 @@ private fun RecordingComposerRow(
                 )
             }
         }
+        // Stop-and-stage: ends the take and parks it as a playable draft so a
+        // caption can ride along; the send circle remains stop-and-send.
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(40.dp).clickable(
+                role = Role.Button,
+                onClickLabel = "Finish recording",
+                onClick = onFinish,
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = "Finish recording",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
 
@@ -1955,6 +2003,12 @@ private fun StagedAttachmentThumb(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Voice memos stage as a playable card, so the take can be reviewed (and
+    // a caption typed) before the send.
+    if (attachment.mime.startsWith("audio/", ignoreCase = true)) {
+        StagedVoiceMemoCard(attachment = attachment, onRemove = onRemove, modifier = modifier)
+        return
+    }
     val decoded = rememberDecodedImage(attachment.file, maxDimensionPx = 256)
     Box(modifier = modifier.size(StagedThumbSize + 14.dp)) {
         Surface(
@@ -2007,6 +2061,56 @@ private fun StagedAttachmentThumb(
                 .clickable(
                     role = Role.Button,
                     onClickLabel = "Remove ${attachment.name ?: "attachment"}",
+                    onClick = onRemove,
+                ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A recorded voice memo staged on the draft: the same inline player face the
+ * transcript bubble uses, plus the removable badge every staged attachment
+ * carries. Reviewing the take never leaves the composer.
+ */
+@Composable
+private fun StagedVoiceMemoCard(
+    attachment: OutgoingAttachment,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.padding(top = 7.dp, end = 7.dp)) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.width(232.dp),
+        ) {
+            VoiceMemoPlayerContent(
+                playerKey = "staged:${attachment.file.absolutePath}",
+                file = attachment.file,
+                playCircle = MaterialTheme.colorScheme.primary,
+                onPlayCircle = MaterialTheme.colorScheme.onPrimary,
+                wave = MaterialTheme.colorScheme.primary,
+                fallbackLabel = attachment.name,
+            )
+        }
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(26.dp)
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "Remove ${attachment.name ?: "voice memo"}",
                     onClick = onRemove,
                 ),
         ) {

@@ -9,6 +9,7 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.android.tools.screenshot.PreviewTest
+import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -612,6 +613,88 @@ fun ChatScreenThreadScreenshot() {
             onSend = {},
             onLoadOlder = {},
             onBack = {},
+        )
+    }
+}
+
+/**
+ * Voice memos as first-class messages: a sent memo and its caption ride as
+ * one unit, the inline player replaces the old open-as-file row, a
+ * not-yet-downloaded memo keeps the download affordance, and a fresh take
+ * staged on the composer can be reviewed before sending. (Duration readouts
+ * fall back to the transfer name here — the JVM renderer stubs
+ * MediaMetadataRetriever.)
+ *
+ * Intentionally NOT @PreviewTest: goldens for this suite can only be
+ * recorded on the CI-like renderer (this host's layoutlib disagrees on
+ * font rasterization and the timestamp timezone), so a locally recorded
+ * golden would flip the gate red upstream.
+ */
+@Preview(name = "chat-voice-memo", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-voice-memo-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenVoiceMemoScreenshot() {
+    val staged = remember {
+        val file = java.io.File.createTempFile("staged-voice", ".m4a")
+        file.writeBytes(ByteArray(61_440))
+        OutgoingAttachment(
+            file = file,
+            mime = "audio/mp4",
+            uti = "public.mpeg-4-audio",
+            name = "voice-1760000000.m4a",
+            sizeBytes = file.length(),
+        )
+    }
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Alex Chen",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(
+                    message(1, "how did the trail sound up there?", fromMe = false),
+                    message(2, "listen to this", fromMe = true, status = MessageStatus.DELIVERED).copy(
+                        attachmentMetas = listOf(
+                            AttachmentMeta(
+                                guid = "voice-loaded",
+                                mime = "audio/mp4",
+                                name = "Audio Message.m4a",
+                                sizeBytes = 184_320L,
+                                isImage = false,
+                                downloaded = true,
+                            ),
+                        ),
+                    ),
+                    message(3, "", fromMe = false).copy(
+                        attachmentMetas = listOf(
+                            AttachmentMeta(
+                                guid = "voice-pending",
+                                mime = "audio/mp4",
+                                name = "Audio Message.m4a",
+                                sizeBytes = 96_256L,
+                                isImage = false,
+                                downloaded = false,
+                            ),
+                        ),
+                    ),
+                ),
+                input = "this caption rides the next recording",
+                pendingAttachments = listOf(staged),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+            attachmentFile = { guid ->
+                if (guid == "voice-loaded") java.io.File("/nonexistent/voice.m4a") else null
+            },
         )
     }
 }

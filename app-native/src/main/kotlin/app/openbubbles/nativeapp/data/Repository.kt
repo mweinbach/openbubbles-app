@@ -69,6 +69,9 @@ data class AttachmentMeta(
     val partIndex: Long = 0L,
 ) {
     val isVideo: Boolean get() = mime?.startsWith("video/", ignoreCase = true) == true
+
+    /** Audio payloads render as an inline voice-memo player instead of a file row. */
+    val isAudio: Boolean get() = mime?.startsWith("audio/", ignoreCase = true) == true
 }
 
 /** One sticker image transformed over its target bubble. */

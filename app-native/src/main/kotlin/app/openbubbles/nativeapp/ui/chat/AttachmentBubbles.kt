@@ -75,9 +75,21 @@ fun AttachmentContent(
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape? = null,
+    /** Bubble identity, used by the audio player's color roles. */
+    fromMe: Boolean = false,
+    smsChat: Boolean = false,
 ) {
     val effectiveShape = shape ?: AttachmentShape
     when {
+        attachment.isAudio -> VoiceMemoBubble(
+            attachment = attachment,
+            attachmentFile = attachmentFile,
+            onDownloadAttachment = onDownloadAttachment,
+            fromMe = fromMe,
+            smsChat = smsChat,
+            modifier = modifier,
+            shape = effectiveShape,
+        )
         attachment.isImage -> ImageAttachmentBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
@@ -308,7 +320,7 @@ private fun AttachmentPlaceholder(
 
 /** Small bordered chip; swaps to a spinner once the transfer is requested. */
 @Composable
-private fun DownloadChip(
+internal fun DownloadChip(
     attachment: AttachmentMeta,
     onDownload: (AttachmentMeta) -> Unit,
     modifier: Modifier = Modifier,
