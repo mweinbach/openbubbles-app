@@ -2,6 +2,43 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.1.0
+
+### Settings and updates
+
+- Settings is reorganized into clear sections with icons, visible toggles
+  and actions, and an at-a-glance connection status.
+- New update center (Settings → About → App updates): see the current
+  version, when the app last checked, and read the full release notes before
+  installing. Checks run twice a day in the background and when you open the
+  app, and a notification arrives when an update is ready.
+- Choose how much message history downloads from iCloud (Settings → iCloud →
+  History download limit).
+
+### Conversations
+
+- Long-press chats to select several at once, then archive or delete them;
+  archived chats are managed from Settings → Messaging.
+- Contact photos show on one-to-one chats, and contact sheets merge a
+  person's iMessage addresses into one identity with Find My states.
+- Chats open faster: visible conversations prefetch their recent messages.
+- Chat backgrounds set from other devices now apply from the live push, not
+  only after a history sync.
+- Slide a bubble toward the start edge to reply inline.
+- Smoother navigation transitions and predictive back.
+
+### Fixes
+
+- Notification replies sent right after a cold start now go through.
+- SMS messages are saved in the system store when OpenBubbles is the default
+  SMS app.
+- Notification history shows contact names instead of phone numbers.
+- Group and contact images sync reliably from iCloud, and photo orientation
+  metadata is respected.
+- "Skip this version" in the updater now actually hides that update.
+- Cancelled read receipts no longer mark messages as read.
+- Selecting a recipient dismisses the contact search in a new chat.
+
 ## v2.0.0
 
 ### Native client
