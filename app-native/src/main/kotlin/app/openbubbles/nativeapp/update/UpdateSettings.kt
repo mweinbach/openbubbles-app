@@ -31,14 +31,14 @@ object UpdateSettings {
         prefs(context).getLong(KEY_LAST_CHECK, 0L)
 
     fun recordCheck(context: Context, atMs: Long = System.currentTimeMillis()) {
-        prefs(context).edit().putLong(KEY_LAST_CHECK, atMs).apply()
+        prefs(context).edit { putLong(KEY_LAST_CHECK, atMs) }
     }
 
     fun deferredVersionCode(context: Context): Long =
         prefs(context).getLong(KEY_DEFERRED, 0L)
 
     fun deferVersionCode(context: Context, versionCode: Long) {
-        prefs(context).edit().putLong(KEY_DEFERRED, versionCode).apply()
+        prefs(context).edit { putLong(KEY_DEFERRED, versionCode) }
     }
 
     /** Local rollback floor: the highest versionCode this device has been offered. */
@@ -52,7 +52,7 @@ object UpdateSettings {
     }
 
     fun clearDeferred(context: Context) {
-        prefs(context).edit().remove(KEY_DEFERRED).apply()
+        prefs(context).edit { remove(KEY_DEFERRED) }
     }
 
     // ------------------------------------------------------------------

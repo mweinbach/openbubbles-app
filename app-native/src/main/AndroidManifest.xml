@@ -24,7 +24,11 @@
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
     <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
     <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.WRITE_SMS" />
+    <!-- WRITE_SMS is a real (appop) permission granted with the SMS role,
+         not a typo for WRITE_OBB as lint guesses. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SMS"
+        tools:ignore="SystemPermissionTypo" />
 
     <!-- Self-update (GitHub Releases feed + PackageInstaller in-place
          install of this same package). The user grants the per-app
@@ -36,6 +40,10 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- allowBackup covers pre-12 devices; dataExtractionRules is the 12+
+         equivalent (cloud backup and device-to-device transfer both stay
+         off: the store holds Apple identity keys that must not migrate).
+         enableOnBackInvokedCallback is simply ignored below 33 (UnusedAttribute). -->
     <application
         android:name="app.openbubbles.nativeapp.OpenBubblesApplication"
         android:label="OpenBubbles"
@@ -43,8 +51,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.OpenBubblesNative"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
-        android:enableOnBackInvokedCallback="true">
+        android:enableOnBackInvokedCallback="true"
+        tools:ignore="UnusedAttribute">
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -117,6 +127,15 @@
                 <action android:name="app.openbubbles.nativeapp.action.UPDATE_INSTALL_RESULT" />
             </intent-filter>
         </receiver>
+
+        <!-- "Update ready" notification target: commits the verified APK while
+             visible so the PackageInstaller confirmation may launch. noHistory
+             tears it down as soon as anything covers it. -->
+        <activity
+            android:name="app.openbubbles.nativeapp.update.UpdateInstallActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true" />
 
         <receiver
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver"

@@ -19,6 +19,9 @@ import app.openbubbles.nativeapp.R
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -34,8 +37,11 @@ object UpdateCoordinator {
     const val CHANNEL_UPDATES = "updates"
     private const val NOTIFICATION_ID = 4101
     private const val WORK_NAME = "openbubbles-update-check"
-    const val ACTION_INSTALL_NOW = "app.openbubbles.nativeapp.action.UPDATE_INSTALL_NOW"
     private const val APP_OPEN_THROTTLE_MS = 60L * 60 * 1000 // 1h
+
+    // Fired on install success or failure so UpdateInstallActivity can close.
+    private val installFinished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val installFinishedEvents: SharedFlow<Unit> = installFinished.asSharedFlow()
 
     /** Result of a manual or background check, for the Settings UI. */
     sealed interface CheckResult {
@@ -221,12 +227,14 @@ object UpdateCoordinator {
         UpdateDownloader.updatesDir(context.cacheDir).deleteRecursively()
         UpdateSettings.clearPending(context)
         Log.i(TAG, "self-update installed")
+        installFinished.tryEmit(Unit)
     }
 
     fun onInstallFailed(context: Context, status: Int, message: String?) {
         cancelNotification(context)
         Log.w(TAG, "self-update failed: status=$status message=$message")
         notifyStatus(context, "Update not installed", message ?: "Installation failed (code $status)")
+        installFinished.tryEmit(Unit)
     }
 
     // ------------------------------------------------------------------
@@ -237,12 +245,15 @@ object UpdateCoordinator {
         ensureChannel(context)
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
-        val install = PendingIntent.getBroadcast(
+        // An activity, not a receiver: Android 12+ drops activity starts
+        // relayed through notification-tapped receivers ("trampolines"), and
+        // the PackageInstaller confirmation needs a visible app anyway.
+        val install = PendingIntent.getActivity(
             context,
             0,
-            Intent(context, UpdateInstallReceiver::class.java)
-                .setAction(ACTION_INSTALL_NOW)
-                .setPackage(context.packageName),
+            Intent(context, UpdateInstallActivity::class.java)
+                .setPackage(context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
@@ -260,7 +271,13 @@ object UpdateCoordinator {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
-        runCatching { nm.notify(NOTIFICATION_ID, notification) }
+        try {
+            nm.notify(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // POST_NOTIFICATIONS can be revoked between the enabled check
+            // and the post; the update stays available from Settings.
+            Log.w(TAG, "update notification rejected", e)
+        }
     }
 
     private fun notifyStatus(context: Context, title: String, text: String) {
@@ -274,7 +291,11 @@ object UpdateCoordinator {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .build()
-        runCatching { nm.notify(NOTIFICATION_ID + 1, notification) }
+        try {
+            nm.notify(NOTIFICATION_ID + 1, notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "status notification rejected", e)
+        }
     }
 
     private fun cancelNotification(context: Context) {
