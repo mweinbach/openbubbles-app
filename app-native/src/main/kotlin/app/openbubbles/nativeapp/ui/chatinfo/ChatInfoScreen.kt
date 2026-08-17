@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -69,13 +71,16 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
+import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
+import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import android.content.Intent
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -115,6 +120,8 @@ fun ChatInfoScreen(
      * dialog) beside the conversation: there is nothing to navigate back to.
      */
     showBackButton: Boolean = true,
+    onOpenChat: (Long) -> Unit = {},
+    onOpenAttachment: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -126,7 +133,9 @@ fun ChatInfoScreen(
     var confirmLeave by remember { mutableStateOf(false) }
     var renameText by remember(chat?.title) { mutableStateOf(chat?.title.orEmpty()) }
     var participantText by remember { mutableStateOf("") }
+    var openContact by remember { mutableStateOf<ParticipantRow?>(null) }
     val isGroup = chat?.isGroup == true && !chat.isSms
+    val directParticipant = participants.singleOrNull()?.takeIf { chat?.isGroup != true }
 
     fun launchAction(action: suspend () -> Unit, onSuccess: () -> Unit = {}) {
         scope.launch {
@@ -134,6 +143,42 @@ fun ChatInfoScreen(
                 .onSuccess { onSuccess() }
                 .onFailure { error = it.message ?: "Conversation update failed" }
         }
+    }
+
+    fun openDirectChat(address: String) {
+        val currentId = chat?.id
+        if (chat?.isGroup != true && currentId != null) {
+            onBack()
+            return
+        }
+        launchAction(
+            action = {
+                val chatId = CoreGraph.findOrCreateChat(listOf(address), sms = chat?.isSms == true)
+                    ?: error("Could not open conversation")
+                onOpenChat(chatId)
+            },
+        )
+    }
+
+    fun startFaceTime(address: String? = null) {
+        launchAction(
+            action = {
+                val targetId = if (address == null || chat?.isGroup != true) {
+                    chat?.id ?: error("Conversation unavailable")
+                } else {
+                    CoreGraph.findOrCreateChat(listOf(address), sms = false)
+                        ?: error("Could not start FaceTime")
+                }
+                val launch = CoreGraph.faceTimeCaller.start(targetId)
+                context.startActivity(
+                    Intent(context, FaceTimeActivity::class.java)
+                        .putExtra("link", launch.link)
+                        .putExtra("name", launch.displayName)
+                        .putExtra("desc", launch.description)
+                        .putExtra("callUuid", launch.callUuid),
+                )
+            },
+        )
     }
 
     LaunchedEffect(error) {
@@ -193,11 +238,30 @@ fun ChatInfoScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            HeaderSection(
-                chat = chat,
-                participantCount = participants.size,
-                posterFile = posterFile,
-            )
+            if (directParticipant != null && chat != null) {
+                val details = rememberContactDetails(
+                    address = directParticipant.address,
+                    fallbackName = directParticipant.name ?: chat.title,
+                )
+                ContactDetailsCard(
+                    details = details,
+                    location = rememberContactLocation(details.allAddresses),
+                    sharedContent = rememberSharedContent(chat.id),
+                    conversationTitle = if (chat.isSms) "SMS" else "iMessage",
+                    conversationSubtitle = "Last active ${formatListTimestamp(chat.date)}",
+                    smsChat = chat.isSms,
+                    onMessage = { openDirectChat(details.handleAddress) },
+                    onFaceTime = { startFaceTime() },
+                    onOpenAttachment = onOpenAttachment,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                HeaderSection(
+                    chat = chat,
+                    participantCount = participants.size,
+                    posterFile = posterFile,
+                )
+            }
             if (isGroup) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -216,7 +280,7 @@ fun ChatInfoScreen(
                         modifier = Modifier.weight(1f),
                     ) { Text("Group photo") }
                 }
-                if (chat?.avatarPath != null) {
+                if (chat.avatarPath != null) {
                     TextButton(
                         onClick = { launchAction(onRemoveGroupIcon) },
                         modifier = Modifier.fillMaxWidth(),
@@ -228,7 +292,7 @@ fun ChatInfoScreen(
                 onChoose = { pickBackground.launch("image/*") },
                 onClear = { launchAction(onClearBackground) },
             )
-            if (participants.isNotEmpty()) {
+            if (directParticipant == null && participants.isNotEmpty()) {
                 Text(
                     text = "PARTICIPANTS",
                     style = MaterialTheme.typography.labelMedium,
@@ -251,6 +315,7 @@ fun ChatInfoScreen(
                         ParticipantListRow(
                             participant = participant,
                             shape = segmentedRowShape(index, participants.size),
+                            onOpen = { openContact = participant },
                             onRemove = if (isGroup) {
                                 { launchAction(action = { onRemoveParticipant(participant.address) }) }
                             } else {
@@ -346,6 +411,31 @@ fun ChatInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmLeave = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    openContact?.let { row ->
+        val details = rememberContactDetails(row.address, row.name)
+        ContactSheet(
+            details = details,
+            location = rememberContactLocation(details.allAddresses),
+            sharedContent = chat?.id?.let { rememberSharedContent(it) }.orEmpty(),
+            conversationTitle = chat?.title,
+            conversationSubtitle = if (chat?.isSms == true) "SMS" else "iMessage",
+            smsChat = chat?.isSms == true,
+            onDismiss = { openContact = null },
+            onMessage = {
+                openContact = null
+                openDirectChat(row.address)
+            },
+            onFaceTime = {
+                openContact = null
+                startFaceTime(row.address)
+            },
+            onOpenAttachment = { guid ->
+                openContact = null
+                onOpenAttachment(guid)
             },
         )
     }
@@ -563,13 +653,16 @@ private fun rememberPosterFile(address: String?): File? =
 private fun ParticipantListRow(
     participant: ParticipantRow,
     shape: RoundedCornerShape,
+    onOpen: () -> Unit,
     onRemove: (() -> Unit)? = null,
 ) {
     val displayName = participant.name ?: participant.address
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "Contact details", onClick = onOpen),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -724,6 +817,7 @@ private fun ChatInfoScreenPreview() {
                 unread = 0,
                 pinned = true,
                 avatarColor = 0xFF7C4FDF,
+                isGroup = true,
             ),
             participants = listOf(
                 ParticipantRow("mom@icloud.com", "Mom"),

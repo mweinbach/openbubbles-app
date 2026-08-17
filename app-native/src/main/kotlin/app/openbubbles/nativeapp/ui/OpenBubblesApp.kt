@@ -547,6 +547,13 @@ fun OpenBubblesApp(
                         onSetBackground = { file -> AppGraph.chatBackgroundActions.setLocalBackground(chatId, file) },
                         onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
                         onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
+                        onOpenChat = { targetId ->
+                            popBack()
+                            openChat(targetId)
+                        },
+                        onOpenAttachment = { guid ->
+                            navigateTo(AttachmentKey(guid, chatId))
+                        },
                     )
                 }
 

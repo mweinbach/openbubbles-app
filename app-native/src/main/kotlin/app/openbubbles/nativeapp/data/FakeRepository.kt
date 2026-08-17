@@ -462,6 +462,8 @@ object FakeAttachmentProvider : AttachmentProvider {
 object FakeChatInfoRepository : ChatInfoRepository {
     override fun participantAddresses(chatId: Long): List<String> =
         if (chatId == 1L) listOf("mom@icloud.com", "dad@icloud.com", "emma@icloud.com") else emptyList()
+
+    override fun sharedContent(chatId: Long, limit: Int): List<SharedContentPreview> = emptyList()
 }
 
 object FakeChatInfoActions : ChatInfoActions {

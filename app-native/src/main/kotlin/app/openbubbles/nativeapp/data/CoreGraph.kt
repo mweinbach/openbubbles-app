@@ -908,6 +908,33 @@ private class CoreChatInfoRepository(
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: return emptyList()
         chat.handles.map { it.formattedAddress ?: it.address }
     }.getOrDefault(emptyList())
+
+    override fun sharedContent(chatId: Long, limit: Int): List<SharedContentPreview> = runCatching {
+        val messages = store.boxFor(Message::class.java).query()
+            .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
+            .equal(Message_.hasAttachments, true)
+            .orderDesc(Message_.dateCreated)
+            .build()
+            .use { it.find(0, (limit * 3L).coerceAtLeast(limit.toLong())) }
+        val out = ArrayList<SharedContentPreview>(limit)
+        for (message in messages) {
+            message.dbAttachments.forEach { attachment ->
+                if (out.size >= limit) return@runCatching out
+                val guid = attachment.guid ?: return@forEach
+                val mime = attachment.mimeType.orEmpty()
+                out += SharedContentPreview(
+                    id = guid,
+                    label = attachment.transferName?.takeIf { it.isNotBlank() }
+                        ?: mime.substringAfter('/', mime).ifBlank { "Attachment" },
+                    attachmentGuid = guid,
+                    url = attachment.webUrl?.takeIf { it.isNotBlank() },
+                    isImage = mime.startsWith("image/", ignoreCase = true),
+                )
+            }
+        }
+        out
+    }.getOrDefault(emptyList())
 }
 
 /**

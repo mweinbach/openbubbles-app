@@ -326,10 +326,22 @@ object UiContacts {
     }
 }
 
+/** Shared attachment or link surfaced on the contact sheet. */
+data class SharedContentPreview(
+    val id: String,
+    val label: String,
+    val attachmentGuid: String? = null,
+    val url: String? = null,
+    val isImage: Boolean = false,
+)
+
 /** Read-only chat details for the group-info screen. */
 interface ChatInfoRepository {
     /** Participant handle addresses of the conversation (excluding me). */
     fun participantAddresses(chatId: Long): List<String>
+
+    /** Recent attachments and links from this conversation, newest first. */
+    fun sharedContent(chatId: Long, limit: Int = 8): List<SharedContentPreview>
 }
 
 /** Mutating group operations backed by the on-device iMessage engine. */
