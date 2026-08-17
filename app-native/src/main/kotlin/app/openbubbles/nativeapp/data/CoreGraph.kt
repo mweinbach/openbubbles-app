@@ -26,12 +26,14 @@ import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +60,7 @@ import uniffi.rust_lib_bluebubbles.UPushMessage
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 /**
  * Live composition root binding the UI contracts to :core (ObjectBox) and,
  * when the push service is up, the Rust send path. Falls back to the fake
@@ -859,6 +862,10 @@ private class CoreChatListRepository(
 internal class CoreMessageListRepository(
     private val repo: MessageRepo,
     private val store: BoxStore?,
+    private val warmLoader: suspend (Long, Int) -> List<MessageItem> = { chatId, limit ->
+        val page = repo.messages(chatId, limit)
+        enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+    },
 ) : MessageListRepository {
     private class PagingWindow(initialLimit: Int) {
         val size = MutableStateFlow(initialLimit)
@@ -870,8 +877,8 @@ internal class CoreMessageListRepository(
     private class Snapshot(
         val items: List<MessageItem>,
         val newestId: Long?,
-        val limit: Int,
-        val warmedAt: Long = System.currentTimeMillis(),
+        val requestedLimit: Int,
+        val changeGeneration: Long,
         @Volatile var stale: Boolean = false,
     )
 
@@ -881,38 +888,58 @@ internal class CoreMessageListRepository(
     private val retained = ConcurrentHashMap.newKeySet<Long>()
     private val locks = ConcurrentHashMap<Long, Mutex>()
     private val warmLimiter = Semaphore(3)
+    private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val invalidationReady = CompletableDeferred<Unit>()
+    private val changeGeneration = AtomicLong(0L)
+    private val prefetchGeneration = AtomicLong(0L)
 
     @Volatile
     private var desired: Set<Long> = emptySet()
+
+    init {
+        cacheScope.launch {
+            var initialized = false
+            repo.observeTranscriptChanges().collect {
+                if (!initialized) {
+                    initialized = true
+                    invalidationReady.complete(Unit)
+                } else {
+                    changeGeneration.incrementAndGet()
+                    snapshots.values.forEach { it.stale = true }
+                }
+            }
+        }
+    }
 
     private fun window(chatId: Long, initialLimit: Int): PagingWindow =
         windows.computeIfAbsent(chatId) { PagingWindow(initialLimit) }
 
     private fun lockFor(chatId: Long): Mutex = locks.getOrPut(chatId) { Mutex() }
 
-    override fun cached(chatId: Long): List<MessageItem> = snapshots[chatId]?.items.orEmpty()
+    override fun cached(chatId: Long): List<MessageItem> =
+        snapshots[chatId]?.takeUnless { it.stale }?.items.orEmpty()
 
     override suspend fun prefetch(
         chatIds: Collection<Long>,
         limit: Int,
     ) {
         val wanted = chatIds.toSet()
+        val generation = prefetchGeneration.incrementAndGet()
         desired = wanted
         val keep = wanted + retained
         snapshots.keys.filter { it !in keep }.forEach { snapshots.remove(it) }
         windows.keys.filter { it !in keep }.forEach { windows.remove(it) }
-        locks.keys.filter { it !in keep }.forEach { locks.remove(it) }
         if (wanted.isEmpty()) return
         coroutineScope {
             wanted.map { chatId ->
-                async { warmLimiter.withPermit { warm(chatId, limit) } }
+                async { warmLimiter.withPermit { warm(chatId, limit, generation) } }
             }.awaitAll()
         }
     }
 
     override suspend fun prime(chatId: Long, limit: Int) {
         retained.add(chatId)
-        warmLimiter.withPermit { warm(chatId, limit) }
+        warm(chatId, limit, null)
     }
 
     override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> {
@@ -922,14 +949,11 @@ internal class CoreMessageListRepository(
         return paging.size.flatMapLatest { size ->
             val requested = size.coerceAtLeast(limit)
             val pages = repo.observeMessages(chatId, requested)
-                .map { page -> pageToUi(chatId, paging, page) }
+                .map { page -> pageToUi(chatId, paging, page, requested) }
                 .onStart {
-                    val cached = snapshots[chatId]?.items
-                    if (!cached.isNullOrEmpty() && cached.size >= requested) {
-                        emit(cached)
-                    } else {
-                        emit(pageToUi(chatId, paging, repo.messages(chatId, requested)))
-                    }
+                    snapshots[chatId]
+                        ?.takeUnless { it.stale }
+                        ?.let { emit(it.items) }
                 }
                 .flowOn(Dispatchers.IO)
             combine(pages, UploadProgressBoard.progress, ::applyUploadProgress)
@@ -939,10 +963,20 @@ internal class CoreMessageListRepository(
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
         val cursor = before ?: return emptyList()
         val older = repo.messagesBefore(chatId, beforeId = cursor, limit = count)
+        val olderUi = enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
         if (older.isNotEmpty()) {
-            window(chatId, count).size.value += older.size
+            val paging = window(chatId, count)
+            paging.size.value += older.size
+            snapshots[chatId]?.takeUnless { it.stale }?.let { current ->
+                rememberSnapshot(
+                    chatId = chatId,
+                    items = (olderUi + current.items).distinctBy { it.id },
+                    requestedLimit = paging.size.value,
+                    generation = current.changeGeneration,
+                )
+            }
         }
-        return enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
+        return olderUi
     }
 
     override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> =
@@ -957,10 +991,15 @@ internal class CoreMessageListRepository(
         if (keep.isEmpty() || chatId !in desired) {
             snapshots.remove(chatId)
             windows.remove(chatId)
-            locks.remove(chatId)
             return
         }
-        rememberSnapshot(chatId, keep)
+        val previous = snapshots[chatId]
+        rememberSnapshot(
+            chatId = chatId,
+            items = keep,
+            requestedLimit = previous?.requestedLimit ?: TRANSCRIPT_OPEN_LIMIT,
+            generation = previous?.changeGeneration ?: changeGeneration.get(),
+        )
         windows[chatId]?.let { paging ->
             paging.size.value = keep.size.coerceAtLeast(TRANSCRIPT_PREFETCH_LIMIT)
             paging.newestId = keep.lastOrNull()?.id
@@ -971,6 +1010,7 @@ internal class CoreMessageListRepository(
         chatId: Long,
         paging: PagingWindow,
         page: List<app.openbubbles.core.model.MessageItem>,
+        requestedLimit: Int,
     ): List<MessageItem> {
         val previousNewest = paging.newestId
         if (page.isNotEmpty()) {
@@ -983,41 +1023,72 @@ internal class CoreMessageListRepository(
             }
         }
         val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
-        rememberSnapshot(chatId, ui)
+        rememberSnapshot(chatId, ui, requestedLimit, changeGeneration.get())
         return ui
     }
 
-    private suspend fun warm(chatId: Long, limit: Int) {
+    private suspend fun warm(chatId: Long, limit: Int, prefetch: Long?) {
+        invalidationReady.await()
         lockFor(chatId).withLock {
             val existing = snapshots[chatId]
-            val now = System.currentTimeMillis()
             if (existing != null &&
                 !existing.stale &&
-                existing.limit >= limit &&
-                now - existing.warmedAt < 750L
+                existing.requestedLimit >= limit
             ) {
                 return
             }
-            val ui = withContext(Dispatchers.IO) {
-                val page = repo.messages(chatId, limit)
-                enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+
+            var generation: Long
+            var ui: List<MessageItem>
+            do {
+                generation = changeGeneration.get()
+                ui = withContext(Dispatchers.IO) { warmLoader(chatId, limit) }
+            } while (generation != changeGeneration.get())
+
+            if (prefetch != null && chatId !in retained &&
+                (prefetch != prefetchGeneration.get() || chatId !in desired)
+            ) {
+                return
             }
-            rememberSnapshot(chatId, ui)
+
+            val snapshot = rememberSnapshot(chatId, ui, limit, generation)
             window(chatId, limit).apply {
-                if (size.value < ui.size) size.value = ui.size
-                newestId = ui.lastOrNull()?.id
+                if (size.value < snapshot.items.size) size.value = snapshot.items.size
+                newestId = snapshot.newestId
             }
         }
     }
 
-    private fun rememberSnapshot(chatId: Long, items: List<MessageItem>) {
-        snapshots[chatId] = Snapshot(
+    private fun rememberSnapshot(
+        chatId: Long,
+        items: List<MessageItem>,
+        requestedLimit: Int,
+        generation: Long,
+    ): Snapshot {
+        val replacement = Snapshot(
             items = items,
             newestId = items.lastOrNull()?.id,
-            limit = items.size,
-            warmedAt = System.currentTimeMillis(),
+            requestedLimit = requestedLimit,
+            changeGeneration = generation,
             stale = false,
         )
+        var selected = replacement
+        snapshots.compute(chatId) { _, current ->
+            if (current != null && !current.stale &&
+                current.changeGeneration >= generation &&
+                current.requestedLimit > requestedLimit
+            ) {
+                selected = current
+                current
+            } else {
+                replacement
+            }
+        }
+        return selected
+    }
+
+    internal fun close() {
+        cacheScope.cancel()
     }
 }
 

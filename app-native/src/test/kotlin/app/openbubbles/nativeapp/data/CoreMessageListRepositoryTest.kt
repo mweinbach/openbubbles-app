@@ -8,8 +8,13 @@ import io.objectbox.BoxStore
 import java.io.File
 import java.nio.file.Files
 import java.util.Date
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -37,6 +42,7 @@ class CoreMessageListRepositoryTest {
 
     @After
     fun tearDown() {
+        repository.close()
         store.close()
         testDir.deleteRecursively()
     }
@@ -160,6 +166,74 @@ class CoreMessageListRepositoryTest {
         assertEquals(25L to 100L, updated.single().uploadProgress)
         assertEquals(item.attachmentMeta, updated.single().attachmentMeta)
     }
+
+    @Test
+    fun `short prefetched chats remember the requested capacity`() = runBlocking {
+        val loads = AtomicInteger()
+        repository.close()
+        repository = CoreMessageListRepository(MessageRepo(store), store) { _, _ ->
+            loads.incrementAndGet()
+            listOf(messageItem(1L, "short"))
+        }
+
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+
+        assertEquals(1, loads.get())
+    }
+
+    @Test
+    fun `database changes invalidate a warmed snapshot`() = runBlocking {
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        assertEquals(10, repository.cached(firstChat.id).size)
+
+        store.boxFor(Message::class.java).put(Message().apply {
+            guid = "first-101"
+            text = "new message"
+            dateCreated = Date(101)
+            chat.target = firstChat
+        })
+
+        withTimeout(2_000) {
+            while (repository.cached(firstChat.id).isNotEmpty()) delay(10)
+        }
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        assertEquals("new message", repository.cached(firstChat.id).last().text)
+    }
+
+    @Test
+    fun `obsolete prefetch cannot repopulate an evicted snapshot`() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        repository.close()
+        repository = CoreMessageListRepository(MessageRepo(store), store) { chatId, _ ->
+            if (chatId == firstChat.id) {
+                firstStarted.complete(Unit)
+                releaseFirst.await()
+            }
+            listOf(messageItem(chatId, "chat-$chatId"))
+        }
+
+        val obsolete = async { repository.prefetch(listOf(firstChat.id), limit = 10) }
+        firstStarted.await()
+        repository.prefetch(listOf(secondChat.id), limit = 10)
+        releaseFirst.complete(Unit)
+        obsolete.await()
+
+        assertTrue(repository.cached(firstChat.id).isEmpty())
+        assertEquals(listOf("chat-${secondChat.id}"), repository.cached(secondChat.id).map { it.text })
+    }
+
+    private fun messageItem(id: Long, text: String) = MessageItem(
+        id = id,
+        text = text,
+        isFromMe = false,
+        date = id,
+        status = MessageStatus.SENT,
+        isGroupEvent = false,
+        reactionEmoji = null,
+        guid = "test-$id",
+    )
 
     private fun seed(target: Chat, count: Int) {
         val box = store.boxFor(Message::class.java)

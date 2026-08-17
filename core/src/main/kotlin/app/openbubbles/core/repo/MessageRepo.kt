@@ -18,6 +18,7 @@ import io.objectbox.query.QueryCondition
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
@@ -76,11 +77,20 @@ class MessageRepo(
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
         merge(
             store.subscribe(Message::class.java).asFlow().map { Unit },
+            store.subscribe(Attachment::class.java).asFlow().drop(1).map { Unit },
             store.subscribe(ContactV2::class.java).asFlow().drop(1).map { Unit },
         )
             .conflate()
             .map { messages(chatId, limit) }
             .flowOn(Dispatchers.IO)
+
+    /** Invalidates warmed UI projections when transcript display data changes. */
+    fun observeTranscriptChanges(): Flow<Unit> =
+        combine(
+            store.subscribe(Message::class.java).asFlow(),
+            store.subscribe(Attachment::class.java).asFlow(),
+            store.subscribe(ContactV2::class.java).asFlow(),
+        ) { _, _, _ -> Unit }.conflate()
 
     private fun messageQuery(chatIds: List<Long>, before: Message? = null): Query<Message> {
         var chatCondition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())

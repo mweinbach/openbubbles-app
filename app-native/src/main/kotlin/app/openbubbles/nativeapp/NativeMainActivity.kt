@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
@@ -199,13 +198,11 @@ class NativeMainActivity : ComponentActivity() {
             dataString = intent?.dataString,
             extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
         )
-        // Warm the tapped conversation immediately. Incoming notifications
-        // do not prefetch; only the tap does, so the list stays cheap.
+        // Cancel the notification immediately; the conversation's live
+        // repository owns its initial 30-row load after navigation.
         pendingChatGuid?.let { guid ->
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 Notifications.cancelForChatGuid(this@NativeMainActivity, guid)
-                val chatId = CoreGraph.chatIdForGuid(guid) ?: return@launch
-                AppGraph.messages.prime(chatId)
             }
         }
     }

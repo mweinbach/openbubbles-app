@@ -67,6 +67,8 @@ class ChatViewModelTest {
                     kotlinx.coroutines.flow.emptyFlow()
             },
         )
+        assertEquals(listOf("already here"), model.uiState.value.messages.map { it.text })
+
         backgroundScope.launch(dispatcher) { model.uiState.collect() }
         runCurrent()
 

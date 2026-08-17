@@ -174,6 +174,8 @@ class ChatViewModel(
 
     private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
 
+    private val cachedMessages = messageRepository.cached(chatId)
+
     private val chat: StateFlow<ChatListItem?> =
         chatListRepository.chats()
             .map { chats ->
@@ -191,7 +193,7 @@ class ChatViewModel(
             .stateIn(
                 viewModelScope,
                 SharingStarted.Eagerly,
-                messageRepository.cached(chatId),
+                cachedMessages,
             )
 
     private val typingSenders: StateFlow<List<String>> =
@@ -266,7 +268,11 @@ class ChatViewModel(
             state.copy(textSendInProgress = sending)
         }.combine(outgoingSendEvent) { state, event ->
             state.copy(outgoingSendEvent = event)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            ChatUiState(messages = cachedMessages, input = initialInput.orEmpty()),
+        )
 
     fun onInputChange(value: String) {
         if (input.value != value) composerRevision++

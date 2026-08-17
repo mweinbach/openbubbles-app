@@ -34,6 +34,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -59,7 +60,6 @@ import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
-import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.service.Notifications
@@ -87,6 +87,7 @@ import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -223,6 +224,7 @@ fun OpenBubblesApp(
     val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val prefetchScope = rememberCoroutineScope()
+    var transcriptPrefetchJob by remember { mutableStateOf<Job?>(null) }
 
     // A conversation shown beside its list must not offer a back arrow, and the
     // navigation container stays visible in that layout. The directive is the
@@ -256,7 +258,7 @@ fun OpenBubblesApp(
      * conversation always lands on the list.
      */
     fun openChat(chatId: Long) {
-        prefetchScope.launch { AppGraph.messages.prime(chatId, TRANSCRIPT_OPEN_LIMIT) }
+        transcriptPrefetchJob?.cancel()
         val key = ChatKey(chatId)
         if (backStack.lastOrNull() == key) return
         // A conversation belongs to the Chats tab: entering one from another
@@ -475,7 +477,10 @@ fun OpenBubblesApp(
                         onQueryChange = viewModel::onQueryChange,
                         onChatClick = { chat -> openChat(chat.id) },
                         onVisibleChatsChanged = { ids ->
-                            prefetchScope.launch { AppGraph.messages.prefetch(ids) }
+                            transcriptPrefetchJob?.cancel()
+                            transcriptPrefetchJob = prefetchScope.launch {
+                                AppGraph.messages.prefetch(ids)
+                            }
                         },
                         selectedChatId = selectedChatId,
                         containerColor = if (isMultiPane) {
