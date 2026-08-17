@@ -52,6 +52,13 @@ interface CloudSyncPort {
 
     /** Push local attachment deletions to iCloud (flush BEFORE pulling). */
     suspend fun deleteAttachmentsRemote(recordIds: List<String>)
+
+    /**
+     * Download one chat-zone group-photo asset to [path]. Failures are
+     * per-photo; the manager does not abort a history run when a single
+     * image cannot be retrieved.
+     */
+    suspend fun downloadGroupPhoto(recordId: String, path: String)
 }
 
 /**
@@ -84,4 +91,7 @@ class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
 
     override suspend fun deleteAttachmentsRemote(recordIds: List<String>) =
         withContext(Dispatchers.IO) { state.deleteAttachmentsRemote(recordIds) }
+
+    override suspend fun downloadGroupPhoto(recordId: String, path: String) =
+        withContext(Dispatchers.IO) { state.downloadGroupPhoto(recordId, path) }
 }

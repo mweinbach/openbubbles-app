@@ -2,6 +2,8 @@ package app.openbubbles.nativeapp.data
 
 import java.io.File
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * UI-facing data contracts for the native Android client.
@@ -313,6 +315,15 @@ object UiContacts {
     /** Returns (display name, avatar path) for a handle address, or null. */
     @Volatile
     var contactNames: (suspend (handleAddress: String) -> Pair<String?, String?>?)? = null
+
+    private val _avatarGeneration = MutableStateFlow(0)
+
+    /** Bumped after contact or group-photo imports so avatar UIs refetch. */
+    val avatarGeneration: StateFlow<Int> = _avatarGeneration
+
+    fun notifyAvatarsChanged() {
+        _avatarGeneration.value = _avatarGeneration.value + 1
+    }
 }
 
 /** Read-only chat details for the group-info screen. */

@@ -39,6 +39,9 @@ class AttachmentStore(
         /** Sub-directory of [rootDir] holding every attachment. */
         const val ATTACHMENTS_DIR_NAME = "attachments"
 
+        /** Sub-directory of [rootDir] holding CloudKit / live group photos. */
+        const val GROUP_ICONS_DIR_NAME = "group_icons"
+
         /** File name used when an attachment has no usable transfer name. */
         const val DEFAULT_FILE_NAME = "unknown"
 
@@ -58,6 +61,24 @@ class AttachmentStore(
     /** `<rootDir>/attachments` (Dart `FilesystemService.attachmentsPath`). */
     val attachmentsDir: File
         get() = File(rootDir, ATTACHMENTS_DIR_NAME)
+
+    /** `<rootDir>/group_icons` — CloudKit and live group-photo cache. */
+    val groupIconsDir: File
+        get() = File(rootDir, GROUP_ICONS_DIR_NAME)
+
+    /**
+     * Canonical path for a chat's CloudKit group photo. The file may not
+     * exist yet; callers create the parent on download. Version is part of
+     * the name so a newer cloud photo never collides with a stale cache.
+     */
+    @Throws(IOException::class)
+    fun groupIconFile(chatId: Long, recordId: String, version: Long?): File {
+        val dir = groupIconsDir
+        val name = sanitizeDirectoryName("$chatId-$recordId-${version ?: 0}") + ".png"
+        val file = File(dir, name)
+        ensureInside(dir, file)
+        return file
+    }
 
     /** Per-attachment directory `<rootDir>/attachments/<guid>` (Dart `Attachment.directory`). */
     fun directoryFor(attachmentGuid: String): File =

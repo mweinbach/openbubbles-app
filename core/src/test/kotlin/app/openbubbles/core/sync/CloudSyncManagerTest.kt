@@ -123,6 +123,20 @@ private class FakeCloudSyncPort : CloudSyncPort {
         calls += "delete-attachments"
         deletedAttachments += recordIds
     }
+
+    val groupPhotoDownloads = mutableListOf<Pair<String, String>>()
+    var groupPhotoBytes: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+    var failGroupPhoto: String? = null
+
+    override suspend fun downloadGroupPhoto(recordId: String, path: String) {
+        calls += "group-photo"
+        groupPhotoDownloads += recordId to path
+        failGroupPhoto?.let { throw IllegalStateException(it) }
+        File(path).apply {
+            parentFile?.mkdirs()
+            writeBytes(groupPhotoBytes)
+        }
+    }
 }
 
 /**
@@ -177,6 +191,7 @@ class CloudSyncManagerTest {
         displayName: String? = null,
         groupVersion: UInt? = 1u,
         lastReadTimestamp: Long = 0,
+        hasGroupPhoto: Boolean = false,
     ) = UCloudChat(
         guid = guid,
         style = style,
@@ -189,7 +204,7 @@ class CloudSyncManagerTest {
         groupVersion = groupVersion,
         lastSeenMessageGuid = null,
         lastReadMessageTimestamp = lastReadTimestamp,
-        hasGroupPhoto = false,
+        hasGroupPhoto = hasGroupPhoto,
     )
 
     private fun cloudMessage(
@@ -821,7 +836,7 @@ class CloudSyncManagerTest {
 
         port.state = USyncState.NOT_ENABLED
         val notEnabled = runSync()
-        assertTrue(notEnabled.error!!.contains("not enabled", ignoreCase = true))
+        assertTrue(notEnabled.error.orEmpty().contains("not enabled", ignoreCase = true))
 
         port.state = USyncState.AVAILABLE
         port.inClique = false
@@ -860,5 +875,243 @@ class CloudSyncManagerTest {
         val summary = runSync()
         assertEquals("boom", summary.error)
         assertEquals(SyncPhase.FAILED, manager.progress.value.phase)
+    }
+
+    // ------------------------------------------------------------------
+    // Group photos
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `cloud group photo is downloaded and persisted on import`() {
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    displayName = "Family",
+                    participants = listOf("tel:+15550000001", "mailto:me@icloud.com"),
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+
+        val summary = runSync()
+        assertNull(summary.error)
+
+        val family = requireNotNull(chatByGuid("iMessage;+;family"))
+        assertEquals(listOf("rec-family" to family.customAvatarPath), port.groupPhotoDownloads)
+        assertEquals("ck:rec-family:1", family.photoAttachmentGuid)
+        assertNotNull(family.customAvatarPath)
+        assertTrue(File(family.customAvatarPath).isFile)
+        assertTrue(File(family.customAvatarPath).readBytes().contentEquals(port.groupPhotoBytes))
+    }
+
+    @Test
+    fun `existing cloud group photo is not redownloaded`() {
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+        runSync()
+        assertEquals(1, port.groupPhotoDownloads.size)
+
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+        runSync(SyncMode.INCREMENTAL)
+        assertEquals(1, port.groupPhotoDownloads.size)
+    }
+
+    @Test
+    fun `newer cloud version without a photo clears a cloud-sourced icon`() {
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    groupVersion = 1u,
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+        runSync()
+        val path = requireNotNull(chatByGuid("iMessage;+;family")?.customAvatarPath)
+        assertTrue(File(path).isFile)
+
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    groupVersion = 2u,
+                    hasGroupPhoto = false,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+        runSync(SyncMode.INCREMENTAL)
+
+        val family = requireNotNull(chatByGuid("iMessage;+;family"))
+        assertNull(family.customAvatarPath)
+        assertNull(family.photoAttachmentGuid)
+        assertFalse(File(path).exists())
+    }
+
+    @Test
+    fun `live group photo is not overwritten by an older cloud asset`() {
+        val live = File(testDir, "live-icon.png").apply {
+            writeBytes(byteArrayOf(7, 7, 7))
+        }
+        val chat = Chat().apply {
+            guid = "iMessage;+;family"
+            chatIdentifier = "family"
+            style = 43
+            groupVersion = 4
+            customAvatarPath = live.absolutePath
+            photoAttachmentGuid = "live-icon-guid"
+        }
+        store.boxFor(Chat::class.java).put(chat)
+
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    groupVersion = 1u,
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+        runSync()
+
+        val family = requireNotNull(chatByGuid("iMessage;+;family"))
+        assertTrue(port.groupPhotoDownloads.isEmpty())
+        assertEquals(live.absolutePath, family.customAvatarPath)
+        assertEquals("live-icon-guid", family.photoAttachmentGuid)
+    }
+
+    @Test
+    fun `group photo download failure does not fail the sync`() {
+        port.failGroupPhoto = "mmcs unavailable"
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-family",
+                cloudChat(
+                    "rec-family",
+                    guid = "iMessage;+;family",
+                    identifier = "family",
+                    groupId = "cloud-family",
+                    style = 43,
+                    hasGroupPhoto = true,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.messagePages += messagePage()
+
+        val summary = runSync()
+        assertNull(summary.error)
+        val family = requireNotNull(chatByGuid("iMessage;+;family"))
+        assertNull(family.customAvatarPath)
+        assertNull(family.photoAttachmentGuid)
+    }
+
+    @Test
+    fun `group photo policy prefers missing files and newer cloud versions`() {
+        assertTrue(
+            CloudSyncManager.shouldDownloadGroupPhoto(
+                lockChatIcon = false,
+                customAvatarPath = null,
+                photoAttachmentGuid = null,
+                recordId = "rec",
+                version = 1,
+                fileExists = false,
+            ),
+        )
+        assertFalse(
+            CloudSyncManager.shouldDownloadGroupPhoto(
+                lockChatIcon = true,
+                customAvatarPath = null,
+                photoAttachmentGuid = null,
+                recordId = "rec",
+                version = 1,
+                fileExists = false,
+            ),
+        )
+        assertFalse(
+            CloudSyncManager.shouldDownloadGroupPhoto(
+                lockChatIcon = false,
+                customAvatarPath = "/icons/live.png",
+                photoAttachmentGuid = "live-guid",
+                recordId = "rec",
+                version = 2,
+                fileExists = true,
+            ),
+        )
+        assertTrue(
+            CloudSyncManager.shouldDownloadGroupPhoto(
+                lockChatIcon = false,
+                customAvatarPath = "/icons/old.png",
+                photoAttachmentGuid = "ck:rec:1",
+                recordId = "rec",
+                version = 2,
+                fileExists = true,
+            ),
+        )
+        assertTrue(
+            CloudSyncManager.shouldClearCloudGroupPhoto("ck:rec:1", "rec", 2),
+        )
+        assertFalse(
+            CloudSyncManager.shouldClearCloudGroupPhoto("live-guid", "rec", 2),
+        )
+        assertFalse(
+            CloudSyncManager.shouldClearCloudGroupPhoto("ck:rec:2", "rec", 2),
+        )
     }
 }

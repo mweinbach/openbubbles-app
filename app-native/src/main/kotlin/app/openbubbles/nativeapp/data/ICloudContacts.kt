@@ -28,6 +28,24 @@ private const val ICLOUD_CONTACTS_ROOT = "https://contacts.icloud.com/"
 private const val MAX_REDIRECTS = 5
 private const val MULTIGET_BATCH = 64
 private const val AUTO_SYNC_FRESHNESS_MS = 15 * 60 * 1000L
+private const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+internal fun hasImageMagic(bytes: ByteArray): Boolean {
+    if (bytes.size < 12) return false
+    val jpeg = bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+    val png = bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+        bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+    val gif = bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+        bytes[2] == 'F'.code.toByte()
+    val webp = bytes[0] == 'R'.code.toByte() && bytes[8] == 'W'.code.toByte()
+    val heif = bytes.copyOfRange(4, 8).toString(Charsets.US_ASCII) == "ftyp"
+    return jpeg || png || gif || webp || heif
+}
+
+internal fun resolveContactPhoto(
+    parsed: ParsedVCard,
+    download: (String) -> ByteArray?,
+): ByteArray? = parsed.photo ?: parsed.photoUri?.let(download)
 
 internal data class ParsedVCard(
     val displayName: String?,
@@ -35,6 +53,7 @@ internal data class ParsedVCard(
     val lastName: String?,
     val addresses: List<String>,
     val photo: ByteArray?,
+    val photoUri: String? = null,
 )
 
 /** Minimal vCard 3/4 parser for the fields used by handle resolution. */
@@ -45,6 +64,7 @@ internal object ICloudVCardParser {
         var firstName: String? = null
         var lastName: String? = null
         var photo: ByteArray? = null
+        var photoUri: String? = null
         val addresses = LinkedHashSet<String>()
 
         for (line in lines) {
@@ -73,14 +93,21 @@ internal object ICloudVCardParser {
                     }
                     .takeIf(String::isNotEmpty)
                     ?.let(addresses::add)
-                "PHOTO" -> if (
-                    descriptor.contains("ENCODING=B", ignoreCase = true) ||
-                    descriptor.contains("BASE64", ignoreCase = true) ||
-                    descriptor.contains("VALUE=BINARY", ignoreCase = true)
-                ) {
-                    photo = runCatching {
-                        Base64.getMimeDecoder().decode(raw.filterNot(Char::isWhitespace))
-                    }.getOrNull()?.takeIf { it.size <= 5 * 1024 * 1024 }
+                "PHOTO" -> {
+                    val value = raw.trim().trim('"', '\'')
+                    when {
+                        value.startsWith("data:", ignoreCase = true) ->
+                            photo = decodeDataUri(value)
+                        isUriPhoto(descriptor, value) ->
+                            photoUri = decodeText(value, descriptor).trim().trim('"', '\'')
+                                .takeIf(String::isNotEmpty)
+                        isInlinePhoto(descriptor) ->
+                            photo = decodeBase64Image(value)
+                        else -> {
+                            photo = decodeBase64Image(value)?.takeIf(::hasImageMagic)
+                            if (photo == null && looksLikeHttpUrl(value)) photoUri = value
+                        }
+                    }
                 }
             }
         }
@@ -94,8 +121,45 @@ internal object ICloudVCardParser {
             lastName = lastName,
             addresses = addresses.toList(),
             photo = photo,
+            photoUri = photoUri,
         )
     }
+
+    private fun isUriPhoto(descriptor: String, value: String): Boolean {
+        val params = descriptor.uppercase()
+        return params.contains("VALUE=URI") ||
+            params.contains("VALUE=URL") ||
+            looksLikeHttpUrl(value)
+    }
+
+    private fun isInlinePhoto(descriptor: String): Boolean {
+        val params = descriptor.uppercase()
+        return params.contains("ENCODING=B") ||
+            params.contains("ENCODING=BASE64") ||
+            params.contains("BASE64") ||
+            params.contains("VALUE=BINARY")
+    }
+
+    private fun looksLikeHttpUrl(value: String): Boolean =
+        value.startsWith("https://", ignoreCase = true) ||
+            value.startsWith("http://", ignoreCase = true)
+
+    private fun decodeDataUri(value: String): ByteArray? {
+        val comma = value.indexOf(',')
+        if (comma <= 4) return null
+        val metadata = value.substring(5, comma)
+        val data = value.substring(comma + 1)
+        return if (metadata.contains("base64", ignoreCase = true)) {
+            decodeBase64Image(data)
+        } else {
+            runCatching { data.toByteArray(Charsets.UTF_8) }.getOrNull()
+                ?.takeIf { it.size <= MAX_PHOTO_BYTES }
+        }
+    }
+
+    private fun decodeBase64Image(value: String): ByteArray? = runCatching {
+        Base64.getMimeDecoder().decode(value.filterNot(Char::isWhitespace))
+    }.getOrNull()?.takeIf { it.isNotEmpty() && it.size <= MAX_PHOTO_BYTES }
 
     private fun unfold(value: String): List<String> {
         val normalized = value.replace("\r\n", "\n").replace('\r', '\n')
@@ -374,6 +438,38 @@ private class ICloudCardDavClient(
         return cards
     }
 
+    fun downloadPhoto(url: URI): ByteArray? = runCatching { getBytes(url) }.getOrNull()
+
+    private fun getBytes(url: URI): ByteArray? {
+        var current = url
+        repeat(MAX_REDIRECTS + 1) { redirect ->
+            val builder = Request.Builder()
+                .url(current.toString())
+                .header("User-Agent", "macOS/15.5 (24F74) AddressBookCore/2695.500.71")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Accept", "*/*")
+                .get()
+            authHeaders.forEach { (name, value) -> builder.header(name, value) }
+
+            http.newCall(builder.build()).execute().use { response ->
+                if (response.code in 300..399) {
+                    if (redirect == MAX_REDIRECTS) error("too many iCloud CardDAV redirects")
+                    val location = response.header("Location") ?: error("CardDAV redirect had no Location")
+                    val next = current.resolve(location)
+                    require(next.scheme == "https" && isAppleICloudHost(next.host)) {
+                        "refusing to forward Apple authentication outside iCloud"
+                    }
+                    current = next
+                    return@repeat
+                }
+                if (response.code !in 200..299) return null
+                val bytes = response.body?.bytes() ?: return null
+                return bytes.takeIf { it.isNotEmpty() && it.size <= MAX_PHOTO_BYTES }
+            }
+        }
+        return null
+    }
+
     private data class XmlResponse(val url: URI, val document: Document)
 
     private fun xmlRequest(method: String, url: URI, body: String, depth: String): XmlResponse {
@@ -478,12 +574,17 @@ object ICloudContactSync {
                     val raw = result.cards.mapNotNull { (href, vcard) ->
                         val parsed = ICloudVCardParser.parse(vcard)
                         if (parsed.addresses.isEmpty()) return@mapNotNull null
+                        val photo = resolveContactPhoto(parsed) { uri ->
+                            val resolved = runCatching { href.resolve(uri) }.getOrNull() ?: return@resolveContactPhoto null
+                            if (resolved.scheme != "https" || !isAppleICloudHost(resolved.host)) return@resolveContactPhoto null
+                            client.downloadPhoto(resolved)
+                        }
                         RawContact(
                             id = contactId(href.toString()),
                             displayName = parsed.displayName,
                             firstName = parsed.firstName,
                             lastName = parsed.lastName,
-                            avatarPath = savePhoto(context, href.toString(), parsed.photo),
+                            avatarPath = savePhoto(context, href.toString(), photo),
                             addresses = parsed.addresses,
                         )
                     }

@@ -242,15 +242,15 @@ object CoreGraph {
 
     /** Upsert device contacts + invalidate the handle→contact index. */
     fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
-        CoreContacts.syncFromDevice(raw)
+        CoreContacts.syncFromDevice(raw).also { UiContacts.notifyAvatarsChanged() }
 
     /** Apply CardDAV contact tombstones + invalidate cached name lookups. */
     fun removeContacts(nativeContactIds: Collection<String>): Int =
-        CoreContacts.remove(nativeContactIds)
+        CoreContacts.remove(nativeContactIds).also { UiContacts.notifyAvatarsChanged() }
 
     /** Re-match stored contacts after CloudKit creates additional handles. */
     fun relinkContacts(): app.openbubbles.core.contacts.ContactRelinkResult? =
-        CoreContacts.relink()
+        CoreContacts.relink()?.also { UiContacts.notifyAvatarsChanged() }
 
     /**
      * (display name, avatar path) for a handle address, or null when unknown.

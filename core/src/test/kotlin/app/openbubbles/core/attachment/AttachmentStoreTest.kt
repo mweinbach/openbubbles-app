@@ -57,6 +57,14 @@ class AttachmentStoreTest {
     // ------------------------------------------------------------------
 
     @Test
+    fun `group icon path is versioned under group_icons`() {
+        val path = disk.groupIconFile(42L, "rec/family", 3)
+        assertEquals(File(rootDir, "group_icons"), disk.groupIconsDir)
+        assertEquals(disk.groupIconsDir, path.parentFile)
+        assertEquals("42-rec_family-3.png", path.name)
+    }
+
+    @Test
     fun `path layout is attachments guid transferName`() {
         val att = attachment("att-1", "pic.png")
         val path = disk.pathFor(att)

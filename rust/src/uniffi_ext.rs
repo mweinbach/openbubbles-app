@@ -2022,8 +2022,8 @@ pub struct UCloudChat {
     pub last_seen_message_guid: Option<String>,
     /// ns since the Apple epoch (2001-01-01) → `Chat.dbOnlyLatestMessageDate`.
     pub last_read_message_timestamp: i64,
-    /// A group-photo asset rides on the record (the image itself downloads
-    /// through the attachment batch).
+    /// A group-photo asset rides on the record. Download it with
+    /// [`NativePushState::download_group_photo`].
     pub has_group_photo: bool,
 }
 
@@ -2590,6 +2590,22 @@ impl NativePushState {
         let client = cloud_messages_client(self.shared())?;
         RUNTIME
             .block_on(api::download_cloud_attachments(
+                &client,
+                vec![(path, record_id)],
+            ))
+            .map_err(sync_err)
+    }
+
+    /// Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
+    /// from the chat zone directly to `path`.
+    pub fn download_group_photo(
+        &self,
+        record_id: String,
+        path: String,
+    ) -> Result<(), UError> {
+        let client = cloud_messages_client(self.shared())?;
+        RUNTIME
+            .block_on(api::download_cloud_group_photos(
                 &client,
                 vec![(path, record_id)],
             ))

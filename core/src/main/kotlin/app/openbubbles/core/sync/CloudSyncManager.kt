@@ -33,6 +33,7 @@ import uniffi.rust_lib_bluebubbles.UCloudChat
 import uniffi.rust_lib_bluebubbles.UCloudMessage
 import uniffi.rust_lib_bluebubbles.UMessageChange
 import uniffi.rust_lib_bluebubbles.USyncState
+import java.io.File
 import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -83,7 +84,8 @@ data class SyncSummary(
  *    resurrects them);
  * 3. page the chat zone to completion (upsert by cloud guid / identifier /
  *    participants; tombstones hard-delete by ckRecordId; cloud state only
- *    applies when the cloud group version is newer);
+ *    applies when the cloud group version is newer). Group photos ride on
+ *    the chat record and are downloaded after each page;
  * 4. page the message zone to completion (dedupe by guid — existing rows
  *    only get their ckRecordId refreshed; new rows are inserted with
  *    latest-message wiring).
@@ -142,6 +144,51 @@ class CloudSyncManager(
             MessageMapper.REACTION_EMOJI,
             MessageMapper.REACTION_STICKERBACK,
         )
+
+        internal const val CLOUD_PHOTO_KEY_PREFIX = "ck:"
+
+        internal fun cloudPhotoKey(recordId: String, version: Long?): String =
+            "$CLOUD_PHOTO_KEY_PREFIX$recordId:${version ?: 0}"
+
+        internal fun isCloudPhotoKey(key: String?): Boolean =
+            key?.startsWith(CLOUD_PHOTO_KEY_PREFIX) == true
+
+        /**
+         * Download a CloudKit group photo when the local cache is missing or
+         * from an older cloud version. Live IconChange / user-set photos
+         * (non-`ck:` keys) are left alone.
+         */
+        internal fun shouldDownloadGroupPhoto(
+            lockChatIcon: Boolean?,
+            customAvatarPath: String?,
+            photoAttachmentGuid: String?,
+            recordId: String,
+            version: Long?,
+            fileExists: Boolean,
+        ): Boolean {
+            if (lockChatIcon == true) return false
+            val expected = cloudPhotoKey(recordId, version)
+            if (customAvatarPath.isNullOrBlank() || !fileExists) return true
+            if (photoAttachmentGuid != null && !isCloudPhotoKey(photoAttachmentGuid)) return false
+            return photoAttachmentGuid != expected
+        }
+
+        /**
+         * Clear a previously downloaded CloudKit photo only when the cloud
+         * version moved forward and the record no longer carries an image.
+         */
+        internal fun shouldClearCloudGroupPhoto(
+            photoAttachmentGuid: String?,
+            recordId: String,
+            cloudVersion: Long?,
+        ): Boolean {
+            val key = photoAttachmentGuid ?: return false
+            val prefix = "$CLOUD_PHOTO_KEY_PREFIX$recordId:"
+            if (!key.startsWith(prefix)) return false
+            val stored = key.removePrefix(prefix).toLongOrNull() ?: return false
+            val incoming = cloudVersion ?: return false
+            return incoming > stored
+        }
 
         /** Dart `fromNsSinceAppleEpoch`: Apple-epoch ns -> Date. */
         fun dateFromAppleNs(ns: Long): Date = Date((ns / 1_000_000) + APPLE_EPOCH_OFFSET_NS / 1_000_000)
@@ -469,7 +516,14 @@ class CloudSyncManager(
     // Chat zone (doCloudKitSyncPrivate chat loop + findFromCloud/applyFromCloud)
     // ------------------------------------------------------------------
 
-    private fun applyChatPage(records: List<UChatChange>, lookup: HistorySyncLookup) {
+    private data class PendingGroupPhoto(
+        val chatId: Long,
+        val recordId: String,
+        val version: Long?,
+    )
+
+    private suspend fun applyChatPage(records: List<UChatChange>, lookup: HistorySyncLookup) {
+        val pendingPhotos = ArrayList<PendingGroupPhoto>()
         records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
             store.runInTx {
                 val tombstonesByRecordId = chatsByRecordIdsLocked(
@@ -511,9 +565,69 @@ class CloudSyncManager(
                         }
                         chat.ckSyncState = true
                     }
+                    if (cloud.hasGroupPhoto) {
+                        val fileExists = chat.customAvatarPath?.let { File(it).isFile } == true
+                        if (shouldDownloadGroupPhoto(
+                                lockChatIcon = chat.lockChatIcon,
+                                customAvatarPath = chat.customAvatarPath,
+                                photoAttachmentGuid = chat.photoAttachmentGuid,
+                                recordId = record.recordId,
+                                version = cloudVersion,
+                                fileExists = fileExists,
+                            )
+                        ) {
+                            pendingPhotos += PendingGroupPhoto(chat.id, record.recordId, cloudVersion)
+                        }
+                    } else if (shouldClearCloudGroupPhoto(
+                            photoAttachmentGuid = chat.photoAttachmentGuid,
+                            recordId = record.recordId,
+                            cloudVersion = cloudVersion,
+                        )
+                    ) {
+                        clearCloudGroupPhoto(chat)
+                    }
                     chatBox.put(chat)
                     lookup.putChat(chat)
                 }
+            }
+        }
+        downloadPendingGroupPhotos(pendingPhotos)
+    }
+
+    private fun clearCloudGroupPhoto(chat: Chat) {
+        chat.customAvatarPath?.let { runCatching { File(it).delete() } }
+        chat.customAvatarPath = null
+        chat.photoAttachmentGuid = null
+    }
+
+    private suspend fun downloadPendingGroupPhotos(jobs: List<PendingGroupPhoto>) {
+        val disk = attachmentStore ?: return
+        for (job in jobs) {
+            if (cancelled.get()) return
+            if (job.chatId == 0L) continue
+            val dest = runCatching { disk.groupIconFile(job.chatId, job.recordId, job.version) }
+                .getOrNull() ?: continue
+            dest.parentFile?.mkdirs()
+            val downloaded = try {
+                port.downloadGroupPhoto(job.recordId, dest.absolutePath)
+                dest.isFile && dest.length() > 0L
+            } catch (e: CancellationException) {
+                dest.delete()
+                throw e
+            } catch (_: Exception) {
+                dest.delete()
+                false
+            }
+            if (!downloaded) continue
+            store.runInTx {
+                val chat = chatBox.get(job.chatId) ?: return@runInTx
+                if (chat.lockChatIcon == true) return@runInTx
+                chat.customAvatarPath?.takeIf { it != dest.absolutePath }?.let {
+                    runCatching { File(it).delete() }
+                }
+                chat.customAvatarPath = dest.absolutePath
+                chat.photoAttachmentGuid = cloudPhotoKey(job.recordId, job.version)
+                chatBox.put(chat)
             }
         }
     }

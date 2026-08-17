@@ -47,6 +47,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -686,7 +687,8 @@ private suspend fun prepareChatBackground(context: Context, uri: Uri): File = wi
 @Composable
 fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
     val resolved = remember { mutableStateMapOf<String, Pair<String?, String?>>() }
-    LaunchedEffect(addresses) {
+    val generation by UiContacts.avatarGeneration.collectAsState()
+    LaunchedEffect(addresses, generation) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
         val contacts = withContext(Dispatchers.IO) {
             addresses.distinct().mapNotNull { address ->

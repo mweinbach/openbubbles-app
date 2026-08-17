@@ -1466,6 +1466,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1604,6 +1606,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
 ): Short
@@ -1996,6 +2000,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
@@ -2616,6 +2622,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 9054.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo() != 57272.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 22742.toShort()) {
@@ -5972,6 +5981,12 @@ public interface NativePushStateInterface {
     fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
 
     /**
+     * Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
+     * from the chat zone directly to `path`.
+     */
+    fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String)
+
+    /**
      * Download a bare MMCS file (e.g. a group icon from
      * `UMessage.IconChange.icon_xml`) to `dest_path`.
      */
@@ -6590,6 +6605,22 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
+        it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
+}
+    }
+
+
+
+
+    /**
+     * Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
+     * from the chat zone directly to `path`.
+     */
+    @Throws(UException::class)override fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(
         it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
 }
     }
@@ -11694,8 +11725,8 @@ data class UCloudChat (
      */
     var `lastReadMessageTimestamp`: kotlin.Long,
     /**
-     * A group-photo asset rides on the record (the image itself downloads
-     * through the attachment batch).
+     * A group-photo asset rides on the record. Download it with
+     * [`NativePushState::download_group_photo`].
      */
     var `hasGroupPhoto`: kotlin.Boolean
 ) {

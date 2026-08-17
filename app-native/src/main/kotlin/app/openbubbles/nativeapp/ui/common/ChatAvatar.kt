@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,13 +40,18 @@ fun initialsFor(title: String): String {
  * contact has no photo — callers keep the initials fallback.
  */
 @Composable
-fun rememberContactAvatarPath(address: String?): String? =
-    produceState<String?>(initialValue = null, address) {
-        if (address == null) return@produceState
+fun rememberContactAvatarPath(address: String?): String? {
+    val generation by UiContacts.avatarGeneration.collectAsState()
+    return produceState<String?>(initialValue = null, address, generation) {
+        if (address == null) {
+            value = null
+            return@produceState
+        }
         value = withContext(Dispatchers.IO) {
             runCatching { UiContacts.contactNames?.invoke(address)?.second }.getOrNull()
         }
     }.value
+}
 
 /**
  * Colored avatar circle with initials, used by the chat list, the chat

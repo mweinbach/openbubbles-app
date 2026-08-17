@@ -155,14 +155,27 @@ fun rememberDecodedImage(
  * normalized before caching. Returns null while decoding, for null/blank
  * input, or on failure — callers fall back.
  */
+internal fun uriImageCacheKey(uri: String?, maxDimensionPx: Int): String? {
+    val value = uri?.takeIf { it.isNotBlank() } ?: return null
+    val fileMeta = when {
+        value.startsWith("content://") -> ""
+        value.startsWith("file://") -> {
+            val path = Uri.parse(value).path ?: return "uri:$value:$maxDimensionPx"
+            File(path).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
+        }
+        else -> File(value).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
+    }
+    return "uri:$value$fileMeta:$maxDimensionPx"
+}
+
 @Composable
 fun rememberDecodedUriImage(
     uri: String?,
     maxDimensionPx: Int = 256,
 ): DecodedImage? {
     val context = LocalContext.current
-    val cacheKey = remember(uri, maxDimensionPx) {
-        uri?.takeIf { it.isNotBlank() }?.let { "uri:$it:$maxDimensionPx" }
+    val cacheKey = remember(uri, maxDimensionPx, File(uri.orEmpty()).let { it.lastModified() to it.length() }) {
+        uriImageCacheKey(uri, maxDimensionPx)
     }
     return produceState<DecodedImage?>(initialValue = null, cacheKey) {
         val key = cacheKey ?: return@produceState
