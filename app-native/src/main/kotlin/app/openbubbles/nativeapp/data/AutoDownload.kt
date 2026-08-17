@@ -85,3 +85,6 @@ fun isAutoDownloadEligible(
     val size = totalBytes ?: 0L
     return size <= maxBytes
 }
+
+internal fun knownAutoDownloadSize(totalBytes: Long?): Long? =
+    totalBytes?.takeIf { it > 0L }

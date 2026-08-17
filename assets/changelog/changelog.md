@@ -2,6 +2,13 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.2.1
+
+### Fixes
+
+- Fixed a crash loop introduced in 2.2.0 when media auto-download inspected
+  an attachment whose stored size was missing.
+
 ## v2.2.0
 
 ### Enhancements

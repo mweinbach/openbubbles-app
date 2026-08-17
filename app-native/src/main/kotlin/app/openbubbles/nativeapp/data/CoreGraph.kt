@@ -465,7 +465,7 @@ object CoreGraph {
                 .filter { attachment ->
                     isAutoDownloadEligible(
                         mime = attachment.mimeType,
-                        totalBytes = attachment.totalBytes.takeIf { bytes -> bytes > 0L },
+                        totalBytes = knownAutoDownloadSize(attachment.totalBytes),
                         hasTransferMetadata = attachment.metadata?.containsKey("rustpush") == true ||
                             attachment.metadata?.containsKey("cloud") == true,
                         maxBytes = maxBytes,

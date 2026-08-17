@@ -89,4 +89,12 @@ class AutoDownloadTest {
             ),
         )
     }
+
+    @Test
+    fun `nullable database size normalizes without unboxing`() {
+        assertEquals(null, knownAutoDownloadSize(null))
+        assertEquals(null, knownAutoDownloadSize(0L))
+        assertEquals(null, knownAutoDownloadSize(-1L))
+        assertEquals(1L, knownAutoDownloadSize(1L))
+    }
 }
