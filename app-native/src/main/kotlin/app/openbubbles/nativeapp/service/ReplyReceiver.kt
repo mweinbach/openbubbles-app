@@ -16,7 +16,11 @@ import app.openbubbles.nativeapp.sms.SmsBridge
 import io.objectbox.BoxStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.rust_lib_bluebubbles.UMessageInst
 import uniffi.rust_lib_bluebubbles.UPushMessage
 
@@ -46,7 +50,20 @@ class ReplyReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                sendReply(context, chatId, chatGuid, messageGuid, notificationId, replyText)
+                val failure = runNotificationReplySafely {
+                    sendReply(context, chatId, chatGuid, messageGuid, notificationId, replyText)
+                }
+                failure?.let { error ->
+                    reportReplyFailure(
+                        context = context,
+                        notificationId = notificationId,
+                        chatId = chatId,
+                        chatGuid = chatGuid,
+                        title = "Message",
+                        reason = "Reply not sent: ${error.message ?: error.javaClass.simpleName}",
+                        error = error,
+                    )
+                }
             } finally {
                 pendingResult.finish()
             }
@@ -64,14 +81,14 @@ class ReplyReceiver : BroadcastReceiver() {
         var resolvedGuid = chatGuid
         var title = "Message"
         fun fail(reason: String, error: Throwable? = null) {
-            if (error != null) Log.e(TAG, reason, error) else Log.e(TAG, reason)
-            PushStateHolder.reportError(reason)
-            Notifications.postReplyFailed(
+            reportReplyFailure(
                 context = context,
                 notificationId = notificationId,
                 chatId = chatId,
                 chatGuid = resolvedGuid,
                 title = title,
+                reason = reason,
+                error = error,
             )
         }
 
@@ -94,8 +111,14 @@ class ReplyReceiver : BroadcastReceiver() {
                 return
             }
         } else {
-            val pushState = PushStateHolder.state ?: run {
-                fail("Reply not sent: Apple push is disconnected")
+            val pushState = awaitNotificationReplyState(
+                currentState = { PushStateHolder.state },
+                startService = { NativePushService.start(context.applicationContext) },
+                stateFlow = PushStateHolder.stateFlow,
+                timeoutMs = PUSH_RESTORE_TIMEOUT_MS,
+            ) ?: run {
+                fail(PushStateHolder.lastError?.let { "Reply not sent: $it" }
+                    ?: "Reply not sent: Apple push is disconnected")
                 return
             }
             val sender = app.openbubbles.nativeapp.data.sendingHandle(chat) ?: run {
@@ -138,21 +161,71 @@ class ReplyReceiver : BroadcastReceiver() {
         }
 
         runCatching { CoreGraph.readReceipts.markRead(chatId, messageGuid ?: afterGuid) }
-        Notifications.cancelForChat(context, chatId)
-        Notifications.postReplySent(
-            context,
-            notificationId,
-            chatId,
-            resolvedGuid ?: "chat-$chatId",
-            title,
-            text,
-            isGroup = identity.isGroup,
-        )
+        runCatching {
+            Notifications.cancelForChat(context, chatId)
+            Notifications.postReplySent(
+                context,
+                notificationId,
+                chatId,
+                resolvedGuid ?: "chat-$chatId",
+                title,
+                text,
+                isGroup = identity.isGroup,
+            )
+        }.onFailure { error ->
+            Log.e(TAG, "reply sent but notification confirmation failed", error)
+        }
     }
 
     private companion object {
         const val TAG = "ReplyReceiver"
+        const val PUSH_RESTORE_TIMEOUT_MS = 8_000L
     }
+}
+
+private fun reportReplyFailure(
+    context: Context,
+    notificationId: Int,
+    chatId: Long,
+    chatGuid: String?,
+    title: String,
+    reason: String,
+    error: Throwable?,
+) {
+    if (error != null) Log.e("ReplyReceiver", reason, error) else Log.e("ReplyReceiver", reason)
+    runCatching { PushStateHolder.reportError(reason) }
+        .onFailure { Log.e("ReplyReceiver", "failed to record notification reply error", it) }
+    runCatching {
+        Notifications.postReplyFailed(
+            context = context,
+            notificationId = notificationId,
+            chatId = chatId,
+            chatGuid = chatGuid,
+            title = title,
+        )
+    }.onFailure { Log.e("ReplyReceiver", "failed to post notification reply error", it) }
+}
+
+internal suspend fun runNotificationReplySafely(
+    sendReply: suspend () -> Unit,
+): Throwable? = try {
+    sendReply()
+    null
+} catch (error: Throwable) {
+    error
+}
+
+internal suspend fun <T : Any> awaitNotificationReplyState(
+    currentState: () -> T?,
+    startService: () -> Boolean,
+    stateFlow: Flow<T?>,
+    timeoutMs: Long,
+): T? {
+    currentState()?.let { return it }
+    if (!startService()) return currentState()
+    return withTimeoutOrNull(timeoutMs) {
+        stateFlow.filterNotNull().first()
+    } ?: currentState()
 }
 
 internal enum class NotificationReplyTransport { SMS, IMESSAGE }

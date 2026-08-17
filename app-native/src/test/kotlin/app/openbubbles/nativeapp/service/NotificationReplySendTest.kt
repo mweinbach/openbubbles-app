@@ -15,7 +15,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UMessage
@@ -77,6 +80,57 @@ class NotificationReplySendTest {
         assertEquals(echo.id, saved.guid)
         assertEquals("Reply from notification", saved.text)
         assertEquals(MessageStatus.SENT, saved.status)
+    }
+
+    @Test
+    fun `notification reply waits for cold-start push restoration`() = runTest {
+        val state = MutableStateFlow<String?>(null)
+        var serviceStarts = 0
+        backgroundScope.launch {
+            kotlinx.coroutines.delay(1_000)
+            state.value = "connected"
+        }
+
+        val restored = awaitNotificationReplyState(
+            currentState = { state.value },
+            startService = {
+                serviceStarts += 1
+                true
+            },
+            stateFlow = state,
+            timeoutMs = 8_000,
+        )
+
+        assertEquals("connected", restored)
+        assertEquals(1, serviceStarts)
+    }
+
+    @Test
+    fun `notification reply does not wait when push is already connected`() = runTest {
+        val state = MutableStateFlow<String?>("connected")
+        var serviceStarts = 0
+
+        val restored = awaitNotificationReplyState(
+            currentState = { state.value },
+            startService = {
+                serviceStarts += 1
+                true
+            },
+            stateFlow = state,
+            timeoutMs = 8_000,
+        )
+
+        assertEquals("connected", restored)
+        assertEquals(0, serviceStarts)
+    }
+
+    @Test
+    fun `notification reply contains unexpected receiver failures`() = runTest {
+        val failure = IllegalStateException("broken notification state")
+
+        val caught = runNotificationReplySafely { throw failure }
+
+        assertTrue(caught === failure)
     }
 
     private fun outgoingEcho(chatGuid: String, sender: String) = UMessageInst(
