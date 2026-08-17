@@ -148,8 +148,8 @@ internal object FakeChatData {
     }
 
     /** Fake attachment send: optimistic bubble that settles like a text send. */
-    suspend fun sendAttachments(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
-        if (attachments.isEmpty()) return
+    fun sendAttachments(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?): Long {
+        require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
         val metas = attachments.mapIndexed { index, attachment ->
             AttachmentMeta(
                 guid = "outgoing-${nextMessageId.incrementAndGet()}",
@@ -182,12 +182,13 @@ internal object FakeChatData {
                 } else it
             }
         }
-        delay(150)
-        updateMessage(chatId, message.id) { it.copy(status = MessageStatus.SENT) }
         scope.launch {
+            delay(150)
+            updateMessage(chatId, message.id) { it.copy(status = MessageStatus.SENT) }
             delay(900)
             updateMessage(chatId, message.id) { it.copy(status = MessageStatus.DELIVERED) }
         }
+        return message.id
     }
 
     private fun append(chatId: Long, message: MessageItem) {
@@ -436,8 +437,12 @@ object FakeFaceTimeCaller : FaceTimeCaller {
 
 /** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
 object FakeAttachmentSender : AttachmentSender {
-    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) =
-        FakeChatData.sendAttachments(chatId, attachments, caption)
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ): OutgoingAttachmentSend =
+        OutgoingAttachmentSend(FakeChatData.sendAttachments(chatId, attachments, caption))
 }
 
 /** Fake [TypingRepository]: never any typing activity. */

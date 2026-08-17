@@ -190,6 +190,10 @@ data class OutgoingTextSend(
     val messageId: Long,
 )
 
+data class OutgoingAttachmentSend(
+    val messageId: Long,
+)
+
 interface Sender {
     /** Returns after the outgoing row is staged locally; transport continues asynchronously. */
     suspend fun send(chatId: Long, text: String): OutgoingTextSend
@@ -223,6 +227,10 @@ data class StickerTransform(
 )
 
 /** Uploads an image as a positional sticker reaction. */
+data class OutgoingStickerSend(
+    val attachmentGuid: String,
+)
+
 fun interface StickerSender {
     suspend fun send(
         chatId: Long,
@@ -231,7 +239,7 @@ fun interface StickerSender {
         targetText: String,
         sticker: OutgoingAttachment,
         transform: StickerTransform,
-    )
+    ): OutgoingStickerSend
 }
 
 /** Marks a conversation read locally and mirrors the receipt through iMessage. */
@@ -303,7 +311,12 @@ data class OutgoingAttachment(
  * surfaces through the message flow, and errors leave a FAILED bubble.
  */
 interface AttachmentSender {
-    suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?)
+    /** Returns after the message and all attachment rows are staged locally. */
+    suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ): OutgoingAttachmentSend
 }
 
 /** One live "X is typing…" entry; entries expire automatically upstream. */

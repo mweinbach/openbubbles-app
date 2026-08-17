@@ -57,11 +57,14 @@ Code: `NativePushService.kt`, `core/.../intake/MessageIngestor.kt`.
 
 ## Message send
 
-ViewModels call `AppGraph` ports. `CoreSender` stages a temp guid, `NativePushState.sendText`
-(or attachment), promotes the row to the Rust staging guid, and ingests the echo. SIM chats
-fork to `SmsBridge` / Android MMS. Delivery/read receipts reconcile the staged row.
+ViewModels call `AppGraph` ports. Text, iMessage attachment, SMS, and MMS senders first stage a
+complete local ObjectBox row and return its id; the composer clears only after that boundary.
+App-lifetime background work then calls `NativePushState` or the Android modem, promotes the row
+to the transport guid, and ingests receipts/echoes. Edit, tapback, unsend, and sticker actions use
+tokenized UI overlays until the corresponding database state arrives, rolling back on failure.
 
-Code: `ChatViewModel.kt`, `CoreGraph.kt` (`CoreSender`), `MessageRepo.stageOutgoingMessage`.
+Code: `ChatViewModel.kt`, `CoreGraph.kt` (`CoreSender`, `CoreAttachmentSender`),
+`MmsManagerSender.kt`, `MessageRepo.stageOutgoingMessage*`.
 
 ## Background modes
 

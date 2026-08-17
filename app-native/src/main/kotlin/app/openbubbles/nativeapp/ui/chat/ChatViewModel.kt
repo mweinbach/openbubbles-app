@@ -17,6 +17,7 @@ import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.SmsSender
+import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class ChatUiState(
     val chat: ChatListItem? = null,
@@ -66,8 +68,12 @@ data class ChatUiState(
     val faceTimeLaunch: FaceTimeLaunch? = null,
     /** Prevents duplicate taps while the current text draft is being staged. */
     val textSendInProgress: Boolean = false,
+    /** Prevents duplicate taps while attachment rows and files are being staged. */
+    val attachmentSendInProgress: Boolean = false,
     /** Emitted only after the staged outgoing row is present in [messages]. */
     val outgoingSendEvent: OutgoingSendEvent? = null,
+    /** Temporary sticker payloads keyed by their optimistic attachment guid. */
+    val optimisticStickerFiles: Map<String, File> = emptyMap(),
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
@@ -97,6 +103,26 @@ data class OutgoingSendEvent(
     val messageId: Long,
     val effectId: String?,
 )
+
+private data class OptimisticEdit(val token: Long, val text: String)
+private data class OptimisticReaction(val token: Long, val emoji: String)
+private data class OptimisticUnsend(val token: Long)
+private data class OptimisticSticker(
+    val token: Long,
+    val placement: StickerPlacement,
+    val file: File?,
+    val expectedAttachmentGuid: String? = null,
+)
+
+private data class OptimisticMessageOverlay(
+    val edit: OptimisticEdit? = null,
+    val reaction: OptimisticReaction? = null,
+    val unsend: OptimisticUnsend? = null,
+    val stickers: List<OptimisticSticker> = emptyList(),
+) {
+    val isEmpty: Boolean
+        get() = edit == null && reaction == null && unsend == null && stickers.isEmpty()
+}
 
 /**
  * Stages the picker's selection for the next [ChatViewModel.sendMessage] call.
@@ -139,8 +165,7 @@ class ChatViewModel(
     typingRepository: TypingRepository,
     private val readReceiptSender: ReadReceiptSender,
     private val smsSender: SmsSender = SmsBridge.sender,
-    private val smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean =
-        SmsBridge::routeAttachmentsIfSmsChat,
+    private val smsAttachmentSender: AttachmentSender = SmsBridge.attachmentSender,
     initialInput: String? = null,
 ) : ViewModel() {
 
@@ -160,11 +185,15 @@ class ChatViewModel(
     private val faceTimeStarting = MutableStateFlow(false)
     private val faceTimeLaunch = MutableStateFlow<FaceTimeLaunch?>(null)
     private val textSendInProgress = MutableStateFlow(false)
+    private val attachmentSendInProgress = MutableStateFlow(false)
     private val outgoingSendEvent = MutableStateFlow<OutgoingSendEvent?>(null)
+    private val optimisticMessageOverlays =
+        MutableStateFlow<Map<String, OptimisticMessageOverlay>>(emptyMap())
     private var endReached = false
     private var replyThreadJob: Job? = null
     private var composerRevision = 0L
     private var pendingOutgoingSendEvent: OutgoingSendEvent? = null
+    private var nextOptimisticToken = 0L
 
     /** Message ids whose send effect has already been played (once each). */
     private val playedEffectMessageIds = mutableSetOf<Long>()
@@ -189,6 +218,7 @@ class ChatViewModel(
                 observeMessageEffects(list)
                 observeIncomingReadState(list)
                 observePendingOutgoingSend(list)
+                reconcileOptimisticOverlays(list)
             }
             .stateIn(
                 viewModelScope,
@@ -248,6 +278,16 @@ class ChatViewModel(
                 loadingOlder = loadingOlder,
                 typingSenders = typing,
             )
+        }.combine(optimisticMessageOverlays) { state, overlays ->
+            state.copy(
+                messages = applyOptimisticOverlays(state.messages, overlays),
+                optimisticStickerFiles = overlays.values
+                    .flatMap { it.stickers }
+                    .mapNotNull { sticker ->
+                        sticker.file?.takeIf { it.isFile }?.let { sticker.placement.attachmentGuid to it }
+                    }
+                    .toMap(),
+            )
         }.combine(screenEffect) { state, effect ->
             state.copy(screenEffect = effect)
         }.combine(replyingTo) { state, reply ->
@@ -266,6 +306,8 @@ class ChatViewModel(
             state.copy(pendingAttachments = attachments)
         }.combine(textSendInProgress) { state, sending ->
             state.copy(textSendInProgress = sending)
+        }.combine(attachmentSendInProgress) { state, sending ->
+            state.copy(attachmentSendInProgress = sending)
         }.combine(outgoingSendEvent) { state, event ->
             state.copy(outgoingSendEvent = event)
         }.stateIn(
@@ -291,16 +333,16 @@ class ChatViewModel(
         val editing = editingMessage.value
         val reply = replyingTo.value
         val sendRevision = composerRevision
+        if (editing != null) {
+            sendEdit(editing, text, sendRevision)
+            return
+        }
         textSendInProgress.value = true
         viewModelScope.launch {
             runCatching {
                 val chatItem = chat.value ?: chat.filterNotNull().first()
                 val targetChatId = chatItem.preferredChatId
                 when {
-                    editing != null -> {
-                        messageActions.edit(sourceChatId(editing), editing.guid, text)
-                        null
-                    }
                     chatItem.isSms -> smsSender.send(targetChatId, text)
                     reply != null -> sender.sendReply(
                         sourceChatId(reply.message),
@@ -312,10 +354,8 @@ class ChatViewModel(
                     else -> sender.sendWithEffect(targetChatId, text, effectId)
                 }
             }.onSuccess { accepted ->
-                if (accepted != null) {
-                    if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
-                    queueOutgoingSend(OutgoingSendEvent(accepted.messageId, effectId))
-                }
+                if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
+                queueOutgoingSend(OutgoingSendEvent(accepted.messageId, effectId))
                 settleComposerAfterSend(sendRevision)
             }.onFailure { failure ->
                 actionError.value = failure.message ?: "Message operation failed"
@@ -354,11 +394,13 @@ class ChatViewModel(
         if (attachments.isEmpty()) return
         // An in-progress edit is a text-only operation; staging media ends it.
         if (editingMessage.value != null) cancelComposerAction()
+        composerRevision++
         pendingAttachments.value = pendingAttachments.value + attachments
     }
 
     /** Removes one staged draft attachment (the thumbnail's remove action). */
     fun removePendingAttachment(attachment: OutgoingAttachment) {
+        composerRevision++
         pendingAttachments.value = pendingAttachments.value - attachment
     }
 
@@ -367,25 +409,32 @@ class ChatViewModel(
      * becomes the caption (the input is consumed either way).
      */
     private fun sendDraftAttachments(caption: String, attachments: List<OutgoingAttachment>) {
+        if (attachmentSendInProgress.value) return
         // Effects do not ride attachment sends; consume any staged one so it
         // cannot leak onto a later text send.
-        PendingSendEffect.effectId = null
-        input.value = ""
-        pendingAttachments.value = emptyList()
+        val effectId = PendingSendEffect.effectId
+        val sendRevision = composerRevision
+        attachmentSendInProgress.value = true
         viewModelScope.launch {
             runCatching {
                 val value = caption.ifEmpty { null }
-                val targetChatId = preferredChatId()
-                if (!smsAttachmentRouter(targetChatId, attachments, value)) {
+                val chatItem = chat.value ?: chat.filterNotNull().first()
+                val targetChatId = chatItem.preferredChatId
+                if (chatItem.isSms) {
+                    smsAttachmentSender.send(targetChatId, attachments, value)
+                } else {
                     attachmentSender.send(targetChatId, attachments, value)
                 }
-            }.onSuccess {
-                settleComposerAfterSend()
+            }.onSuccess { accepted ->
+                if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
+                queueOutgoingSend(OutgoingSendEvent(accepted.messageId, effectId))
+                val composerUnchanged = composerRevision == sendRevision
+                pendingAttachments.value = pendingAttachments.value.filterNot { it in attachments }
+                if (composerUnchanged) settleComposerAfterSend(sendRevision)
             }.onFailure { failure ->
-                input.value = caption
-                pendingAttachments.value = attachments
                 actionError.value = failure.message ?: "Could not send attachment"
             }
+            attachmentSendInProgress.value = false
         }
     }
 
@@ -493,6 +542,11 @@ class ChatViewModel(
     }
 
     fun react(message: MessageItem, part: Long, reactionIndex: Int, emoji: String? = null) {
+        val display = emoji ?: TAPBACK_EMOJI.getOrNull(reactionIndex) ?: return
+        val token = optimisticToken()
+        updateOptimisticOverlay(message.guid) { overlay ->
+            overlay.copy(reaction = OptimisticReaction(token, display))
+        }
         viewModelScope.launch {
             runCatching {
                 messageActions.react(
@@ -504,6 +558,7 @@ class ChatViewModel(
                     emoji = emoji,
                 )
             }.onFailure { failure ->
+                removeOptimisticReaction(message.guid, token)
                 actionError.value = failure.message ?: "Could not send reaction"
             }
         }
@@ -511,9 +566,14 @@ class ChatViewModel(
 
     fun unsend(message: MessageItem) {
         if (!message.isFromMe || message.unsent) return
+        val token = optimisticToken()
+        updateOptimisticOverlay(message.guid) { overlay ->
+            overlay.copy(unsend = OptimisticUnsend(token))
+        }
         viewModelScope.launch {
             runCatching { messageActions.unsend(sourceChatId(message), message.guid) }
                 .onFailure { failure ->
+                    removeOptimisticUnsend(message.guid, token)
                     actionError.value = failure.message ?: "Could not unsend message"
                 }
         }
@@ -546,6 +606,27 @@ class ChatViewModel(
         sticker: OutgoingAttachment,
         transform: StickerTransform,
     ) {
+        val token = optimisticToken()
+        val optimisticGuid = "optimistic-sticker-$token"
+        val optimisticSticker = OptimisticSticker(
+            token = token,
+            placement = StickerPlacement(
+                reactionGuid = "optimistic-reaction-$token",
+                attachmentGuid = optimisticGuid,
+                targetPart = part,
+                messageWidth = transform.messageWidth,
+                normalizedX = transform.normalizedX,
+                normalizedY = transform.normalizedY,
+                rotation = transform.rotation,
+                scale = transform.scale,
+                effectType = transform.effectType,
+                downloaded = true,
+            ),
+            file = sticker.file,
+        )
+        updateOptimisticOverlay(target.guid) { overlay ->
+            overlay.copy(stickers = overlay.stickers + optimisticSticker)
+        }
         viewModelScope.launch {
             runCatching {
                 stickerSender.send(
@@ -556,10 +637,131 @@ class ChatViewModel(
                     sticker,
                     transform,
                 )
+            }.onSuccess { accepted ->
+                confirmOptimisticSticker(target.guid, token, accepted.attachmentGuid)
             }.onFailure { failure ->
+                removeOptimisticSticker(target.guid, token)
                 actionError.value = failure.message ?: "Could not send sticker"
             }
         }
+    }
+
+    private fun sendEdit(message: MessageItem, newText: String, sendRevision: Long) {
+        val token = optimisticToken()
+        updateOptimisticOverlay(message.guid) { overlay ->
+            overlay.copy(edit = OptimisticEdit(token, newText))
+        }
+        PendingSendEffect.effectId = null
+        settleComposerAfterSend(sendRevision)
+        val settledRevision = composerRevision
+        viewModelScope.launch {
+            runCatching { messageActions.edit(sourceChatId(message), message.guid, newText) }
+                .onFailure { failure ->
+                    removeOptimisticEdit(message.guid, token)
+                    if (
+                        composerRevision == settledRevision &&
+                        input.value.isBlank() &&
+                        editingMessage.value == null
+                    ) {
+                        editingMessage.value = message
+                        input.value = newText
+                        composerRevision++
+                    }
+                    actionError.value = failure.message ?: "Could not edit message"
+                }
+        }
+    }
+
+    private fun optimisticToken(): Long = ++nextOptimisticToken
+
+    private fun updateOptimisticOverlay(
+        messageGuid: String,
+        transform: (OptimisticMessageOverlay) -> OptimisticMessageOverlay,
+    ) {
+        val current = optimisticMessageOverlays.value
+        val updated = transform(current[messageGuid] ?: OptimisticMessageOverlay())
+        optimisticMessageOverlays.value = if (updated.isEmpty) {
+            current - messageGuid
+        } else {
+            current + (messageGuid to updated)
+        }
+    }
+
+    private fun removeOptimisticEdit(messageGuid: String, token: Long) {
+        updateOptimisticOverlay(messageGuid) { overlay ->
+            if (overlay.edit?.token == token) overlay.copy(edit = null) else overlay
+        }
+    }
+
+    private fun removeOptimisticReaction(messageGuid: String, token: Long) {
+        updateOptimisticOverlay(messageGuid) { overlay ->
+            if (overlay.reaction?.token == token) overlay.copy(reaction = null) else overlay
+        }
+    }
+
+    private fun removeOptimisticUnsend(messageGuid: String, token: Long) {
+        updateOptimisticOverlay(messageGuid) { overlay ->
+            if (overlay.unsend?.token == token) overlay.copy(unsend = null) else overlay
+        }
+    }
+
+    private fun removeOptimisticSticker(messageGuid: String, token: Long) {
+        updateOptimisticOverlay(messageGuid) { overlay ->
+            overlay.copy(stickers = overlay.stickers.filterNot { it.token == token })
+        }
+    }
+
+    private fun confirmOptimisticSticker(messageGuid: String, token: Long, attachmentGuid: String) {
+        updateOptimisticOverlay(messageGuid) { overlay ->
+            overlay.copy(
+                stickers = overlay.stickers.map { sticker ->
+                    if (sticker.token == token) {
+                        sticker.copy(
+                            placement = sticker.placement.copy(attachmentGuid = attachmentGuid),
+                            expectedAttachmentGuid = attachmentGuid,
+                        )
+                    } else {
+                        sticker
+                    }
+                },
+            )
+        }
+        reconcileOptimisticOverlays(messages.value)
+    }
+
+    private fun reconcileOptimisticOverlays(list: List<MessageItem>) {
+        val current = optimisticMessageOverlays.value
+        if (current.isEmpty()) return
+        val persistedByGuid = list.associateBy { it.guid }
+        val reconciled = current.mapNotNull { (guid, overlay) ->
+            val persisted = persistedByGuid[guid] ?: return@mapNotNull guid to overlay
+            val updated = overlay.copy(
+                edit = overlay.edit?.takeUnless { persisted.edited && persisted.text == it.text },
+                reaction = overlay.reaction?.takeUnless { persisted.reactionEmoji == it.emoji },
+                unsend = overlay.unsend?.takeUnless { persisted.unsent },
+                stickers = overlay.stickers.filterNot { sticker ->
+                    sticker.expectedAttachmentGuid?.let { expected ->
+                        persisted.stickers.any { it.attachmentGuid == expected }
+                    } == true
+                },
+            )
+            if (updated.isEmpty) null else guid to updated
+        }.toMap()
+        if (reconciled != current) optimisticMessageOverlays.value = reconciled
+    }
+
+    private fun applyOptimisticOverlays(
+        list: List<MessageItem>,
+        overlays: Map<String, OptimisticMessageOverlay>,
+    ): List<MessageItem> = list.map { message ->
+        val overlay = overlays[message.guid] ?: return@map message
+        message.copy(
+            text = overlay.edit?.text ?: message.text,
+            edited = message.edited || overlay.edit != null,
+            unsent = message.unsent || overlay.unsend != null,
+            reactionEmoji = overlay.reaction?.emoji ?: message.reactionEmoji,
+            stickers = message.stickers + overlay.stickers.map { it.placement },
+        )
     }
 
     /**
@@ -600,6 +802,7 @@ class ChatViewModel(
                 error("FaceTime requires an active Apple push connection")
             },
             smsSender: SmsSender = SmsBridge.sender,
+            smsAttachmentSender: AttachmentSender = SmsBridge.attachmentSender,
             initialInput: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -615,9 +818,12 @@ class ChatViewModel(
                     typingRepository,
                     readReceiptSender,
                     smsSender = smsSender,
+                    smsAttachmentSender = smsAttachmentSender,
                     initialInput = initialInput,
                 )
             }
         }
     }
 }
+
+private val TAPBACK_EMOJI = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")

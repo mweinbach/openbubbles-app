@@ -10,11 +10,14 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
+import app.openbubbles.nativeapp.data.OutgoingStickerSend
 import app.openbubbles.nativeapp.data.OutgoingTextSend
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.SmsSender
 import app.openbubbles.nativeapp.data.StickerSender
+import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TypingEntry
 import app.openbubbles.nativeapp.data.TypingRepository
@@ -268,6 +271,99 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `edit is visible and composer clears before native action completes`() = runTest(dispatcher) {
+        val target = message(guid = "target", text = "before")
+        val messages = MutableMessages(listOf(target))
+        val actions = DeferredActions()
+        val model = model(
+            RecordingSender(),
+            actions,
+            messageRepository = messages,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.beginEdit(target)
+        model.onInputChange("after")
+        model.sendMessage()
+        runCurrent()
+        actions.editStarted.await()
+
+        assertEquals("after", model.uiState.value.messages.single().text)
+        assertEquals(true, model.uiState.value.messages.single().edited)
+        assertEquals("", model.uiState.value.input)
+        assertEquals(null, model.uiState.value.editingMessage)
+
+        actions.editRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `reaction and unsend render immediately and roll back on failure`() = runTest(dispatcher) {
+        val target = message(guid = "target", text = "before")
+        val messages = MutableMessages(listOf(target))
+        val actions = DeferredActions(failReaction = true, failUnsend = true)
+        val model = model(
+            RecordingSender(),
+            actions,
+            messageRepository = messages,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.react(target, 0L, 1)
+        model.unsend(target)
+        runCurrent()
+        actions.reactionStarted.await()
+        actions.unsendStarted.await()
+
+        assertEquals("👍", model.uiState.value.messages.single().reactionEmoji)
+        assertEquals(true, model.uiState.value.messages.single().unsent)
+
+        actions.reactionRelease.complete(Unit)
+        actions.unsendRelease.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(null, model.uiState.value.messages.single().reactionEmoji)
+        assertEquals(false, model.uiState.value.messages.single().unsent)
+    }
+
+    @Test
+    fun `sticker preview is visible before upload completes and rolls back`() = runTest(dispatcher) {
+        val target = message(guid = "target", text = "decorate")
+        val messages = MutableMessages(listOf(target))
+        val stickerSender = DeferredStickerSender(fail = true)
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+            stickerSender = stickerSender,
+        )
+        val file = File.createTempFile("sticker-preview", ".png").apply {
+            writeBytes(byteArrayOf(1, 2, 3))
+        }
+        val attachment = OutgoingAttachment(file, "image/png", "public.png", "sticker.png", file.length())
+        val transform = StickerTransform(320.0, 0.25, 0.75, 0.5, 1.4, effectType = 2L)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.sendSticker(target, 2L, attachment, transform)
+        runCurrent()
+        stickerSender.started.await()
+
+        val optimistic = model.uiState.value.messages.single().stickers.single()
+        assertEquals(2L, optimistic.targetPart)
+        assertEquals(file, model.uiState.value.optimisticStickerFiles[optimistic.attachmentGuid])
+
+        stickerSender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), model.uiState.value.messages.single().stickers)
+        assertEquals(emptyMap(), model.uiState.value.optimisticStickerFiles)
+        file.delete()
+    }
+
+    @Test
     fun `edit reaction and unsend reach native action layer`() = runTest(dispatcher) {
         val actions = RecordingActions()
         val model = model(RecordingSender(), actions)
@@ -289,15 +385,13 @@ class ChatViewModelTest {
     @Test
     fun `attachment in sms chat never enters imessage uploader`() = runTest(dispatcher) {
         val attachmentSender = RecordingAttachmentSender()
-        var routed: Triple<Long, String, String?>? = null
+        val smsAttachmentSender = RecordingAttachmentSender()
         val model = model(
             sender = RecordingSender(),
             actions = RecordingActions(),
+            chatListRepository = SmsChats,
             attachmentSender = attachmentSender,
-            smsAttachmentRouter = { chatId, attachments, caption ->
-                routed = Triple(chatId, attachments.first().mime, caption)
-                true
-            },
+            smsAttachmentSender = smsAttachmentSender,
         )
         val file = File.createTempFile("mms-route", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val attachment = OutgoingAttachment(file, "image/jpeg", "public.jpeg", "photo.jpg", file.length())
@@ -307,7 +401,8 @@ class ChatViewModelTest {
         model.sendMessage()
         advanceUntilIdle()
 
-        assertEquals(Triple(7L, "image/jpeg", "caption"), routed)
+        assertEquals(7L to "caption", smsAttachmentSender.chatId to smsAttachmentSender.caption)
+        assertEquals(listOf("photo.jpg"), smsAttachmentSender.attachmentNames)
         assertEquals(0, attachmentSender.calls)
         file.delete()
     }
@@ -335,6 +430,59 @@ class ChatViewModelTest {
         assertEquals("", model.uiState.value.input)
         one.file.delete()
         two.file.delete()
+    }
+
+    @Test
+    fun `attachment composer clears only after local staging is accepted`() = runTest(dispatcher) {
+        val attachmentSender = BlockingAttachmentSender(messageId = 46L)
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        val attachment = tempAttachment("wait.jpg")
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("stays visible")
+        model.stageAttachment(attachment)
+        model.sendMessage()
+        runCurrent()
+        attachmentSender.started.await()
+
+        assertEquals("stays visible", model.uiState.value.input)
+        assertEquals(listOf(attachment), model.uiState.value.pendingAttachments)
+        assertEquals(true, model.uiState.value.attachmentSendInProgress)
+
+        attachmentSender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("", model.uiState.value.input)
+        assertEquals(emptyList(), model.uiState.value.pendingAttachments)
+        assertEquals(false, model.uiState.value.attachmentSendInProgress)
+        attachment.file.delete()
+    }
+
+    @Test
+    fun `attachment completion preserves a newer draft and newly staged media`() = runTest(dispatcher) {
+        val attachmentSender = BlockingAttachmentSender(messageId = 47L)
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        val sent = tempAttachment("sent.jpg")
+        val next = tempAttachment("next.jpg")
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("first caption")
+        model.stageAttachment(sent)
+        model.sendMessage()
+        runCurrent()
+        attachmentSender.started.await()
+        model.onInputChange("next caption")
+        model.stageAttachment(next)
+
+        attachmentSender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("next caption", model.uiState.value.input)
+        assertEquals(listOf(next), model.uiState.value.pendingAttachments)
+        sent.file.delete()
+        next.file.delete()
     }
 
     @Test
@@ -560,10 +708,12 @@ class ChatViewModelTest {
         chatListRepository: ChatListRepository = StaticChats,
         messageRepository: MessageListRepository = StaticMessages,
         attachmentSender: AttachmentSender = NoopAttachmentSender,
-        stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
+        stickerSender: StickerSender = StickerSender { _, _, _, _, sticker, _ ->
+            OutgoingStickerSend(sticker.file.absolutePath)
+        },
         faceTimeCaller: FaceTimeCaller = FaceTimeCaller { error("not used") },
         smsSender: SmsSender = NoopSmsSender,
-        smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean = { _, _, _ -> false },
+        smsAttachmentSender: AttachmentSender = NoopAttachmentSender,
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
         chatId = 7L,
@@ -577,7 +727,7 @@ class ChatViewModelTest {
         typingRepository = NoopTyping,
         readReceiptSender = readReceiptSender,
         smsSender = smsSender,
-        smsAttachmentRouter = smsAttachmentRouter,
+        smsAttachmentSender = smsAttachmentSender,
     )
 
     private fun message(
@@ -591,6 +741,10 @@ class ChatViewModelTest {
         replyPartLocators: Map<Long, String> = emptyMap(),
         chatId: Long? = null,
         fromMe: Boolean = true,
+        reactionEmoji: String? = null,
+        edited: Boolean = false,
+        unsent: Boolean = false,
+        stickers: List<StickerPlacement> = emptyList(),
     ) = MessageItem(
         id = id,
         text = text,
@@ -598,7 +752,9 @@ class ChatViewModelTest {
         date = 1L,
         status = MessageStatus.SENT,
         isGroupEvent = false,
-        reactionEmoji = null,
+        reactionEmoji = reactionEmoji,
+        edited = edited,
+        unsent = unsent,
         expressiveSendStyleId = effectId,
         guid = guid,
         replyToGuid = replyToGuid,
@@ -606,6 +762,7 @@ class ChatViewModelTest {
         replyToPartLocator = replyToPartLocator,
         replyPartLocators = replyPartLocators,
         chatId = chatId,
+        stickers = stickers,
     )
 }
 
@@ -792,7 +949,11 @@ private class RecordingActions : MessageActions {
 }
 
 private object NoopAttachmentSender : AttachmentSender {
-    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) = Unit
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ) = OutgoingAttachmentSend(48L)
 }
 
 private class RecordingAttachmentSender : AttachmentSender {
@@ -801,17 +962,37 @@ private class RecordingAttachmentSender : AttachmentSender {
     var caption: String? = null
     var attachmentNames: List<String> = emptyList()
 
-    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ): OutgoingAttachmentSend {
         calls++
         this.chatId = chatId
         this.caption = caption
         attachmentNames = attachments.mapNotNull { it.name }
+        return OutgoingAttachmentSend(49L)
     }
 }
 
 private class FailingAttachmentSender : AttachmentSender {
     override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) =
         error("upload broke")
+}
+
+private class BlockingAttachmentSender(private val messageId: Long) : AttachmentSender {
+    val started = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ): OutgoingAttachmentSend {
+        started.complete(Unit)
+        release.await()
+        return OutgoingAttachmentSend(messageId)
+    }
 }
 
 /** Temp-file [OutgoingAttachment] factory; callers delete `file` when done. */
@@ -836,12 +1017,71 @@ private class RecordingStickerSender : StickerSender {
         targetText: String,
         sticker: OutgoingAttachment,
         transform: StickerTransform,
-    ) {
+    ): OutgoingStickerSend {
         this.chatId = chatId
         this.targetGuid = targetGuid
         this.targetPart = targetPart
         this.targetText = targetText
         this.transform = transform
+        return OutgoingStickerSend("recorded-sticker")
+    }
+}
+
+private class DeferredStickerSender(private val fail: Boolean) : StickerSender {
+    val started = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+
+    override suspend fun send(
+        chatId: Long,
+        targetGuid: String,
+        targetPart: Long,
+        targetText: String,
+        sticker: OutgoingAttachment,
+        transform: StickerTransform,
+    ): OutgoingStickerSend {
+        started.complete(Unit)
+        release.await()
+        if (fail) error("sticker failed")
+        return OutgoingStickerSend("confirmed-sticker")
+    }
+}
+
+private class DeferredActions(
+    private val failReaction: Boolean = false,
+    private val failEdit: Boolean = false,
+    private val failUnsend: Boolean = false,
+) : MessageActions {
+    val reactionStarted = CompletableDeferred<Unit>()
+    val reactionRelease = CompletableDeferred<Unit>()
+    val editStarted = CompletableDeferred<Unit>()
+    val editRelease = CompletableDeferred<Unit>()
+    val unsendStarted = CompletableDeferred<Unit>()
+    val unsendRelease = CompletableDeferred<Unit>()
+
+    override suspend fun react(
+        chatId: Long,
+        messageGuid: String,
+        messageText: String,
+        messagePart: Long,
+        reactionIndex: Int,
+        emoji: String?,
+        enable: Boolean,
+    ) {
+        reactionStarted.complete(Unit)
+        reactionRelease.await()
+        if (failReaction) error("reaction failed")
+    }
+
+    override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {
+        editStarted.complete(Unit)
+        editRelease.await()
+        if (failEdit) error("edit failed")
+    }
+
+    override suspend fun unsend(chatId: Long, messageGuid: String) {
+        unsendStarted.complete(Unit)
+        unsendRelease.await()
+        if (failUnsend) error("unsend failed")
     }
 }
 

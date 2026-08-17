@@ -362,6 +362,9 @@ fun ChatScreen(
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
+    val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
+        { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
+    }
     val isTyping = uiState.typingSenders.isNotEmpty()
     val itemSpecs = rememberItemAnimationSpecs()
     val smsChat = uiState.chat?.isSms == true
@@ -619,7 +622,7 @@ fun ChatScreen(
                     smsChat = smsChat,
                     inputPlaceholder = if (openThread != null || uiState.replyingTo != null) "Reply" else "Message",
                     onClearComposerAction = onCancelComposerAction,
-                    sendEnabled = !uiState.textSendInProgress,
+                    sendEnabled = !uiState.textSendInProgress && !uiState.attachmentSendInProgress,
                 )
             },
         ) { padding ->
@@ -632,7 +635,7 @@ fun ChatScreen(
                         thread = openThread,
                         smsChat = smsChat,
                         senderNames = senderNames,
-                        attachmentFile = attachmentFile,
+                        attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
                         onReply = onReplyFromThread,
@@ -690,7 +693,7 @@ fun ChatScreen(
                                     tightBottom = entry.tightBottom,
                                     showSenderName = entry.showSenderName,
                                     smsChat = smsChat,
-                                    attachmentFile = attachmentFile,
+                                    attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
                                     senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },

@@ -3,8 +3,10 @@ package app.openbubbles.nativeapp.sms
 import android.util.Log
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.AppContext
+import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
 import app.openbubbles.nativeapp.data.OutgoingTextSend
 import app.openbubbles.nativeapp.data.SmsSender
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +44,13 @@ object SmsBridge {
             val context = AppContext.current
             return if (context != null && CoreGraph.store != null) SmsManagerSender(context)
             else UnavailableSmsSender
+        }
+
+    val attachmentSender: AttachmentSender
+        get() {
+            val context = AppContext.current
+            return if (context != null && CoreGraph.store != null) MmsManagerSender(context)
+            else UnavailableMmsSender
         }
 
     /**
@@ -104,4 +113,12 @@ internal suspend fun routeSmsTransport(
 private object UnavailableSmsSender : SmsSender {
     override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
         error("SMS sender unavailable — store not open")
+}
+
+private object UnavailableMmsSender : AttachmentSender {
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+    ): OutgoingAttachmentSend = error("MMS sender unavailable — store not open")
 }
