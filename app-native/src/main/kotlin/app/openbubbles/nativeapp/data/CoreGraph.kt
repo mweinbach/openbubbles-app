@@ -1589,14 +1589,16 @@ internal object UploadProgressBoard {
 
 /**
  * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
- * semantics: stage optimistically under a temp guid with a placeholder
- * attachment row (payload moved into the canonical store layout so the
- * bubble previews immediately), upload through the Rust sendAttachment
- * binding with progress surfaced via [UploadProgressBoard], promote the row
- * to the Rust staging guid, then ingest the echo.
+ * semantics: stage optimistically under a temp guid with placeholder
+ * attachment rows (payloads moved into the canonical store layout so the
+ * bubbles preview immediately), upload everything through the Rust
+ * sendAttachments binding as the parts of one message with progress surfaced
+ * via [UploadProgressBoard], promote the row to the Rust staging guid, then
+ * ingest the echo.
  */
 internal object CoreAttachmentSender : AttachmentSender {
-    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
+        if (attachments.isEmpty()) return
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
@@ -1613,70 +1615,98 @@ internal object CoreAttachmentSender : AttachmentSender {
         val conversation = sendConversation(store, chat, myHandle)
 
         val tempGuid = MessageIngestor.tempGuid()
-        val attachmentGuid = "${tempGuid}_att0"
 
         // 1. Stage the outgoing row (caption rides as the text part).
         val staged = CoreGraphStageHolder.messageRepo(store)
             .stageOutgoingMessage(chat.guid, myHandle, caption.orEmpty(), tempGuid)
 
-        // 2. Placeholder attachment metadata + payload in the canonical
-        //    layout so the bubble renders (and image-previews) right away.
+        // 2. Placeholder attachment metadata + payloads in the canonical
+        //    layout so the bubbles render (and image-preview) right away.
         val root = File(
             AppContext.current?.dataDir ?: error("no files dir"),
             "app_flutter",
         )
         val disk = AttachmentStore(store, root)
-        val displayName = attachment.name ?: "attachment"
-        val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
-        payload.parentFile?.mkdirs()
-        attachment.file.copyTo(payload, overwrite = true)
-        runCatching { attachment.file.delete() } // cache copy no longer needed
+        val stagedGuids = ArrayList<String>(attachments.size)
+        val payloads = ArrayList<File>(attachments.size)
+        attachments.forEachIndexed { index, attachment ->
+            val attachmentGuid = "${tempGuid}_att$index"
+            val displayName = attachment.name ?: "attachment"
+            val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
+            payload.parentFile?.mkdirs()
+            attachment.file.copyTo(payload, overwrite = true)
+            runCatching { attachment.file.delete() } // cache copy no longer needed
+            stagedGuids += attachmentGuid
+            payloads += payload
+        }
 
         store.runInTx {
-            attachmentBox.put(
-                Attachment().apply {
-                    guid = attachmentGuid
-                    isOutgoing = true
-                    mimeType = attachment.mime
-                    uti = attachment.uti
-                    transferName = displayName
-                    totalBytes = payload.length()
-                    // The payload is already in the canonical local store;
-                    // outgoing video/file bubbles must never offer to
-                    // download their own just-uploaded file.
-                    isDownloaded = true
-                    message.target = staged
-                },
-            )
+            attachments.forEachIndexed { index, attachment ->
+                attachmentBox.put(
+                    Attachment().apply {
+                        guid = stagedGuids[index]
+                        isOutgoing = true
+                        mimeType = attachment.mime
+                        uti = attachment.uti
+                        transferName = attachment.name ?: "attachment"
+                        totalBytes = payloads[index].length()
+                        // The payload is already in the canonical local store;
+                        // outgoing video/file bubbles must never offer to
+                        // download their own just-uploaded file.
+                        isDownloaded = true
+                        message.target = staged
+                    },
+                )
+            }
             staged.hasAttachments = true
             messageBox.put(staged)
         }
-        UploadProgressBoard.update(attachmentGuid, 0L to payload.length())
+        // The transcript row surfaces the first attachment's entry, so the
+        // whole batch (not just the first upload) reports through it.
+        val progressGuid = stagedGuids.first()
+        val grandTotal = payloads.sumOf { it.length() }
+        UploadProgressBoard.update(progressGuid, 0L to grandTotal)
 
         if (pushState == null) {
             CoreGraphStageHolder.messageRepo(store)
                 .failOutgoing(tempGuid, "Not connected to Apple push")
-            UploadProgressBoard.clear(attachmentGuid)
+            UploadProgressBoard.clear(progressGuid)
             return
         }
 
         var failureLookupGuid = tempGuid
         try {
             val inst = runInterruptible(Dispatchers.IO) {
-                pushState.sendAttachment(
+                // Rust reports per-file counters that restart at zero for each
+                // upload; fold them into one cumulative (done, total) pair.
+                var completedBefore = 0L
+                var fileIndex = 0
+                var lastDone = 0L
+                var lastTotal = 0L
+                pushState.sendAttachments(
                     conversation,
                     myHandle,
-                    payload.absolutePath,
+                    payloads.map { it.absolutePath },
                     caption?.takeIf { it.isNotBlank() },
-                    attachment.mime,
-                    attachment.uti,
-                    displayName,
+                    attachments.map { it.mime },
+                    attachments.map { it.uti },
+                    attachments.map { it.name },
                     null, null, null, null, false,
                     object : uniffi.rust_lib_bluebubbles.UProgressCallback {
                         override fun onProgress(done: ULong, total: ULong) {
+                            val doneLong = done.toLong()
+                            val totalLong = total.toLong()
+                            if (doneLong < lastDone) {
+                                // Counters restarted: the previous file is
+                                // finished, credit its full size.
+                                completedBefore += lastTotal
+                                fileIndex = (fileIndex + 1).coerceAtMost(attachments.size - 1)
+                            }
+                            lastDone = doneLong
+                            lastTotal = totalLong
                             UploadProgressBoard.update(
-                                attachmentGuid,
-                                done.toLong() to total.toLong(),
+                                progressGuid,
+                                (completedBefore + doneLong).coerceAtMost(grandTotal) to grandTotal,
                             )
                         }
                     },
@@ -1697,20 +1727,23 @@ internal object CoreAttachmentSender : AttachmentSender {
             }
             ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
             val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
-            val realAttachmentGuid = normal?.let {
-                MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.firstOrNull()?.guid
-            }
-            if (realAttachmentGuid != null) {
-                // Database promotion happens during ingest; move the local
-                // payload to the same real guid so the confirmed bubble keeps
-                // rendering without a redundant network download.
-                disk.promoteLocalDirectory(attachmentGuid, realAttachmentGuid)
+            val realAttachmentGuids = normal?.let {
+                MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.map { it.guid }
+            }.orEmpty()
+            if (realAttachmentGuids.size == stagedGuids.size) {
+                // Database promotion happens during ingest; move each local
+                // payload to its real guid (parts stay in send order) so the
+                // confirmed bubble keeps rendering without a redundant
+                // network download.
+                stagedGuids.zip(realAttachmentGuids).forEach { (local, real) ->
+                    disk.promoteLocalDirectory(local, real)
+                }
             }
         } catch (t: Throwable) {
             CoreGraphStageHolder.messageRepo(store)
                 .failOutgoing(failureLookupGuid, t.message ?: t.javaClass.simpleName)
         } finally {
-            UploadProgressBoard.clear(attachmentGuid)
+            UploadProgressBoard.clear(progressGuid)
         }
     }
 }

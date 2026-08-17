@@ -1788,6 +1788,74 @@ impl NativePushState {
         send_inst(self.shared(), inst)
     }
 
+    /// Multi-attachment variant of [`send_attachment`]: uploads every file in
+    /// `file_paths` and sends them as the parts of a single message (how
+    /// iMessage ships a multi-photo send). `text` is an optional caption part
+    /// sent before the attachments. `mimes`/`utis`/`names` are parallel arrays
+    /// with one entry per file. The progress callback fires per file, in
+    /// order; each upload's counters restart at zero. Returns the staged
+    /// MessageInst; `id` is the staging GUID to persist.
+    pub fn send_attachments(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        file_paths: Vec<String>,
+        text: Option<String>,
+        mimes: Vec<String>,
+        utis: Vec<String>,
+        names: Vec<Option<String>>,
+        reply_guid: Option<String>,
+        reply_part: Option<String>,
+        effect: Option<String>,
+        subject: Option<String>,
+        voice: bool,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<UMessageInst, UError> {
+        let count = file_paths.len();
+        if count == 0 {
+            return Err(UError::Failed { reason: "send_attachments requires at least one file".into() });
+        }
+        if mimes.len() != count || utis.len() != count || names.len() != count {
+            return Err(UError::Failed { reason: "send_attachments metadata arrays must match file_paths".into() });
+        }
+        let mut parts: Vec<IndexedMessagePart> = Vec::with_capacity(count + 1);
+        if let Some(text) = text.filter(|t| !t.is_empty()) {
+            parts.push(IndexedMessagePart {
+                part: MessagePart::Text(text, TextFormat::default()),
+                idx: None,
+                ext: None,
+            });
+        }
+        for (index, file_path) in file_paths.into_iter().enumerate() {
+            let attachment = upload_attachment_inner(
+                &self.shared().conn,
+                file_path,
+                mimes[index].clone(),
+                utis[index].clone(),
+                names[index].clone(),
+                progress.clone(),
+            )?;
+            parts.push(IndexedMessagePart {
+                part: MessagePart::Attachment(attachment),
+                idx: None,
+                ext: None,
+            });
+        }
+        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+        normal.parts = MessageParts(parts);
+        normal.reply_guid = reply_guid;
+        normal.reply_part = reply_part;
+        normal.effect = effect;
+        normal.subject = subject;
+        normal.voice = voice;
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::Message(normal),
+        ));
+        send_inst(self.shared(), inst)
+    }
+
     /// Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
     /// original message GUID, `edit_part` the part index being replaced,
     /// `new_parts` the full replacement part list (text/mention parts with

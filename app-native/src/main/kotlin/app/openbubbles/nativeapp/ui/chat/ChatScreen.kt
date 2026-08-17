@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -54,10 +55,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
@@ -66,6 +69,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -140,6 +144,7 @@ import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
+import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
 import java.time.ZoneId
 import kotlin.math.PI
@@ -150,6 +155,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val ConversationContentMaxWidth = 840.dp
+
+/** Per-picking cap for the multi-select system photo picker. */
+private const val PhotoPickerMaxItems = 10
 
 /** iMessage tapback set, in the order the protocol indexes them. */
 private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
@@ -287,9 +295,9 @@ fun buildConversationEntries(
  * Conversation view: reversed LazyColumn (newest at the bottom, stays pinned
  * while sending), day separators, bubbles with attachments, edited/unsent
  * rendering, reactions and delivery status, older-history paging when
- * scrolled to the top, an animated typing indicator, attachment sending via
- * the system photo picker (long-press the paperclip for any file), and an
- * IME-aware input bar.
+ * scrolled to the top, an animated typing indicator, draft attachments via
+ * the system photo picker (multi-select; long-press the paperclip for any
+ * file) that ride the next send, and an IME-aware input bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -349,6 +357,8 @@ fun ChatScreen(
     val isTyping = uiState.typingSenders.isNotEmpty()
     val itemSpecs = rememberItemAnimationSpecs()
     val smsChat = uiState.chat?.isSms == true
+    val openThread = uiState.replyThread
+    BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
     // ---- Send screen effects -------------------------------------------------
     // The ViewModel flags the newest unplayed effect; the overlay plays ~700ms
@@ -401,22 +411,26 @@ fun ChatScreen(
         PendingSendEffect.effectId = option?.id
     }
 
-    fun dispatchAttachment(uri: Uri?) {
-        if (uri == null) return
+    fun stageAttachments(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         scope.launch {
-            val prepared = prepareOutgoingAttachment(context, uri) ?: return@launch
-            onSendAttachment(prepared)
-            listState.animateScrollToItem(0)
+            val prepared = uris.mapNotNull { prepareOutgoingAttachment(context, it) }
+            if (prepared.isEmpty()) {
+                snackbarHostState.showSnackbar("Could not read attachment")
+                return@launch
+            }
+            onStageAttachments(prepared)
         }
     }
 
-    // System photo picker for images/videos; GetContent for any file.
+    // System photo picker for images/videos (multi-select stages them on the
+    // draft); GetContent for any file.
     val pickMedia = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> dispatchAttachment(uri) }
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = PhotoPickerMaxItems),
+    ) { uris -> stageAttachments(uris) }
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
-    ) { uri -> dispatchAttachment(uri) }
+    ) { uri -> stageAttachments(listOfNotNull(uri)) }
     val pickSticker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -551,6 +565,8 @@ fun ChatScreen(
                         )
                     },
                     onAttachLongClick = { pickFile.launch("*/*") },
+                    pendingAttachments = uiState.pendingAttachments,
+                    onRemovePendingAttachment = onRemovePendingAttachment,
                     pendingEffect = pendingOption,
                     onClearPendingEffect = { stagePendingEffect(null) },
                     onSendLongClick = { showEffectPicker = true },
@@ -562,6 +578,9 @@ fun ChatScreen(
                     composerActionText = uiState.editingMessage?.text ?: uiState.replyingTo?.let { target ->
                         target.message.text.ifBlank { target.message.attachmentMeta?.name ?: "Attachment" }
                     },
+                    composerActionFromMe = uiState.replyingTo?.message?.isFromMe == true,
+                    smsChat = smsChat,
+                    inputPlaceholder = if (openThread != null || uiState.replyingTo != null) "Reply" else "Message",
                     onClearComposerAction = onCancelComposerAction,
                 )
             },
@@ -610,12 +629,11 @@ fun ChatScreen(
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
                                     senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
-                                    replyPreview = entry.message.replyPreviewText
-                                        ?: entry.message.replyToGuid?.let { guid ->
-                                            messagesByGuid[guid]?.let { target ->
-                                                target.text.ifBlank { target.attachmentMeta?.name ?: "Attachment" }
-                                            }
-                                        },
+                                    replyQuote = resolveReplyQuote(
+                                        entry.message,
+                                        messagesByGuid,
+                                        senderNames,
+                                    ),
                                     onOpenReplyThread = { onOpenReplyThread(entry.message) },
                                     onDownloadSticker = { guid ->
                                         onDownloadAttachment(
@@ -1353,7 +1371,7 @@ private fun MessageInputBar(
         label = "sendContent",
     )
     val sendScale by animateFloatAsState(
-        targetValue = if (hasText) 1f else 0.9f,
+        targetValue = if (hasContent) 1f else 0.9f,
         animationSpec = fastSpatialSpec(),
         label = "sendScale",
     )
@@ -1382,36 +1400,55 @@ private fun MessageInputBar(
                 fadeOut(defaultEffectsSpec()),
         ) {
             if (composerActionLabel != null) {
+                val stripeColor = when {
+                    composerActionLabel == "Replying" && composerActionFromMe && smsChat ->
+                        smsServiceColors().container
+                    composerActionLabel == "Replying" && composerActionFromMe ->
+                        MaterialTheme.colorScheme.primary
+                    composerActionLabel == "Replying" ->
+                        MaterialTheme.colorScheme.outline
+                    else -> MaterialTheme.colorScheme.tertiary
+                }
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            .widthIn(max = ConversationContentMaxWidth).fillMaxWidth(),
+                    Row(
+                        modifier = Modifier
+                            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 2.dp)
+                            .widthIn(max = ConversationContentMaxWidth)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 10.dp)
+                                .size(width = 3.dp, height = 32.dp)
+                                .background(stripeColor, RoundedCornerShape(3.dp)),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = composerActionLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            composerActionText?.let {
                                 Text(
-                                    text = composerActionLabel,
-                                    style = MaterialTheme.typography.labelLarge,
+                                    text = it,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
-                                composerActionText?.let {
-                                    Text(
-                                        text = it,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
                             }
-                            TextButton(onClick = onClearComposerAction) { Text("Cancel") }
+                        }
+                        IconButton(
+                            onClick = onClearComposerAction,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Cancel ${composerActionLabel.lowercase()}",
+                            )
                         }
                     }
                 }
@@ -1487,14 +1524,14 @@ private fun MessageInputBar(
                             imeAction = ImeAction.Send,
                             capitalization = KeyboardCapitalization.Sentences,
                         ),
-                        keyboardActions = KeyboardActions(onSend = { if (hasText) onSend() }),
+                        keyboardActions = KeyboardActions(onSend = { if (hasContent) onSend() }),
                         decorationBox = { innerTextField ->
                             Box(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
                             ) {
                                 if (value.isEmpty()) {
                                     Text(
-                                        text = "Message",
+                                        text = inputPlaceholder,
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1515,7 +1552,7 @@ private fun MessageInputBar(
                             .combinedClickable(
                                 interactionSource = sendInteractionSource,
                                 indication = LocalIndication.current,
-                                enabled = hasText,
+                                enabled = hasContent,
                                 role = Role.Button,
                                 onClickLabel = "Send",
                                 onLongClickLabel = "Choose send effect",
@@ -1532,6 +1569,81 @@ private fun MessageInputBar(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Square draft thumbnail; decoded image when possible, icon tile otherwise. */
+private val StagedThumbSize = 84.dp
+
+@Composable
+private fun StagedAttachmentThumb(
+    attachment: OutgoingAttachment,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val decoded = rememberDecodedImage(attachment.file, maxDimensionPx = 256)
+    Box(modifier = modifier.size(StagedThumbSize + 14.dp)) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(StagedThumbSize),
+        ) {
+            val image = decoded?.image
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = attachment.name ?: "Attachment",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                // Non-image picks (or not-yet-decoded payloads) get an icon
+                // tile with the transfer name.
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Text(
+                        text = attachment.name ?: "Attachment",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(26.dp)
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "Remove ${attachment.name ?: "attachment"}",
+                    onClick = onRemove,
+                ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }

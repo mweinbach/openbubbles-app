@@ -147,15 +147,20 @@ internal object FakeChatData {
     }
 
     /** Fake attachment send: optimistic bubble that settles like a text send. */
-    suspend fun sendAttachment(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
-        val meta = AttachmentMeta(
-            guid = "outgoing-${nextMessageId.incrementAndGet()}",
-            mime = attachment.mime,
-            name = attachment.name,
-            sizeBytes = attachment.sizeBytes,
-            isImage = attachment.mime.startsWith("image/", ignoreCase = true),
-            downloaded = true,
-        )
+    suspend fun sendAttachments(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
+        if (attachments.isEmpty()) return
+        val metas = attachments.mapIndexed { index, attachment ->
+            AttachmentMeta(
+                guid = "outgoing-${nextMessageId.incrementAndGet()}",
+                mime = attachment.mime,
+                name = attachment.name,
+                sizeBytes = attachment.sizeBytes,
+                isImage = attachment.mime.startsWith("image/", ignoreCase = true),
+                downloaded = true,
+                // The caption text occupies part 0, attachments follow.
+                partIndex = (index + 1).toLong(),
+            )
+        }
         val message = MessageItem(
             id = nextMessageId.incrementAndGet(),
             text = caption.orEmpty(),
@@ -164,13 +169,15 @@ internal object FakeChatData {
             status = MessageStatus.SENDING,
             isGroupEvent = false,
             reactionEmoji = null,
-            attachmentMeta = meta,
+            attachmentMeta = metas.first(),
+            attachmentMetas = metas,
         )
         append(chatId, message)
         _chats.update { chats ->
             chats.map {
                 if (it.id == chatId) {
-                    it.copy(date = message.date, snippet = "📎 ${attachment.name ?: "Attachment"}")
+                    val names = attachments.joinToString { it.name ?: "Attachment" }
+                    it.copy(date = message.date, snippet = "📎 $names")
                 } else it
             }
         }
@@ -427,8 +434,8 @@ object FakeFaceTimeCaller : FaceTimeCaller {
 
 /** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
 object FakeAttachmentSender : AttachmentSender {
-    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) =
-        FakeChatData.sendAttachment(chatId, attachment, caption)
+    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) =
+        FakeChatData.sendAttachments(chatId, attachments, caption)
 }
 
 /** Fake [TypingRepository]: never any typing activity. */

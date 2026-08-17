@@ -289,13 +289,13 @@ data class OutgoingAttachment(
 )
 
 /**
- * Sends one attachment with an optional caption using the same optimistic
- * staging pattern as [Sender]: a staged message row appears immediately
- * (SENDING), upload progress surfaces through the message flow, and errors
- * leave a FAILED bubble.
+ * Sends one message whose parts are the staged [attachments] plus an
+ * optional caption, using the same optimistic staging pattern as [Sender]:
+ * a staged message row appears immediately (SENDING), upload progress
+ * surfaces through the message flow, and errors leave a FAILED bubble.
  */
 interface AttachmentSender {
-    suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?)
+    suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?)
 }
 
 /** One live "X is typing…" entry; entries expire automatically upstream. */

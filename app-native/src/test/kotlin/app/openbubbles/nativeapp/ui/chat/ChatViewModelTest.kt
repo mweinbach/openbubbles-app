@@ -204,8 +204,8 @@ class ChatViewModelTest {
             sender = RecordingSender(),
             actions = RecordingActions(),
             attachmentSender = attachmentSender,
-            smsAttachmentRouter = { chatId, attachment, caption ->
-                routed = Triple(chatId, attachment.mime, caption)
+            smsAttachmentRouter = { chatId, attachments, caption ->
+                routed = Triple(chatId, attachments.first().mime, caption)
                 true
             },
         )
@@ -213,12 +213,95 @@ class ChatViewModelTest {
         val attachment = OutgoingAttachment(file, "image/jpeg", "public.jpeg", "photo.jpg", file.length())
 
         model.onInputChange("caption")
-        model.sendAttachment(attachment)
+        model.stageAttachment(attachment)
+        model.sendMessage()
         advanceUntilIdle()
 
         assertEquals(Triple(7L, "image/jpeg", "caption"), routed)
         assertEquals(0, attachmentSender.calls)
         file.delete()
+    }
+
+    @Test
+    fun `staged attachments ride the next send with the typed caption`() = runTest(dispatcher) {
+        val attachmentSender = RecordingAttachmentSender()
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        val one = tempAttachment("one.jpg")
+        val two = tempAttachment("two.png")
+
+        model.stageAttachment(one)
+        model.stageAttachment(two)
+        runCurrent()
+        assertEquals(listOf(one, two), model.uiState.value.pendingAttachments)
+
+        model.onInputChange("both photos")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(7L to "both photos", attachmentSender.chatId to attachmentSender.caption)
+        assertEquals(listOf("one.jpg", "two.png"), attachmentSender.attachmentNames)
+        assertEquals(emptyList(), model.uiState.value.pendingAttachments)
+        assertEquals("", model.uiState.value.input)
+        one.file.delete()
+        two.file.delete()
+    }
+
+    @Test
+    fun `staged attachments send without any typed text`() = runTest(dispatcher) {
+        val attachmentSender = RecordingAttachmentSender()
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        val one = tempAttachment("only.jpg")
+
+        model.stageAttachment(one)
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(7L to null, attachmentSender.chatId to attachmentSender.caption)
+        assertEquals(listOf("only.jpg"), attachmentSender.attachmentNames)
+        assertEquals(emptyList(), model.uiState.value.pendingAttachments)
+        one.file.delete()
+    }
+
+    @Test
+    fun `removed staged attachment does not ride the send`() = runTest(dispatcher) {
+        val attachmentSender = RecordingAttachmentSender()
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        val one = tempAttachment("one.jpg")
+        val two = tempAttachment("two.png")
+
+        model.stageAttachment(one)
+        model.stageAttachment(two)
+        model.removePendingAttachment(one)
+        runCurrent()
+        assertEquals(listOf(two), model.uiState.value.pendingAttachments)
+
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(listOf("two.png"), attachmentSender.attachmentNames)
+        one.file.delete()
+        two.file.delete()
+    }
+
+    @Test
+    fun `failed attachment send restores the draft text and staged media`() = runTest(dispatcher) {
+        val attachmentSender = FailingAttachmentSender()
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        val one = tempAttachment("retry.jpg")
+
+        model.onInputChange("caption")
+        model.stageAttachment(one)
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals("caption", model.uiState.value.input)
+        assertEquals(listOf(one), model.uiState.value.pendingAttachments)
+        assertEquals("upload broke", model.uiState.value.actionError)
+        one.file.delete()
     }
 
     @Test
@@ -314,7 +397,7 @@ class ChatViewModelTest {
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
         faceTimeCaller: FaceTimeCaller = FaceTimeCaller { error("not used") },
-        smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean = { _, _, _ -> false },
+        smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean = { _, _, _ -> false },
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
         chatId = 7L,
@@ -341,10 +424,11 @@ class ChatViewModelTest {
         replyToPartLocator: String? = null,
         replyPartLocators: Map<Long, String> = emptyMap(),
         chatId: Long? = null,
+        fromMe: Boolean = true,
     ) = MessageItem(
         id = id,
         text = text,
-        isFromMe = true,
+        isFromMe = fromMe,
         date = 1L,
         status = MessageStatus.SENT,
         isGroupEvent = false,
@@ -400,6 +484,14 @@ private object StaticMessages : MessageListRepository {
         flowOf(emptyList())
 
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> = emptyList()
+}
+
+private class RecordingReadReceipts : ReadReceiptSender {
+    val marked = mutableListOf<Pair<Long, String?>>()
+
+    override suspend fun markRead(chatId: Long, messageGuid: String?) {
+        marked += chatId to messageGuid
+    }
 }
 
 private class MutableMessages(initial: List<MessageItem>) : MessageListRepository {

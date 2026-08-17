@@ -1468,6 +1468,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1668,6 +1670,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile(
 ): Short
@@ -2062,6 +2066,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Poi
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePaths`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mimes`: RustBuffer.ByValue,`utis`: RustBuffer.ByValue,`names`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -2715,6 +2721,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 10762.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments() != 59501.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 55432.toShort()) {
@@ -6144,6 +6153,17 @@ public interface NativePushStateInterface {
     fun `sendAttachment`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `text`: kotlin.String?, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
 
     /**
+     * Multi-attachment variant of [`send_attachment`]: uploads every file in
+     * `file_paths` and sends them as the parts of a single message (how
+     * iMessage ships a multi-photo send). `text` is an optional caption part
+     * sent before the attachments. `mimes`/`utis`/`names` are parallel arrays
+     * with one entry per file. The progress callback fires per file, in
+     * order; each upload's counters restart at zero. Returns the staged
+     * MessageInst; `id` is the staging GUID to persist.
+     */
+    fun `sendAttachments`(`conversation`: UConversation, `sender`: kotlin.String, `filePaths`: List<kotlin.String>, `text`: kotlin.String?, `mimes`: List<kotlin.String>, `utis`: List<kotlin.String>, `names`: List<kotlin.String?>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
+
+    /**
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
      */
@@ -7093,6 +7113,28 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterOptionalString.lower(`text`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterBoolean.lower(`voice`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
+
+
+
+    /**
+     * Multi-attachment variant of [`send_attachment`]: uploads every file in
+     * `file_paths` and sends them as the parts of a single message (how
+     * iMessage ships a multi-photo send). `text` is an optional caption part
+     * sent before the attachments. `mimes`/`utis`/`names` are parallel arrays
+     * with one entry per file. The progress callback fires per file, in
+     * order; each upload's counters restart at zero. Returns the staged
+     * MessageInst; `id` is the staging GUID to persist.
+     */
+    @Throws(UException::class)override fun `sendAttachments`(`conversation`: UConversation, `sender`: kotlin.String, `filePaths`: List<kotlin.String>, `text`: kotlin.String?, `mimes`: List<kotlin.String>, `utis`: List<kotlin.String>, `names`: List<kotlin.String?>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`filePaths`),FfiConverterOptionalString.lower(`text`),FfiConverterSequenceString.lower(`mimes`),FfiConverterSequenceString.lower(`utis`),FfiConverterSequenceOptionalString.lower(`names`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterBoolean.lower(`voice`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
 }
     }
     )
@@ -17571,6 +17613,34 @@ public object FfiConverterSequenceTypeUSyncRecord: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUSyncRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceOptionalString: FfiConverterRustBuffer<List<kotlin.String?>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String?> {
+        val len = buf.getInt()
+        return List<kotlin.String?>(len) {
+            FfiConverterOptionalString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalString.write(it, buf)
         }
     }
 }

@@ -66,11 +66,11 @@ object SmsBridge {
     /**
      * MMS twin of [routeIfSmsChat]. Media selected in a SIM conversation is
      * composed and sent by Android's carrier MMS service instead of entering
-     * the iMessage/MMCS uploader.
+     * the iMessage/MMCS uploader. All staged attachments ride one MMS.
      */
-    suspend fun routeAttachmentIfSmsChat(
+    suspend fun routeAttachmentsIfSmsChat(
         chatId: Long,
-        attachment: OutgoingAttachment,
+        attachments: List<OutgoingAttachment>,
         caption: String?,
     ): Boolean = withContext(Dispatchers.IO) {
         val store = CoreGraph.store ?: return@withContext false
@@ -79,7 +79,7 @@ object SmsBridge {
         if (chat.isRpSms != true) return@withContext false
         val context = AppContext.current
             ?: error("MMS sender unavailable - app context missing")
-        MmsManagerSender(context).send(chatId, attachment, caption)
+        MmsManagerSender(context).send(chatId, attachments, caption)
         true
     }
 }

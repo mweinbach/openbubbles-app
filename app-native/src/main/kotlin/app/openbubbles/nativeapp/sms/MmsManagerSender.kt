@@ -23,7 +23,8 @@ import java.io.File
 /** Sends media in a SIM conversation through Android's carrier MMS service. */
 class MmsManagerSender(private val context: Context) {
 
-    suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+    suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
+        if (attachments.isEmpty()) return
         val store = CoreGraph.store ?: error("store unavailable")
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
         val chatGuid = chat.guid ?: error("chat $chatId has no guid")
@@ -42,7 +43,6 @@ class MmsManagerSender(private val context: Context) {
         check(destinations.isNotEmpty()) { "chat $chatId has no MMS destination" }
 
         val tempGuid = MessageIngestor.tempGuid()
-        val attachmentGuid = "${tempGuid}_att0"
         val staged = MessageRepo(store).stageOutgoingMessage(
             chatGuid,
             myHandle,
@@ -51,27 +51,43 @@ class MmsManagerSender(private val context: Context) {
         )
 
         val disk = AttachmentStore(store, File(context.dataDir, "app_flutter"))
-        val displayName = attachment.name ?: "attachment"
-        val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
 
         try {
-            payload.parentFile?.mkdirs()
-            attachment.file.copyTo(payload, overwrite = true)
-            runCatching { attachment.file.delete() }
+            // Copy every staged payload into the canonical store layout
+            // before anything is persisted, so a copy failure aborts the
+            // whole send without leaving partial rows behind.
+            data class StagedMedia(
+                val guid: String,
+                val mime: String,
+                val uti: String,
+                val name: String,
+                val payload: File,
+            )
+            val media = attachments.mapIndexed { index, attachment ->
+                val attachmentGuid = "${tempGuid}_att$index"
+                val displayName = attachment.name ?: "attachment"
+                val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
+                payload.parentFile?.mkdirs()
+                attachment.file.copyTo(payload, overwrite = true)
+                runCatching { attachment.file.delete() }
+                StagedMedia(attachmentGuid, attachment.mime, attachment.uti, displayName, payload)
+            }
             val attachmentBox = store.boxFor(Attachment::class.java)
             store.runInTx {
-                attachmentBox.put(
-                    Attachment().apply {
-                        guid = attachmentGuid
-                        isOutgoing = true
-                        mimeType = attachment.mime
-                        uti = attachment.uti
-                        transferName = displayName
-                        totalBytes = payload.length()
-                        isDownloaded = true
-                        message.target = staged
-                    },
-                )
+                media.forEach { item ->
+                    attachmentBox.put(
+                        Attachment().apply {
+                            guid = item.guid
+                            isOutgoing = true
+                            mimeType = item.mime
+                            uti = item.uti
+                            transferName = item.name
+                            totalBytes = item.payload.length()
+                            isDownloaded = true
+                            message.target = staged
+                        },
+                    )
+                }
                 staged.hasAttachments = true
                 store.boxFor(Message::class.java).put(staged)
             }
@@ -98,7 +114,9 @@ class MmsManagerSender(private val context: Context) {
             val message = CarrierMessage(caption.orEmpty(), destinations.toTypedArray()).apply {
                 setFromAddress(myAddress.takeUnless { it == "unknown" })
                 setSave(SmsRole.isHeld(context))
-                addMedia(payload.readBytes(), attachment.mime, displayName)
+                media.forEach { item ->
+                    addMedia(item.payload.readBytes(), item.mime, item.name)
+                }
             }
             transaction.sendNewMessage(message, threadId ?: Transaction.NO_THREAD_ID)
         } catch (failure: Throwable) {

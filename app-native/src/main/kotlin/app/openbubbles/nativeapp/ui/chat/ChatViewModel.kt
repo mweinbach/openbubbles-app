@@ -38,6 +38,8 @@ data class ChatUiState(
     /** Ascending by time (oldest first); the screen reverses for layout. */
     val messages: List<MessageItem> = emptyList(),
     val input: String = "",
+    /** Attachments staged on the draft; sent with the next sendMessage. */
+    val pendingAttachments: List<OutgoingAttachment> = emptyList(),
     val loadingOlder: Boolean = false,
     /** Sender addresses with a live typing indicator in this chat. */
     val typingSenders: List<String> = emptyList(),
@@ -124,8 +126,8 @@ class ChatViewModel(
     typingRepository: TypingRepository,
     private val readReceiptSender: ReadReceiptSender,
     private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
-    private val smsAttachmentRouter: suspend (Long, OutgoingAttachment, String?) -> Boolean =
-        SmsBridge::routeAttachmentIfSmsChat,
+    private val smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean =
+        SmsBridge::routeAttachmentsIfSmsChat,
     initialInput: String? = null,
 ) : ViewModel() {
 
@@ -136,6 +138,7 @@ class ChatViewModel(
     }
 
     private val input = MutableStateFlow(initialInput.orEmpty())
+    private val pendingAttachments = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
     private val loadingOlder = MutableStateFlow(false)
     private val replyingTo = MutableStateFlow<ReplyTarget?>(null)
     private val replyThread = MutableStateFlow<ReplyThreadState?>(null)
@@ -216,6 +219,8 @@ class ChatViewModel(
             state.copy(faceTimeStarting = starting)
         }.combine(faceTimeLaunch) { state, launch ->
             state.copy(faceTimeLaunch = launch)
+        }.combine(pendingAttachments) { state, attachments ->
+            state.copy(pendingAttachments = attachments)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
@@ -224,6 +229,11 @@ class ChatViewModel(
 
     fun sendMessage() {
         val text = input.value.trim()
+        val attachments = pendingAttachments.value
+        if (attachments.isNotEmpty()) {
+            sendDraftAttachments(text, attachments)
+            return
+        }
         if (text.isEmpty()) return
         // Consume any effect staged by the picker for this send.
         val effectId = PendingSendEffect.effectId
@@ -255,6 +265,67 @@ class ChatViewModel(
                 input.value = text
                 actionError.value = failure.message ?: "Message operation failed"
             }
+        }
+    }
+
+    /** Adds a picked attachment to the draft; sent with the next send. */
+    fun stageAttachment(attachment: OutgoingAttachment) {
+        stageAttachments(listOf(attachment))
+    }
+
+    /** Adds picked attachments to the draft; sent with the next send. */
+    fun stageAttachments(attachments: List<OutgoingAttachment>) {
+        if (attachments.isEmpty()) return
+        // An in-progress edit is a text-only operation; staging media ends it.
+        if (editingMessage.value != null) cancelComposerAction()
+        pendingAttachments.value = pendingAttachments.value + attachments
+    }
+
+    /** Removes one staged draft attachment (the thumbnail's remove action). */
+    fun removePendingAttachment(attachment: OutgoingAttachment) {
+        pendingAttachments.value = pendingAttachments.value - attachment
+    }
+
+    /**
+     * Sends the staged draft attachments as one message; whatever is typed
+     * becomes the caption (the input is consumed either way).
+     */
+    private fun sendDraftAttachments(caption: String, attachments: List<OutgoingAttachment>) {
+        // Effects do not ride attachment sends; consume any staged one so it
+        // cannot leak onto a later text send.
+        PendingSendEffect.effectId = null
+        input.value = ""
+        pendingAttachments.value = emptyList()
+        viewModelScope.launch {
+            runCatching {
+                val value = caption.ifEmpty { null }
+                val targetChatId = preferredChatId()
+                if (!smsAttachmentRouter(targetChatId, attachments, value)) {
+                    attachmentSender.send(targetChatId, attachments, value)
+                }
+            }.onSuccess {
+                settleComposerAfterSend()
+            }.onFailure { failure ->
+                input.value = caption
+                pendingAttachments.value = attachments
+                actionError.value = failure.message ?: "Could not send attachment"
+            }
+        }
+    }
+
+    /**
+     * Clears the composer action after a successful send — or, when a reply
+     * thread sheet is open on the sent target, re-stages the reply so the
+     * next message continues the thread.
+     */
+    private fun settleComposerAfterSend() {
+        editingMessage.value = null
+        val open = replyThread.value
+        val root = open?.messages?.firstOrNull { it.guid == open.rootGuid }
+        if (open != null && root != null) {
+            beginReply(root, open.part)
+        } else {
+            replyingTo.value = null
         }
     }
 
@@ -370,27 +441,6 @@ class ChatViewModel(
 
     fun consumeFaceTimeLaunch() {
         faceTimeLaunch.value = null
-    }
-
-    /**
-     * Sends a picked attachment; whatever is typed becomes the caption (the
-     * input is consumed either way).
-     */
-    fun sendAttachment(attachment: OutgoingAttachment) {
-        val caption = input.value.trim()
-        input.value = ""
-        viewModelScope.launch {
-            runCatching {
-                val value = caption.ifEmpty { null }
-                val targetChatId = preferredChatId()
-                if (!smsAttachmentRouter(targetChatId, attachment, value)) {
-                    attachmentSender.send(targetChatId, attachment, value)
-                }
-            }.onFailure { failure ->
-                input.value = caption
-                actionError.value = failure.message ?: "Could not send attachment"
-            }
-        }
     }
 
     fun sendSticker(

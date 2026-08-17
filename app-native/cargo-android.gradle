@@ -176,7 +176,13 @@ tasks.register("checkUniffiBindings") {
         if (!generated.exists()) {
             throw new GradleException("bindgen produced no kotlin file in temp dir")
         }
-        if (generated.text.trim() != committed.text.trim()) {
+        // build-uniffi.sh strips trailing whitespace from the committed file
+        // (ktlint or its perl fallback); normalize the same way so the gate
+        // compares the surface, not incidental whitespace.
+        def normalize = { String text ->
+            text.replaceAll(/(?m)[ \t]+$/, "").trim()
+        }
+        if (normalize(generated.text) != normalize(committed.text)) {
             throw new GradleException(
                 "UniFFI bindings are stale. Run: (cd rust && ./build-uniffi.sh)")
         }
