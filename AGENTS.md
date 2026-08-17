@@ -48,6 +48,39 @@ Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). D
 - Commit rustpush changes inside the submodule first, then the parent pointer separately.
 - Never commit credentials, `hw_info.plist` / `gsa.plist` / `id.plist`, keystores, `android/key.properties`, APNs proxy certs, or replay traffic.
 
+## Cursor Cloud specific instructions
+
+README/CONTRIBUTING list JDK, NDK, Rust, and `native/local.properties`, but two CI-only steps are required before `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` or a Gradle compile of `rustpush/`.
+
+**FairPlay placeholder certs.** `rustpush/certs/fairplay/*` is gitignored. Copy the legacy placeholders the same way `.github/workflows/native.yml` does (`Set up fake Fairplay keys`):
+
+```bash
+mkdir -p rustpush/certs/fairplay
+for name in \
+  4056631661436364584235346952193 \
+  4056631661436364584235346952194 \
+  4056631661436364584235346952195 \
+  4056631661436364584235346952196 \
+  4056631661436364584235346952197 \
+  4056631661436364584235346952198 \
+  4056631661436364584235346952199 \
+  4056631661436364584235346952200 \
+  4056631661436364584235346952201 \
+  4056631661436364584235346952208
+do
+  cp rustpush/certs/legacy-fairplay/fairplay.pem "rustpush/certs/fairplay/$name.pem"
+  cp rustpush/certs/legacy-fairplay/fairplay.crt "rustpush/certs/fairplay/$name.crt"
+done
+```
+
+**`sdk.dir`.** `native/local.properties` is gitignored. Point Gradle at the Android SDK (CI writes `sdk.dir=$ANDROID_HOME`; on this image the SDK is `/home/ubuntu/android-sdk` and `ANDROID_HOME` may be unset):
+
+```bash
+echo "sdk.dir=${ANDROID_HOME:-/home/ubuntu/android-sdk}" > native/local.properties
+```
+
+Do not commit the generated FairPlay files or `local.properties`.
+
 ## Read when relevant
 
 | Task | Doc |
