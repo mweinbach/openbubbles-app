@@ -44,6 +44,10 @@ data class ChatListItem(
     val memberChatIds: List<Long> = listOf(id),
     /** Most recently active protocol chat for a new outgoing message. */
     val preferredChatId: Long = id,
+    /** User-selected send-from handle (rust form); null follows the default. */
+    val senderOverride: String? = null,
+    /** My handle this conversation was received on (rust form), when known. */
+    val receivedOnHandle: String? = null,
 )
 
 /** Device-local wallpaper overrides the Apple poster only while its file exists. */
@@ -152,6 +156,9 @@ interface ChatListRepository {
     fun setMuted(id: Long, muted: Boolean)
     fun setMutedUntil(id: Long, untilEpochMs: Long) = setMuted(id, true)
     fun setArchived(id: Long, archived: Boolean)
+
+    /** Per-chat send-from override; null returns the chat to the default address. */
+    fun setSenderOverride(id: Long, handle: String?) = Unit
     fun delete(id: Long)
 }
 

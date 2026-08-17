@@ -1258,7 +1258,9 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        "Used for new conversations and replies when a chat does not already have a saved sender.",
+                        "Used for every conversation, including ones that started on " +
+                            "another address. Long-press a conversation to give it its " +
+                            "own send-from address instead.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

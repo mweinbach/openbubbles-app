@@ -59,6 +59,7 @@ import app.openbubbles.nativeapp.SmsComposeRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
@@ -72,6 +73,7 @@ import app.openbubbles.nativeapp.ui.chatcreator.NewChatScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListViewModel
+import app.openbubbles.nativeapp.ui.chatlist.sendFromChoices
 import app.openbubbles.nativeapp.ui.findmy.FindMyScreen
 import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
@@ -480,9 +482,19 @@ fun OpenBubblesApp(
                     val viewModel: ChatListViewModel =
                         viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val registeredHandles by PushStateHolder.myHandlesFlow
+                        .collectAsStateWithLifecycle()
+                    val listContext = LocalContext.current
                     ChatListScreen(
                         uiState = state,
                         onChatClick = { chat -> openChat(chat.id) },
+                        sendFromChoices = remember(registeredHandles) {
+                            sendFromChoices(registeredHandles)
+                        },
+                        defaultSendingHandle = {
+                            MessagingPrefs(listContext).defaultSendingHandle
+                        },
+                        onSetSendFrom = viewModel::setSenderOverride,
                         onOpenSearch = { navigateTo(SearchKey) },
                         onVisibleChatsChanged = { ids ->
                             transcriptPrefetchJob?.cancel()

@@ -53,6 +53,10 @@ class ChatListViewModel(
 
     fun toggleArchived(chat: ChatListItem) = repository.setArchived(chat.id, !chat.archived)
 
+    /** Pins this conversation's outgoing address; null returns it to the default. */
+    fun setSenderOverride(chat: ChatListItem, handle: String?) =
+        repository.setSenderOverride(chat.id, handle)
+
     fun archive(ids: Collection<Long>) = ids.forEach { repository.setArchived(it, true) }
 
     fun unarchive(ids: Collection<Long>) = ids.forEach { repository.setArchived(it, false) }

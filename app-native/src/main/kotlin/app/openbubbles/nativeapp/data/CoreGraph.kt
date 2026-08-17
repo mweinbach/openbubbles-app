@@ -592,6 +592,8 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     transcriptBackgroundVersion = item.transcriptBackgroundVersion,
     memberChatIds = item.memberChatIds,
     preferredChatId = item.preferredChatId,
+    senderOverride = item.senderOverride,
+    receivedOnHandle = item.receivedOnHandle,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -872,6 +874,9 @@ private class CoreChatListRepository(
 
     override fun setArchived(id: Long, archived: Boolean) =
         memberIds(id).forEach { repo.setArchived(it, archived) }
+
+    override fun setSenderOverride(id: Long, handle: String?) =
+        memberIds(id).forEach { repo.setSenderOverride(it, handle) }
 
     override fun delete(id: Long) {
         memberIds(id).forEach { memberId ->

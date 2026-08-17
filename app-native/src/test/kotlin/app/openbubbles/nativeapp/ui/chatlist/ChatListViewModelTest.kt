@@ -53,6 +53,21 @@ class ChatListViewModelTest {
         assertEquals(listOf(4L, 5L), repository.deleted)
     }
 
+    @Test
+    fun `send-from override and reset reach the repository`() = runTest {
+        val repository = RecordingChatListRepository()
+        val model = ChatListViewModel(repository)
+        val item = chat(7L, "Group", date = 10L)
+
+        model.setSenderOverride(item, "tel:+15550000000")
+        model.setSenderOverride(item, null)
+
+        assertEquals(
+            listOf(7L to "tel:+15550000000", 7L to null),
+            repository.senderOverrides,
+        )
+    }
+
     private fun chat(
         id: Long,
         title: String,
@@ -74,6 +89,7 @@ class ChatListViewModelTest {
 private class RecordingChatListRepository : ChatListRepository {
     val archived = mutableListOf<Pair<Long, Boolean>>()
     val deleted = mutableListOf<Long>()
+    val senderOverrides = mutableListOf<Pair<Long, String?>>()
 
     override fun chats(): Flow<List<ChatListItem>> = MutableStateFlow(emptyList())
     override fun markRead(id: Long) = Unit
@@ -81,6 +97,9 @@ private class RecordingChatListRepository : ChatListRepository {
     override fun setMuted(id: Long, muted: Boolean) = Unit
     override fun setArchived(id: Long, archived: Boolean) {
         this.archived += id to archived
+    }
+    override fun setSenderOverride(id: Long, handle: String?) {
+        senderOverrides += id to handle
     }
     override fun delete(id: Long) {
         deleted += id
