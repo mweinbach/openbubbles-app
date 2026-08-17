@@ -7,9 +7,12 @@
 # committed. The two private submodules are cloned with per-repository
 # read-only deploy keys (SUBMODULE_KEY_RUSTPUSH, SUBMODULE_KEY_TELEPHONY).
 #
-# versionCode: gradle's versionCode is a floor; each release uses
-# max(gradle versionCode, latest published versionCode + 1) so pushing to
-# main always produces a strictly newer update. versionName comes from
+# Releases are gated on a deliberate version bump: pushes to main publish
+# only when versionName or versionCode in app-native/build.gradle changed in
+# that push (see the `version` job); manual workflow_dispatch runs always
+# publish. versionCode: gradle's versionCode is a floor; each release uses
+# max(gradle versionCode, latest published versionCode + 1) so a bumped
+# version still produces a strictly newer update. versionName comes from
 # gradle; when CI auto-increments the code beyond it, the release display
 # name becomes "<versionName> (build <code>)".
 on:
@@ -35,8 +38,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Publishes happen on a human decision, not on every green main: a push
+  # releases only when it changed versionName/versionCode in
+  # app-native/build.gradle. Manual dispatches always release.
+  version:
+    name: Version bump check
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether to release
+        id: gate
+        run: |
+          decide() { echo "release=$1" >> "$GITHUB_OUTPUT"; }
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "manual dispatch: releasing"
+            decide true
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no before-SHA on this push: releasing"
+            decide true
+            exit 0
+          fi
+          OLD_NAME=$(git show "$BEFORE:app-native/build.gradle" | sed -n 's/^[[:space:]]*versionName "\(.*\)"/\1/p' | head -1)
+          OLD_CODE=$(git show "$BEFORE:app-native/build.gradle" | sed -n 's/^[[:space:]]*versionCode \([0-9]*\)/\1/p' | head -1)
+          NEW_NAME=$(sed -n 's/^[[:space:]]*versionName "\(.*\)"/\1/p' app-native/build.gradle | head -1)
+          NEW_CODE=$(sed -n 's/^[[:space:]]*versionCode \([0-9]*\)/\1/p' app-native/build.gradle | head -1)
+          echo "before: $OLD_NAME ($OLD_CODE) -> after: $NEW_NAME ($NEW_CODE)"
+          if [ "$OLD_NAME" = "$NEW_NAME" ] && [ "$OLD_CODE" = "$NEW_CODE" ]; then
+            echo "version unchanged: skipping release"
+            decide false
+          else
+            echo "version changed: releasing"
+            decide true
+          fi
+
   release:
     name: Build & publish update
+    needs: version
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

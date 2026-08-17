@@ -9,11 +9,17 @@ carries two assets:
   (`app-native/.../update/GitHubUpdateSource.kt`)
 ## Publishing a release
 
-**Automatic (default):** every push to `main` (except docs-only changes)
-triggers the `Self-update release` workflow. It builds the signed APK,
-verifies the signing certificate, computes the SHA-256, writes `update.json`,
-and publishes the release. Manual runs with custom notes:
-Actions → Self-update release → Run workflow → fill in `notes`.
+**Automatic (version-bump only):** a push to `main` triggers the
+`Self-update release` workflow only when it changed `versionName` or
+`versionCode` in `app-native/build.gradle` — releases are a deliberate
+version bump, not every green main. The workflow's `version` job compares
+the push's before/after versions and skips the build when they match.
+It builds the signed APK, verifies the signing certificate, computes the
+SHA-256, writes `update.json`, and publishes the release.
+
+**Manual (always publishes):** Actions → Self-update release →
+Run workflow → optionally fill in `notes`. Use this to re-publish the
+current version or to release without bumping gradle.
 
 **Local:** `scripts/publish-update.sh --set --version-name X.Y.Z
 --version-code N [--notes "..."]` does the same from a machine holding the
