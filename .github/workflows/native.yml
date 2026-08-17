@@ -52,16 +52,49 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+      # Caches the Gradle user home (wrapper, dependency cache, local build
+      # cache from org.gradle.caching=true) between runs.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Add Rust Android targets
-        run: rustup target add aarch64-linux-android x86_64-linux-android
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
 
       - name: Install Protobuf compiler
-        run: sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@v3
+
+      # The NDK must match ndkVersion in app-native/build.gradle; without a
+      # cache AGP re-downloads ~2 GB every run.
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          key: ${{ runner.os }}-ndk-28.2.13676358
+
+      # Cargo registry/git checkouts plus the host target dirs (rustpush unit
+      # tests, UniFFI check). restore-keys keep stale-but-useful deps when
+      # lockfiles move; Cargo rebuilds only what changed.
+      - name: Cache Cargo registry and host builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+            rustpush/target
+          key: ${{ runner.os }}-cargo-host-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-host-
+
+      # The Android cdylib builds (2 ABIs x debug/release) via
+      # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
+      - name: Cache Android Cargo builds
+        uses: actions/cache@v4
+        with:
+          path: build-native/app-native/cargo-android/target
+          key: ${{ runner.os }}-cargo-android-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-android-
 
       - name: Set up fake Fairplay keys
         run: |
@@ -155,6 +188,9 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
