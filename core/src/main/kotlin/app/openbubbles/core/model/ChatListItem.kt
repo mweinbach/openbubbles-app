@@ -50,4 +50,8 @@ data class ChatListItem(
     val memberChatIds: List<Long> = listOf(id),
     /** Most recently active protocol chat used for a new outgoing message. */
     val preferredChatId: Long = id,
+    /** User-selected send-from handle (rust form); null follows the default. */
+    val senderOverride: String? = null,
+    /** My handle this conversation was received on / is addressed to (rust form). */
+    val receivedOnHandle: String? = null,
 )

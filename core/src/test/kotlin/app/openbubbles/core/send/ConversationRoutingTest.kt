@@ -33,16 +33,61 @@ class ConversationRoutingTest {
     }
 
     @Test
-    fun `chat sending handle wins over global default`() {
-        val chat = Chat().apply { usingHandle = "tel:+15550000000" }
+    fun `global default wins over the address the chat was received on`() {
+        // A chat that started on the email keeps usingHandle = email; once a
+        // default is chosen every send must follow it or replies keep
+        // splitting threads for the other participants.
+        val chat = Chat().apply { usingHandle = "mailto:me@icloud.com" }
+
+        val selected = selectSendingHandle(
+            chat = chat,
+            handles = linkedSetOf("mailto:me@icloud.com", "tel:+15550000000"),
+            defaultHandle = "tel:+15550000000",
+        )
+
+        assertEquals("tel:+15550000000", selected)
+    }
+
+    @Test
+    fun `per-chat override wins over the global default`() {
+        val chat = Chat().apply {
+            usingHandle = "mailto:me@icloud.com"
+            senderOverride = "mailto:me@icloud.com"
+        }
+
+        val selected = selectSendingHandle(
+            chat = chat,
+            handles = linkedSetOf("mailto:me@icloud.com", "tel:+15550000000"),
+            defaultHandle = "tel:+15550000000",
+        )
+
+        assertEquals("mailto:me@icloud.com", selected)
+    }
+
+    @Test
+    fun `stale override falls back to the global default`() {
+        val chat = Chat().apply { senderOverride = "mailto:gone@icloud.com" }
+
+        val selected = selectSendingHandle(
+            chat = chat,
+            handles = linkedSetOf("mailto:me@icloud.com", "tel:+15550000000"),
+            defaultHandle = "tel:+15550000000",
+        )
+
+        assertEquals("tel:+15550000000", selected)
+    }
+
+    @Test
+    fun `override matches a normalized raw address`() {
+        val chat = Chat().apply { senderOverride = "me@icloud.com" }
 
         val selected = selectSendingHandle(
             chat = chat,
             handles = linkedSetOf("tel:+15550000000", "mailto:me@icloud.com"),
-            defaultHandle = "mailto:me@icloud.com",
+            defaultHandle = "tel:+15550000000",
         )
 
-        assertEquals("tel:+15550000000", selected)
+        assertEquals("mailto:me@icloud.com", selected)
     }
 
     @Test

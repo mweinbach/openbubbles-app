@@ -229,6 +229,17 @@ class ChatRepo(
         chatBox.put(chat)
     }
 
+    /**
+     * User-selected send-from address for this chat (rust form, or null to
+     * follow the default). Overrides both the global default sending handle
+     * and the address the conversation was received on.
+     */
+    fun setSenderOverride(chatId: Long, handle: String?) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.senderOverride = handle?.takeIf { it.isNotBlank() }
+        chatBox.put(chat)
+    }
+
     fun setArchived(chatId: Long, archived: Boolean) {
         val chat = chatBox.get(chatId) ?: return
         chat.isArchived = archived
@@ -311,6 +322,8 @@ class ChatRepo(
             customBackgroundPath = chat.customBackgroundPath,
             transcriptBackgroundPath = chat.transcriptPosterPath,
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
+            senderOverride = chat.senderOverride,
+            receivedOnHandle = chat.usingHandle,
         )
     }
 
@@ -379,6 +392,12 @@ class ChatRepo(
                 ?: canonical.item.transcriptBackgroundVersion,
             memberChatIds = group.map { it.chat.id }.distinct().sorted(),
             preferredChatId = newest.chat.id,
+            // The newest member carries the latest routing state; overrides
+            // set through the UI are written to every member chat anyway.
+            senderOverride = newest.item.senderOverride
+                ?: canonical.item.senderOverride,
+            receivedOnHandle = newest.item.receivedOnHandle
+                ?: canonical.item.receivedOnHandle,
         )
     }
 

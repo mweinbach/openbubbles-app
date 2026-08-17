@@ -174,6 +174,32 @@ class ChatRepoContactTest {
     }
 
     @Test
+    fun `sender override persists per protocol chat and projects into the list item`() {
+        val handle = handle("friend@icloud.com")
+        val chat = chat("iMessage;-;friend@icloud.com", handle, "hello", 100L)
+        store.boxFor(Chat::class.java).put(
+            store.boxFor(Chat::class.java).get(chat.id).apply {
+                usingHandle = "mailto:me@icloud.com"
+            },
+        )
+        val repo = ChatRepo(store)
+
+        repo.setSenderOverride(chat.id, "tel:+15550009999")
+        var item = repo.chats().single()
+        assertEquals("tel:+15550009999", item.senderOverride)
+        assertEquals("mailto:me@icloud.com", item.receivedOnHandle)
+        assertEquals(
+            "tel:+15550009999",
+            store.boxFor(Chat::class.java).get(chat.id).senderOverride,
+        )
+
+        repo.setSenderOverride(chat.id, null)
+        item = repo.chats().single()
+        assertEquals(null, item.senderOverride)
+        assertEquals(null, store.boxFor(Chat::class.java).get(chat.id).senderOverride)
+    }
+
+    @Test
     fun `cloudkit one-to-one chats that include self still merge by contact`() {
         val me = handle("me@icloud.com")
         val mobile = handle("+15550000001")
