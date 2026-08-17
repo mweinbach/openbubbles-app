@@ -637,8 +637,6 @@ fun ChatScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                        } else {
-                            Text(if (uiState.chat?.isSms == true) "SMS / MMS" else "iMessage")
                         }
                     },
                     navigationIcon = {
@@ -1269,7 +1267,7 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
             ChatAvatar(
                 title = chat.title,
                 avatarColor = chat.avatarColor,
-                size = 34.dp,
+                size = 38.dp,
                 avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
             Text(
