@@ -137,7 +137,7 @@ import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
-import app.openbubbles.nativeapp.ui.common.formatConversationDay
+import app.openbubbles.nativeapp.ui.common.formatConversationTimestamp
 import app.openbubbles.nativeapp.ui.common.localDay
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
@@ -223,8 +223,8 @@ private data class SelectedMessageAction(val message: MessageItem, val part: Lon
 sealed interface ConversationEntry {
     val key: String
 
-    data class DaySeparator(val epochMillis: Long) : ConversationEntry {
-        override val key: String = "day-$epochMillis"
+    data class TimeSeparator(val epochMillis: Long) : ConversationEntry {
+        override val key: String = "time-$epochMillis"
     }
 
     data class Message(
@@ -239,6 +239,8 @@ sealed interface ConversationEntry {
         val tightBottom: Boolean = false,
         /** First visible message of an author's run in a group chat. */
         val showSenderName: Boolean = false,
+        /** Bottom bubble of an incoming run in a group chat draws the avatar. */
+        val showAvatar: Boolean = false,
     ) : ConversationEntry {
         override val key: String = "message-${message.id}"
     }
@@ -250,11 +252,16 @@ private fun MessageItem.authorKey(): Pair<Boolean, String?> = isFromMe to sender
 /** True when this message renders as a bubble (rows like group events break runs). */
 private fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
 
+/** A quiet gap this long (or a day change) starts a new timestamped cluster. */
+private const val TimeSeparatorGapMillis = 60 * 60 * 1000L
+
 /**
  * Builds newest-first entries (the reversed list renders index 0 at the
- * bottom) with day separators between calendar days, grouping-aware corner
- * hints, optional group sender-name labels, and the status row on my newest
- * outgoing message (or any failed one).
+ * bottom) with timestamp separators above the first message of each time
+ * cluster (a new calendar day or an hour-plus quiet gap, the Apple Messages
+ * cadence), grouping-aware corner hints, optional group sender-name labels
+ * and avatars, and the status row on my newest outgoing message (or any
+ * failed one).
  */
 fun buildConversationEntries(
     messages: List<MessageItem>,
@@ -262,20 +269,30 @@ fun buildConversationEntries(
     showSenderNames: Boolean = false,
 ): List<ConversationEntry> {
     val lastFromMeId = messages.lastOrNull { it.isFromMe && !it.isGroupEvent }?.id
+    // Walk oldest -> newest so each separator lands directly above the first
+    // message of its cluster, then reverse into the newest-first order the
+    // reversed LazyColumn expects. (Appending separators while walking
+    // newest -> oldest put every label below its cluster — "Today" rendered
+    // at the very bottom of the transcript.)
     val entries = mutableListOf<ConversationEntry>()
-    var lastDay = localDay(Long.MIN_VALUE, zone)
-    for (message in messages.asReversed()) {
-        val day = localDay(message.date, zone)
-        if (day != lastDay) {
-            entries += ConversationEntry.DaySeparator(message.date)
-            lastDay = day
+    var previousDate: Long? = null
+    for (message in messages) {
+        val previous = previousDate
+        if (previous == null ||
+            message.date - previous >= TimeSeparatorGapMillis ||
+            localDay(message.date, zone) != localDay(previous, zone)
+        ) {
+            entries += ConversationEntry.TimeSeparator(message.date)
         }
+        previousDate = message.date
         val showStatus = message.id == lastFromMeId || message.status == MessageStatus.FAILED
         entries += ConversationEntry.Message(message, showStatus)
     }
+    entries.reverse()
 
-    // Second pass: grouping corners + sender names from visual neighbors.
-    // Index 0 is the visual bottom, so the message "above" entry i is i+1.
+    // Second pass: grouping corners + sender names/avatars from visual
+    // neighbors. Index 0 is the visual bottom, so the message "above" entry i
+    // is i+1. Separators break runs on both sides.
     for (i in entries.indices) {
         val entry = entries[i] as? ConversationEntry.Message ?: continue
         val message = entry.message
@@ -297,10 +314,15 @@ fun buildConversationEntries(
             !message.isFromMe &&
             message.senderAddress != null &&
             !tightTop
+        val showAvatar = showSenderNames &&
+            !message.isFromMe &&
+            message.senderAddress != null &&
+            !tightBottom
         entries[i] = entry.copy(
             tightTop = tightTop,
             tightBottom = tightBottom,
             showSenderName = showName,
+            showAvatar = showAvatar,
         )
     }
     return entries
@@ -308,7 +330,7 @@ fun buildConversationEntries(
 
 /**
  * Conversation view: reversed LazyColumn (newest at the bottom, stays pinned
- * while sending), day separators, bubbles with attachments, edited/unsent
+ * while sending), timestamp separators, bubbles with attachments, edited/unsent
  * rendering, reactions and delivery status, older-history paging when
  * scrolled to the top, an animated typing indicator, draft attachments staged
  * from the + menu (multi-select photo picker, any file, or an in-place voice
@@ -772,7 +794,7 @@ fun ChatScreen(
                             contentType = {
                                 when (it) {
                                     is ConversationEntry.Message -> "message"
-                                    is ConversationEntry.DaySeparator -> "day-separator"
+                                    is ConversationEntry.TimeSeparator -> "time-separator"
                                 }
                             },
                         ) { entry ->
@@ -783,6 +805,8 @@ fun ChatScreen(
                                     tightTop = entry.tightTop,
                                     tightBottom = entry.tightBottom,
                                     showSenderName = entry.showSenderName,
+                                    showAvatarGutter = isGroupChat,
+                                    showAvatar = entry.showAvatar,
                                     smsChat = smsChat,
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
@@ -823,9 +847,11 @@ fun ChatScreen(
                                             placementSpec = itemSpecs.placement,
                                         ),
                                 )
-                                is ConversationEntry.DaySeparator ->
-                                    DaySeparatorRow(
-                                        label = formatConversationDay(entry.epochMillis),
+                                is ConversationEntry.TimeSeparator -> {
+                                    val timestamp = formatConversationTimestamp(entry.epochMillis)
+                                    TimeSeparatorRow(
+                                        day = timestamp.day,
+                                        time = timestamp.time,
                                         modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                             .animateItem(
                                                 fadeInSpec = itemSpecs.fadeIn,
@@ -833,6 +859,7 @@ fun ChatScreen(
                                                 placementSpec = itemSpecs.placement,
                                             ),
                                     )
+                                }
                             }
                         }
                         if (uiState.loadingOlder) {

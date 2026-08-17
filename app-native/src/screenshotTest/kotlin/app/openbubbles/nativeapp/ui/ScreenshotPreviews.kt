@@ -368,6 +368,48 @@ fun ChatScreenScreenshot() {
 }
 
 /**
+ * Group transcript: sender avatars anchored to the bottom bubble of each
+ * incoming run, name labels on run starts, and a mid-conversation timestamp
+ * separator where a three-hour quiet gap splits the clusters.
+ */
+@PreviewTest
+@Preview(name = "chat-group", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-group-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenGroupScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 7,
+                    title = "Weekend Crew",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF386A20,
+                    isSms = false,
+                    isGroup = true,
+                ),
+                messages = listOf(
+                    message(1, "who's driving saturday?", fromMe = false)
+                        .copy(date = FIXED_NOW - 3 * 60 * 60_000L, senderAddress = "alex@icloud.com"),
+                    message(2, "i can take three", fromMe = false)
+                        .copy(senderAddress = "sam@icloud.com"),
+                    message(3, "i'll grab the snacks too", fromMe = false)
+                        .copy(senderAddress = "sam@icloud.com"),
+                    message(4, "perfect — see everyone at 8", fromMe = true, status = MessageStatus.DELIVERED),
+                ),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/**
  * Draft attachment strip: picked media stages on the composer instead of
  * sending instantly, each thumbnail removable, all riding the next send.
  */
