@@ -276,6 +276,58 @@ class ContactSyncTest {
     }
 
     @Test
+    fun `iCloud name keeps a native contact photo when CardDAV has none`() {
+        val handle = seedHandle("friend@icloud.com")
+        sync.upsertContacts(
+            listOf(
+                raw(
+                    "android:friend",
+                    displayName = "Android Friend",
+                    avatarPath = "content://android/friend",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+                raw(
+                    "icloud:friend",
+                    displayName = "iOS Friend",
+                    avatarPath = null,
+                    addresses = listOf("friend@icloud.com"),
+                ),
+            ),
+        )
+
+        assertEquals("iOS Friend", sync.displayInfoFor(handle).name)
+        assertEquals("content://android/friend", sync.displayInfoFor(handle).avatar)
+        assertEquals("iOS Friend", sync.displayInfoByHandleId()[handle.id]?.name)
+        assertEquals("content://android/friend", sync.displayInfoByHandleId()[handle.id]?.avatar)
+        assertEquals(
+            "content://android/friend",
+            sync.preferredContacts().single { it.id == "icloud:friend" }.avatarPath,
+        )
+    }
+
+    @Test
+    fun `display info resolves by address when the handle relation was never stored`() {
+        val handle = seedHandle("friend@icloud.com")
+        store.boxFor(ContactV2::class.java).put(
+            ContactV2().apply {
+                nativeContactId = "icloud:unlinked"
+                displayName = "CardDAV Friend"
+                avatarPath = "/avatars/unlinked.png"
+                addresses = listOf("friend@icloud.com")
+                isNative = true
+            },
+        )
+
+        assertEquals("CardDAV Friend", sync.displayInfoByHandleId()[handle.id]?.name)
+        assertEquals("/avatars/unlinked.png", sync.displayInfoByHandleId()[handle.id]?.avatar)
+        assertEquals("/avatars/unlinked.png", sync.displayInfoFor(handle).avatar)
+        assertEquals(
+            HandleDisplayInfo("CardDAV Friend", "/avatars/unlinked.png"),
+            sync.displayInfoForAddress("mailto:friend@icloud.com"),
+        )
+    }
+
+    @Test
     fun `nickname wins over structured name`() {
         seedHandle("bob@icloud.com")
         sync.upsertContacts(

@@ -3,6 +3,7 @@ package app.openbubbles.core.repo
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.db.Chat
+import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import app.openbubbles.db.MyObjectBox
@@ -29,6 +30,83 @@ class ChatRepoContactTest {
     fun tearDown() {
         store.close()
         testDir.deleteRecursively()
+    }
+
+    @Test
+    fun `direct chat list item uses the synced contact photo`() {
+        val handle = handle("friend@icloud.com")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:friend",
+                    displayName = "Friendly Person",
+                    firstName = "Friendly",
+                    lastName = "Person",
+                    avatarPath = "/avatars/friend.png",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+            ),
+        )
+        chat("iMessage;-;friend@icloud.com", handle, "hello", 100L)
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("Friendly Person", item.title)
+        assertEquals("/avatars/friend.png", item.avatarPath)
+        assertEquals("friend@icloud.com", item.avatarAddress)
+        assertEquals(false, item.isGroup)
+    }
+
+    @Test
+    fun `direct chat still shows a contact photo when handle backlinks are missing`() {
+        val handle = handle("friend@icloud.com")
+        store.boxFor(ContactV2::class.java).put(
+            ContactV2().apply {
+                nativeContactId = "icloud:unlinked-friend"
+                displayName = "Unlinked Friend"
+                avatarPath = "/avatars/unlinked.png"
+                addresses = listOf("friend@icloud.com")
+                isNative = true
+            },
+        )
+        chat("iMessage;-;friend@icloud.com", handle, "hello", 100L)
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("Unlinked Friend", item.title)
+        assertEquals("/avatars/unlinked.png", item.avatarPath)
+    }
+
+    @Test
+    fun `cloudkit one-to-one chats resolve contact photos from the chat identifier`() {
+        val me = handle("me@icloud.com")
+        val friend = handle("friend@icloud.com")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:friend",
+                    displayName = "Friendly Person",
+                    firstName = "Friendly",
+                    lastName = "Person",
+                    avatarPath = "/avatars/friend.png",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+            ),
+        )
+        val fromIcloud = Chat().apply {
+            guid = "iMessage;-;friend@icloud.com"
+            chatIdentifier = "friend@icloud.com"
+            style = 45
+            isRpSms = false
+            displayName = "Friendly Person"
+            handles.add(me)
+            handles.add(friend)
+        }
+        store.boxFor(Chat::class.java).put(fromIcloud)
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("Friendly Person", item.title)
+        assertEquals("/avatars/friend.png", item.avatarPath)
+        assertEquals("friend@icloud.com", item.avatarAddress)
+        assertEquals(false, item.isGroup)
     }
 
     @Test

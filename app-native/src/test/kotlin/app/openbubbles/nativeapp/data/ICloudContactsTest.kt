@@ -82,13 +82,42 @@ class ICloudContactsTest {
         val inline = ParsedVCard("A", "A", null, listOf("a@example.com"), "img".toByteArray(), "https://example.com/a")
         assertContentEquals("img".toByteArray(), resolveContactPhoto(inline) { error("should not download") })
 
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(12) { 1 }
         val remote = ParsedVCard("B", "B", null, listOf("b@example.com"), null, "https://p01-contacts.icloud.com/photo")
         var requested: String? = null
         val downloaded = resolveContactPhoto(remote) { uri ->
             requested = uri
-            "remote".toByteArray()
+            jpeg
         }
         assertEquals("https://p01-contacts.icloud.com/photo", requested)
-        assertContentEquals("remote".toByteArray(), downloaded)
+        assertContentEquals(jpeg, downloaded)
+
+        val html = resolveContactPhoto(remote) { "<html>login</html>".toByteArray() }
+        assertEquals(null, html)
+    }
+
+    @Test
+    fun `stale photo cache version forces a full CardDAV recrawl`() {
+        assertEquals(
+            null to null,
+            cardDavCursorForPhotoCache("ctag-1", "token-1", storedPhotoVersion = 1),
+        )
+        assertEquals(
+            "ctag-1" to "token-1",
+            cardDavCursorForPhotoCache("ctag-1", "token-1", storedPhotoVersion = ICLOUD_PHOTO_CACHE_VERSION),
+        )
+    }
+
+    @Test
+    fun `contact photos are only persisted when the bytes are an image`() {
+        val directory = java.nio.file.Files.createTempDirectory("ob-contact-photo").toFile()
+        try {
+            val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(12) { 1 }
+            assertEquals(jpeg.toList(), writeContactPhoto(directory, "ok", jpeg)?.readBytes()?.toList())
+            assertEquals(null, writeContactPhoto(directory, "html", "<html>nope</html>".toByteArray()))
+            assertEquals(null, writeContactPhoto(directory, "empty", null))
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 }

@@ -19,6 +19,7 @@ import app.openbubbles.db.Message_
 import app.openbubbles.db.Handle_
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
@@ -58,9 +59,10 @@ class ChatRepo(
             val found = it.find()
             val contactInfo = contactSync.displayInfoByHandleId()
             val contactIds = contactSync.contactIdsByHandleId()
+            val addressInfo = contactSync.displayInfoByMatchKey()
             // Project while the query and its creator thread are still alive;
             // relation reads in toItem must not escape to a collector thread.
-            val grouped = groupContactChats(found, contactInfo, contactIds)
+            val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo)
             if (limit > 0) grouped.take(limit) else grouped
         }
     }
@@ -255,17 +257,28 @@ class ChatRepo(
     // ------------------------------------------------------------------
 
     internal fun toItem(chat: Chat): ChatListItem =
-        toItem(chat, contactSync.displayInfoByHandleId())
+        toItem(
+            chat,
+            contactSync.displayInfoByHandleId(),
+            contactSync.displayInfoByMatchKey(),
+        )
 
     private fun toItem(
         chat: Chat,
         contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
     ): ChatListItem {
         val latest = chat.dbLatestMessage.target
+        val others = otherHandles(chat)
+        val isGroup = isGroupConversation(chat.style, others.size)
+        val identity = directIdentity(chat, contactInfo, addressInfo)
+        val groupPhoto = chat.customAvatarPath?.takeIf { path ->
+            path.isNotBlank() && File(path).isFile
+        }
         return ChatListItem(
             id = chat.id,
             guid = chat.guid,
-            title = deriveTitle(chat, contactInfo),
+            title = deriveTitle(chat, contactInfo, addressInfo),
             snippet = latest?.let { snippet(it) },
             date = latest?.dateCreated ?: chat.dbOnlyLatestMessageDate,
             hasUnread = chat.hasUnreadMessage,
@@ -274,10 +287,10 @@ class ChatRepo(
             muted = ChatMute.shouldMute(chat),
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
-            participantCount = otherHandles(chat).size,
-            avatarAddress = otherHandle(chat)?.let { it.formattedAddress ?: it.address },
-            avatarPath = chat.customAvatarPath,
-            isGroup = isGroupConversation(chat.style, otherHandles(chat).size),
+            participantCount = others.size,
+            avatarAddress = identity?.address,
+            avatarPath = groupPhoto ?: identity?.info?.avatar,
+            isGroup = isGroup,
             customBackgroundPath = chat.customBackgroundPath,
             transcriptBackgroundPath = chat.transcriptPosterPath,
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
@@ -290,21 +303,26 @@ class ChatRepo(
         val contactInfo: HandleDisplayInfo?,
     )
 
+    private data class DirectIdentity(
+        val address: String?,
+        val info: HandleDisplayInfo?,
+    )
+
     private fun groupContactChats(
         chats: List<Chat>,
         contactInfo: Map<Long, HandleDisplayInfo>,
         contactIds: Map<Long, Long>,
+        addressInfo: Map<String, HandleDisplayInfo>,
     ): List<ChatListItem> {
         val grouped = linkedMapOf<String, MutableList<ContactChatProjection>>()
         chats.forEach { chat ->
-            val handle = otherHandle(chat)
-            val info = handle?.let { contactInfo[it.id] }
+            val identity = directIdentity(chat, contactInfo, addressInfo)
             val contactId = directContactId(chat, contactIds)
             val key = contactId?.let { "contact:$it" } ?: "chat:${chat.id}"
             grouped.getOrPut(key) { mutableListOf() } += ContactChatProjection(
                 chat = chat,
-                item = toItem(chat, contactInfo),
-                contactInfo = info,
+                item = toItem(chat, contactInfo, addressInfo),
+                contactInfo = identity?.info,
             )
         }
         return grouped.values.map(::mergeContactChats)
@@ -354,6 +372,27 @@ class ChatRepo(
         if (chat.isRpSms == true || chat.style == GROUP_CHAT_STYLE) return null
         val handle = otherHandle(chat) ?: return null
         return contactIds[handle.id]
+    }
+
+    /**
+     * The other person in a 1:1 chat, plus any synced name/photo. CloudKit
+     * rows often include our own handle; when that makes [otherHandle]
+     * ambiguous, [Chat.chatIdentifier] is still the peer address.
+     */
+    private fun directIdentity(
+        chat: Chat,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
+    ): DirectIdentity? {
+        if (isGroupConversation(chat.style, otherHandles(chat).size)) return null
+        val handle = otherHandle(chat)
+        val address = handle?.let { it.formattedAddress ?: it.address }
+            ?: chat.chatIdentifier?.takeIf { it.isNotBlank() }
+        val info = handle?.let { contactInfo[it.id] }
+            ?: ContactSync.displayInfoForMatchKeys(address, addressInfo)
+            ?: ContactSync.displayInfoForMatchKeys(chat.chatIdentifier, addressInfo)
+        if (address == null && info == null) return null
+        return DirectIdentity(address = address, info = info)
     }
 
     private fun otherHandle(chat: Chat): Handle? =
@@ -438,15 +477,23 @@ class ChatRepo(
 
     /** Port of `Chat.getChatCreatorSubtitle`, including linked contacts. */
     internal fun deriveTitle(chat: Chat): String =
-        deriveTitle(chat, contactSync.displayInfoByHandleId())
+        deriveTitle(
+            chat,
+            contactSync.displayInfoByHandleId(),
+            contactSync.displayInfoByMatchKey(),
+        )
 
     private fun deriveTitle(
         chat: Chat,
         contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo> = emptyMap(),
     ): String {
         if (!chat.displayName.isNullOrEmpty()) return chat.displayName
         val other = otherHandle(chat)
         if (other != null) return handleDisplayName(other, contactInfo)
+        ContactSync.displayInfoForMatchKeys(chat.chatIdentifier, addressInfo)
+            ?.name?.takeIf { it.isNotBlank() }
+            ?.let { return it }
         val handles = otherHandles(chat).ifEmpty { chat.handles }
         return when {
             handles.isEmpty() ->

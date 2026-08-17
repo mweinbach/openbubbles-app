@@ -2,8 +2,10 @@ package app.openbubbles.nativeapp.ui.common
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
@@ -155,6 +157,85 @@ fun rememberDecodedImage(
  * normalized before caching. Returns null while decoding, for null/blank
  * input, or on failure — callers fall back.
  */
+internal fun decodeUriImage(
+    context: android.content.Context,
+    uri: String?,
+    maxDimensionPx: Int,
+): DecodedImage? {
+    if (uri.isNullOrBlank()) return null
+    return decodeUriImageWithBitmapFactory(context, uri, maxDimensionPx)
+        ?: decodeUriImageWithImageDecoder(context, uri, maxDimensionPx)
+}
+
+private fun decodeUriImageWithBitmapFactory(
+    context: android.content.Context,
+    uri: String,
+    maxDimensionPx: Int,
+): DecodedImage? = runCatching {
+    fun openStream() = when {
+        uri.startsWith("content://") || uri.startsWith("file://") ->
+            context.contentResolver.openInputStream(Uri.parse(uri))
+        else -> File(uri).takeIf { it.isFile }?.inputStream()
+    }
+
+    val orientation = readImageOrientation(::openStream)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    openStream()?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
+        bounds.outHeight / (sample * 2) >= maxDimensionPx
+    ) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val bitmap = openStream()?.use {
+        BitmapFactory.decodeStream(it, null, options)
+    } ?: return@runCatching null
+    val oriented = bitmap.applyImageOrientation(orientation)
+    DecodedImage(
+        image = oriented.asImageBitmap(),
+        aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
+    )
+}.getOrNull()
+
+private fun decodeUriImageWithImageDecoder(
+    context: android.content.Context,
+    uri: String,
+    maxDimensionPx: Int,
+): DecodedImage? {
+    if (Build.VERSION.SDK_INT < 28) return null
+    return runCatching {
+        val source = when {
+            uri.startsWith("content://") || uri.startsWith("file://") ->
+                ImageDecoder.createSource(context.contentResolver, Uri.parse(uri))
+            else -> {
+                val file = File(uri)
+                if (!file.isFile) return@runCatching null
+                ImageDecoder.createSource(file)
+            }
+        }
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val width = info.size.width
+            val height = info.size.height
+            if (width > 0 && height > 0) {
+                var sample = 1
+                while (width / (sample * 2) >= maxDimensionPx ||
+                    height / (sample * 2) >= maxDimensionPx
+                ) {
+                    sample *= 2
+                }
+                decoder.setTargetSize((width / sample).coerceAtLeast(1), (height / sample).coerceAtLeast(1))
+            }
+        }
+        DecodedImage(
+            image = bitmap.asImageBitmap(),
+            aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+        )
+    }.getOrNull()
+}
+
 internal fun uriImageCacheKey(uri: String?, maxDimensionPx: Int): String? {
     val value = uri?.takeIf { it.isNotBlank() } ?: return null
     val fileMeta = when {
@@ -184,34 +265,7 @@ fun rememberDecodedUriImage(
             return@produceState
         }
         val decoded = withContext(Dispatchers.IO) {
-            runCatching {
-                fun openStream() = when {
-                    uri!!.startsWith("content://") || uri.startsWith("file://") ->
-                        context.contentResolver.openInputStream(Uri.parse(uri))
-                    else -> File(uri).takeIf { it.isFile }?.inputStream()
-                }
-
-                val orientation = readImageOrientation(::openStream)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                openStream()?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
-                    bounds.outHeight / (sample * 2) >= maxDimensionPx
-                ) {
-                    sample *= 2
-                }
-                val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                val bitmap = openStream()?.use {
-                    BitmapFactory.decodeStream(it, null, options)
-                } ?: return@runCatching null
-                val oriented = bitmap.applyImageOrientation(orientation)
-                DecodedImage(
-                    image = oriented.asImageBitmap(),
-                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
-                )
-            }.getOrNull()
+            decodeUriImage(context, uri, maxDimensionPx)
         }
         if (decoded != null) ImageDecodeCache.put(key, decoded)
         value = decoded

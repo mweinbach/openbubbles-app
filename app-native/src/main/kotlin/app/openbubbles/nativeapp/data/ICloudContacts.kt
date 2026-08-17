@@ -29,6 +29,8 @@ private const val MAX_REDIRECTS = 5
 private const val MULTIGET_BATCH = 64
 private const val AUTO_SYNC_FRESHNESS_MS = 15 * 60 * 1000L
 private const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
+internal const val ICLOUD_PHOTO_CACHE_VERSION = 2
+private const val PHOTO_CACHE_VERSION_KEY = "photo_cache_version"
 
 internal fun hasImageMagic(bytes: ByteArray): Boolean {
     if (bytes.size < 12) return false
@@ -45,7 +47,23 @@ internal fun hasImageMagic(bytes: ByteArray): Boolean {
 internal fun resolveContactPhoto(
     parsed: ParsedVCard,
     download: (String) -> ByteArray?,
-): ByteArray? = parsed.photo ?: parsed.photoUri?.let(download)
+): ByteArray? = parsed.photo ?: parsed.photoUri?.let(download)?.takeIf(::hasImageMagic)
+
+/** Ignore a stored CardDAV cursor after the PHOTO parser changes so existing books re-download images. */
+internal fun cardDavCursorForPhotoCache(
+    storedCtag: String?,
+    storedToken: String?,
+    storedPhotoVersion: Int,
+    photoCacheVersion: Int = ICLOUD_PHOTO_CACHE_VERSION,
+): Pair<String?, String?> =
+    if (storedPhotoVersion < photoCacheVersion) null to null else storedCtag to storedToken
+
+internal fun writeContactPhoto(directory: File, stem: String, bytes: ByteArray?): File? {
+    if (bytes == null || !hasImageMagic(bytes)) return null
+    return runCatching {
+        File(directory, "$stem.img").apply { writeBytes(bytes) }
+    }.getOrNull()
+}
 
 internal data class ParsedVCard(
     val displayName: String?,
@@ -540,7 +558,9 @@ object ICloudContactSync {
         withContext(Dispatchers.IO) {
             val prefs = context.getSharedPreferences(ICLOUD_CONTACTS_PREFS, Context.MODE_PRIVATE)
             val previous = status(context)
+            val storedPhotoVersion = prefs.getInt(PHOTO_CACHE_VERSION_KEY, 0)
             if (!force && previous.lastSuccessMs > 0L &&
+                storedPhotoVersion >= ICLOUD_PHOTO_CACHE_VERSION &&
                 System.currentTimeMillis() - previous.lastSuccessMs < AUTO_SYNC_FRESHNESS_MS
             ) {
                 // A fresh CardDAV snapshot can still predate handles created
@@ -560,7 +580,11 @@ object ICloudContactSync {
                 var imported = 0
                 var removed = 0
                 client.sync { url ->
-                    prefs.getString(ctagKey(url), null) to prefs.getString(tokenKey(url), null)
+                    cardDavCursorForPhotoCache(
+                        storedCtag = prefs.getString(ctagKey(url), null),
+                        storedToken = prefs.getString(tokenKey(url), null),
+                        storedPhotoVersion = storedPhotoVersion,
+                    )
                 }.forEach { result ->
                     val knownBefore = prefs.getStringSet(knownKey(result.book.url), emptySet()).orEmpty()
                     val upsertIds = result.cards.keys.mapTo(LinkedHashSet()) { it.toString() }
@@ -577,7 +601,11 @@ object ICloudContactSync {
                         val photo = resolveContactPhoto(parsed) { uri ->
                             val resolved = runCatching { href.resolve(uri) }.getOrNull() ?: return@resolveContactPhoto null
                             if (resolved.scheme != "https" || !isAppleICloudHost(resolved.host)) return@resolveContactPhoto null
-                            client.downloadPhoto(resolved)
+                            val bytes = client.downloadPhoto(resolved)
+                            if (bytes == null) {
+                                Log.w("ICloudContactSync", "contact photo download failed: $resolved")
+                            }
+                            bytes
                         }
                         RawContact(
                             id = contactId(href.toString()),
@@ -607,6 +635,7 @@ object ICloudContactSync {
                     .putLong("last_success_ms", System.currentTimeMillis())
                     .putInt("last_imported", imported)
                     .putInt("last_removed", removed)
+                    .putInt(PHOTO_CACHE_VERSION_KEY, ICLOUD_PHOTO_CACHE_VERSION)
                     .remove("last_error")
                     .apply()
                 Log.i(
@@ -630,14 +659,11 @@ object ICloudContactSync {
     }
 
     private fun savePhoto(context: Context, href: String, bytes: ByteArray?): String? {
-        bytes ?: return null
         val directory = File(context.filesDir, "icloud_contact_avatars").apply { mkdirs() }
         val name = MessageDigest.getInstance("SHA-256")
             .digest(href.toByteArray())
             .joinToString("") { "%02x".format(it) }
-        return runCatching {
-            File(directory, "$name.img").apply { writeBytes(bytes) }.absolutePath
-        }.getOrNull()
+        return writeContactPhoto(directory, name, bytes)?.absolutePath
     }
 
     private fun contactId(href: String) = "icloud:$href"

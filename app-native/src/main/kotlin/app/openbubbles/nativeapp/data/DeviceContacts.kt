@@ -37,6 +37,7 @@ object DeviceContacts {
                 ContactsContract.Contacts._ID,
                 ContactsContract.Contacts.DISPLAY_NAME,
                 ContactsContract.Contacts.PHOTO_URI,
+                ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
                 ContactsContract.Contacts.IN_VISIBLE_GROUP,
             ),
             null, null, null,
@@ -45,7 +46,8 @@ object DeviceContacts {
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0) ?: continue
                 val name = cursor.getString(1)
-                val photo = cursor.getString(2)
+                val photo = cursor.getString(2)?.takeIf { it.isNotBlank() }
+                    ?: cursor.getString(3)?.takeIf { it.isNotBlank() }
                 val addresses = addressesById[id].orEmpty()
                 if (addresses.isEmpty()) continue // unreachable over iMessage/SMS anyway
                 val (first, last) = splitName(name)

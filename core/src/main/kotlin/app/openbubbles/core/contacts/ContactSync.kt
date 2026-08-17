@@ -221,13 +221,18 @@ class ContactSync(private val store: BoxStore) {
     /**
      * Resolves every handle that belongs to a contact. Synced iCloud contacts
      * win, then native/platform contacts, then legacy rows.
+     *
+     * Matching is by current address keys, not only the persisted ToMany
+     * backlink: history can create handles after CardDAV finishes, and those
+     * rows should still name and illustrate the chat list.
      */
     fun contactsForHandles(): Map<Long, ContactV2> {
         return store.callInReadTx {
             val resolved = HashMap<Long, ContactV2>()
+            val (emailHandles, phoneHandles) = buildHandleIndexes()
             contactsByPreference().forEach { contact ->
-                contact.handles.forEach { handle ->
-                    resolved.getOrPut(handle.id) { contact }
+                handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
+                    resolved.putIfAbsent(handle.id, contact)
                 }
             }
             resolved
@@ -238,14 +243,32 @@ class ContactSync(private val store: BoxStore) {
      * One read-transaction projection for list rendering. This avoids opening
      * a lazy backlink transaction per chat row (which is both slower and can
      * keep ObjectBox transactions alive until finalization under heavy sync).
+     *
+     * iCloud names win. A later native contact can still fill a missing
+     * avatar so Android photos are not dropped just because CardDAV had a
+     * name and no PHOTO.
      */
     fun displayInfoByHandleId(): Map<Long, HandleDisplayInfo> = store.callInReadTx {
         val resolved = HashMap<Long, HandleDisplayInfo>()
+        val (emailHandles, phoneHandles) = buildHandleIndexes()
         contactsByPreference().forEach { contact ->
-            val name = computedDisplayName(contact).takeIf { it.isNotEmpty() }
-            val info = HandleDisplayInfo(name = name, avatar = contact.avatarPath)
-            contact.handles.forEach { handle ->
-                resolved.putIfAbsent(handle.id, info)
+            val info = displayInfoOf(contact)
+            handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
+                resolved[handle.id] = mergeDisplayInfo(resolved[handle.id], info)
+            }
+        }
+        resolved
+    }
+
+    /** Address-key projection for chat identifiers and unlinked handles. */
+    fun displayInfoByMatchKey(): Map<String, HandleDisplayInfo> = store.callInReadTx {
+        val resolved = HashMap<String, HandleDisplayInfo>()
+        contactsByPreference().forEach { contact ->
+            val info = displayInfoOf(contact)
+            contact.addresses.forEach { address ->
+                addressMatchKeys(address).forEach { key ->
+                    resolved[key] = mergeDisplayInfo(resolved[key], info)
+                }
             }
         }
         resolved
@@ -254,8 +277,9 @@ class ContactSync(private val store: BoxStore) {
     /** Stable contact ids for exact identity grouping across linked handles. */
     fun contactIdsByHandleId(): Map<Long, Long> = store.callInReadTx {
         val resolved = HashMap<Long, Long>()
+        val (emailHandles, phoneHandles) = buildHandleIndexes()
         contactsByPreference().forEach { contact ->
-            contact.handles.forEach { handle ->
+            handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
                 resolved.putIfAbsent(handle.id, contact.id)
             }
         }
@@ -272,15 +296,17 @@ class ContactSync(private val store: BoxStore) {
         if (handle.address.startsWith("urn:biz")) {
             return HandleDisplayInfo(name = "Business", avatar = null)
         }
-        val contact = store.callInReadTx {
-            contactsByPreference().firstOrNull { candidate ->
-                candidate.handles.any { it.id == handle.id }
-            }
-        }
-        val name = contact?.let { computedDisplayName(it) }?.takeIf { it.isNotEmpty() }
+        val fromHandle = displayInfoByHandleId()[handle.id]
+        val fromAddress = listOfNotNull(handle.formattedAddress, handle.address)
+            .firstNotNullOfOrNull(::displayInfoForAddress)
+        val name = fromHandle?.name
+            ?: fromAddress?.name
             ?: handle.formattedAddress?.takeIf { it.isNotEmpty() }
             ?: handle.address
-        return HandleDisplayInfo(name = name, avatar = contact?.avatarPath)
+        return HandleDisplayInfo(
+            name = name,
+            avatar = fromHandle?.avatar ?: fromAddress?.avatar,
+        )
     }
 
     /**
@@ -302,21 +328,31 @@ class ContactSync(private val store: BoxStore) {
     fun displayInfoForAddress(address: String): HandleDisplayInfo? = store.callInReadTx {
         val targetKeys = addressMatchKeys(address)
         if (targetKeys.isEmpty()) return@callInReadTx null
-        contactsByPreference().firstOrNull { contact ->
-            contact.addresses.any { candidate ->
+        var merged: HandleDisplayInfo? = null
+        contactsByPreference().forEach { contact ->
+            val matches = contact.addresses.any { candidate ->
                 addressMatchKeys(candidate).any(targetKeys::contains)
             }
-        }?.let { contact ->
-            HandleDisplayInfo(
-                name = computedDisplayName(contact).takeIf { it.isNotEmpty() },
-                avatar = contact.avatarPath,
-            )
+            if (matches) merged = mergeDisplayInfo(merged, displayInfoOf(contact))
         }
+        merged
     }
 
     fun preferredContacts(includeNativeContacts: Boolean = true): List<RawContact> =
         store.callInReadTx {
             val claimedAddresses = HashSet<String>()
+            val nativeAvatarByKey = HashMap<String, String>()
+            if (includeNativeContacts) {
+                contactsByPreference().forEach { contact ->
+                    if (isICloudContact(contact)) return@forEach
+                    val avatar = contact.avatarPath ?: return@forEach
+                    contact.addresses.forEach { address ->
+                        addressMatchKeys(address).forEach { key ->
+                            nativeAvatarByKey.putIfAbsent(key, avatar)
+                        }
+                    }
+                }
+            }
             contactsByPreference().mapNotNull { contact ->
                 if (!includeNativeContacts && !isICloudContact(contact)) return@mapNotNull null
                 val addresses = contact.addresses.distinct().filter { address ->
@@ -329,16 +365,34 @@ class ContactSync(private val store: BoxStore) {
                     }
                 }
                 if (addresses.isEmpty()) return@mapNotNull null
+                val avatar = contact.avatarPath ?: addresses.firstNotNullOfOrNull { address ->
+                    addressMatchKeys(address).firstNotNullOfOrNull(nativeAvatarByKey::get)
+                }
                 RawContact(
                     id = contact.nativeContactId ?: "contact:${contact.id}",
                     displayName = computedDisplayName(contact).takeIf(String::isNotEmpty),
                     firstName = contact.firstName,
                     lastName = contact.lastName,
-                    avatarPath = contact.avatarPath,
+                    avatarPath = avatar,
                     addresses = addresses,
                 )
             }
         }
+
+    private fun handlesFor(
+        contact: ContactV2,
+        emailHandles: Map<String, Set<Handle>>,
+        phoneHandles: Map<String, Set<Handle>>,
+    ): Collection<Handle> {
+        val matched = matchedHandles(contact.addresses, emailHandles, phoneHandles)
+        contact.handles.forEach { matched += it }
+        return matched
+    }
+
+    private fun displayInfoOf(contact: ContactV2): HandleDisplayInfo = HandleDisplayInfo(
+        name = computedDisplayName(contact).takeIf { it.isNotEmpty() },
+        avatar = contact.avatarPath,
+    )
 
     private fun contactsByPreference(): List<ContactV2> =
         contactBox.all.sortedWith(contactPreferenceComparator)
@@ -438,6 +492,30 @@ class ContactSync(private val store: BoxStore) {
             val structured = "${contact.firstName.orEmpty()} ${contact.lastName.orEmpty()}".trim()
             if (structured.isNotEmpty()) return structured
             return contact.displayName.orEmpty()
+        }
+
+        /**
+         * Combines a preferred contact (iCloud first) with a fallback. Names
+         * and avatars are filled independently so a named CardDAV row without
+         * a PHOTO still picks up a device contact image.
+         */
+        fun mergeDisplayInfo(
+            preferred: HandleDisplayInfo?,
+            fallback: HandleDisplayInfo,
+        ): HandleDisplayInfo {
+            if (preferred == null) return fallback
+            return HandleDisplayInfo(
+                name = preferred.name ?: fallback.name,
+                avatar = preferred.avatar ?: fallback.avatar,
+            )
+        }
+
+        fun displayInfoForMatchKeys(
+            address: String?,
+            byMatchKey: Map<String, HandleDisplayInfo>,
+        ): HandleDisplayInfo? {
+            if (address.isNullOrBlank()) return null
+            return addressMatchKeys(address).firstNotNullOfOrNull { byMatchKey[it] }
         }
     }
 }
