@@ -104,7 +104,12 @@ jobs:
           targets: aarch64-linux-android, x86_64-linux-android
 
       - name: Install Protobuf compiler
-        uses: arduino/setup-protoc@v3
+        run: |
+          if ! command -v protoc >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y protobuf-compiler
+          fi
+          protoc --version
 
       # The NDK must match ndkVersion in app-native/build.gradle; without a
       # cache AGP re-downloads ~2 GB every run. Absolute path: runner env
