@@ -38,7 +38,9 @@ class SmsManagerSender(private val context: Context) : SmsSender {
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
         val chatGuid = chat.guid ?: error("chat $chatId has no guid")
 
-        val myHandle = PushStateHolder.myHandles.firstOrNull { it.startsWith("tel:") }
+        val myHandle = app.openbubbles.nativeapp.data.sendingHandle(chat)
+            ?.takeIf { it.startsWith("tel:") }
+            ?: PushStateHolder.myHandles.firstOrNull { it.startsWith("tel:") }
             ?: chat.usingHandle
             ?: "tel:unknown"
         val myAddress = myHandle.removePrefix("tel:")
@@ -82,6 +84,17 @@ class SmsManagerSender(private val context: Context) : SmsSender {
                     }
                     smsManager.sendMultipartTextMessage(dest, null, parts, sentIntents, deliveredIntents)
                 }
+            }
+            val persisted = TelephonySmsStore.insertSent(
+                context = context,
+                addresses = destinations,
+                body = text,
+                dateMs = System.currentTimeMillis(),
+                threadId = chat.telephonyId,
+            )
+            if (persisted.threadId != null && chat.telephonyId == null) {
+                chat.telephonyId = persisted.threadId
+                store.boxFor(Chat::class.java).put(chat)
             }
         } catch (t: Throwable) {
             Log.w(TAG, "SMS send failed", t)

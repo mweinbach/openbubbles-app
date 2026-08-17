@@ -8,8 +8,9 @@ import android.provider.Telephony
 
 /** Android default-SMS role helpers used by onboarding and Settings. */
 object SmsRole {
-    fun isHeld(context: Context): Boolean =
+    fun isHeld(context: Context): Boolean = runCatching {
         Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+    }.getOrDefault(false)
 
     fun requestIntent(context: Context): Intent? = if (Build.VERSION.SDK_INT >= 29) {
         val roles = context.getSystemService(RoleManager::class.java)

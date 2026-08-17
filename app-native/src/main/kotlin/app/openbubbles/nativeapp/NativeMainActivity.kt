@@ -37,7 +37,14 @@ internal fun parseSmsComposeRequest(
     dataString: String?,
     extraText: String?,
 ): SmsComposeRequest? {
-    if (action != Intent.ACTION_SENDTO || dataString.isNullOrBlank()) return null
+    if (action == Intent.ACTION_SEND) {
+        val body = extraText?.take(20_000)?.takeIf { it.isNotBlank() } ?: return null
+        return SmsComposeRequest(recipients = emptyList(), body = body, useSms = true)
+    }
+    if (
+        (action != Intent.ACTION_SENDTO && action != Intent.ACTION_VIEW) ||
+        dataString.isNullOrBlank()
+    ) return null
     val scheme = dataString.substringBefore(':', "").lowercase()
     if (scheme !in setOf("sms", "smsto", "mms", "mmsto")) return null
     val schemeSpecific = dataString.substringAfter(':').removePrefix("//")

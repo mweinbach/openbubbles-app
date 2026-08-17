@@ -30,7 +30,9 @@ class MmsManagerSender(private val context: Context) {
         check(chat.isRpSms == true) { "chat $chatId is not a SIM conversation" }
         check(SmsPermissions.canSendSms(context)) { "SMS permission not granted" }
 
-        val myHandle = PushStateHolder.myHandles.firstOrNull { it.startsWith("tel:") }
+        val myHandle = app.openbubbles.nativeapp.data.sendingHandle(chat)
+            ?.takeIf { it.startsWith("tel:") }
+            ?: PushStateHolder.myHandles.firstOrNull { it.startsWith("tel:") }
             ?: chat.usingHandle
             ?: "tel:unknown"
         val myAddress = myHandle.removePrefix("tel:")
@@ -74,6 +76,12 @@ class MmsManagerSender(private val context: Context) {
                 store.boxFor(Message::class.java).put(staged)
             }
 
+            val threadId = chat.telephonyId
+                ?: TelephonySmsStore.threadId(context, destinations)
+            if (threadId != null && chat.telephonyId == null) {
+                chat.telephonyId = threadId
+                store.boxFor(Chat::class.java).put(chat)
+            }
             val settings = Settings().apply {
                 setUseSystemSending(true)
                 setGroup(destinations.size > 1)
@@ -89,10 +97,10 @@ class MmsManagerSender(private val context: Context) {
                 .setExplicitBroadcastForSentMms(statusIntent)
             val message = CarrierMessage(caption.orEmpty(), destinations.toTypedArray()).apply {
                 setFromAddress(myAddress.takeUnless { it == "unknown" })
-                setSave(false)
+                setSave(SmsRole.isHeld(context))
                 addMedia(payload.readBytes(), attachment.mime, displayName)
             }
-            transaction.sendNewMessage(message, chat.telephonyId ?: Transaction.NO_THREAD_ID)
+            transaction.sendNewMessage(message, threadId ?: Transaction.NO_THREAD_ID)
         } catch (failure: Throwable) {
             Log.w(TAG, "MMS send failed", failure)
             fail(store, tempGuid, failure.message ?: failure.javaClass.simpleName)

@@ -33,8 +33,33 @@ class SmsComposeIntentTest {
     }
 
     @Test
+    fun `VIEW parser accepts sms recipients`() {
+        val request = parseSmsComposeRequest(
+            action = Intent.ACTION_VIEW,
+            dataString = "sms:+15551234567",
+            extraText = null,
+        )
+
+        assertEquals(listOf("+15551234567"), request?.recipients)
+        assertEquals(true, request?.useSms)
+    }
+
+    @Test
+    fun `SEND parser uses shared text as an SMS draft`() {
+        val request = parseSmsComposeRequest(
+            action = Intent.ACTION_SEND,
+            dataString = null,
+            extraText = "shared text",
+        )
+
+        assertEquals(emptyList(), request?.recipients)
+        assertEquals("shared text", request?.body)
+        assertEquals(true, request?.useSms)
+    }
+
+    @Test
     fun `SENDTO parser rejects undeclared schemes`() {
         assertNull(parseSmsComposeRequest(Intent.ACTION_SENDTO, "https://example.com", "hello"))
-        assertNull(parseSmsComposeRequest(Intent.ACTION_VIEW, "sms:+15551234567", null))
+        assertNull(parseSmsComposeRequest(Intent.ACTION_VIEW, "https://example.com", "hello"))
     }
 }

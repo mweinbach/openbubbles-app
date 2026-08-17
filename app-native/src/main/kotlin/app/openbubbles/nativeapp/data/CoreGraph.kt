@@ -1029,6 +1029,23 @@ private object CoreReadReceiptSender : ReadReceiptSender {
         val chatRepo = ChatRepo(store)
         val relatedChatIds = chatRepo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
         relatedChatIds.forEach(chatRepo::markRead)
+        relatedChatIds.forEach { id ->
+            val chat = store.boxFor(Chat::class.java).get(id) ?: return@forEach
+            if (chat.isRpSms != true) return@forEach
+            val context = AppContext.current ?: return@forEach
+            val threadId = chat.telephonyId
+                ?: app.openbubbles.nativeapp.sms.TelephonySmsStore.threadId(
+                    context,
+                    chat.handles.map { it.address },
+                )
+            if (threadId != null) {
+                app.openbubbles.nativeapp.sms.TelephonySmsStore.markThreadRead(context, threadId)
+                if (chat.telephonyId == null) {
+                    chat.telephonyId = threadId
+                    store.boxFor(Chat::class.java).put(chat)
+                }
+            }
+        }
 
         val explicitMessage = messageGuid?.let { guid ->
             val messageBox = store.boxFor(Message::class.java)

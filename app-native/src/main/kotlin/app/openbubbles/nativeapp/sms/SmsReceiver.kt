@@ -15,18 +15,17 @@ import kotlinx.coroutines.launch
  * of a relayed-SMS iMessage push. This is NOT the Apple-OTP path (data SMS /
  * `DATA_SMS_RECEIVED` stays with the login flow; different action).
  *
- * Flow: SMS_RECEIVED → [Telephony.Sms.Intents.getMessagesFromIntent] (the
- * platform already reassembled the multipart PDUs of one message) →
- * [SmsPushBuilder.buildIncomingSms] → [SmsIngest.ingestIncoming] →
- * notification via the existing pipeline. The telephony thread id is resolved
- * best-effort from the provider when READ_SMS is granted.
+ * Flow: SMS_DELIVER (default app) or SMS_RECEIVED (non-default) →
+ * [Telephony.Sms.Intents.getMessagesFromIntent] (the platform already
+ * reassembled the multipart PDUs of one message) → persist to the telephony
+ * inbox when we hold the default-SMS role → [SmsPushBuilder.buildIncomingSms]
+ * → [SmsIngest.ingestIncoming] → notification via the existing pipeline.
  */
 class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION &&
-            intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION
-        ) return
+        val isDefault = SmsRole.isHeld(context)
+        if (!shouldIngestSmsBroadcast(intent.action, isDefault)) return
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isNullOrEmpty()) return
 
@@ -47,7 +46,13 @@ class SmsReceiver : BroadcastReceiver() {
         val pending = goAsync()
         SmsBridge.scope.launch(Dispatchers.IO) {
             try {
-                val threadId = resolveTelephonyThreadId(context, sender, timestamp)
+                val persisted = if (isDefault) {
+                    TelephonySmsStore.insertInbox(context, sender, body, timestamp)
+                } else {
+                    TelephonySmsStore.PersistedSms()
+                }
+                val threadId = persisted.threadId
+                    ?: resolveTelephonyThreadId(context, sender, timestamp)
                 SmsIngest.ingestIncoming(context, push, preview, threadId)
             } catch (t: Throwable) {
                 Log.w(TAG, "SMS ingest failed", t)

@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,9 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
@@ -370,6 +374,16 @@ fun SettingsScreen(
         ActivityResultContracts.StartActivityForResult(),
     ) {
         isDefaultSmsApp = SmsRole.isHeld(context)
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isDefaultSmsApp = SmsRole.isHeld(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // ------------------------------------------------------------------
@@ -770,29 +784,30 @@ fun SettingsScreen(
             SettingsGroup(
                 title = if (showTitles) "SMS & MMS" else null,
             ) {
-                val smsCount = if (isDefaultSmsApp) 1 else 2
                 SettingsInfoItem(
                     title = if (isDefaultSmsApp) "Default SMS app" else "Finish SMS setup",
                     supporting = if (isDefaultSmsApp) {
-                        "OpenBubbles can receive carrier SMS, MMS, photos, and group messages"
+                        "Incoming and outgoing SMS stay in this app and in Android's message store"
                     } else {
-                        "Set OpenBubbles as the default SMS app for reliable incoming MMS and media"
+                        "Set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
                     },
                     index = 0,
-                    count = smsCount,
+                    count = 2,
                     multiline = true,
                 )
-                if (!isDefaultSmsApp) {
-                    SettingsActionItem(
-                        title = "Set as default SMS app",
-                        supporting = "Needed for incoming MMS and media",
-                        onClick = {
-                            SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
-                        },
-                        index = 1,
-                        count = smsCount,
-                    )
-                }
+                SettingsActionItem(
+                    title = if (isDefaultSmsApp) "Change default SMS app" else "Set as default SMS app",
+                    supporting = if (isDefaultSmsApp) {
+                        "Open Android settings to pick another messaging app"
+                    } else {
+                        "Needed for incoming SMS/MMS while this is your messaging app"
+                    },
+                    onClick = {
+                        SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
+                    },
+                    index = 1,
+                    count = 2,
+                )
             }
 
             }

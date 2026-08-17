@@ -2,10 +2,10 @@ package app.openbubbles.nativeapp.sms
 
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
-import android.telephony.SmsManager
 import android.util.Log
+import app.openbubbles.nativeapp.data.CoreGraph
+import kotlinx.coroutines.launch
 
 /** Handles Android's lock-screen/call-screen "respond via message" contract. */
 class RespondViaMessageService : Service() {
@@ -14,18 +14,26 @@ class RespondViaMessageService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val destination = intent?.data?.schemeSpecificPart?.substringBefore('?')
         val text = intent?.getStringExtra(Intent.EXTRA_TEXT)
-        if (!destination.isNullOrBlank() && !text.isNullOrBlank() && SmsPermissions.canSendSms(this)) {
-            runCatching {
-                val manager = if (Build.VERSION.SDK_INT >= 31) {
-                    getSystemService(SmsManager::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    SmsManager.getDefault()
-                }
-                manager.sendTextMessage(destination, null, text, null, null)
-            }.onFailure { Log.w(TAG, "Respond-via-message send failed", it) }
+        if (destination.isNullOrBlank() || text.isNullOrBlank()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
-        stopSelf(startId)
+        SmsIngest.seedAppContext(this)
+        SmsBridge.scope.launch {
+            try {
+                val handle = SmsPushBuilder.toRustAddress(destination)
+                val chatId = CoreGraph.findOrCreateChat(listOf(handle), sms = true)
+                if (chatId != null) {
+                    SmsBridge.sender.send(chatId, text)
+                } else {
+                    Log.w(TAG, "Respond-via-message could not open an SMS conversation")
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "Respond-via-message send failed", error)
+            } finally {
+                stopSelf(startId)
+            }
+        }
         return START_NOT_STICKY
     }
 
