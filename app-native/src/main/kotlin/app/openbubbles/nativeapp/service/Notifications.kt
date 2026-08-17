@@ -15,6 +15,7 @@ import androidx.core.app.RemoteInput
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
+import app.openbubbles.nativeapp.data.resolveNotificationSenderLabel
 import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UMessageInst
 
@@ -26,9 +27,10 @@ import uniffi.rust_lib_bluebubbles.UMessageInst
  *  - one [NotificationChannel] per chat (lazily created, named after the chat)
  *  - one stable notification per chat; each new message updates its
  *    MessagingStyle history instead of adding another notification card
- *  - MessagingStyle with a Person per chat (title + guid as the person key),
- *    conversation history from the store (last 4 messages, current appended),
- *    the chat guid as the conversation id (shortcutId) and person/search key
+ *  - MessagingStyle with named senders: direct chats reuse the conversation
+ *    title for every remote history row; groups resolve each sender through
+ *    contacts. Last 4 store messages plus the current message, chat guid as
+ *    the conversation id (shortcutId) and person/search key
  *  - stable per-chat request codes whose PendingIntent extras update to the
  *    newest message
  *  - tap deep-links into the chat (`chat_guid` extra), swipe-dismiss marks the
@@ -156,7 +158,18 @@ object Notifications {
                     nowMs = System.currentTimeMillis(),
                     // Store history only when previews are shown; the current
                     // message is always appended as the newest message.
-                    history = if (hide) emptyList() else readHistory(chatId, text, messageGuid),
+                    history = if (hide) {
+                        emptyList()
+                    } else {
+                        readHistory(
+                            chatId = chatId,
+                            currentText = text,
+                            currentMessageGuid = messageGuid,
+                            isGroup = isGroup,
+                            conversationTitle = title,
+                            conversationKey = chatGuid,
+                        )
+                    },
                     currentText = shownText,
                     currentSenderPerson = senderName?.takeIf { isGroup }?.let {
                         Person.Builder().setName(it).build()
@@ -226,6 +239,7 @@ object Notifications {
         chatGuid: String,
         title: String,
         replyText: String,
+        isGroup: Boolean = false,
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
@@ -235,7 +249,7 @@ object Notifications {
         val shownTitle = if (hide) "iMessage" else title
         val shownText = if (hide) "Reply sent" else "You: $replyText"
 
-        val channelId = ensureChannel(nm, chatGuid, title, isGroup = false)
+        val channelId = ensureChannel(nm, chatGuid, title, isGroup)
         val requestCode = if (notificationId != -1) {
             notificationId
         } else {
@@ -264,9 +278,19 @@ object Notifications {
                 messagingStyle(
                     chatGuid = chatGuid,
                     chatTitle = shownTitle,
-                    isGroup = false,
+                    isGroup = isGroup,
                     nowMs = System.currentTimeMillis(),
-                    history = if (hide) emptyList() else readHistory(chatId, replyText),
+                    history = if (hide) {
+                        emptyList()
+                    } else {
+                        readHistory(
+                            chatId = chatId,
+                            currentText = replyText,
+                            isGroup = isGroup,
+                            conversationTitle = title,
+                            conversationKey = chatGuid,
+                        )
+                    },
                     currentText = shownText,
                     currentSenderPerson = null,
                     currentFromMe = true,
@@ -439,6 +463,9 @@ object Notifications {
         chatId: Long,
         currentText: String?,
         currentMessageGuid: String? = null,
+        isGroup: Boolean,
+        conversationTitle: String,
+        conversationKey: String,
     ): List<HistoryEntry> {
         if (chatId <= 0L) return emptyList()
         val store = CoreGraph.store ?: return emptyList()
@@ -465,13 +492,34 @@ object Notifications {
             } else {
                 withoutCurrentNotificationRow(rows, currentText) { it.text }
             }
+            val contactNames = HashMap<String, String?>()
+            fun contactNameFor(address: String): String? {
+                if (contactNames.containsKey(address)) return contactNames[address]
+                val name = CoreGraph.contactDisplayInfo(address)?.first?.takeIf { it.isNotBlank() }
+                contactNames[address] = name
+                return name
+            }
             priorRows
-                .mapNotNull { row -> historyEntry(row) }
+                .mapNotNull { row ->
+                    historyEntry(
+                        row = row,
+                        isGroup = isGroup,
+                        conversationTitle = conversationTitle,
+                        conversationKey = conversationKey,
+                        contactNameFor = ::contactNameFor,
+                    )
+                }
                 .takeLast(HISTORY_DEPTH)
         }.getOrDefault(emptyList())
     }
 
-    private fun historyEntry(row: app.openbubbles.db.Message): HistoryEntry? {
+    private fun historyEntry(
+        row: app.openbubbles.db.Message,
+        isGroup: Boolean,
+        conversationTitle: String,
+        conversationKey: String,
+        contactNameFor: (String) -> String?,
+    ): HistoryEntry? {
         // Skip group events (name/photo changes etc.) and empty rows.
         if (row.itemType != null && row.itemType != 0L) return null
         val text = if (
@@ -489,13 +537,22 @@ object Notifications {
         val sender = if (row.isFromMe) {
             null // local user
         } else {
-            val address = runCatching {
-                row.handleRelation.target?.formattedAddress
-                    ?: row.handleRelation.target?.address
-            }.getOrNull()
-            Person.Builder()
-                .setName(address ?: "Sender")
-                .build()
+            val handle = runCatching { row.handleRelation.target }.getOrNull()
+            val address = handle?.address
+            val name = resolveNotificationSenderLabel(
+                address = address,
+                formattedAddress = handle?.formattedAddress,
+                isGroup = isGroup,
+                conversationTitle = conversationTitle,
+                contactNameFor = contactNameFor,
+            )
+            val person = Person.Builder().setName(name)
+            if (isGroup) {
+                address?.takeIf { it.isNotBlank() }?.let(person::setKey)
+            } else {
+                person.setKey(conversationKey)
+            }
+            person.build()
         }
         return HistoryEntry(text = text, timestampMs = timestamp, senderPerson = sender)
     }

@@ -1,7 +1,6 @@
 package app.openbubbles.nativeapp.sms
 
 import android.content.Context
-import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
@@ -60,21 +59,15 @@ internal object SmsIngest {
         if (sender in PushStateHolder.myHandles) return
         if (app.openbubbles.core.model.ChatMute.shouldMute(chat, sender, text)) return
         val guid = chat.guid ?: return
-        val isGroup = chat.isGroupConversation()
+        val identity = CoreGraph.messageNotificationIdentity(chat, sender)
         Notifications.postIncoming(
             context = context,
             chatId = chat.id,
             chatGuid = guid,
-            title = if (isGroup) {
-                sender.removePrefix("tel:").removePrefix("mailto:")
-            } else {
-                chat.displayName
-                    ?: chat.handles.firstOrNull()?.formattedAddress
-                    ?: sender.removePrefix("tel:").removePrefix("mailto:")
-            },
+            title = identity.title,
             text = text,
-            isGroup = isGroup,
-            senderName = sender.removePrefix("tel:").removePrefix("mailto:"),
+            isGroup = identity.isGroup,
+            senderName = identity.senderName,
             messageGuid = inst.id,
         )
     }

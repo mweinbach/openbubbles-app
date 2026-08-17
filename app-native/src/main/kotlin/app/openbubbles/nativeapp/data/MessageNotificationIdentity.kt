@@ -72,6 +72,35 @@ internal fun resolveMessageNotificationIdentity(
     )
 }
 
+/**
+ * Name shown for one MessagingStyle history row.
+ *
+ * Direct chats reuse [conversationTitle] so older rows match the newest
+ * incoming line (which is posted as the conversation Person). Groups resolve
+ * each sender through contacts first, then the stored handle address.
+ */
+internal fun resolveNotificationSenderLabel(
+    address: String?,
+    formattedAddress: String? = null,
+    isGroup: Boolean,
+    conversationTitle: String,
+    contactNameFor: (String) -> String?,
+): String {
+    if (!isGroup) {
+        conversationTitle.takeIf { it.isNotBlank() }?.let { return it }
+    }
+    val candidates = listOfNotNull(
+        address?.takeIf { it.isNotBlank() },
+        formattedAddress?.takeIf { it.isNotBlank() },
+    )
+    candidates.firstNotNullOfOrNull { candidate ->
+        contactNameFor(candidate)?.takeIf { it.isNotBlank() }
+    }?.let { return it }
+    return formattedAddress?.takeIf { it.isNotBlank() }
+        ?: displayAddress(address)
+        ?: "Sender"
+}
+
 private fun normalizedAddress(address: String?): String? =
     address?.let(ContactSync::normalizeAddress)?.takeIf { it.isNotEmpty() }
 

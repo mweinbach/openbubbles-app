@@ -84,7 +84,8 @@ class ReplyReceiver : BroadcastReceiver() {
             return
         }
         resolvedGuid = chatGuid ?: chat.guid
-        title = CoreGraph.messageNotificationIdentity(chat).title
+        val identity = CoreGraph.messageNotificationIdentity(chat)
+        title = identity.title
         val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
 
         if (notificationReplyTransport(chat) == NotificationReplyTransport.SMS) {
@@ -145,6 +146,7 @@ class ReplyReceiver : BroadcastReceiver() {
             resolvedGuid ?: "chat-$chatId",
             title,
             text,
+            isGroup = identity.isGroup,
         )
     }
 
