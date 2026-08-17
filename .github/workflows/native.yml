@@ -53,9 +53,13 @@ jobs:
           distribution: 'temurin'
 
       # Caches the Gradle user home (wrapper, dependency cache, local build
-      # cache from org.gradle.caching=true) between runs.
+      # cache from org.gradle.caching=true) between runs. cache-read-only
+      # must be false: CI also runs for non-default branches, and the action
+      # only writes caches from the default branch otherwise.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,11 +70,12 @@ jobs:
         uses: arduino/setup-protoc@v3
 
       # The NDK must match ndkVersion in app-native/build.gradle; without a
-      # cache AGP re-downloads ~2 GB every run.
+      # cache AGP re-downloads ~2 GB every run. Absolute path: runner env
+      # vars like ANDROID_HOME are not visible in `with:` expressions.
       - name: Cache Android NDK
         uses: actions/cache@v4
         with:
-          path: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
           key: ${{ runner.os }}-ndk-28.2.13676358
 
       # Cargo registry/git checkouts plus the host target dirs (rustpush unit
@@ -191,6 +196,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
