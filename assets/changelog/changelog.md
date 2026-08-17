@@ -2,6 +2,60 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.1.1
+
+### Enhancements
+
+- Sending a message now feels immediate. Text, iMessage attachments, SMS, and
+  MMS are saved to the conversation locally before network or modem delivery
+  continues in the background, so the composer no longer clears into an empty
+  gap while waiting for database or transport state.
+- The composer only clears after the outgoing row is visible, and it will not
+  overwrite text, attachments, reply state, or edits started after Send was
+  tapped. Duplicate send taps are blocked while local staging is in progress.
+- Edits, tapbacks, unsends, and stickers now update the conversation
+  optimistically. Failed operations roll back the temporary UI state and show
+  an error instead of leaving the conversation looking stuck.
+- Photos, videos, and files can be staged as removable draft thumbnails.
+  Multiple selections plus an optional caption are sent together as one
+  iMessage or carrier MMS, with local previews and combined upload progress.
+- Reply threads can be opened in a focused conversation pane. Replies retain
+  the selected message part, stay targeted to the thread while it is open, and
+  quote previews align with the side of the reply bubble like iMessage.
+- Warmed conversations now render their cached messages and initial draft on
+  the first UI state. Opening a recently visible chat no longer waits for a
+  second database query before showing its transcript.
+
+### Fixes
+
+- Prevents outgoing text and attachment drafts from briefly disappearing
+  before their sending bubbles appear.
+- Prevents a slower send completion from erasing a newer draft or newly added
+  attachment.
+- Scroll-to-latest now waits until the locally staged outgoing row has actually
+  reached the transcript, avoiding premature or ineffective scroll attempts.
+- Attachment message rows and all attachment metadata are committed in one
+  transaction, eliminating caption-only or empty bubbles during staging.
+- Prepared attachment files move directly into canonical storage with a copy
+  fallback; failed database staging cleans up orphaned files.
+- Upload progress is overlaid onto existing message items without repeatedly
+  rebuilding the full ObjectBox transcript on every progress tick.
+- SMS and MMS routing uses the conversation metadata already loaded by the UI.
+  Pre-staging failures preserve the draft, while failures after staging leave a
+  visible failed bubble that can be diagnosed instead of silently restoring a
+  duplicate draft.
+- Obsolete viewport-prefetch jobs are cancelled, and generation/epoch checks
+  prevent stale warm-cache work from repopulating chats that were evicted or
+  replaced.
+- Message, attachment, and contact database changes invalidate warmed
+  transcripts consistently. Short conversations no longer refetch forever
+  because requested cache capacity is tracked separately from item count.
+- Loading older messages updates the warm snapshot immediately, and duplicate
+  transcript-prime calls from navigation and notification entry points have
+  been removed.
+- Newly arriving messages are marked read while their conversation remains
+  open, and matching notifications are dismissed with the focused thread.
+
 ## v2.1.0
 
 ### Settings and updates
