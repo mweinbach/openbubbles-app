@@ -68,6 +68,7 @@ import app.openbubbles.nativeapp.ui.chat.ChatViewModel
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.rememberParticipantRows
 import app.openbubbles.nativeapp.ui.chatcreator.NewChatScreen
+import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListViewModel
 import app.openbubbles.nativeapp.ui.findmy.FindMyScreen
@@ -100,6 +101,7 @@ object Routes {
     const val CHATS = "chats"
     const val LOGIN = "login"
     const val SETTINGS = "settings"
+    const val ARCHIVED = "archived"
     const val FIND_MY = "findmy"
     const val NEW_CHAT = "newchat"
     fun chat(chatId: Long): String = "chat/$chatId"
@@ -133,6 +135,9 @@ data class ChatKey(val chatId: Long, val initialDraft: String? = null) : NavKey
 data object SettingsKey : NavKey
 
 @Serializable
+data object ArchivedChatsKey : NavKey
+
+@Serializable
 data object FindMyKey : NavKey
 
 @Serializable
@@ -155,6 +160,7 @@ private fun NavKey.toRoute(): String = when (this) {
     is ChatsKey -> Routes.CHATS
     is ChatKey -> Routes.chat(chatId)
     is SettingsKey -> Routes.SETTINGS
+    is ArchivedChatsKey -> Routes.ARCHIVED
     is FindMyKey -> Routes.FIND_MY
     is NewChatKey -> Routes.newChat(recipients, body, useSms)
     is ChatInfoKey -> Routes.chatInfo(chatId)
@@ -173,6 +179,7 @@ private fun routeParameter(route: String, name: String): String? =
 private fun routeToKey(route: String): NavKey? = when {
     route == Routes.CHATS -> ChatsKey
     route == Routes.SETTINGS -> SettingsKey
+    route == Routes.ARCHIVED -> ArchivedChatsKey
     route == Routes.FIND_MY -> FindMyKey
     route.substringBefore('?') == Routes.NEW_CHAT -> NewChatKey(
         recipients = routeParameter(route, "to")?.split('\u001f')?.filter(String::isNotBlank).orEmpty(),
@@ -252,7 +259,8 @@ fun OpenBubblesApp(
         // top-level destination (notification tap while in Settings) replaces
         // it so the detail pane never renders orphaned beside nothing.
         backStack.removeAll {
-            it is SettingsKey || it is FindMyKey || it is NewChatKey || it is LoginKey
+            it is SettingsKey || it is FindMyKey || it is NewChatKey ||
+                it is LoginKey || it is ArchivedChatsKey
         }
         while (backStack.size > 1 &&
             (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
@@ -482,8 +490,12 @@ fun OpenBubblesApp(
                         onTogglePinned = viewModel::togglePinned,
                         onToggleMuted = viewModel::toggleMuted,
                         onMuteFor = viewModel::muteFor,
-                        onToggleArchived = viewModel::toggleArchived,
-                        onDelete = viewModel::delete,
+                        onArchive = viewModel::archive,
+                        onUnarchive = viewModel::unarchive,
+                        onDelete = { ids ->
+                            viewModel.delete(ids)
+                            if (selectedChatId != null && selectedChatId in ids) navigateHome()
+                        },
                         header = {
                             if (pushState == null) {
                                 SignInBanner(onSignIn = { navigateTo(LoginKey) })
@@ -606,10 +618,35 @@ fun OpenBubblesApp(
                 }
 
                 entry<SettingsKey>(metadata = overlayMetadata) {
+                    val archivedModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
+                    val listState by archivedModel.uiState.collectAsStateWithLifecycle()
                     SettingsScreen(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
+                        onOpenArchived = { navigateTo(ArchivedChatsKey) },
+                        archivedCount = listState.archived.size,
                         showBackButton = true,
+                    )
+                }
+
+                entry<ArchivedChatsKey>(metadata = overlayMetadata) {
+                    val viewModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    ChatListScreen(
+                        uiState = state,
+                        kind = ChatListKind.Archive,
+                        showBackButton = true,
+                        onBack = { popBack() },
+                        onQueryChange = viewModel::onQueryChange,
+                        onChatClick = { chat -> openChat(chat.id) },
+                        onArchive = viewModel::archive,
+                        onUnarchive = viewModel::unarchive,
+                        onDelete = { ids ->
+                            viewModel.delete(ids)
+                            if (selectedChatId != null && selectedChatId in ids) navigateHome()
+                        },
                     )
                 }
 

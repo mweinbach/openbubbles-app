@@ -1,8 +1,10 @@
 package app.openbubbles.nativeapp.ui.chatlist
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,9 +25,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
@@ -35,6 +40,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
@@ -65,6 +71,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,6 +92,9 @@ import kotlinx.coroutines.delay
 
 private val ListContentMaxWidth = 840.dp
 
+/** Inbox is the main conversation list; Archive is the Settings manager. */
+enum class ChatListKind { Inbox, Archive }
+
 /**
  * Conversations overview with compact Messages-style chrome and an adaptive,
  * width-constrained list that remains comfortable on large screens.
@@ -101,8 +111,12 @@ fun ChatListScreen(
     onTogglePinned: (ChatListItem) -> Unit = {},
     onToggleMuted: (ChatListItem) -> Unit = {},
     onMuteFor: (ChatListItem, Long) -> Unit = { _, _ -> },
-    onToggleArchived: (ChatListItem) -> Unit = {},
-    onDelete: (ChatListItem) -> Unit = {},
+    onArchive: (Collection<Long>) -> Unit = {},
+    onUnarchive: (Collection<Long>) -> Unit = {},
+    onDelete: (Collection<Long>) -> Unit = {},
+    kind: ChatListKind = ChatListKind.Inbox,
+    showBackButton: Boolean = false,
+    onBack: () -> Unit = {},
     /**
      * Conversation currently open in the detail pane, so its row reads as
      * selected. Null on compact windows, where the list and a conversation are
@@ -125,12 +139,31 @@ fun ChatListScreen(
      */
     onVisibleChatsChanged: (List<Long>) -> Unit = {},
 ) {
-    var selectedChat by remember { mutableStateOf<ChatListItem?>(null) }
-    var confirmDelete by remember { mutableStateOf<ChatListItem?>(null) }
+    var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
+    var actionChat by remember { mutableStateOf<ChatListItem?>(null) }
+    var confirmDeleteIds by remember { mutableStateOf<Set<Long>?>(null) }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
-    val searchVisible = searchExpanded || uiState.query.isNotBlank()
+    val selecting = selectedIds.isNotEmpty()
+    val searchVisible = !selecting && kind == ChatListKind.Inbox &&
+        (searchExpanded || uiState.query.isNotBlank())
     val paneColor = containerColor ?: MaterialTheme.colorScheme.surface
+    val visibleChats = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
+        when (kind) {
+            ChatListKind.Inbox -> uiState.pinned + uiState.chats
+            ChatListKind.Archive -> uiState.archived
+        }
+    }
+    fun chatById(id: Long): ChatListItem? = visibleChats.firstOrNull { it.id == id }
+    fun clearSelection() {
+        selectedIds = emptySet()
+    }
+    fun toggleSelected(chat: ChatListItem) {
+        selectedIds = selectedIds.toMutableSet().apply {
+            if (!add(chat.id)) remove(chat.id)
+        }
+    }
+    BackHandler(enabled = selecting) { clearSelection() }
     Scaffold(
         modifier = modifier,
         containerColor = paneColor,
@@ -139,65 +172,124 @@ fun ChatListScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "OpenBubbles",
+                            text = when {
+                                selecting -> "${selectedIds.size} selected"
+                                kind == ChatListKind.Archive -> "Archived"
+                                else -> "OpenBubbles"
+                            },
                             style = MaterialTheme.typography.headlineSmall,
                             maxLines = 1,
                         )
                     },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                if (searchVisible) {
-                                    searchExpanded = false
-                                    onQueryChange("")
-                                } else {
-                                    searchExpanded = true
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (searchVisible) Icons.Filled.Clear else Icons.Filled.Search,
-                                contentDescription = if (searchVisible) "Close search" else "Search conversations",
-                            )
-                        }
-                        Box {
-                            // Overflow affordance, not a person glyph: the menu
-                            // holds app destinations (Find My, Settings), not a
-                            // profile page.
-                            IconButton(onClick = { profileMenuExpanded = true }) {
+                    navigationIcon = {
+                        when {
+                            selecting -> IconButton(onClick = ::clearSelection) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
+                            }
+                            showBackButton -> IconButton(onClick = onBack) {
                                 Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = "More options",
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
                                 )
                             }
-                            DropdownMenu(
-                                expanded = profileMenuExpanded,
-                                onDismissRequest = { profileMenuExpanded = false },
+                        }
+                    },
+                    actions = {
+                        if (selecting) {
+                            val archiveLabel = if (kind == ChatListKind.Archive) {
+                                "Unarchive"
+                            } else {
+                                "Archive"
+                            }
+                            IconButton(
+                                onClick = {
+                                    val ids = selectedIds
+                                    if (kind == ChatListKind.Archive) onUnarchive(ids) else onArchive(ids)
+                                    clearSelection()
+                                },
                             ) {
-                                // Plain overload: flat full-width rows inside
-                                // the rounded popup. The contained item shapes
-                                // are for grouped/selectable menus; on two
-                                // navigation actions they read as a nested card.
-                                DropdownMenuItem(
-                                    text = { Text("Find My") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.LocationOn, contentDescription = null)
+                                Icon(
+                                    imageVector = if (kind == ChatListKind.Archive) {
+                                        Icons.Filled.Unarchive
+                                    } else {
+                                        Icons.Filled.Archive
                                     },
-                                    onClick = {
-                                        profileMenuExpanded = false
-                                        onOpenFindMy()
+                                    contentDescription = archiveLabel,
+                                )
+                            }
+                            IconButton(onClick = { confirmDeleteIds = selectedIds }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                            }
+                            if (kind == ChatListKind.Inbox && selectedIds.size == 1) {
+                                chatById(selectedIds.single())?.let { chat ->
+                                    IconButton(onClick = { actionChat = chat }) {
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "More actions")
+                                    }
+                                }
+                            }
+                        } else if (kind == ChatListKind.Inbox) {
+                            IconButton(
+                                onClick = {
+                                    if (searchVisible) {
+                                        searchExpanded = false
+                                        onQueryChange("")
+                                    } else {
+                                        searchExpanded = true
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = if (searchVisible) {
+                                        Icons.Filled.Clear
+                                    } else {
+                                        Icons.Filled.Search
+                                    },
+                                    contentDescription = if (searchVisible) {
+                                        "Close search"
+                                    } else {
+                                        "Search conversations"
                                     },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Settings") },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Settings, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        profileMenuExpanded = false
-                                        onOpenSettings()
-                                    },
-                                )
+                            }
+                            Box {
+                                // Overflow affordance, not a person glyph: the menu
+                                // holds app destinations (Find My, Settings), not a
+                                // profile page.
+                                IconButton(onClick = { profileMenuExpanded = true }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MoreVert,
+                                        contentDescription = "More options",
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = profileMenuExpanded,
+                                    onDismissRequest = { profileMenuExpanded = false },
+                                ) {
+                                    // Plain overload: flat full-width rows inside
+                                    // the rounded popup. The contained item shapes
+                                    // are for grouped/selectable menus; on two
+                                    // navigation actions they read as a nested card.
+                                    DropdownMenuItem(
+                                        text = { Text("Find My") },
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.LocationOn, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            profileMenuExpanded = false
+                                            onOpenFindMy()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Settings") },
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Settings, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            profileMenuExpanded = false
+                                            onOpenSettings()
+                                        },
+                                    )
+                                }
                             }
                         }
                     },
@@ -219,11 +311,13 @@ fun ChatListScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNewChat,
-                shape = MaterialTheme.shapes.large,
-            ) {
-                Icon(Icons.Filled.Edit, contentDescription = "New chat")
+            if (kind == ChatListKind.Inbox && !selecting) {
+                FloatingActionButton(
+                    onClick = onNewChat,
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Icon(Icons.Filled.Edit, contentDescription = "New chat")
+                }
             }
         },
     ) { padding ->
@@ -236,7 +330,20 @@ fun ChatListScreen(
                 footer()
             }
 
-            uiState.isEmpty -> Column(
+            kind == ChatListKind.Archive && uiState.archived.isEmpty() -> Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                EmptyState(
+                    query = "",
+                    onNewChat = {},
+                    archive = true,
+                    modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxSize(),
+                )
+                footer()
+            }
+
+            kind == ChatListKind.Inbox && uiState.isEmpty -> Column(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -250,13 +357,19 @@ fun ChatListScreen(
 
             else -> ChatSections(
                 uiState = uiState,
+                kind = kind,
                 contentPadding = PaddingValues(
                     top = padding.calculateTopPadding() + 4.dp,
                     bottom = padding.calculateBottomPadding() + 88.dp,
                 ),
-                onChatClick = onChatClick,
-                onChatLongClick = { selectedChat = it },
-                selectedChatId = selectedChatId,
+                onChatClick = { chat ->
+                    if (selecting) toggleSelected(chat) else onChatClick(chat)
+                },
+                onChatLongClick = { chat ->
+                    if (selecting) toggleSelected(chat) else selectedIds = setOf(chat.id)
+                },
+                selectedChatId = if (selecting) null else selectedChatId,
+                checkedIds = selectedIds,
                 header = header,
                 footer = footer,
                 onVisibleChatsChanged = onVisibleChatsChanged,
@@ -264,48 +377,55 @@ fun ChatListScreen(
         }
     }
 
-    selectedChat?.let { chat ->
+    actionChat?.let { chat ->
         ChatListActionSheet(
             chat = chat,
             onTogglePinned = {
-                selectedChat = null
+                actionChat = null
                 onTogglePinned(chat)
             },
             onToggleMuted = {
-                selectedChat = null
+                actionChat = null
                 onToggleMuted(chat)
             },
             onMuteFor = { durationMs ->
-                selectedChat = null
+                actionChat = null
                 onMuteFor(chat, durationMs)
             },
-            onToggleArchived = {
-                selectedChat = null
-                onToggleArchived(chat)
-            },
-            onDelete = {
-                selectedChat = null
-                confirmDelete = chat
-            },
-            onDismiss = { selectedChat = null },
+            onDismiss = { actionChat = null },
         )
     }
 
-    confirmDelete?.let { chat ->
+    confirmDeleteIds?.let { ids ->
+        val titles = ids.mapNotNull { chatById(it)?.title }
         AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete conversation?") },
-            text = { Text("This removes ${chat.title} and its synced history from this account.") },
+            onDismissRequest = { confirmDeleteIds = null },
+            title = {
+                Text(if (ids.size == 1) "Delete conversation?" else "Delete ${ids.size} conversations?")
+            },
+            text = {
+                Text(
+                    if (ids.size == 1) {
+                        "This permanently removes ${titles.singleOrNull() ?: "this conversation"} and its synced history from this account."
+                    } else {
+                        "This permanently removes ${ids.size} conversations and their synced history from this account."
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        confirmDelete = null
-                        onDelete(chat)
+                        confirmDeleteIds = null
+                        onDelete(ids)
+                        clearSelection()
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
                 ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { confirmDeleteIds = null }) { Text("Cancel") }
             },
         )
     }
@@ -314,18 +434,23 @@ fun ChatListScreen(
 @Composable
 private fun ChatSections(
     uiState: ChatListUiState,
+    kind: ChatListKind,
     contentPadding: PaddingValues,
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
     selectedChatId: Long?,
+    checkedIds: Set<Long>,
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
     val itemSpecs = rememberItemAnimationSpecs()
     val listState = rememberLazyListState()
-    val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived) {
-        uiState.pinned.map { it.id } + uiState.chats.map { it.id } + uiState.archived.map { it.id }
+    val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
+        when (kind) {
+            ChatListKind.Inbox -> uiState.pinned.map { it.id } + uiState.chats.map { it.id }
+            ChatListKind.Archive -> uiState.archived.map { it.id }
+        }
     }
     val pinnedIds = remember(uiState.pinned) { uiState.pinned.map { it.id } }
 
@@ -362,13 +487,14 @@ private fun ChatSections(
         item(key = "header") {
             Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { header() }
         }
-        if (uiState.pinned.isNotEmpty()) {
+        if (kind == ChatListKind.Inbox && uiState.pinned.isNotEmpty()) {
             item(key = "pinned-grid", contentType = "pinned-grid") {
                 PinnedChatsGrid(
                     chats = uiState.pinned,
                     onChatClick = onChatClick,
                     onChatLongClick = onChatLongClick,
                     selectedChatId = selectedChatId,
+                    checkedIds = checkedIds,
                     modifier = Modifier
                         .widthIn(max = ListContentMaxWidth)
                         .fillMaxWidth()
@@ -380,9 +506,10 @@ private fun ChatSections(
                 )
             }
         }
-        if (uiState.chats.isNotEmpty()) {
+        val rows = if (kind == ChatListKind.Archive) uiState.archived else uiState.chats
+        if (rows.isNotEmpty()) {
             items(
-                items = uiState.chats,
+                items = rows,
                 key = { "chat-${it.id}" },
                 contentType = { "conversation" },
             ) { chat ->
@@ -390,30 +517,8 @@ private fun ChatSections(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
-                    selected = chat.id == selectedChatId,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .animateItem(
-                            fadeInSpec = itemSpecs.fadeIn,
-                            fadeOutSpec = itemSpecs.fadeOut,
-                            placementSpec = itemSpecs.placement,
-                        ),
-                )
-            }
-        }
-        if (uiState.archived.isNotEmpty()) {
-            item(key = "header-archived") {
-                SectionHeader("Archived", Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth())
-            }
-            items(
-                items = uiState.archived,
-                key = { "chat-${it.id}" },
-                contentType = { "conversation" },
-            ) { chat ->
-                ChatListRow(
-                    chat = chat,
-                    onClick = onChatClick,
-                    onLongClick = onChatLongClick,
-                    selected = chat.id == selectedChatId,
+                    selected = chat.id == selectedChatId || chat.id in checkedIds,
+                    checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
@@ -435,6 +540,7 @@ private fun PinnedChatsGrid(
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
     selectedChatId: Long?,
+    checkedIds: Set<Long>,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
@@ -453,7 +559,8 @@ private fun PinnedChatsGrid(
                                 chat = chat,
                                 onClick = onChatClick,
                                 onLongClick = onChatLongClick,
-                                selected = chat.id == selectedChatId,
+                                selected = chat.id == selectedChatId || chat.id in checkedIds,
+                                checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
                                 avatarSize = avatarSize,
                                 modifier = Modifier.weight(1f),
                             )
@@ -475,6 +582,7 @@ private fun PinnedChatTile(
     onClick: (ChatListItem) -> Unit,
     onLongClick: (ChatListItem) -> Unit,
     selected: Boolean,
+    checked: Boolean? = null,
     avatarSize: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -494,7 +602,7 @@ private fun PinnedChatTile(
             .combinedClickable(
                 onClick = { onClick(chat) },
                 onLongClick = { onLongClick(chat) },
-                onLongClickLabel = "Conversation actions",
+                onLongClickLabel = "Select conversations",
             ),
     ) {
         Column(
@@ -508,6 +616,7 @@ private fun PinnedChatTile(
                     size = avatarSize,
                     avatarPath = avatarPath,
                 )
+                SelectionCheck(checked = checked, size = avatarSize)
                 if (unread) {
                     Surface(
                         shape = CircleShape,
@@ -534,18 +643,6 @@ private fun PinnedChatTile(
     }
 }
 
-@Composable
-private fun SectionHeader(label: String, modifier: Modifier = Modifier) {
-    Text(
-        text = label.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        // Quiet chrome convention shared with Settings/Chat Info: section
-        // headers are onSurfaceVariant, not wallpaper-hued primary.
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp),
-    )
-}
-
 /** One flat, Messages-style conversation row. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -555,6 +652,8 @@ fun ChatListRow(
     onLongClick: (ChatListItem) -> Unit = {},
     /** True when this conversation is open in the adjacent detail pane. */
     selected: Boolean = false,
+    /** Null when the list is not in selection mode. */
+    checked: Boolean? = null,
     modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
@@ -574,7 +673,7 @@ fun ChatListRow(
             .combinedClickable(
                 onClick = { onClick(chat) },
                 onLongClick = { onLongClick(chat) },
-                onLongClickLabel = "Conversation actions",
+                onLongClickLabel = "Select conversations",
             ),
     ) {
         Row(
@@ -582,12 +681,15 @@ fun ChatListRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ChatAvatar(
-                title = chat.title,
-                avatarColor = chat.avatarColor,
-                size = 56.dp,
-                avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
-            )
+            Box {
+                ChatAvatar(
+                    title = chat.title,
+                    avatarColor = chat.avatarColor,
+                    size = 56.dp,
+                    avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
+                )
+                SelectionCheck(checked = checked, size = 56.dp)
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -663,8 +765,6 @@ private fun ChatListActionSheet(
     onTogglePinned: () -> Unit,
     onToggleMuted: () -> Unit,
     onMuteFor: (Long) -> Unit,
-    onToggleArchived: () -> Unit,
-    onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -703,12 +803,24 @@ private fun ChatListActionSheet(
                 onClick = onToggleMuted,
             )
         }
-        ChatActionButton(
-            text = if (chat.archived) "Unarchive" else "Archive",
-            icon = Icons.Filled.Archive,
-            onClick = onToggleArchived,
+    }
+}
+
+@Composable
+private fun SelectionCheck(checked: Boolean?, size: androidx.compose.ui.unit.Dp) {
+    if (checked != true) return
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Check,
+            contentDescription = "Selected",
+            tint = MaterialTheme.colorScheme.onPrimary,
         )
-        ChatActionButton(text = "Delete", icon = Icons.Filled.Delete, onClick = onDelete)
     }
 }
 
@@ -786,7 +898,12 @@ private fun LoadingState(modifier: Modifier = Modifier) {
  * "Start a chat" button; for an active query it explains the miss.
  */
 @Composable
-private fun EmptyState(query: String, onNewChat: () -> Unit, modifier: Modifier = Modifier) {
+private fun EmptyState(
+    query: String,
+    onNewChat: () -> Unit,
+    modifier: Modifier = Modifier,
+    archive: Boolean = false,
+) {
     val hasQuery = query.isNotBlank()
     Column(
         modifier = modifier.padding(horizontal = 32.dp, vertical = 24.dp),
@@ -800,7 +917,11 @@ private fun EmptyState(query: String, onNewChat: () -> Unit, modifier: Modifier 
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = if (hasQuery) Icons.Filled.SearchOff else Icons.Filled.ChatBubble,
+                    imageVector = when {
+                        hasQuery -> Icons.Filled.SearchOff
+                        archive -> Icons.Filled.Archive
+                        else -> Icons.Filled.ChatBubble
+                    },
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp),
@@ -809,21 +930,25 @@ private fun EmptyState(query: String, onNewChat: () -> Unit, modifier: Modifier 
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            text = if (hasQuery) "No results" else "No conversations yet",
+            text = when {
+                hasQuery -> "No results"
+                archive -> "No archived conversations"
+                else -> "No conversations yet"
+            },
             style = MaterialTheme.typography.titleLargeEmphasized,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = if (hasQuery) {
-                "Nothing matches “${query.trim()}”"
-            } else {
-                "Messages you send and receive will show up here."
+            text = when {
+                hasQuery -> "Nothing matches “${query.trim()}”"
+                archive -> "Long-press conversations on the main list to archive them. They stay on this account until you delete them."
+                else -> "Messages you send and receive will show up here."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        if (!hasQuery) {
+        if (!hasQuery && !archive) {
             Spacer(Modifier.height(20.dp))
             Button(onClick = onNewChat, shapes = ButtonDefaults.shapes()) {
                 Icon(

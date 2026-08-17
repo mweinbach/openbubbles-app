@@ -29,15 +29,62 @@ class ChatListViewModelTest {
         )
     }
 
-    private fun chat(id: Long, title: String, date: Long) = ChatListItem(
+    @Test
+    fun `archived conversations do not keep the inbox from looking empty`() = runTest {
+        val repository = PinOrderRepository(
+            listOf(chat(1L, "Old thread", date = 10L, archived = true, pinned = false)),
+        )
+        val model = ChatListViewModel(repository)
+        val state = model.uiState.first { !it.loading }
+
+        assertEquals(true, state.isEmpty)
+        assertEquals(listOf("Old thread"), state.archived.map { it.title })
+    }
+
+    @Test
+    fun `batch archive and delete update the repository`() = runTest {
+        val repository = RecordingChatListRepository()
+        val model = ChatListViewModel(repository)
+        model.archive(listOf(1L, 2L))
+        model.unarchive(listOf(3L))
+        model.delete(listOf(4L, 5L))
+
+        assertEquals(listOf(1L to true, 2L to true, 3L to false), repository.archived)
+        assertEquals(listOf(4L, 5L), repository.deleted)
+    }
+
+    private fun chat(
+        id: Long,
+        title: String,
+        date: Long,
+        archived: Boolean = false,
+        pinned: Boolean = true,
+    ) = ChatListItem(
         id = id,
         title = title,
         snippet = null,
         date = date,
         unread = 0,
-        pinned = true,
+        pinned = pinned,
         avatarColor = 0L,
+        archived = archived,
     )
+}
+
+private class RecordingChatListRepository : ChatListRepository {
+    val archived = mutableListOf<Pair<Long, Boolean>>()
+    val deleted = mutableListOf<Long>()
+
+    override fun chats(): Flow<List<ChatListItem>> = MutableStateFlow(emptyList())
+    override fun markRead(id: Long) = Unit
+    override fun setPinned(id: Long, pinned: Boolean) = Unit
+    override fun setMuted(id: Long, muted: Boolean) = Unit
+    override fun setArchived(id: Long, archived: Boolean) {
+        this.archived += id to archived
+    }
+    override fun delete(id: Long) {
+        deleted += id
+    }
 }
 
 private class PinOrderRepository(initial: List<ChatListItem>) : ChatListRepository {

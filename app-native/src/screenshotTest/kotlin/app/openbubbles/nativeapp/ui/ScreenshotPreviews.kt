@@ -11,6 +11,7 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
@@ -150,6 +151,22 @@ fun ChatListEmptyScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = ChatListUiState(),
+            onQueryChange = {},
+            onChatClick = {},
+        )
+    }
+}
+
+/** Settings-managed archive: empty state explains long-press on the inbox. */
+@PreviewTest
+@Preview(name = "archive-empty", device = Devices.PHONE, showBackground = true)
+@Composable
+fun ChatListArchiveEmptyScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatListScreen(
+            uiState = ChatListUiState(),
+            kind = ChatListKind.Archive,
+            showBackButton = true,
             onQueryChange = {},
             onChatClick = {},
         )

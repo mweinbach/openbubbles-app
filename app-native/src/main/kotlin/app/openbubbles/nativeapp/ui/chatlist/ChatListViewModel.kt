@@ -20,7 +20,8 @@ data class ChatListUiState(
     val chats: List<ChatListItem> = emptyList(),
     val archived: List<ChatListItem> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = !loading && pinned.isEmpty() && chats.isEmpty() && archived.isEmpty()
+    /** Inbox emptiness ignores archived rows — those live under Settings. */
+    val isEmpty: Boolean get() = !loading && pinned.isEmpty() && chats.isEmpty()
 }
 
 class ChatListViewModel(
@@ -70,7 +71,13 @@ class ChatListViewModel(
 
     fun toggleArchived(chat: ChatListItem) = repository.setArchived(chat.id, !chat.archived)
 
+    fun archive(ids: Collection<Long>) = ids.forEach { repository.setArchived(it, true) }
+
+    fun unarchive(ids: Collection<Long>) = ids.forEach { repository.setArchived(it, false) }
+
     fun delete(chat: ChatListItem) = repository.delete(chat.id)
+
+    fun delete(ids: Collection<Long>) = ids.forEach(repository::delete)
 
     companion object {
         fun factory(repository: ChatListRepository): ViewModelProvider.Factory = viewModelFactory {
