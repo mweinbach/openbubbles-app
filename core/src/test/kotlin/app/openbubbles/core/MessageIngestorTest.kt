@@ -5,6 +5,8 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.core.sync.TranscriptBackgroundHandler
+import app.openbubbles.core.sync.TranscriptBackgroundUpdate
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
@@ -15,6 +17,8 @@ import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -173,6 +177,94 @@ class MessageIngestorTest {
         assertEquals(1, messageBox().count())
         assertTrue(first.isNewIncomingMessage)
         assertTrue(!replay.isNewIncomingMessage)
+    }
+
+    @Test
+    fun `transcript background push is forwarded to the background handler`() = runBlocking<Unit> {
+        // Seed the DM so the background push resolves a real chat.
+        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val chatRow = chatBox().all.single()
+
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "bg-1",
+                        sender = friend,
+                        conversation = conversation(me, friend),
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = 42uL,
+                            chatId = null,
+                            remove = false,
+                            mmcsXml = "<mmcs/>",
+                        ),
+                        sentTimestamp = 1_700_000_100_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+        } finally {
+            capturing.close()
+        }
+
+        assertEquals(
+            listOf(
+                TranscriptBackgroundUpdate(
+                    chatId = chatRow.id,
+                    version = 42L,
+                    remove = false,
+                    mmcsXml = "<mmcs/>",
+                ),
+            ),
+            updates,
+        )
+    }
+
+    @Test
+    fun `transcript background push for an unknown chat reaches no handler`() = runBlocking<Unit> {
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            val chat = capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "bg-2",
+                        sender = friend,
+                        conversation = conversation(me, friend),
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = 43uL,
+                            chatId = null,
+                            remove = true,
+                            mmcsXml = null,
+                        ),
+                        sentTimestamp = 1_700_000_200_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+            assertNull(chat)
+        } finally {
+            capturing.close()
+        }
+
+        assertTrue(updates.isEmpty())
+        assertEquals(0L, chatBox().count())
     }
 
     @Test

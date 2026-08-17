@@ -6,6 +6,8 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageSummaryPartList
 import app.openbubbles.core.model.addMessageSummaryPart
 import app.openbubbles.core.model.decodeDeleteMessageCommand
+import app.openbubbles.core.sync.TranscriptBackgroundHandler
+import app.openbubbles.core.sync.TranscriptBackgroundUpdate
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -59,13 +61,16 @@ data class TypingIndicator(
  *
  * MVP scope: text/attachment-metadata messages, tapbacks, delivered/read
  * receipts, typing, renames, participant changes, group-photo events, send
- * confirmation/error handling. Posters, FaceTime, FindMy, shared albums,
- * CloudKit sync, SMS forwarding and scheduled sends are out of scope.
+ * confirmation/error handling, and Apple chat backgrounds (via the transcript
+ * background handler, shared with history sync). Other posters, FaceTime,
+ * FindMy, shared albums, CloudKit sync, SMS forwarding and scheduled sends
+ * are out of scope.
  */
 class MessageIngestor(
     private val store: BoxStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val attachmentStore: AttachmentStore? = null,
+    private val transcriptBackgroundHandler: TranscriptBackgroundHandler? = null,
 ) {
     /**
      * Persistence result used by notification consumers. [isNewIncomingMessage]
@@ -195,7 +200,7 @@ class MessageIngestor(
             is UMessage.MoveToRecycleBin -> return handleMoveToRecycleBin(inst, msg, myHandles)
             is UMessage.RecoverChat -> return handleRecoverChat(inst, msg, myHandles)
             is UMessage.PermanentDelete -> return handlePermanentDelete(inst, msg, myHandles)
-            is UMessage.SetTranscriptBackground -> return chatForInst(inst, myHandles)
+            is UMessage.SetTranscriptBackground -> return ingestTranscriptBackground(inst, msg, myHandles)
             // MessageReadOnDevice / EnableSmsActivation / profile & extension
             // updates / deletions ride on later batches.
             else -> Unit
@@ -222,8 +227,37 @@ class MessageIngestor(
         return chat
     }
 
-    private fun ingestRename(inst: UMessageInst, msg: UMessage.Rename, myHandles: Set<String>) {
-        if (inst.verificationFailed) return
+    /**
+     * Apple chat-background changes from a live push: resolve the chat now
+     * (never creating one — a background for a chat we have not seen will be
+     * applied by the history sync that imports the chat), then hand the
+     * poster payload to the background store (MMCS download + atomic disk
+     * write, shared with history sync) off the ingest lock. Stale or
+     * replayed versions are dropped by the store's version check.
+     */
+    private fun ingestTranscriptBackground(
+        inst: UMessageInst,
+        msg: UMessage.SetTranscriptBackground,
+        myHandles: Set<String>,
+    ): Chat? {
+        val chat = chatForInst(inst, myHandles, createIfMissing = false) ?: return null
+        val handler = transcriptBackgroundHandler ?: return chat
+        scope.launch {
+            runCatching {
+                handler.apply(
+                    TranscriptBackgroundUpdate(
+                        chatId = chat.id,
+                        version = msg.version.toLong(),
+                        remove = msg.remove,
+                        mmcsXml = msg.mmcsXml,
+                    ),
+                )
+            }
+        }
+        return chat
+    }
+
+    private fun ingestRename(inst: UMessageInst, msg: UMessage.Rename, myHandles: Set<String>) {        if (inst.verificationFailed) return
         val chat = chatForInst(inst, myHandles) ?: return
         // handleMsgInner: rename updates the chat name (unless the user locked
         // it) plus the APN title used for conversation matching.

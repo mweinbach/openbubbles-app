@@ -42,3 +42,20 @@ fun Chat.otherDirectHandles(selfAddresses: Collection<String> = emptyList()): Li
                 ?.let { ContactSync.addressMatchKeys(it).none(selfKeys::contains) } != false
     }
 }
+
+/**
+ * Everyone in the conversation except the local account: the member list for
+ * groups, the single other person for direct chats. Direct chats whose handle
+ * rows were never linked (older ingests) fall back to the chat identifier —
+ * the same identity the conversation list shows.
+ */
+fun Chat.participantAddresses(selfAddresses: Collection<String> = emptyList()): List<String> {
+    if (isGroupConversation(style, otherDirectHandles(selfAddresses).size)) {
+        return handles.map { it.formattedAddress ?: it.address }
+    }
+    return listOfNotNull(
+        otherDirectHandle(selfAddresses)
+            ?.let { it.formattedAddress ?: it.address }
+            ?: chatIdentifier?.takeIf { it.isNotBlank() },
+    )
+}
