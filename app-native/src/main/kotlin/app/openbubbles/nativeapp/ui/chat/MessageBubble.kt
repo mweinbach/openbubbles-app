@@ -368,6 +368,7 @@ fun MessageBubble(
             replyQuote?.let { quote ->
                 ReplyQuotePreview(
                     quote = quote,
+                    replyFromMe = message.isFromMe,
                     smsChat = smsChat,
                     onOpen = onOpenReplyThread,
                 )
@@ -551,6 +552,7 @@ private fun InvisibleInkBubble(
 @Composable
 private fun ReplyQuotePreview(
     quote: ReplyQuote,
+    replyFromMe: Boolean,
     smsChat: Boolean,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
@@ -558,17 +560,21 @@ private fun ReplyQuotePreview(
     val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
     Column(
         modifier = modifier,
-        horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
+        // Sit on the reply's side; keep the original sender's bubble color.
+        horizontalAlignment = if (replyFromMe) Alignment.End else Alignment.Start,
     ) {
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = bubbleColor,
             contentColor = bubbleContent,
-            modifier = Modifier.clickable(
-                onClickLabel = "View reply thread",
-                role = Role.Button,
-                onClick = onOpen,
-            ),
+            modifier = Modifier
+                .widthIn(max = 240.dp)
+                .graphicsLayer { alpha = 0.82f }
+                .clickable(
+                    onClickLabel = "View reply thread",
+                    role = Role.Button,
+                    onClick = onOpen,
+                ),
         ) {
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 quote.senderName?.let { name ->
@@ -589,9 +595,13 @@ private fun ReplyQuotePreview(
         }
         Box(
             modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .size(width = 2.dp, height = 6.dp)
-                .background(bubbleColor, RoundedCornerShape(1.dp)),
+                .padding(
+                    start = if (replyFromMe) 0.dp else 18.dp,
+                    end = if (replyFromMe) 18.dp else 0.dp,
+                )
+                .offset(y = (-1).dp)
+                .size(width = 3.dp, height = 8.dp)
+                .background(bubbleColor.copy(alpha = 0.82f), RoundedCornerShape(1.5.dp)),
         )
     }
 }

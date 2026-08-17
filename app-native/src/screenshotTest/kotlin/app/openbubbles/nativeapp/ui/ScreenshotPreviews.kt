@@ -386,12 +386,12 @@ fun ChatScreenReplyScreenshot() {
         val reply = message(
             2,
             "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
-            fromMe = true,
-            status = MessageStatus.FAILED,
+            fromMe = false,
         ).copy(
             guid = "child",
             replyToGuid = "root",
             replyPreviewText = original.text,
+            senderAddress = "mark@icloud.com",
         )
         ChatScreen(
             uiState = ChatUiState(
