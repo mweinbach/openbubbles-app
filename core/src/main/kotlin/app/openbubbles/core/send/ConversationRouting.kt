@@ -12,13 +12,27 @@ fun resolveRegisteredHandle(preferred: String?, handles: Set<String>): String? {
     }
 }
 
+/**
+ * Chooses the handle an outgoing message is sent from.
+ *
+ * Precedence: the user's explicit per-chat override, then the global default
+ * sending handle, then the address the conversation was received on
+ * ([Chat.usingHandle]), then the first registered handle. The default beats
+ * the conversation address on purpose: a chat that started on another handle
+ * (e.g. the iMessage email before a phone number was registered) must follow
+ * the default once one is chosen, or every reply keeps splitting threads for
+ * the other participants. [Chat.usingHandle] stays available as the
+ * received-on address so the user can deliberately reply from it via the
+ * per-chat override.
+ */
 fun selectSendingHandle(
     chat: Chat,
     handles: Set<String>,
     defaultHandle: String? = null,
 ): String? {
-    resolveRegisteredHandle(chat.usingHandle, handles)?.let { return it }
+    resolveRegisteredHandle(chat.senderOverride, handles)?.let { return it }
     resolveRegisteredHandle(defaultHandle, handles)?.let { return it }
+    resolveRegisteredHandle(chat.usingHandle, handles)?.let { return it }
     return handles.firstOrNull()
 }
 
