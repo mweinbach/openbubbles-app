@@ -18,9 +18,20 @@ internal suspend fun stageOutgoingText(
     sender: String,
     text: String,
     tempGuid: String = MessageIngestor.tempGuid(),
+    effectId: String? = null,
+    replyGuid: String? = null,
+    replyPartLocator: String? = null,
 ): OutgoingTextStage = OutgoingTextStage(
     tempGuid = tempGuid,
-    message = MessageRepo(store).stageOutgoingMessage(chatGuid, sender, text, tempGuid),
+    message = MessageRepo(store).stageOutgoingMessage(
+        chatGuid = chatGuid,
+        sender = sender,
+        text = text,
+        stagingGuid = tempGuid,
+        expressiveSendStyleId = effectId,
+        threadOriginatorGuid = replyGuid,
+        threadOriginatorPart = replyPartLocator,
+    ),
 )
 
 internal fun promoteOutgoingText(

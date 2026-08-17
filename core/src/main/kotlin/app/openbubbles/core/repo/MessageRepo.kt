@@ -138,6 +138,9 @@ class MessageRepo(
         text: String,
         stagingGuid: String,
         sendingServiceId: String? = DEFAULT_SENDING_SERVICE_ID,
+        expressiveSendStyleId: String? = null,
+        threadOriginatorGuid: String? = null,
+        threadOriginatorPart: String? = null,
     ): Message = withContext(Dispatchers.IO) {
         val chat = chatBox.query()
             .equal(Chat_.guid, chatGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -152,6 +155,9 @@ class MessageRepo(
                 isFromMe = true
                 dateCreated = Date()
                 this.sendingServiceId = sendingServiceId
+                this.expressiveSendStyleId = expressiveSendStyleId
+                this.threadOriginatorGuid = threadOriginatorGuid
+                this.threadOriginatorPart = threadOriginatorPart
             }
             HandleResolver.resolve(store, sender, "iMessage").let {
                 message.handleRelation.target = it

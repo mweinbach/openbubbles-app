@@ -186,13 +186,21 @@ interface MessageListRepository {
     fun release(chatId: Long) = Unit
 }
 
+data class OutgoingTextSend(
+    val messageId: Long,
+)
+
 interface Sender {
-    suspend fun send(chatId: Long, text: String)
+    /** Returns after the outgoing row is staged locally; transport continues asynchronously. */
+    suspend fun send(chatId: Long, text: String): OutgoingTextSend
 
     /** Sends a text reply rooted at [replyGuid]. */
-    suspend fun sendReply(chatId: Long, text: String, replyGuid: String, replyPartLocator: String) {
-        send(chatId, text)
-    }
+    suspend fun sendReply(
+        chatId: Long,
+        text: String,
+        replyGuid: String,
+        replyPartLocator: String,
+    ): OutgoingTextSend = send(chatId, text)
 
     /**
      * Sends a text with an iMessage expressive-send effect id (e.g.
@@ -201,9 +209,8 @@ interface Sender {
      * back to a plain send; senders without effect support inherit this
      * default so existing implementations keep compiling.
      */
-    suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
+    suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?): OutgoingTextSend =
         send(chatId, text)
-    }
 }
 
 data class StickerTransform(
@@ -267,11 +274,12 @@ interface MessageActions {
  * [Sender]. Implementations stage the outgoing row optimistically (SENDING)
  * and resolve the status asynchronously (sent/delivery receipts); see
  * `app.openbubbles.nativeapp.sms.SmsManagerSender`. Kept separate from
- * [Sender] so the iMessage path stays untouched; routing lives in
- * `sms.SmsBridge.routeIfSmsChat`.
+ * [Sender] so the iMessage path stays untouched; the conversation ViewModel
+ * selects it from already-loaded chat metadata without another database read.
  */
 interface SmsSender {
-    suspend fun send(chatId: Long, text: String)
+    /** Returns after the outgoing row is staged locally; modem dispatch continues asynchronously. */
+    suspend fun send(chatId: Long, text: String): OutgoingTextSend
 }
 
 /** A picked outgoing attachment, ready to stage and upload. */

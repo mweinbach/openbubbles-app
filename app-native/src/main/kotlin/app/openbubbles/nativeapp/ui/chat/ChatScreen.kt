@@ -334,6 +334,7 @@ fun ChatScreen(
     onStartFaceTime: () -> Unit = {},
     onFaceTimeLaunchConsumed: () -> Unit = {},
     onScreenEffectConsumed: (Long) -> Unit = {},
+    onOutgoingSendEventConsumed: (Long) -> Unit = {},
     onOpenChatInfo: () -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -416,6 +417,13 @@ fun ChatScreen(
     fun stagePendingEffect(option: SendEffectOption?) {
         pendingEffectId = option?.id
         PendingSendEffect.effectId = option?.id
+    }
+
+    LaunchedEffect(uiState.outgoingSendEvent) {
+        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
+        if (pendingEffectId == event.effectId) stagePendingEffect(null)
+        listState.animateScrollToItem(0)
+        onOutgoingSendEventConsumed(event.messageId)
     }
 
     fun stageAttachments(uris: List<Uri>) {
@@ -587,11 +595,7 @@ fun ChatScreen(
                 MessageInputBar(
                     value = uiState.input,
                     onValueChange = onInputChange,
-                    onSend = {
-                        onSend()
-                        stagePendingEffect(null)
-                        scope.launch { listState.animateScrollToItem(0) }
-                    },
+                    onSend = onSend,
                     onAttachClick = {
                         pickMedia.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
@@ -615,6 +619,7 @@ fun ChatScreen(
                     smsChat = smsChat,
                     inputPlaceholder = if (openThread != null || uiState.replyingTo != null) "Reply" else "Message",
                     onClearComposerAction = onCancelComposerAction,
+                    sendEnabled = !uiState.textSendInProgress,
                 )
             },
         ) { padding ->
@@ -1362,6 +1367,7 @@ private fun MessageInputBar(
     smsChat: Boolean = false,
     inputPlaceholder: String = "Message",
     onClearComposerAction: () -> Unit = {},
+    sendEnabled: Boolean = true,
 ) {
     val hasText = value.isNotBlank()
     val hasContent = hasText || pendingAttachments.isNotEmpty()
@@ -1573,7 +1579,9 @@ private fun MessageInputBar(
                             imeAction = ImeAction.Send,
                             capitalization = KeyboardCapitalization.Sentences,
                         ),
-                        keyboardActions = KeyboardActions(onSend = { if (hasContent) onSend() }),
+                        keyboardActions = KeyboardActions(
+                            onSend = { if (hasContent && sendEnabled) onSend() },
+                        ),
                         decorationBox = { innerTextField ->
                             Box(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
@@ -1601,7 +1609,7 @@ private fun MessageInputBar(
                             .combinedClickable(
                                 interactionSource = sendInteractionSource,
                                 indication = LocalIndication.current,
-                                enabled = hasContent,
+                                enabled = hasContent && sendEnabled,
                                 role = Role.Button,
                                 onClickLabel = "Send",
                                 onLongClickLabel = "Choose send effect",

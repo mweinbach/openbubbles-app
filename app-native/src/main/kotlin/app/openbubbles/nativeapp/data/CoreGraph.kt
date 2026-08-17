@@ -67,6 +67,10 @@ import java.util.concurrent.ConcurrentHashMap
 object CoreGraph {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    internal fun launchBackground(block: suspend () -> Unit) {
+        scope.launch { block() }
+    }
+
     @Volatile
     private var restoreRestartRequired = false
 
@@ -1090,20 +1094,23 @@ private class CoreChatInfoRepository(
  * receipts flow through the normal intake path.
  */
 private object CoreSender : Sender {
-    override suspend fun send(chatId: Long, text: String) = sendWithEffect(chatId, text, null)
+    private val sendLocks = ConcurrentHashMap<Long, Mutex>()
 
-    override suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?) {
-        sendInternal(chatId, text, effectId, null)
-    }
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
+        sendWithEffect(chatId, text, null)
+
+    override suspend fun sendWithEffect(
+        chatId: Long,
+        text: String,
+        effectId: String?,
+    ): OutgoingTextSend = sendInternal(chatId, text, effectId, null)
 
     override suspend fun sendReply(
         chatId: Long,
         text: String,
         replyGuid: String,
         replyPartLocator: String,
-    ) {
-        sendInternal(chatId, text, null, replyGuid, replyPartLocator)
-    }
+    ): OutgoingTextSend = sendInternal(chatId, text, null, replyGuid, replyPartLocator)
 
     private suspend fun sendInternal(
         chatId: Long,
@@ -1111,61 +1118,66 @@ private object CoreSender : Sender {
         effectId: String?,
         replyGuid: String?,
         replyPartLocator: String? = null,
-    ) {
+    ): OutgoingTextSend {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
-
-        val chatBox = store.boxFor(Chat::class.java)
-        val messageBox = store.boxFor(Message::class.java)
-        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
-
         val pushState = PushStateHolder.state
-        val myHandle = sendingHandle(chat)
-            ?: if (pushState == null) chat.usingHandle else null
-            ?: error("no registered sending handle")
-        val conversation = sendConversation(store, chat, myHandle)
-
-        val stage = stageOutgoingText(store, chat.guid, myHandle, text)
-        val tempGuid = stage.tempGuid
-        stage.message.let { staged ->
-            if (effectId != null) {
-                // Persist the effect on the staged row so the bubble (and the
-                // screen-effect trigger) sees it before the echo lands.
-                staged.expressiveSendStyleId = effectId
-                messageBox.put(staged)
-            }
-            if (replyGuid != null) {
-                staged.threadOriginatorGuid = replyGuid
-                staged.threadOriginatorPart = replyPartLocator
-                messageBox.put(staged)
-            }
+        val (stage, myHandle) = withContext(Dispatchers.IO) {
+            val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+            val handle = sendingHandle(chat)
+                ?: if (pushState == null) chat.usingHandle else null
+                ?: error("no registered sending handle")
+            stageOutgoingText(
+                store = store,
+                chatGuid = chat.guid,
+                sender = handle,
+                text = text,
+                effectId = effectId,
+                replyGuid = replyGuid,
+                replyPartLocator = replyPartLocator,
+            ) to handle
         }
+        val tempGuid = stage.tempGuid
+        val accepted = OutgoingTextSend(stage.message.id)
 
         if (pushState == null) {
-            failOutgoingText(store, tempGuid, "Not connected to Apple push")
-            return
+            withContext(Dispatchers.IO) {
+                failOutgoingText(store, tempGuid, "Not connected to Apple push")
+            }
+            return accepted
         }
 
-        var failureLookupGuid = tempGuid
-        try {
-            val inst = runInterruptible(Dispatchers.IO) {
-                pushState.sendText(
-                    conversation,
-                    myHandle,
-                    text,
-                    // replyGuid, replyPart, effect, subject
-                    replyGuid, replyPartLocator, effectId, null,
-                )
+        graph.launchBackground {
+            sendLocks.computeIfAbsent(chatId) { Mutex() }.withLock {
+                var failureLookupGuid = tempGuid
+                try {
+                    val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+                    val conversation = sendConversation(store, chat, myHandle)
+                    val inst = runInterruptible(Dispatchers.IO) {
+                        pushState.sendText(
+                            conversation,
+                            myHandle,
+                            text,
+                            // replyGuid, replyPart, effect, subject
+                            replyGuid, replyPartLocator, effectId, null,
+                        )
+                    }
+                    failureLookupGuid = inst.id
+                    // Promote the staged row to the Rust staging guid so the echo and
+                    // SendConfirm receipts find it (same swap Dart performs).
+                    promoteOutgoingText(store, tempGuid, inst.id)
+                    ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                } catch (failure: Throwable) {
+                    failOutgoingText(
+                        store,
+                        failureLookupGuid,
+                        failure.message ?: failure.javaClass.simpleName,
+                    )
+                }
             }
-            failureLookupGuid = inst.id
-            // Promote the staged row to the Rust staging guid so the echo and
-            // SendConfirm receipts find it (same swap Dart performs).
-            promoteOutgoingText(store, tempGuid, inst.id)
-            ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
-        } catch (t: Throwable) {
-            failOutgoingText(store, failureLookupGuid, t.message ?: t.javaClass.simpleName)
         }
+        return accepted
     }
 }
 

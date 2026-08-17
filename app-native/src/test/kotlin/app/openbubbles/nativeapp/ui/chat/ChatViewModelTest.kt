@@ -10,8 +10,10 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingTextSend
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
+import app.openbubbles.nativeapp.data.SmsSender
 import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TypingEntry
@@ -24,6 +26,7 @@ import kotlin.test.assertTrue
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -107,6 +110,91 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(9L to "latest route", sender.sent)
+    }
+
+    @Test
+    fun `composer clears only after local staging is accepted`() = runTest(dispatcher) {
+        val sender = BlockingSender(messageId = 41L)
+        val model = model(sender, RecordingActions())
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("stays visible")
+        model.sendMessage()
+        runCurrent()
+        sender.started.await()
+
+        assertEquals("stays visible", model.uiState.value.input)
+        assertEquals(true, model.uiState.value.textSendInProgress)
+
+        sender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("", model.uiState.value.input)
+        assertEquals(false, model.uiState.value.textSendInProgress)
+    }
+
+    @Test
+    fun `older send completion does not overwrite a newer draft`() = runTest(dispatcher) {
+        val sender = BlockingSender(messageId = 42L)
+        val model = model(sender, RecordingActions())
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("first")
+        model.sendMessage()
+        runCurrent()
+        sender.started.await()
+        model.onInputChange("new draft")
+        sender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("new draft", model.uiState.value.input)
+    }
+
+    @Test
+    fun `sms chat routes directly to sms sender`() = runTest(dispatcher) {
+        val imessage = RecordingSender()
+        val sms = RecordingSmsSender()
+        val model = model(
+            sender = imessage,
+            actions = RecordingActions(),
+            chatListRepository = SmsChats,
+            smsSender = sms,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("carrier")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(7L to "carrier", sms.sent)
+        assertEquals(null, imessage.sent)
+    }
+
+    @Test
+    fun `scroll event waits for the staged row to reach the transcript`() = runTest(dispatcher) {
+        val messages = MutableMessages(emptyList())
+        val sender = RecordingSender(messageId = 43L)
+        val model = model(sender, RecordingActions(), messageRepository = messages)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.onInputChange("scroll after row")
+        model.sendMessage()
+        advanceUntilIdle()
+        assertEquals(null, model.uiState.value.outgoingSendEvent)
+
+        messages.value.value = listOf(
+            message(id = 43L, guid = "temp-43", text = "scroll after row"),
+        )
+        advanceUntilIdle()
+
+        assertEquals(43L, model.uiState.value.outgoingSendEvent?.messageId)
+        model.consumeOutgoingSendEvent(43L)
+        runCurrent()
+        assertEquals(null, model.uiState.value.outgoingSendEvent)
     }
 
     @Test
@@ -472,6 +560,7 @@ class ChatViewModelTest {
         attachmentSender: AttachmentSender = NoopAttachmentSender,
         stickerSender: StickerSender = StickerSender { _, _, _, _, _, _ -> },
         faceTimeCaller: FaceTimeCaller = FaceTimeCaller { error("not used") },
+        smsSender: SmsSender = NoopSmsSender,
         smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean = { _, _, _ -> false },
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
     ) = ChatViewModel(
@@ -485,7 +574,7 @@ class ChatViewModelTest {
         stickerSender = stickerSender,
         typingRepository = NoopTyping,
         readReceiptSender = readReceiptSender,
-        smsRouter = { _, _ -> false },
+        smsSender = smsSender,
         smsAttachmentRouter = smsAttachmentRouter,
     )
 
@@ -554,6 +643,18 @@ private object GroupedChats : ChatListRepository {
     override fun delete(id: Long) = Unit
 }
 
+private object SmsChats : ChatListRepository {
+    override fun chats(): Flow<List<ChatListItem>> = flowOf(
+        listOf(ChatListItem(7L, "SMS", null, 0L, 0, false, 0L, isSms = true)),
+    )
+
+    override fun markRead(id: Long) = Unit
+    override fun setPinned(id: Long, pinned: Boolean) = Unit
+    override fun setMuted(id: Long, muted: Boolean) = Unit
+    override fun setArchived(id: Long, archived: Boolean) = Unit
+    override fun delete(id: Long) = Unit
+}
+
 private object StaticMessages : MessageListRepository {
     override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
         flowOf(emptyList())
@@ -605,13 +706,16 @@ private class BlockingThreadMessages : MessageListRepository {
     }
 }
 
-private class RecordingSender : Sender {
+private class RecordingSender(
+    private val messageId: Long = 40L,
+) : Sender {
     var sent: Pair<Long, String>? = null
     var reply: Triple<Long, String, String>? = null
     var replyPartLocator: String? = null
 
-    override suspend fun send(chatId: Long, text: String) {
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend {
         sent = chatId to text
+        return OutgoingTextSend(messageId)
     }
 
     override suspend fun sendReply(
@@ -619,10 +723,38 @@ private class RecordingSender : Sender {
         text: String,
         replyGuid: String,
         replyPartLocator: String,
-    ) {
+    ): OutgoingTextSend {
         reply = Triple(chatId, text, replyGuid)
         this.replyPartLocator = replyPartLocator
+        return OutgoingTextSend(messageId)
     }
+}
+
+private class BlockingSender(
+    private val messageId: Long,
+) : Sender {
+    val started = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend {
+        started.complete(Unit)
+        release.await()
+        return OutgoingTextSend(messageId)
+    }
+}
+
+private class RecordingSmsSender : SmsSender {
+    var sent: Pair<Long, String>? = null
+
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend {
+        sent = chatId to text
+        return OutgoingTextSend(44L)
+    }
+}
+
+private object NoopSmsSender : SmsSender {
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
+        OutgoingTextSend(45L)
 }
 
 private class RecordingActions : MessageActions {

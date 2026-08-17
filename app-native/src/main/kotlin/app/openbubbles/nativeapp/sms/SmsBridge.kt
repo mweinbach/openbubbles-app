@@ -5,6 +5,7 @@ import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingTextSend
 import app.openbubbles.nativeapp.data.SmsSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +87,6 @@ object SmsBridge {
 
 /** Fallback used before the app context/store exist (nothing can be sent). */
 private object UnavailableSmsSender : SmsSender {
-    override suspend fun send(chatId: Long, text: String) =
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
         error("SMS sender unavailable — store not open")
 }

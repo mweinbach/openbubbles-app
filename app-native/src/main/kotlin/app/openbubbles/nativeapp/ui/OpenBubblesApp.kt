@@ -548,6 +548,7 @@ fun OpenBubblesApp(
                         onStartFaceTime = viewModel::startFaceTime,
                         onFaceTimeLaunchConsumed = viewModel::consumeFaceTimeLaunch,
                         onScreenEffectConsumed = viewModel::consumeScreenEffect,
+                        onOutgoingSendEventConsumed = viewModel::consumeOutgoingSendEvent,
                         onBack = { popBack() },
                         // Beside its own list there is nothing to go back to.
                         showBackButton = !isMultiPane,

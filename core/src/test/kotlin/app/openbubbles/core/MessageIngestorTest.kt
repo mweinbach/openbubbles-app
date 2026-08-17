@@ -541,6 +541,25 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `outgoing stage persists effect and reply metadata atomically`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "reply with effect",
+            stagingGuid = "temp-metadata",
+            expressiveSendStyleId = "com.apple.messages.effect.CKConfettiEffect",
+            threadOriginatorGuid = "root-guid",
+            threadOriginatorPart = "2:4:8",
+        )
+
+        assertEquals("com.apple.messages.effect.CKConfettiEffect", staged.expressiveSendStyleId)
+        assertEquals("root-guid", staged.threadOriginatorGuid)
+        assertEquals("2:4:8", staged.threadOriginatorPart)
+        assertEquals(staged.id, messageByGuid("temp-metadata")?.id)
+    }
+
+    @Test
     fun `staged attachment is promoted in place by the echo`() = runBlocking<Unit> {
         val chat = chatForFixture()
         val staged = messageRepo.stageOutgoingMessage(

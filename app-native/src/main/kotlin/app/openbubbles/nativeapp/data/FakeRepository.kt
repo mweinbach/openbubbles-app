@@ -107,7 +107,7 @@ internal object FakeChatData {
         _windows.update { it - chatId }
     }
 
-    suspend fun send(chatId: Long, text: String) {
+    fun send(chatId: Long, text: String): Long {
         val message = MessageItem(
             id = nextMessageId.incrementAndGet(),
             text = text,
@@ -124,14 +124,15 @@ internal object FakeChatData {
                 if (it.id == chatId) it.copy(date = message.date, snippet = text) else it
             }
         }
-        delay(150)
-        updateMessage(chatId, message.id) { it.copy(status = MessageStatus.SENT) }
         scope.launch {
+            delay(150)
+            updateMessage(chatId, message.id) { it.copy(status = MessageStatus.SENT) }
             delay(900)
             updateMessage(chatId, message.id) { it.copy(status = MessageStatus.DELIVERED) }
             delay(1_800)
             updateMessage(chatId, message.id) { it.copy(status = MessageStatus.READ) }
         }
+        return message.id
     }
 
     fun react(chatId: Long, messageGuid: String, emoji: String?) {
@@ -403,7 +404,8 @@ class FakeMessageListRepository : MessageListRepository {
 
 /** Fake [Sender] that appends optimistically and evolves the status over time. */
 object FakeSender : Sender {
-    override suspend fun send(chatId: Long, text: String) = FakeChatData.send(chatId, text)
+    override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
+        OutgoingTextSend(FakeChatData.send(chatId, text))
 }
 
 object FakeMessageActions : MessageActions {

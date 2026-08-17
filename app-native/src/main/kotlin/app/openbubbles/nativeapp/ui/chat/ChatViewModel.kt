@@ -16,6 +16,7 @@ import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
+import app.openbubbles.nativeapp.data.SmsSender
 import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
@@ -28,6 +29,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -61,6 +64,10 @@ data class ChatUiState(
     val faceTimeStarting: Boolean = false,
     /** One-shot handoff to the Android call activity. */
     val faceTimeLaunch: FaceTimeLaunch? = null,
+    /** Prevents duplicate taps while the current text draft is being staged. */
+    val textSendInProgress: Boolean = false,
+    /** Emitted only after the staged outgoing row is present in [messages]. */
+    val outgoingSendEvent: OutgoingSendEvent? = null,
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
@@ -84,6 +91,11 @@ data class ReplyThreadState(
 data class ScreenEffectTrigger(
     val messageId: Long,
     val effectId: String,
+)
+
+data class OutgoingSendEvent(
+    val messageId: Long,
+    val effectId: String?,
 )
 
 /**
@@ -126,7 +138,7 @@ class ChatViewModel(
     private val stickerSender: StickerSender,
     typingRepository: TypingRepository,
     private val readReceiptSender: ReadReceiptSender,
-    private val smsRouter: suspend (Long, String) -> Boolean = SmsBridge::routeIfSmsChat,
+    private val smsSender: SmsSender = SmsBridge.sender,
     private val smsAttachmentRouter: suspend (Long, List<OutgoingAttachment>, String?) -> Boolean =
         SmsBridge::routeAttachmentsIfSmsChat,
     initialInput: String? = null,
@@ -147,8 +159,12 @@ class ChatViewModel(
     private val actionError = MutableStateFlow<String?>(null)
     private val faceTimeStarting = MutableStateFlow(false)
     private val faceTimeLaunch = MutableStateFlow<FaceTimeLaunch?>(null)
+    private val textSendInProgress = MutableStateFlow(false)
+    private val outgoingSendEvent = MutableStateFlow<OutgoingSendEvent?>(null)
     private var endReached = false
     private var replyThreadJob: Job? = null
+    private var composerRevision = 0L
+    private var pendingOutgoingSendEvent: OutgoingSendEvent? = null
 
     /** Message ids whose send effect has already been played (once each). */
     private val playedEffectMessageIds = mutableSetOf<Long>()
@@ -170,6 +186,7 @@ class ChatViewModel(
             .onEach { list ->
                 observeMessageEffects(list)
                 observeIncomingReadState(list)
+                observePendingOutgoingSend(list)
             }
             .stateIn(
                 viewModelScope,
@@ -245,9 +262,14 @@ class ChatViewModel(
             state.copy(faceTimeLaunch = launch)
         }.combine(pendingAttachments) { state, attachments ->
             state.copy(pendingAttachments = attachments)
+        }.combine(textSendInProgress) { state, sending ->
+            state.copy(textSendInProgress = sending)
+        }.combine(outgoingSendEvent) { state, event ->
+            state.copy(outgoingSendEvent = event)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     fun onInputChange(value: String) {
+        if (input.value != value) composerRevision++
         input.value = value
     }
 
@@ -258,21 +280,22 @@ class ChatViewModel(
             sendDraftAttachments(text, attachments)
             return
         }
-        if (text.isEmpty()) return
-        // Consume any effect staged by the picker for this send.
+        if (text.isEmpty() || textSendInProgress.value) return
         val effectId = PendingSendEffect.effectId
-        PendingSendEffect.effectId = null
-        input.value = ""
+        val editing = editingMessage.value
+        val reply = replyingTo.value
+        val sendRevision = composerRevision
+        textSendInProgress.value = true
         viewModelScope.launch {
             runCatching {
-                val editing = editingMessage.value
-                val reply = replyingTo.value
-                val targetChatId = preferredChatId()
+                val chatItem = chat.value ?: chat.filterNotNull().first()
+                val targetChatId = chatItem.preferredChatId
                 when {
-                    editing != null -> messageActions.edit(sourceChatId(editing), editing.guid, text)
-                    // SIM-routed chats (isRpSms) send over the modem; everything else
-                    // goes through the APNs iMessage sender.
-                    smsRouter(targetChatId, text) -> Unit
+                    editing != null -> {
+                        messageActions.edit(sourceChatId(editing), editing.guid, text)
+                        null
+                    }
+                    chatItem.isSms -> smsSender.send(targetChatId, text)
                     reply != null -> sender.sendReply(
                         sourceChatId(reply.message),
                         text,
@@ -282,12 +305,36 @@ class ChatViewModel(
                     effectId == null -> sender.send(targetChatId, text)
                     else -> sender.sendWithEffect(targetChatId, text, effectId)
                 }
-            }.onSuccess {
-                settleComposerAfterSend()
+            }.onSuccess { accepted ->
+                if (accepted != null) {
+                    if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
+                    queueOutgoingSend(OutgoingSendEvent(accepted.messageId, effectId))
+                }
+                settleComposerAfterSend(sendRevision)
             }.onFailure { failure ->
-                input.value = text
                 actionError.value = failure.message ?: "Message operation failed"
             }
+            textSendInProgress.value = false
+        }
+    }
+
+    fun consumeOutgoingSendEvent(messageId: Long) {
+        if (outgoingSendEvent.value?.messageId == messageId) outgoingSendEvent.value = null
+    }
+
+    private fun queueOutgoingSend(event: OutgoingSendEvent) {
+        if (messages.value.any { it.id == event.messageId }) {
+            outgoingSendEvent.value = event
+        } else {
+            pendingOutgoingSendEvent = event
+        }
+    }
+
+    private fun observePendingOutgoingSend(list: List<MessageItem>) {
+        val pending = pendingOutgoingSendEvent ?: return
+        if (list.any { it.id == pending.messageId }) {
+            pendingOutgoingSendEvent = null
+            outgoingSendEvent.value = pending
         }
     }
 
@@ -341,7 +388,9 @@ class ChatViewModel(
      * thread sheet is open on the sent target, re-stages the reply so the
      * next message continues the thread.
      */
-    private fun settleComposerAfterSend() {
+    private fun settleComposerAfterSend(expectedRevision: Long? = null) {
+        if (expectedRevision != null && composerRevision != expectedRevision) return
+        input.value = ""
         editingMessage.value = null
         val open = replyThread.value
         val root = open?.messages?.firstOrNull { it.guid == open.rootGuid }
@@ -350,9 +399,11 @@ class ChatViewModel(
         } else {
             replyingTo.value = null
         }
+        composerRevision++
     }
 
     fun beginReply(message: MessageItem, part: Long = 0L) {
+        composerRevision++
         editingMessage.value = null
         val rootPart = message.replyToPart ?: part
         replyingTo.value = ReplyTarget(
@@ -421,12 +472,14 @@ class ChatViewModel(
 
     fun beginEdit(message: MessageItem) {
         if (!message.isFromMe || message.text.isBlank() || message.unsent) return
+        composerRevision++
         replyingTo.value = null
         editingMessage.value = message
         input.value = message.text
     }
 
     fun cancelComposerAction() {
+        composerRevision++
         val wasEditing = editingMessage.value != null
         replyingTo.value = null
         editingMessage.value = null
@@ -540,6 +593,7 @@ class ChatViewModel(
             faceTimeCaller: FaceTimeCaller = FaceTimeCaller {
                 error("FaceTime requires an active Apple push connection")
             },
+            smsSender: SmsSender = SmsBridge.sender,
             initialInput: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -554,6 +608,7 @@ class ChatViewModel(
                     stickerSender,
                     typingRepository,
                     readReceiptSender,
+                    smsSender = smsSender,
                     initialInput = initialInput,
                 )
             }
