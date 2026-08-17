@@ -23,6 +23,7 @@ import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
+import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoWarmCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -211,6 +212,17 @@ class ChatViewModel(
                 chats.firstOrNull { item -> item.id == chatId || chatId in item.memberChatIds }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    init {
+        // While the conversation is on screen, warm its details-pane data
+        // (shared photos, contact card, poster, Find My) so tapping the
+        // header renders content instead of loading placeholders. Local
+        // reads only — warming never hits the network.
+        viewModelScope.launch {
+            val item = chat.filterNotNull().first()
+            runCatching { ChatInfoWarmCache.warm(item) }
+        }
+    }
 
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)

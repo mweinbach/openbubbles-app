@@ -587,27 +587,35 @@ internal fun rememberContactDetails(
 ): ContactDetails {
     val generation by UiContacts.avatarGeneration.collectAsState()
     val initial = remember(address, fallbackName) {
-        resolveContactDetails(address, fallbackName, emptyList())
+        // Seed from the warm cache (filled while the chat was on screen) so
+        // the card renders resolved data on the first frame; the load below
+        // still revalidates and refreshes the entry.
+        ChatInfoWarmCache.contactDetails(address)
+            ?: resolveContactDetails(address, fallbackName, emptyList())
     }
     return produceState(initialValue = initial, address, fallbackName, generation) {
         value = withContext(Dispatchers.IO) {
             resolveContactDetails(address, fallbackName, CoreGraph.preferredContacts())
-        }
+        }.also { ChatInfoWarmCache.putContactDetails(address, it) }
     }.value
 }
 
 @Composable
 internal fun rememberContactLocation(
+    handleAddress: String,
     addresses: List<String>,
     port: FindMyPort = remember { RustFindMyPort { PushStateHolder.state } },
 ): ContactLocationUi {
     if (LocalInspectionMode.current) return ContactLocationUi.NotSharing
     return produceState<ContactLocationUi>(
-        initialValue = ContactLocationUi.Loading,
+        initialValue = ChatInfoWarmCache.location(handleAddress) ?: ContactLocationUi.Loading,
+        handleAddress,
         addresses,
         port,
     ) {
-        value = ContactLocationUi.Loading
+        // A restart for a new identity keeps the warm seed when one exists
+        // instead of flashing the loading row.
+        value = ChatInfoWarmCache.location(handleAddress) ?: ContactLocationUi.Loading
         value = withContext(Dispatchers.IO) {
             if (!port.isAvailable()) return@withContext ContactLocationUi.Unavailable
             val cached = runCatching { port.friends() }
@@ -629,16 +637,19 @@ internal fun rememberContactLocation(
                         ?: "Couldn't load location",
                 )
             }
-        }
+        }.also { ChatInfoWarmCache.putLocation(handleAddress, it) }
     }.value
 }
 
 @Composable
 internal fun rememberSharedContent(chatId: Long): List<SharedContentPreview> {
-    return produceState(initialValue = emptyList(), chatId) {
+    return produceState(
+        initialValue = ChatInfoWarmCache.sharedContent(chatId).orEmpty(),
+        chatId,
+    ) {
         value = withContext(Dispatchers.IO) {
             CoreGraph.chatInfo.sharedContent(chatId)
-        }
+        }.also { ChatInfoWarmCache.putSharedContent(chatId, it) }
     }.value
 }
 

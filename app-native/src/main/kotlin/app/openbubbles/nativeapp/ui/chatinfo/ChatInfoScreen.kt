@@ -85,7 +85,6 @@ import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import android.content.Intent
-import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -268,7 +267,7 @@ fun ChatInfoScreen(
             ) {
                 ContactDetailsCard(
                     details = details,
-                    location = rememberContactLocation(details.allAddresses),
+                    location = rememberContactLocation(details.handleAddress, details.allAddresses),
                     sharedContent = rememberSharedContent(chat.id),
                     conversationTitle = if (chat.isSms) "SMS" else "iMessage",
                     conversationSubtitle = "Last active ${formatListTimestamp(chat.date)}",
@@ -453,7 +452,7 @@ fun ChatInfoScreen(
         val details = rememberContactDetails(row.address, row.name)
         ContactSheet(
             details = details,
-            location = rememberContactLocation(details.allAddresses),
+            location = rememberContactLocation(details.handleAddress, details.allAddresses),
             sharedContent = chat?.id?.let { rememberSharedContent(it) }.orEmpty(),
             conversationTitle = chat?.title,
             conversationSubtitle = if (chat?.isSms == true) "SMS" else "iMessage",
@@ -664,39 +663,20 @@ private fun PosterHeaderCard(
 }
 
 /**
- * Resolves the primary participant's poster path from the db (read-only):
- * the Handle whose address or formattedAddress matches [address], when it
- * carries a `posterPath` that points at an existing file.
+ * The primary participant's poster image, seeded from the warm cache (filled
+ * while the chat was on screen) so the poster header renders on the first
+ * frame instead of swapping in after the db read.
  */
 @Composable
 private fun rememberPosterFile(address: String?): File? =
-    produceState<File?>(initialValue = null, address) {
+    produceState<File?>(
+        initialValue = address?.let(ChatInfoWarmCache::poster),
+        address,
+    ) {
         if (address.isNullOrBlank()) return@produceState
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val box = CoreGraph.store?.boxFor(app.openbubbles.db.Handle::class.java)
-                    ?: return@runCatching null
-                val handle = box.query()
-                    .equal(
-                        app.openbubbles.db.Handle_.address,
-                        address,
-                        QueryBuilder.StringOrder.CASE_SENSITIVE,
-                    )
-                    .or()
-                    .equal(
-                        app.openbubbles.db.Handle_.formattedAddress,
-                        address,
-                        QueryBuilder.StringOrder.CASE_SENSITIVE,
-                    )
-                    .build()
-                    .use { it.findFirst() }
-                    ?: return@runCatching null
-                handle.posterPath
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let(::File)
-                    ?.takeIf { it.isFile }
-            }.getOrNull()
-        }
+        val loaded = loadHandlePosterFile(address)
+        value = loaded
+        if (loaded != null) ChatInfoWarmCache.putPoster(address, loaded)
     }.value
 
 @Composable
