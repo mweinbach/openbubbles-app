@@ -10,6 +10,9 @@ import io.objectbox.BoxStore
 import java.io.File
 import java.nio.file.Files
 import java.util.Date
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -83,6 +86,41 @@ class MessageRepoPagingTest {
 
         assertEquals(listOf("from second", "from first"), page.map { it.text })
         assertEquals(listOf(secondChat.id, firstChat.id), page.map { it.chatId })
+    }
+
+    @Test
+    fun `attachment staging publishes only the complete local echo`() = runBlocking {
+        val update = async(start = CoroutineStart.UNDISPATCHED) {
+            repo.observeMessages(chat.id, limit = 101).drop(1).first()
+        }
+
+        repo.stageOutgoingMessageWithAttachments(
+            chatGuid = chat.guid,
+            sender = "mailto:me@icloud.com",
+            text = "two files",
+            stagingGuid = "temp-attachment-message",
+            attachments = listOf(
+                MessageRepo.OutgoingAttachmentStage(
+                    guid = "temp-attachment-message_att0",
+                    mimeType = "image/jpeg",
+                    uti = "public.jpeg",
+                    transferName = "one.jpg",
+                    totalBytes = 10L,
+                ),
+                MessageRepo.OutgoingAttachmentStage(
+                    guid = "temp-attachment-message_att1",
+                    mimeType = "image/png",
+                    uti = "public.png",
+                    transferName = "two.png",
+                    totalBytes = 20L,
+                ),
+            ),
+        )
+
+        val staged = update.await().first()
+        assertEquals("two files", staged.text)
+        assertTrue(staged.hasAttachments)
+        assertEquals(2, staged.attachmentCount)
     }
 
     private fun seed(target: Chat, count: Int) {

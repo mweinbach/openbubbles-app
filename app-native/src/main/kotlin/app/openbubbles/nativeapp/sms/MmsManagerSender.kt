@@ -7,13 +7,13 @@ import android.util.Log
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.MessageRepo
-import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.moveOutgoingAttachment
 import com.klinker.android.send_message.Message as CarrierMessage
 import com.klinker.android.send_message.Settings
 import com.klinker.android.send_message.Transaction
@@ -43,17 +43,11 @@ class MmsManagerSender(private val context: Context) {
         check(destinations.isNotEmpty()) { "chat $chatId has no MMS destination" }
 
         val tempGuid = MessageIngestor.tempGuid()
-        val staged = MessageRepo(store).stageOutgoingMessage(
-            chatGuid,
-            myHandle,
-            caption.orEmpty(),
-            tempGuid,
-        )
-
         val disk = AttachmentStore(store, File(context.dataDir, "app_flutter"))
+        var stagedInDatabase = false
 
         try {
-            // Copy every staged payload into the canonical store layout
+            // Move every staged payload into the canonical store layout
             // before anything is persisted, so a copy failure aborts the
             // whole send without leaving partial rows behind.
             data class StagedMedia(
@@ -67,30 +61,25 @@ class MmsManagerSender(private val context: Context) {
                 val attachmentGuid = "${tempGuid}_att$index"
                 val displayName = attachment.name ?: "attachment"
                 val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
-                payload.parentFile?.mkdirs()
-                attachment.file.copyTo(payload, overwrite = true)
-                runCatching { attachment.file.delete() }
+                moveOutgoingAttachment(attachment.file, payload)
                 StagedMedia(attachmentGuid, attachment.mime, attachment.uti, displayName, payload)
             }
-            val attachmentBox = store.boxFor(Attachment::class.java)
-            store.runInTx {
-                media.forEach { item ->
-                    attachmentBox.put(
-                        Attachment().apply {
-                            guid = item.guid
-                            isOutgoing = true
-                            mimeType = item.mime
-                            uti = item.uti
-                            transferName = item.name
-                            totalBytes = item.payload.length()
-                            isDownloaded = true
-                            message.target = staged
-                        },
+            MessageRepo(store).stageOutgoingMessageWithAttachments(
+                chatGuid = chatGuid,
+                sender = myHandle,
+                text = caption.orEmpty(),
+                stagingGuid = tempGuid,
+                attachments = media.map { item ->
+                    MessageRepo.OutgoingAttachmentStage(
+                        guid = item.guid,
+                        mimeType = item.mime,
+                        uti = item.uti,
+                        transferName = item.name,
+                        totalBytes = item.payload.length(),
                     )
-                }
-                staged.hasAttachments = true
-                store.boxFor(Message::class.java).put(staged)
-            }
+                },
+            )
+            stagedInDatabase = true
 
             val threadId = chat.telephonyId
                 ?: TelephonySmsStore.threadId(context, destinations)
@@ -121,6 +110,11 @@ class MmsManagerSender(private val context: Context) {
             transaction.sendNewMessage(message, threadId ?: Transaction.NO_THREAD_ID)
         } catch (failure: Throwable) {
             Log.w(TAG, "MMS send failed", failure)
+            if (!stagedInDatabase) {
+                attachments.indices.forEach { index ->
+                    disk.directoryFor("${tempGuid}_att$index").deleteRecursively()
+                }
+            }
             fail(store, tempGuid, failure.message ?: failure.javaClass.simpleName)
             throw failure
         }

@@ -135,6 +135,32 @@ class CoreMessageListRepositoryTest {
         assertEquals("new message", updated.last().text)
     }
 
+    @Test
+    fun `upload progress overlays mapped messages without database enrichment`() {
+        val item = MessageItem(
+            id = 1L,
+            text = "photo",
+            isFromMe = true,
+            date = 1L,
+            status = MessageStatus.SENDING,
+            isGroupEvent = false,
+            reactionEmoji = null,
+            attachmentMeta = AttachmentMeta(
+                guid = "temp-photo_att0",
+                mime = "image/jpeg",
+                name = "photo.jpg",
+                sizeBytes = 100L,
+                isImage = true,
+                downloaded = true,
+            ),
+        )
+
+        val updated = applyUploadProgress(listOf(item), mapOf("temp-photo_att0" to (25L to 100L)))
+
+        assertEquals(25L to 100L, updated.single().uploadProgress)
+        assertEquals(item.attachmentMeta, updated.single().attachmentMeta)
+    }
+
     private fun seed(target: Chat, count: Int) {
         val box = store.boxFor(Message::class.java)
         repeat(count) { index ->

@@ -53,15 +53,13 @@ object SmsBridge {
         val store = CoreGraph.store ?: return@withContext false
         val chat = runCatching { store.boxFor(Chat::class.java).get(chatId) }.getOrNull()
             ?: return@withContext false
-        if (chat.isRpSms != true) return@withContext false
-        try {
-            sender.send(chatId, text)
-        } catch (t: Throwable) {
-            // The sender already marked the staged row FAILED; never bubble
-            // into the UI coroutine scope.
-            Log.w("SmsBridge", "SMS send failed for chat $chatId", t)
-        }
-        true
+        routeSmsTransport(
+            isSmsChat = chat.isRpSms == true,
+            send = { sender.send(chatId, text) },
+            onStagedFailure = { failure ->
+                Log.w("SmsBridge", "SMS transport failed after local staging", failure)
+            },
+        )
     }
 
     /**
@@ -83,6 +81,23 @@ object SmsBridge {
         MmsManagerSender(context).send(chatId, attachments, caption)
         true
     }
+}
+
+internal class SmsSendAlreadyStagedException(cause: Throwable) :
+    Exception(cause.message ?: cause.javaClass.simpleName, cause)
+
+internal suspend fun routeSmsTransport(
+    isSmsChat: Boolean,
+    send: suspend () -> Unit,
+    onStagedFailure: (Throwable) -> Unit = {},
+): Boolean {
+    if (!isSmsChat) return false
+    try {
+        send()
+    } catch (failure: SmsSendAlreadyStagedException) {
+        onStagedFailure(failure.cause ?: failure)
+    }
+    return true
 }
 
 /** Fallback used before the app context/store exist (nothing can be sent). */

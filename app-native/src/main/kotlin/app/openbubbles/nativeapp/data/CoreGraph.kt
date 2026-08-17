@@ -701,7 +701,6 @@ private fun enrichWithEntityDetails(
                 attachmentMetas = attachments,
                 edited = edited,
                 unsent = unsent,
-                uploadProgress = firstAttachment?.guid?.let { UploadProgressBoard.current[it] },
                 expressiveSendStyleId = entity.expressiveSendStyleId,
                 replyPreviewText = entity.threadOriginatorGuid?.let { guid ->
                     val target = replyTargets[guid]
@@ -922,13 +921,8 @@ internal class CoreMessageListRepository(
         if (paging.size.value < limit) paging.size.value = limit
         return paging.size.flatMapLatest { size ->
             val requested = size.coerceAtLeast(limit)
-            // Combined with the upload board so progress ticks re-emit the page.
-            combine(
-                repo.observeMessages(chatId, requested),
-                UploadProgressBoard.progress,
-            ) { page, _ ->
-                pageToUi(chatId, paging, page)
-            }
+            val pages = repo.observeMessages(chatId, requested)
+                .map { page -> pageToUi(chatId, paging, page) }
                 .onStart {
                     val cached = snapshots[chatId]?.items
                     if (!cached.isNullOrEmpty() && cached.size >= requested) {
@@ -938,6 +932,7 @@ internal class CoreMessageListRepository(
                     }
                 }
                 .flowOn(Dispatchers.IO)
+            combine(pages, UploadProgressBoard.progress, ::applyUploadProgress)
         }
     }
 
@@ -1024,6 +1019,14 @@ internal class CoreMessageListRepository(
             stale = false,
         )
     }
+}
+
+internal fun applyUploadProgress(
+    items: List<MessageItem>,
+    progress: Map<String, Pair<Long, Long>>,
+): List<MessageItem> = items.map { item ->
+    val current = item.attachmentMeta?.guid?.let(progress::get)
+    if (item.uploadProgress == current) item else item.copy(uploadProgress = current)
 }
 
 /** ObjectBox-backed attachment lookups for the viewer route. */
@@ -1622,7 +1625,6 @@ internal object CoreAttachmentSender : AttachmentSender {
 
         val chatBox = store.boxFor(Chat::class.java)
         val messageBox = store.boxFor(Message::class.java)
-        val attachmentBox = store.boxFor(Attachment::class.java)
         val chat = chatBox.get(chatId) ?: error("no chat $chatId")
 
         val pushState = PushStateHolder.state
@@ -1633,12 +1635,9 @@ internal object CoreAttachmentSender : AttachmentSender {
 
         val tempGuid = MessageIngestor.tempGuid()
 
-        // 1. Stage the outgoing row (caption rides as the text part).
-        val staged = CoreGraphStageHolder.messageRepo(store)
-            .stageOutgoingMessage(chat.guid, myHandle, caption.orEmpty(), tempGuid)
-
-        // 2. Placeholder attachment metadata + payloads in the canonical
-        //    layout so the bubbles render (and image-preview) right away.
+        // Put payloads in the canonical layout before committing the local
+        // echo. The message and every placeholder relation are then published
+        // in one ObjectBox transaction, so the UI never sees an empty bubble.
         val root = File(
             AppContext.current?.dataDir ?: error("no files dir"),
             "app_flutter",
@@ -1650,33 +1649,29 @@ internal object CoreAttachmentSender : AttachmentSender {
             val attachmentGuid = "${tempGuid}_att$index"
             val displayName = attachment.name ?: "attachment"
             val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
-            payload.parentFile?.mkdirs()
-            attachment.file.copyTo(payload, overwrite = true)
-            runCatching { attachment.file.delete() } // cache copy no longer needed
+            moveOutgoingAttachment(attachment.file, payload)
             stagedGuids += attachmentGuid
             payloads += payload
         }
-
-        store.runInTx {
-            attachments.forEachIndexed { index, attachment ->
-                attachmentBox.put(
-                    Attachment().apply {
-                        guid = stagedGuids[index]
-                        isOutgoing = true
-                        mimeType = attachment.mime
-                        uti = attachment.uti
-                        transferName = attachment.name ?: "attachment"
-                        totalBytes = payloads[index].length()
-                        // The payload is already in the canonical local store;
-                        // outgoing video/file bubbles must never offer to
-                        // download their own just-uploaded file.
-                        isDownloaded = true
-                        message.target = staged
-                    },
-                )
-            }
-            staged.hasAttachments = true
-            messageBox.put(staged)
+        try {
+            CoreGraphStageHolder.messageRepo(store).stageOutgoingMessageWithAttachments(
+                chatGuid = chat.guid,
+                sender = myHandle,
+                text = caption.orEmpty(),
+                stagingGuid = tempGuid,
+                attachments = attachments.mapIndexed { index, attachment ->
+                    MessageRepo.OutgoingAttachmentStage(
+                        guid = stagedGuids[index],
+                        mimeType = attachment.mime,
+                        uti = attachment.uti,
+                        transferName = attachment.name ?: "attachment",
+                        totalBytes = payloads[index].length(),
+                    )
+                },
+            )
+        } catch (failure: Throwable) {
+            stagedGuids.forEach { disk.directoryFor(it).deleteRecursively() }
+            throw failure
         }
         // The transcript row surfaces the first attachment's entry, so the
         // whole batch (not just the first upload) reports through it.

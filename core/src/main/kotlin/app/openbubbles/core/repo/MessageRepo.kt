@@ -6,6 +6,7 @@ import app.openbubbles.core.model.MessageKind
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageStatus
 import app.openbubbles.core.model.StickerPlacement
+import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.ContactV2
@@ -40,6 +41,14 @@ class MessageRepo(
 
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
+
+    data class OutgoingAttachmentStage(
+        val guid: String,
+        val mimeType: String,
+        val uti: String,
+        val transferName: String,
+        val totalBytes: Long,
+    )
 
     /** Newest-first page of messages for a chat ([offset] skips older rows). */
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
@@ -171,6 +180,70 @@ class MessageRepo(
             if (latest == null || latest.dateCreated == null ||
                 (message.dateCreated.after(latest.dateCreated))
             ) {
+                chat.dbLatestMessage.target = message
+                chat.dbOnlyLatestMessageDate = message.dateCreated
+                chat.hasUnreadMessage = false
+                chatBox.put(chat)
+            }
+            message
+        }
+    }
+
+    /**
+     * Stages an outgoing attachment message as one committed database state.
+     * The message row must be inserted before its relation targets can be
+     * written, but keeping every put in the same transaction prevents the UI
+     * from observing an empty/caption-only bubble between those writes.
+     */
+    suspend fun stageOutgoingMessageWithAttachments(
+        chatGuid: String,
+        sender: String,
+        text: String,
+        stagingGuid: String,
+        attachments: List<OutgoingAttachmentStage>,
+        sendingServiceId: String? = DEFAULT_SENDING_SERVICE_ID,
+    ): Message = withContext(Dispatchers.IO) {
+        require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
+        val chat = chatBox.query()
+            .equal(Chat_.guid, chatGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?: throw IllegalArgumentException("No chat $chatGuid")
+        val attachmentBox = store.boxFor(Attachment::class.java)
+
+        store.callInTx {
+            val message = Message().apply {
+                guid = stagingGuid
+                this.stagingGuid = stagingGuid
+                this.text = text
+                isFromMe = true
+                dateCreated = Date()
+                this.sendingServiceId = sendingServiceId
+                hasAttachments = true
+            }
+            HandleResolver.resolve(store, sender, "iMessage").let {
+                message.handleRelation.target = it
+                message.handleId = it.originalROWID
+            }
+            message.chat.target = chat
+            messageBox.put(message)
+
+            attachments.forEach { staged ->
+                attachmentBox.put(
+                    Attachment().apply {
+                        guid = staged.guid
+                        isOutgoing = true
+                        mimeType = staged.mimeType
+                        uti = staged.uti
+                        transferName = staged.transferName
+                        totalBytes = staged.totalBytes
+                        isDownloaded = true
+                        this.message.target = message
+                    },
+                )
+            }
+
+            val latest = chat.dbLatestMessage.target
+            if (latest == null || latest.dateCreated == null || message.dateCreated.after(latest.dateCreated)) {
                 chat.dbLatestMessage.target = message
                 chat.dbOnlyLatestMessageDate = message.dateCreated
                 chat.hasUnreadMessage = false
