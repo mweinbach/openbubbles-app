@@ -38,6 +38,31 @@ class SendRoutingTest {
     }
 
     @Test
+    fun `global default wins over the address the chat was received on`() {
+        val chat = Chat().apply { usingHandle = "mailto:me@icloud.com" }
+        val handles = linkedSetOf("mailto:me@icloud.com", "tel:+15551234567")
+
+        assertEquals(
+            "tel:+15551234567",
+            sendingHandle(chat, handles, defaultHandle = "tel:+15551234567"),
+        )
+    }
+
+    @Test
+    fun `per-chat override wins over the global default`() {
+        val chat = Chat().apply {
+            usingHandle = "mailto:me@icloud.com"
+            senderOverride = "mailto:me@icloud.com"
+        }
+        val handles = linkedSetOf("mailto:me@icloud.com", "tel:+15551234567")
+
+        assertEquals(
+            "mailto:me@icloud.com",
+            sendingHandle(chat, handles, defaultHandle = "tel:+15551234567"),
+        )
+    }
+
+    @Test
     fun `conversation preserves chat identity anchor and rust handle prefixes`() {
         val chat = Chat().apply {
             guid = "stable-group-guid"

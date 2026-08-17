@@ -28,6 +28,7 @@ import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
+import app.openbubbles.nativeapp.ui.chatlist.SendFromDialog
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.search.SearchMessageRow
 import app.openbubbles.nativeapp.ui.search.SearchScreen
@@ -182,6 +183,38 @@ fun ChatListArchiveEmptyScreenshot() {
             kind = ChatListKind.Archive,
             showBackButton = true,
             onChatClick = {},
+        )
+    }
+}
+
+/**
+ * Per-chat send-from override picker (chat list long-press → Send from…).
+ * The received-on address is annotated so the user can deliberately reply
+ * from the address a thread actually arrived at.
+ */
+@PreviewTest
+@Preview(name = "send-from", device = Devices.PHONE, showBackground = true)
+@Preview(name = "send-from-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun SendFromDialogScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        SendFromDialog(
+            chat = ChatListItem(
+                id = 1,
+                title = "Weekend Crew",
+                snippet = "Meet at the trailhead",
+                date = FIXED_NOW - 31 * 60_000L,
+                unread = 0,
+                pinned = false,
+                avatarColor = 0xFF386A20,
+                isGroup = true,
+                senderOverride = null,
+                receivedOnHandle = "mailto:me@icloud.com",
+            ),
+            choices = listOf("tel:+15550102030", "mailto:me@icloud.com"),
+            defaultHandle = "tel:+15550102030",
+            onPick = {},
+            onDismiss = {},
         )
     }
 }

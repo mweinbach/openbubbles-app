@@ -20,15 +20,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Check
@@ -88,6 +92,8 @@ import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberPolygonMorph
 import app.openbubbles.nativeapp.ui.common.sharedChatContainer
+import app.openbubbles.nativeapp.ui.settings.SettingsChoiceItem
+import app.openbubbles.nativeapp.ui.settings.SettingsGroup
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
@@ -119,6 +125,12 @@ fun ChatListScreen(
     onArchive: (Collection<Long>) -> Unit = {},
     onUnarchive: (Collection<Long>) -> Unit = {},
     onDelete: (Collection<Long>) -> Unit = {},
+    /** Registered handles (rust form) offered by the per-chat send-from picker. */
+    sendFromChoices: List<String> = emptyList(),
+    /** Global default sending handle, read fresh when the picker opens. */
+    defaultSendingHandle: () -> String? = { null },
+    /** Persists a per-chat send-from override (null = follow the default). */
+    onSetSendFrom: (ChatListItem, String?) -> Unit = { _, _ -> },
     kind: ChatListKind = ChatListKind.Inbox,
     showBackButton: Boolean = false,
     onBack: () -> Unit = {},
@@ -146,6 +158,7 @@ fun ChatListScreen(
 ) {
     var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     var actionChat by remember { mutableStateOf<ChatListItem?>(null) }
+    var sendFromChat by remember { mutableStateOf<ChatListItem?>(null) }
     var confirmDeleteIds by remember { mutableStateOf<Set<Long>?>(null) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     val selecting = selectedIds.isNotEmpty()
@@ -360,7 +373,30 @@ fun ChatListScreen(
                 actionChat = null
                 onMuteFor(chat, durationMs)
             },
+            // SIM SMS chats always send from the device number.
+            onSendFrom = if (!chat.isSms && sendFromChoices.isNotEmpty()) {
+                {
+                    actionChat = null
+                    sendFromChat = chat
+                }
+            } else {
+                null
+            },
             onDismiss = { actionChat = null },
+        )
+    }
+
+    sendFromChat?.let { chat ->
+        SendFromDialog(
+            chat = chat,
+            choices = sendFromChoices,
+            defaultHandle = remember(chat) { defaultSendingHandle() },
+            onPick = { handle ->
+                sendFromChat = null
+                onSetSendFrom(chat, handle)
+                clearSelection()
+            },
+            onDismiss = { sendFromChat = null },
         )
     }
 
@@ -733,6 +769,8 @@ private fun ChatListActionSheet(
     onTogglePinned: () -> Unit,
     onToggleMuted: () -> Unit,
     onMuteFor: (Long) -> Unit,
+    /** Null hides the send-from action (SIM chats, no registered handles). */
+    onSendFrom: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -748,6 +786,15 @@ private fun ChatListActionSheet(
             icon = Icons.Filled.PushPin,
             onClick = onTogglePinned,
         )
+        if (onSendFrom != null) {
+            ChatActionButton(
+                text = chat.senderOverride
+                    ?.let { "Send from ${handleLabel(it)}" }
+                    ?: "Send from…",
+                icon = Icons.AutoMirrored.Filled.Send,
+                onClick = onSendFrom,
+            )
+        }
         if (chat.muted) {
             ChatActionButton(
                 text = "Show alerts",
@@ -773,6 +820,96 @@ private fun ChatListActionSheet(
         }
     }
 }
+
+/**
+ * Per-chat send-from override picker. The default option follows the global
+ * "Default sending address" setting; picking a handle pins this conversation
+ * to it regardless of the default or the address the chat was received on.
+ * Internal for screenshot coverage.
+ */
+@Composable
+internal fun SendFromDialog(
+    chat: ChatListItem,
+    choices: List<String>,
+    defaultHandle: String?,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val optionCount = choices.size + 1
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send from") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Choose the address messages in this conversation are sent from. " +
+                        "Sending from a different address can appear as a new " +
+                        "conversation to the other people in it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingsGroup {
+                    SettingsChoiceItem(
+                        title = "App default",
+                        supporting = defaultHandle?.let { "Currently ${handleLabel(it)}" }
+                            ?: "Automatic — follows the default sending address setting",
+                        selected = chat.senderOverride == null,
+                        onClick = { onPick(null) },
+                        index = 0,
+                        count = optionCount,
+                    )
+                    choices.forEachIndexed { index, handle ->
+                        SettingsChoiceItem(
+                            title = handleLabel(handle),
+                            supporting = handleSupporting(handle, chat.receivedOnHandle),
+                            selected = sameHandle(chat.senderOverride, handle),
+                            onClick = { onPick(handle) },
+                            index = index + 1,
+                            count = optionCount,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+private fun handleLabel(handle: String): String = handle.substringAfter(':', handle)
+
+private fun handleSupporting(handle: String, receivedOnHandle: String?): String {
+    val type = when {
+        handle.startsWith("tel:") -> "Phone number"
+        handle.startsWith("mailto:") -> "Email address"
+        else -> "Registered address"
+    }
+    return if (sameHandle(handle, receivedOnHandle)) {
+        "$type · This conversation was received here"
+    } else {
+        type
+    }
+}
+
+/** Compares handles ignoring the rust `tel:` / `mailto:` prefix and case. */
+private fun sameHandle(a: String?, b: String?): Boolean =
+    a != null && b != null &&
+        a.substringAfter(':', a).equals(b.substringAfter(':', b), ignoreCase = true)
+
+/** Registered handles ordered like the settings picker: phones first, then labels. */
+internal fun sendFromChoices(handles: Set<String>): List<String> =
+    handles.sortedWith(
+        compareBy(
+            { if (it.startsWith("tel:")) 0 else 1 },
+            { handleLabel(it).lowercase() },
+        ),
+    )
 
 @Composable
 private fun SelectionCheck(checked: Boolean?, size: androidx.compose.ui.unit.Dp) {
