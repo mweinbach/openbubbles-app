@@ -102,6 +102,29 @@ class TranscriptBackgroundStoreTest {
     }
 
     @Test
+    fun `poster without a wallpaper image clears the background`() = runBlocking {
+        val directory = File(filesDir, "chat_backgrounds").apply { mkdirs() }
+        val oldFile = File(directory, "shared-${chat.id}-3.img").apply { writeBytes(byteArrayOf(5)) }
+        chat.transcriptPosterPath = oldFile.absolutePath
+        chat.transcriptBackgroundVersion = 3
+        store.boxFor(Chat::class.java).put(chat)
+        // Dynamic/gradient posters carry no watch image — Apple's way of
+        // saying the wallpaper was cleared.
+        val backgroundStore = TranscriptBackgroundStore(store, filesDir, cacheDir) { _, _ ->
+            ByteArray(0)
+        }
+
+        backgroundStore.apply(
+            TranscriptBackgroundUpdate(chat.id, 5, remove = false, mmcsXml = "<plist/>")
+        )
+
+        val cleared = store.boxFor(Chat::class.java).get(chat.id)
+        assertEquals(5, cleared.transcriptBackgroundVersion)
+        assertNull(cleared.transcriptPosterPath)
+        assertFalse(oldFile.exists())
+    }
+
+    @Test
     fun `same version redownloads when the stored background file is missing`() = runBlocking {
         val missing = File(filesDir, "chat_backgrounds/shared-${chat.id}-4.img")
         chat.transcriptPosterPath = missing.absolutePath

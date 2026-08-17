@@ -466,6 +466,12 @@ class CloudSyncManager(
                 if (!identifier.isNullOrEmpty()) {
                     findByIdentifier(identifier)?.let { return it }
                 }
+            } else {
+                // Transcript-background records reference their chat by the
+                // bare identifier: the peer address for direct chats, a rust
+                // guid for groups (Dart resolved these via findByHandle /
+                // findByRustGuid).
+                findByIdentifier(chatId)?.let { return it }
             }
             findByCloudGuid(chatId)?.let { return it }
             chatsByGuid[chatId]?.let(chatBox::get)?.let { return it }
@@ -475,9 +481,25 @@ class CloudSyncManager(
                 .build().use { it.findFirst() }
                 ?.also(::putChat)
                 ?.let { return it }
-            return chatBox.query()
+            chatBox.query()
                 .containsElement(Chat_.guidRefs, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
                 .build().use { it.findFirst() }
+                ?.also(::putChat)
+                ?.let { return it }
+            val address = MessageMapper.normalizeAddress(chatId)
+            if (address.contains('@') || address.contains('+')) {
+                directChatForAddress(address)?.let { return it }
+            }
+            return null
+        }
+
+        /** `Chat.findByHandle`: the direct chat whose only participant is [address]. */
+        fun directChatForAddress(address: String): Chat? {
+            val builder = chatBox.query()
+            builder.link(Chat_.handles)
+                .equal(Handle_.address, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            return builder.build().use { it.find() }
+                .firstOrNull { it.handles.size == 1 }
                 ?.also(::putChat)
         }
 
@@ -749,13 +771,20 @@ class CloudSyncManager(
                         continue
                     }
                     if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
-                        val background = requireNotNull(cloud.transcriptBackground) {
-                            "transcript background ${cloud.guid} has no decoded payload"
-                        }
+                        // A wallpaper record must never wedge the message
+                        // zone: an undecodable payload or a chat we do not
+                        // have (deleted locally, never imported) is skipped
+                        // so the cursor keeps advancing — otherwise every
+                        // incremental sync re-fails on the same page and no
+                        // history lands after it (Dart never aborted here).
+                        val background = cloud.transcriptBackground ?: continue
                         val chat = background.chatId
                             ?.let(lookup::chatForCloudMessage)
                             ?: lookup.chatForCloudMessage(cloud.chatId)
-                            ?: error("transcript background ${cloud.guid} has no matching chat")
+                            ?: cloud.sender.takeIf(String::isNotEmpty)?.let { sender ->
+                                lookup.directChatForAddress(MessageMapper.normalizeAddress(sender))
+                            }
+                            ?: continue
                         removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
                         transcriptBackgrounds += TranscriptBackgroundUpdate(
                             chatId = chat.id,
@@ -774,13 +803,26 @@ class CloudSyncManager(
                     )
                 }
             }
-            val handler = transcriptBackgroundHandler
-            transcriptBackgrounds
-                .sortedBy(TranscriptBackgroundUpdate::version)
-                .forEach { update ->
-                    requireNotNull(handler) { "transcript background handler is unavailable" }
-                        .apply(update)
+            if (transcriptBackgrounds.isNotEmpty()) {
+                val handler = requireNotNull(transcriptBackgroundHandler) {
+                    "transcript background handler is unavailable"
                 }
+                transcriptBackgrounds
+                    .sortedBy(TranscriptBackgroundUpdate::version)
+                    .forEach { update ->
+                        try {
+                            handler.apply(update)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Apple drops the MMCS payloads of old wallpapers,
+                            // so historical records routinely fail to
+                            // download. Skip rather than abort: the next
+                            // wallpaper change (or a FULL resync while the
+                            // payload is still live) reapplies it.
+                        }
+                    }
+            }
         }
         // Stale cloud duplicates found on this page are dropped remotely
         // after it applied (Dart's post-page dupDeleteMessages flush).

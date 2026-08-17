@@ -240,7 +240,7 @@ class MessageIngestor(
         msg: UMessage.SetTranscriptBackground,
         myHandles: Set<String>,
     ): Chat? {
-        val chat = chatForInst(inst, myHandles, createIfMissing = false) ?: return null
+        val chat = chatForTranscriptBackground(inst, msg.chatId, myHandles) ?: return null
         val handler = transcriptBackgroundHandler ?: return chat
         scope.launch {
             runCatching {
@@ -255,6 +255,52 @@ class MessageIngestor(
             }
         }
         return chat
+    }
+
+    /**
+     * Wallpaper pushes arrive without ConversationData, so [chatForInst]
+     * alone cannot place them. Mirror the Dart handler: `cid` is the peer
+     * address for direct chats and a rust guid for groups; when it is
+     * absent, the background belongs to the direct chat with the sender.
+     */
+    private fun chatForTranscriptBackground(
+        inst: UMessageInst,
+        chatId: String?,
+        myHandles: Set<String>,
+    ): Chat? {
+        chatForInst(inst, myHandles, createIfMissing = false)?.let { return it }
+        chatId?.let { cid ->
+            val address = MessageMapper.normalizeAddress(cid)
+            if (address.contains('@') || address.contains('+')) {
+                directChatForAddress(address)?.let { return it }
+            }
+            chatByGuidOrGuidRef(cid)?.let { return it }
+            chatBox.query()
+                .equal(Chat_.chatIdentifier, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.let { return it }
+        }
+        val sender = inst.sender ?: return null
+        return directChatForAddress(MessageMapper.normalizeAddress(sender))
+    }
+
+    /** `Chat.findByRustGuid`: direct guid match first, then any guidRefs entry. */
+    private fun chatByGuidOrGuidRef(guid: String): Chat? {
+        chatBox.query()
+            .equal(Chat_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?.let { return it }
+        return chatBox.query()
+            .containsElement(Chat_.guidRefs, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+    }
+
+    /** `Chat.findByHandle`: the direct chat whose only participant is [address]. */
+    private fun directChatForAddress(address: String): Chat? {
+        val builder = chatBox.query()
+        builder.link(Chat_.handles)
+            .equal(Handle_.address, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
+        return builder.build().use { it.find() }.firstOrNull { it.handles.size == 1 }
     }
 
     private fun ingestRename(inst: UMessageInst, msg: UMessage.Rename, myHandles: Set<String>) {        if (inst.verificationFailed) return

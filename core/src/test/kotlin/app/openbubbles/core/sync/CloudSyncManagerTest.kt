@@ -1,6 +1,7 @@
 package app.openbubbles.core.sync
 
 import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.Attachment
@@ -495,7 +496,7 @@ class CloudSyncManagerTest {
     }
 
     @Test
-    fun `malformed cloud transcript background does not advance message cursor`() {
+    fun `malformed cloud transcript background is skipped without wedging the sync`() {
         syncStore.saveMessageCursor(byteArrayOf(9))
         port.chatPages += chatPage(
             UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
@@ -513,15 +514,180 @@ class CloudSyncManagerTest {
                 ),
                 blob = byteArrayOf(),
             ),
+            UMessageChange(
+                "rec-after",
+                cloudMessage("rec-after", chatId = "iMessage;-;+15551234567"),
+                blob = byteArrayOf(),
+            ),
             cursor = byteArrayOf(10),
         )
 
         val summary = runSync(SyncMode.INCREMENTAL)
 
-        assertNotNull(summary.error)
-        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(9)))
+        // An undecodable wallpaper record must not abort the run: aborting
+        // leaves the cursor before this page forever, so no message after it
+        // would ever sync again.
+        assertNull(summary.error)
+        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(10)))
         assertTrue(backgroundUpdates.isEmpty())
         assertNull(messageByGuid("background-message"))
+        assertNotNull(messageByGuid("msg-rec-after"))
+    }
+
+    @Test
+    fun `transcript background for an unknown chat is skipped without failing the run`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "iMessage;-;+19998887777",
+                    text = null,
+                    sender = "tel:+19998887777",
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 3uL,
+                        chatId = "cloud-nonexistent",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        assertTrue(backgroundUpdates.isEmpty())
+    }
+
+    @Test
+    fun `transcript background chat id may be the bare peer address`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "unresolvable-cloud-chat-ref",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 5uL,
+                        // Live-path cid form: the peer address, not a guid.
+                        chatId = "+15551234567",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 5, remove = false, mmcsXml = "<plist/>")),
+            backgroundUpdates,
+        )
+    }
+
+    @Test
+    fun `failed transcript background application does not abort the sync`() {
+        manager = CloudSyncManager(
+            store,
+            port,
+            syncStore,
+            AttachmentStore(store, testDir),
+            TranscriptBackgroundHandler { update ->
+                if (update.version == 6L) error("mmcs payload expired")
+                backgroundUpdates += update
+            },
+            pageRetryDelaysMs = listOf(0L, 0L),
+        )
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background-broken",
+                cloudMessage(
+                    "rec-background-broken",
+                    guid = "background-broken",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 6uL,
+                        chatId = null,
+                        remove = false,
+                        mmcsXml = "<expired/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+            UMessageChange(
+                "rec-background-ok",
+                cloudMessage(
+                    "rec-background-ok",
+                    guid = "background-ok",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 7uL,
+                        chatId = null,
+                        remove = true,
+                        mmcsXml = null,
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 7, remove = true, mmcsXml = null)),
+            backgroundUpdates,
+        )
+    }
+
+    @Test
+    fun `cloud-imported chats can be pinned and keep the pin across resyncs`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage()
+        runSync()
+
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        ChatRepo(store).setPinned(chat.id, true)
+
+        // A newer cloud group version reapplies the full cloud chat state;
+        // the local pin is device-only state and must survive it.
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat", groupVersion = 9u), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage()
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        val item = ChatRepo(store).chats().single()
+        assertTrue(item.pinned)
+        assertTrue(requireNotNull(chatByGuid("iMessage;-;+15551234567")).isPinned)
     }
 
     @Test
