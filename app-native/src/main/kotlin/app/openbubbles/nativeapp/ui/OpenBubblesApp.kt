@@ -14,9 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.VerticalDragHandle
@@ -45,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -79,8 +77,11 @@ import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.common.LocalAppSharedTransitionScope
 import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -389,8 +390,26 @@ fun OpenBubblesApp(
     )
 
     // Hoisted spec reads: the transition lambdas are not composable.
-    val navEnterSpec = defaultEffectsSpec<Float>()
-    val navExitSpec = fastEffectsSpec<Float>()
+    val navEnterFade = defaultEffectsSpec<Float>()
+    val navExitFade = fastEffectsSpec<Float>()
+    val navScale = defaultSpatialSpec<Float>()
+    val overlaySpatial = defaultSpatialSpec<IntOffset>()
+    val reduceMotion = LocalReduceMotion.current
+    val overlayMetadata = remember(
+        overlaySpatial,
+        navEnterFade,
+        navExitFade,
+        navScale,
+        reduceMotion,
+    ) {
+        NavTransitions.overlayMetadata(
+            spatial = overlaySpatial,
+            enterFade = navEnterFade,
+            exitFade = navExitFade,
+            scale = navScale,
+            reduceMotion = reduceMotion,
+        )
+    }
 
     val appContent: @Composable () -> Unit = {
         // In two-pane the panes sit on a surfaceContainer canvas and separate
@@ -418,9 +437,17 @@ fun OpenBubblesApp(
                 // ChatViewModel instead of accumulating one per opened chat.
                 rememberViewModelStoreNavEntryDecorator(),
             ),
-            transitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
-            popTransitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
-            predictivePopTransitionSpec = { fadeIn(navEnterSpec) togetherWith fadeOut(navExitSpec) },
+            transitionSpec = { NavTransitions.fade(navEnterFade, navExitFade) },
+            popTransitionSpec = { NavTransitions.fade(navEnterFade, navExitFade) },
+            predictivePopTransitionSpec = { edge ->
+                NavTransitions.predictivePop(
+                    swipeEdge = edge,
+                    enterFade = navEnterFade,
+                    exitFade = navExitFade,
+                    scale = navScale,
+                    reduceMotion = reduceMotion,
+                )
+            },
             modifier = Modifier.fillMaxSize(),
             entryProvider = entryProvider {
                 entry<ChatsKey>(
@@ -557,7 +584,7 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<NewChatKey> { key ->
+                entry<NewChatKey>(metadata = overlayMetadata) { key ->
                     NewChatScreen(
                         initialRecipients = key.recipients,
                         initialUseSms = key.useSms,
@@ -570,7 +597,7 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<SettingsKey> {
+                entry<SettingsKey>(metadata = overlayMetadata) {
                     SettingsScreen(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
@@ -578,7 +605,7 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<FindMyKey> {
+                entry<FindMyKey>(metadata = overlayMetadata) {
                     val viewModel: FindMyViewModel = viewModel(factory = FindMyViewModel.factory())
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     FindMyScreen(
@@ -597,7 +624,7 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<LoginKey> {
+                entry<LoginKey>(metadata = overlayMetadata) {
                     val ctx = AppContext.current
                     val confDir = ctx?.filesDir?.absolutePath ?: ""
                     var provisioned by androidx.compose.runtime.saveable.rememberSaveable(confDir) {

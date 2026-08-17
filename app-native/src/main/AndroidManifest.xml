@@ -42,7 +42,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.OpenBubblesNative"
         android:allowBackup="false"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true">
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -2,10 +2,14 @@ package app.openbubbles.nativeapp.ui.common
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 
 /**
  * True while the list-detail scene renders more than one pane. Shared-element
@@ -37,6 +41,8 @@ fun Modifier.sharedChatContainer(chatId: Long): Modifier {
         this@sharedChatContainer.sharedBounds(
             sharedContentState = rememberSharedContentState(key = "chat-container-$chatId"),
             animatedVisibilityScope = navScope,
+            enter = fadeIn(defaultEffectsSpec()),
+            exit = fadeOut(fastEffectsSpec()),
         )
     }
 }

@@ -1,9 +1,13 @@
 package app.openbubbles.nativeapp.ui.onboarding
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -36,11 +40,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -49,7 +56,10 @@ import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.ProvisionScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.login.isProvisioned
+import app.openbubbles.nativeapp.ui.NavTransitions
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.slowSpatialSpec
@@ -99,7 +109,20 @@ fun OnboardingScreen(
     }
 
     val goBack: () -> Unit = { step = step.previousStep() }
-    BackHandler(enabled = step != OnboardingStep.Welcome, onBack = goBack)
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+    PredictiveBackHandler(enabled = step != OnboardingStep.Welcome) { events ->
+        try {
+            events.collect { event ->
+                backProgress = event.progress
+                backEdge = event.swipeEdge
+            }
+            backProgress = 0f
+            goBack()
+        } catch (_: CancellationException) {
+            backProgress = 0f
+        }
+    }
 
     // Full-screen step changes ride the theme's motion scheme (Slow spatial
     // tier) instead of hand-rolled springs; reduced-motion users get snaps.
@@ -107,6 +130,12 @@ fun OnboardingScreen(
     val stepExitSpatial = fastSpatialSpec<IntOffset>()
     val stepFadeIn = defaultEffectsSpec<Float>()
     val stepFadeOut = fastEffectsSpec<Float>()
+    val reduceMotion = LocalReduceMotion.current
+    val previewProgress by animateFloatAsState(
+        targetValue = backProgress,
+        animationSpec = if (backProgress == 0f) defaultSpatialSpec() else snap(),
+        label = "onboarding-back",
+    )
 
     Box(
         modifier = modifier
@@ -120,7 +149,18 @@ fun OnboardingScreen(
         ) {
             AnimatedContent(
                 targetState = step,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (reduceMotion || previewProgress == 0f) return@graphicsLayer
+                        transformOrigin = NavTransitions.predictivePopOrigin(backEdge)
+                        val scale = 1f - (1f - NavTransitions.PREDICTIVE_SCALE) * previewProgress
+                        scaleX = scale
+                        scaleY = scale
+                        val shift = 48.dp.toPx() * previewProgress
+                        translationX = if (backEdge == BackEventCompat.EDGE_LEFT) shift else -shift
+                        alpha = 1f - 0.12f * previewProgress
+                    },
                 transitionSpec = {
                     val forward = targetState.ordinal >= initialState.ordinal
                     val enter = slideInHorizontally(
