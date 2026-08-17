@@ -33,20 +33,31 @@ fun formatListTimestamp(
     }
 }
 
-/** Conversation day-separator label: Today / Yesterday / "August 12" (+ year when different). */
-fun formatConversationDay(
+/** Conversation time-separator label split so the day renders bold and the time regular. */
+data class ConversationTimestamp(val day: String, val time: String)
+
+/**
+ * Conversation time-separator label, the Apple Messages way: "Today 3:02 PM",
+ * "Yesterday …", a weekday inside the last week, then "August 12" (+ year
+ * when different).
+ */
+fun formatConversationTimestamp(
     epochMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
     nowMillis: Long = System.currentTimeMillis(),
-): String {
-    val date = Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+): ConversationTimestamp {
+    val dateTime = Instant.ofEpochMilli(epochMillis).atZone(zone)
+    val date = dateTime.toLocalDate()
     val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
-    return when {
+    val day = when {
         date == nowDate -> "Today"
         date == nowDate.minusDays(1) -> "Yesterday"
+        ChronoUnit.DAYS.between(date, nowDate) < 7 -> date.dayOfWeek.name.lowercase()
+            .replaceFirstChar { it.uppercase() }
         date.year == nowDate.year -> dayFormat.format(date)
         else -> dayWithYearFormat.format(date)
     }
+    return ConversationTimestamp(day = day, time = timeFormat.format(dateTime))
 }
 
 /** Local calendar day for a timestamp, used to detect day boundaries. */

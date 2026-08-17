@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,8 +53,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -67,6 +73,9 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
+import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.avatarColorFor
+import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -84,6 +93,12 @@ private val GroupedCornerRadius = 8.dp
 
 /** Bubbles never exceed 78% of the available width (or this absolute cap). */
 private val BubbleMaxWidthCap = 320.dp
+
+/** Sender avatar beside incoming group-chat bubbles (iOS-sized). */
+private val SenderAvatarSize = 28.dp
+
+/** Gap between the avatar gutter and the bubble stack. */
+private val SenderAvatarSpacing = 8.dp
 
 /**
  * Caps the bubble column at ~78% of the width it is actually given, so
@@ -273,6 +288,14 @@ fun MessageBubble(
     tightTop: Boolean = false,
     tightBottom: Boolean = false,
     showSenderName: Boolean = false,
+    /**
+     * Group chats reserve an avatar gutter beside every incoming bubble so
+     * runs stay aligned; the avatar itself draws only where [showAvatar] is
+     * set (the bottom bubble of a sender's run, the way Apple Messages
+     * anchors it).
+     */
+    showAvatarGutter: Boolean = false,
+    showAvatar: Boolean = false,
     attachmentFile: (String) -> File? = { null },
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
@@ -318,6 +341,7 @@ fun MessageBubble(
         attachments.isNotEmpty() -> attachments.last().partIndex
         else -> textPart
     }
+    val avatarGutter = showAvatarGutter && !message.isFromMe
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -325,7 +349,8 @@ fun MessageBubble(
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
         // pane sizes its bubbles against that pane rather than the whole display.
-        val maxBubbleWidth = bubbleMaxWidth(maxWidth)
+        val gutterWidth = if (avatarGutter) SenderAvatarSize + SenderAvatarSpacing else 0.dp
+        val maxBubbleWidth = bubbleMaxWidth(maxWidth - gutterWidth)
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         SwipeToReplyBox(
             enabled = onSwipeReply != null,
@@ -348,6 +373,22 @@ fun MessageBubble(
                 ),
             contentAlignment = if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
+        // The avatar anchors to the bottom of the bubble stack, like iOS.
+        Row(verticalAlignment = Alignment.Bottom) {
+        if (avatarGutter) {
+            Box(modifier = Modifier.size(SenderAvatarSize)) {
+                if (showAvatar) {
+                    val avatarTitle = senderDisplayName ?: message.senderAddress.orEmpty()
+                    ChatAvatar(
+                        title = avatarTitle,
+                        avatarColor = avatarColorFor(message.senderAddress ?: avatarTitle),
+                        size = SenderAvatarSize,
+                        avatarPath = rememberContactAvatarPath(message.senderAddress),
+                    )
+                }
+            }
+            Spacer(Modifier.width(SenderAvatarSpacing))
+        }
         Box(
             modifier = Modifier
                 .widthIn(max = maxBubbleWidth)
@@ -491,6 +532,7 @@ fun MessageBubble(
                     onDownloadSticker = onDownloadSticker,
                 )
             }
+        }
         }
         }
     }
@@ -723,26 +765,30 @@ fun UnsentRow(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Day divider shown whenever the conversation crosses a calendar day. */
+/**
+ * Timestamp divider above the first message of a time cluster (a new calendar
+ * day or an hour-plus quiet gap): bold day, regular time — the Apple Messages
+ * treatment. Extra space on top separates it from the previous cluster; the
+ * tight bottom keeps it attached to the messages it labels.
+ */
 @Composable
-fun DaySeparatorRow(label: String, modifier: Modifier = Modifier) {
+fun TimeSeparatorRow(day: String, time: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(top = 16.dp, bottom = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            )
-        }
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(day) }
+                append(' ')
+                append(time)
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -788,7 +834,7 @@ private fun MessageBubblePreview() {
             GroupEventRow("Mom added Dad")
             UnsentRow("You unsent a message")
             UnsentRow("Emma unsent a message")
-            DaySeparatorRow("Today")
+            TimeSeparatorRow(day = "Today", time = "3:02 PM")
         }
     }
 }
@@ -799,15 +845,21 @@ private fun MessageGroupingPreview() {
     OpenBubblesTheme {
         Column {
             MessageBubble(
-                message = previewMessage("running 5 behind", isFromMe = false).copy(id = 1),
+                message = previewMessage("running 5 behind", isFromMe = false)
+                    .copy(id = 1, senderAddress = "alex@icloud.com"),
                 showStatus = false,
                 showSenderName = true,
+                showAvatarGutter = true,
                 senderDisplayName = "Alex Chen",
             )
             MessageBubble(
-                message = previewMessage("ok see you soon!", isFromMe = false).copy(id = 2),
+                message = previewMessage("ok see you soon!", isFromMe = false)
+                    .copy(id = 2, senderAddress = "alex@icloud.com"),
                 showStatus = false,
                 tightTop = true,
+                showAvatarGutter = true,
+                showAvatar = true,
+                senderDisplayName = "Alex Chen",
             )
             MessageBubble(
                 message = previewMessage("great", isFromMe = true, status = MessageStatus.DELIVERED).copy(id = 3),
