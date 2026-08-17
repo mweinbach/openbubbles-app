@@ -445,7 +445,7 @@ ToggleButton(
         shape = RoundedCornerShape(topStartPercent = 50, topEndPercent = 50, bottomStartPercent = 15, bottomEndPercent = 15),
         checkedShape = RoundedCornerShape(50)
     ),
-    colors = ToggleButtonDefaults.toggleButtonColors(
+    colors = ToggleButtonDefaults.colors(
         containerColor = Color.Transparent,
         checkedContainerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,

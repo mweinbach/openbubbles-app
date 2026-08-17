@@ -322,7 +322,7 @@ Summary, loudest first:
 | 4.7 | `DropdownMenuItem` `trailingIcon` → `trailingContent` (3 overloads) | **P0** if named | alpha25 |
 | 4.8 | `ExposedDropdownMenu` is now an extension function | P1 (import) | alpha26 |
 | 4.9 | `TonalToggleButton` → `FilledTonalToggleButton` | P1 (warns) | alpha25 |
-| 4.10 | `SplitButtonLayout` → `SplitButton` | P1 (warns) | alpha25 |
+| 4.10 | `SplitButtonDefaults.leadingButtonShapes` / `trailingButtonShapes` (`CornerSize`) deprecated → `*ShapesFor(Dp)`. **`SplitButtonLayout` was NOT renamed** — earlier reading of the release note was wrong | P1 (warns) | alpha25 |
 | 4.11 | `SliderState.Saver` / `RangeSliderState.Saver` 2-param overloads deprecated | P1 | alpha25 |
 | 4.12 | `BasicAlertDialog` and `BottomAppBar` graduated to stable | P2 (stale opt-ins) | alpha25 / alpha26 |
 | 4.13 | Wide nav rail padding, horizontal `NavigationItem` label color, menu colors | P2 (silent visual) | alpha26 |
@@ -511,27 +511,41 @@ FilledTonalToggleButton(checked = checked, onCheckedChange = { checked = it }) {
 Verified full signature — parameters in order: `checked, onCheckedChange, modifier, enabled, shapes,
 colors, elevation, border, contentPadding, interactionSource, content`, defaulting `shapes` to
 `ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)`, `colors` to
-`FilledTonalToggleButtonDefaults.filledTonalToggleButtonColors()`, `elevation` to
+`FilledTonalToggleButtonDefaults.colors()`, `elevation` to
 `ButtonDefaults.filledTonalButtonElevation()`, and `contentPadding` to
 `ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight)`.
 
 Two non-obvious deltas: the old `TonalToggleButton` carried a **declaration-level**
 `@ExperimentalMaterial3ExpressiveApi`, while `FilledTonalToggleButton` carries only an internal
 `@OptIn` — **callers no longer need an opt-in**. And its `colors` default moved to the new
-`FilledTonalToggleButtonDefaults` object.
+`FilledTonalToggleButtonDefaults` object, where the factory is named plainly `colors()`. The old
+`ToggleButtonDefaults.filledTonalToggleButtonColors()` (and the elevated / outlined / tonal
+equivalents, plus `outlinedToggleButtonBorder()`) are `@Deprecated @BytecodeOnly` at alpha26 —
+binary-compatible for already-compiled artifacts, but **uncallable from Kotlin source**. Replace with
+`FilledTonalToggleButtonDefaults.colors()`, `ElevatedToggleButtonDefaults.colors()`,
+`OutlinedToggleButtonDefaults.colors()` and `OutlinedToggleButtonDefaults.border(enabled, checked)`.
+Verified in `compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba` (2026-08-14).
 
-### 4.10 `SplitButtonLayout` → `SplitButton` — **P1, pure rename**
+### 4.10 `SplitButtonDefaults.*Shapes(CornerSize)` deprecated — **P1. `SplitButtonLayout` was NOT renamed**
 
-**This resolves a question this file previously marked UNVERIFIED.** The rename is real, it is in
-the alpha25 release notes (Ic9840), and the parameter list is **identical**.
+**Correction — this reverses a claim earlier versions of this file asserted as resolved.** Earlier
+text said the alpha25 note "Deprecated `SplitButtonLayout` Api" (Ic9840) meant a
+`SplitButtonLayout` → `SplitButton` composable rename, "pure rename, identical parameters,
+RESOLVED". **That was wrong.**
+
+Verified in `compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14
+(post-alpha26):
+
+- The only top-level split-button composable is `SplitButtonLayout`. It carries **no `@Deprecated`
+  annotation**.
+- **There is no `SplitButton` composable** — zero matches for a top-level `SplitButton(` in any api
+  txt file. All **13** call sites in androidx's own `material3` Kotlin sources and samples use
+  `SplitButtonLayout`.
 
 ```kotlin
-@Deprecated(
-    message = "Renamed to SplitButton",
-    replaceWith = ReplaceWith("SplitButton(leadingButton, trailingButton, modifier, spacing)"),
-)
+// current and undeprecated on every version, incl. alpha26
 @Composable
-public fun SplitButtonLayout(   // and, identically, public fun SplitButton(
+public fun SplitButtonLayout(
     leadingButton: @Composable () -> Unit,
     trailingButton: @Composable () -> Unit,
     modifier: Modifier = Modifier,
@@ -539,10 +553,22 @@ public fun SplitButtonLayout(   // and, identically, public fun SplitButton(
 )
 ```
 
-`SplitButton` requires **no experimental opt-in** — the string "Experimental" does not occur
-anywhere in `SplitButton.kt` at the alpha26 SHA. On 1.4.0 and on alphas ≤ alpha24, the name is
-`SplitButtonLayout`; on alpha25+ use `SplitButton`. Both exist on alpha25+, so a codebase spanning
-pins can use `SplitButtonLayout` and accept the warning.
+What *is* deprecated in this family are the `SplitButtonDefaults` shape helpers that take a
+`CornerSize`:
+
+```kotlin
+@Deprecated SplitButtonDefaults.leadingButtonShapes(CornerSize)   // → leadingButtonShapesFor(buttonHeight: Dp)
+@Deprecated SplitButtonDefaults.trailingButtonShapes(CornerSize)  // → trailingButtonShapesFor(buttonHeight: Dp)
+```
+
+**Inference, not fact:** those deprecated `*Shapes(CornerSize)` helpers are most plausibly what the
+alpha25 "Deprecated `SplitButtonLayout` API" release note actually referred to. What is fact is that
+`SplitButtonLayout` is present and undeprecated at alpha26 and `SplitButton` does not exist.
+
+`SplitButtonLayout` requires **no experimental opt-in** — the string "Experimental" does not occur
+anywhere in `SplitButton.kt` at the alpha26 SHA. Write `SplitButtonLayout` on every pin from 1.4.0
+through alpha26. `SplitButtonShapes(shape, pressedShape, checkedShape)` is a public class if you
+need to build shapes by hand.
 
 ### 4.11 Slider `Saver` overloads deprecated — **P1**
 
@@ -640,7 +666,7 @@ string in the file), cross-checked against declaration-level annotations in the 
 | `WideNavigationRail`, `ModalWideNavigationRail`, `ShortNavigationBar`, their items and defaults | `NavigationRailSamples.kt`: 0 Expressive, 4 `ExperimentalMaterial3Api`; **and zero "Experimental" strings in `WideNavigationRail.kt` / `ShortNavigationBar.kt` source** |
 | `SearchBar` family: `SearchBarState`, `ExpandedFullScreenSearchBar`, `TopSearchBar` | `SearchBarSamples.kt`: 0 Expressive, 2 `ExperimentalMaterial3Api` |
 | Carousel: `HorizontalMultiBrowseCarousel`, `HorizontalUncontainedCarousel`, `HorizontalCenteredHeroCarousel` | `CarouselSamples.kt`: 0 Expressive, 2 `ExperimentalMaterial3Api` |
-| `SplitButton` (and `SplitButtonLayout`) | `SplitButtonSamples.kt`: 0 Expressive, 2 `ExperimentalMaterial3Api`; zero "Experimental" in `SplitButton.kt` |
+| `SplitButtonLayout` (there is no `SplitButton`) | `SplitButtonSamples.kt`: 0 Expressive, 2 `ExperimentalMaterial3Api`; zero "Experimental" in `SplitButton.kt` |
 | FAB menu: `FloatingActionButtonMenu`, `FloatingActionButtonMenuItem`, `ToggleFloatingActionButton`, `Modifier.animateFloatingActionButton` | `FloatingActionButtonMenuSamples.kt`: 0 Expressive, 2 `ExperimentalMaterial3Api` |
 | Wavy progress: `LinearWavyProgressIndicator`, `CircularWavyProgressIndicator`, `WavyProgressIndicatorDefaults` | `ProgressIndicatorSamples.kt`: **0 and 0** — no opt-in at all |
 | `MaterialExpressiveTheme`, `expressiveLightColorScheme`, `MotionScheme` | `ThemeSamples.kt`: **0 and 0** — no opt-in at all |
@@ -651,7 +677,7 @@ string in the file), cross-checked against declaration-level annotations in the 
 Note the pattern, and note its limit: for the **app-bar, nav-rail, floating-toolbar, search-bar and
 carousel** rows, graduating out of `ExperimentalMaterial3ExpressiveApi` landed them in
 `ExperimentalMaterial3Api` — you still need *an* opt-in there, just the older, broader one. It is
-**not** a blanket rule: `SplitButton`, the wavy progress indicators and `MaterialExpressiveTheme` /
+**not** a blanket rule: `SplitButtonLayout`, the wavy progress indicators and `MaterialExpressiveTheme` /
 `expressiveLightColorScheme` / `MotionScheme` measure **0 and 0** — no annotation at all.
 
 **Still gated behind `ExperimentalMaterial3ExpressiveApi` at alpha26:**
@@ -779,12 +805,12 @@ official compose-material3 release notes.
 | **1.5.0-alpha17** | 2026-04-08 | `TopAppBarScrollBehavior` + associated methods promoted to stable. |
 | **1.5.0-alpha18** | 2026-04-22 | **Promote `WavyProgressIndicator` APIs.** **Promote `MaterialExpressiveTheme` and `expressiveLightColorScheme`.** `FilterChip`/`ElevatedFilterChip`/`InputChip` overloads with **shape morphing**. Inset focus rings via `LocalRippleThemeConfiguration`. Adds non-OptIn `Material3ExpressiveApi` annotation. `rememberWithGapSearchBarState` → **`rememberSearchBarWithGapState`**. `DropdownMenuPopupPositionProviders` + submenu support. |
 | **1.5.0-alpha19** | 2026-05-06 | **Promote `ToggleButtons` to stable.** **Graduate FAB and FAB Menu APIs.** **Promote expressive button APIs** (removes deprecated `SmallButtonContentPadding`). Promote expressive menu APIs. **REVERT `MaterialShapes` and `LoadingIndicator` promotions** ← both go *back* to experimental (I30e69, b/497876695, b/497877850) and are **still** experimental at alpha26. Scaffold order APIs moved back to experimental. Fix crash in `Modifier.animateFloatingActionButton`. |
-| **1.5.0-alpha20** | 2026-05-19 | **Graduate `SplitButton` APIs.** `rememberBottomSheetState` unified (deprecates `rememberModalBottomSheetState`, `rememberStandardBottomSheetState`). **Remove deprecated experimental `WideNavigationRail` APIs** (Iaadd6, b/497891040) — the likely undocumented mechanism for the nav-rail graduation. Remove `shouldUsePrecisionPointerComponentSizing`. `DropdownMenuItem` `supportingText` moved after `trailingIcon`. |
+| **1.5.0-alpha20** | 2026-05-19 | **Graduate the split-button APIs** (release note wording: "Graduate `SplitButton` APIs" — the file/family name; the composable is and stays `SplitButtonLayout`). `rememberBottomSheetState` unified (deprecates `rememberModalBottomSheetState`, `rememberStandardBottomSheetState`). **Remove deprecated experimental `WideNavigationRail` APIs** (Iaadd6, b/497891040) — the likely undocumented mechanism for the nav-rail graduation. Remove `shouldUsePrecisionPointerComponentSizing`. `DropdownMenuItem` `supportingText` moved after `trailingIcon`. |
 | **1.5.0-alpha21** | 2026-06-03 | `animateWidth` gains **`compressionLimit`** (old overload deprecated `HIDDEN`). `TimePicker` shapes. `SelectableChipColors` params public. `TextFieldDefaults`/`OutlinedTextFieldDefaults` gain `roundedShape` + `tonalColors()`. `TextFieldLabelPosition.Attached` deprecated → `Inside`/`Cutout`. `OutlinedTextFieldDefaults.contentPadding()` deprecated → `contentPaddingWithLabel()`/`contentPaddingWithoutLabel()`. `MenuItems` gains `horizontalArrangement`. **`PullToRefreshDefaults.loadingIndicatorColor`/`loadingIndicatorContainerColor` re-marked experimental.** **Button `contentPaddingFor` re-marked experimental.** |
 | **1.5.0-alpha22** | 2026-06-17 | **Graduate Expressive `FloatingToolbar` APIs.** **Promote `ButtonGroup` APIs to stable — removes the deprecated experimental `ButtonGroup` overloads** (but see the conflict in §5). Promote `TopAppBarScrollBehavior` + related. `pinnedScrollBehavior`/`enterAlwaysScrollBehavior` accept `ScrollableState`. `TopAppBarDefaults.snapAnimationSpec` public getter. Shapes in `AnimatedPane`. `MenuAnchorPosition` collapsed to a single class; `MenuAnchorPositionScope` introduced. Fixed `ButtonGroup` compression animation with asymmetric paddings / RTL. |
 | **1.5.0-alpha23** | 2026-07-01 | Expressive **`TimePicker`**. Non-interactive variants of standard + **segmented list item**. **Expressive list-item APIs no longer experimental.** **Graduate `TopAppBar`, `MediumFlexibleTopAppBar`, `LargeTopAppBar`, `LargeFlexibleTopAppBar`, `TwoRowsTopAppBar`, `FlexibleBottomAppBar`, `FlexibleContentPadding`, `FlexibleBottomAppBarHeight`, `FlexibleHorizontalArrangement`, `FlexibleFixedHorizontalArrangement`.** Graduate `ExpandedDockedSearchBarWithGap`, `ExpandedFullScreenContainedSearchBar`. **Remove `ComponentOverride` APIs.** `MenuDefaults.Label` → `MenuDefaults.DropdownMenuGroupLabel`. `TopAppBarDefaults.flingAnimationSpec` public getter. **Removed `compileSdk 37` requirement.** |
 | **1.5.0-alpha24** | 2026-07-15 | New scroll variant for expressive `TimePicker`. New **`material3-ripple`** library (inset focus rings instead of an opacity layer). **`SearchBarState` + slot-based `SearchBar` promoted to stable; older `expanded`/`onExpandedChange` `SearchBar` deprecated.** **`@ExperimentalMaterial3Api` re-added to `AppBarWithSearch`.** `ScrollIndicatorState` param made non-nullable. `ScrollField` gets expressive number transitions + a11y. |
-| **1.5.0-alpha25** | 2026-07-29 | **Renamed `TonalToggleButton` → `FilledTonalToggleButton`**; smooth border stroke animations on `OutlinedToggleButton`; **deprecated `ToggleButtonDefaults.shapes` in favor of `shapesFor`** (Icb433). **Deprecated `SplitButtonLayout` → use `SplitButton`** (Ic9840). **`ButtonGroupScope` → `sealed interface`; `Modifier.animateWidth` split into two overloads; `compressionLimit` retyped `PaddingValues` → `Dp`** (I8ef39). **Remove `ComponentOverride` APIs** (I3784b). **Graduate `BasicAlertDialog`** (If157c). Renamed `trailingIcon` → `trailingContent` in the shape/checked/selected `DropdownMenuItem` overloads, binary-compatibly (I2ecbd). New selection + container color properties on `MenuItemColors`, same rename in the new colors constructor (I20b92). **Deprecated 2-parameter `SliderState.Saver` / `RangeSliderState.Saver` in favor of overloads taking `steps`; `SliderState` no longer publicly implements `DraggableState`** (I7c91b). Promote `LinearTrackStopIndicatorSize`, `LinearIndicatorTrackGapSize`, `CircularIndicatorTrackGapSize` to stable (I794d0). Improved `ScrollField` a11y + keyboard nav (If7477). Fixes: `TimePickerTextField` focus switching on error; single-item segmented list item shape (I2ea1c); `TimePickerDialog` KDocs. |
+| **1.5.0-alpha25** | 2026-07-29 | **Renamed `TonalToggleButton` → `FilledTonalToggleButton`**; smooth border stroke animations on `OutlinedToggleButton`; **deprecated `ToggleButtonDefaults.shapes` in favor of `shapesFor`** (Icb433). **Release note reads "Deprecated `SplitButtonLayout` API" (Ic9840) — but no `SplitButton` composable exists and `SplitButtonLayout` is undeprecated at alpha26; the note most plausibly covers the deprecated `SplitButtonDefaults.*Shapes(CornerSize)` helpers (inference).** **`ButtonGroupScope` → `sealed interface`; `Modifier.animateWidth` split into two overloads; `compressionLimit` retyped `PaddingValues` → `Dp`** (I8ef39). **Remove `ComponentOverride` APIs** (I3784b). **Graduate `BasicAlertDialog`** (If157c). Renamed `trailingIcon` → `trailingContent` in the shape/checked/selected `DropdownMenuItem` overloads, binary-compatibly (I2ecbd). New selection + container color properties on `MenuItemColors`, same rename in the new colors constructor (I20b92). **Deprecated 2-parameter `SliderState.Saver` / `RangeSliderState.Saver` in favor of overloads taking `steps`; `SliderState` no longer publicly implements `DraggableState`** (I7c91b). Promote `LinearTrackStopIndicatorSize`, `LinearIndicatorTrackGapSize`, `CircularIndicatorTrackGapSize` to stable (I794d0). Improved `ScrollField` a11y + keyboard nav (If7477). Fixes: `TimePickerTextField` focus switching on error; single-item segmented list item shape (I2ea1c); `TimePickerDialog` KDocs. |
 | **1.5.0-alpha26** | 2026-08-12 | Added `ElevatedToggleButtonDefaults`, `FilledTonalToggleButtonDefaults`, `OutlinedToggleButtonDefaults`; **cleaned up non-semantic shape properties in `ToggleButtonDefaults`** (Ia0a85). **Scroll offset variables removed from `SearchBarScrollBehavior` → new `SearchBarScrollState` class** (Ib24e4). **Promoted `BottomAppBar` and associated methods to stable** (I42c61). **`ExposedDropdownMenu` is now an extension function on `ExposedDropdownMenuBoxScope`** — new import may be needed (Ie8a65, b/356452026). A11y contrast fix for the horizontal `NavigationItem` label: `selectedTextColorStartIconPosition` now matches `selectedIconColor` (I85855, b/490910896). `TimePickerState` persists selection mode across restoration + new `initialSelection` param (Iad905). **"Updated the public API surface to align with recent API review feedback" (I71aff, b/532657001) — unenumerated sweep, treat as catch-all risk.** Fixes: `MenuDefaults.itemColors` partial-customization clobbering (Iea847); wide nav rail bottom padding now 0 (I572bb); `ExposedDropdownMenu` crash when screen height < menu height (I6adf1); TalkBack formatted time in scrollable `TimePicker` (Ice981); `Slider` `Label` during mouse drag (I97a6d, b/533483487). |
 
 Supporting evidence that 1.4.0 gated everything: the frozen
@@ -846,15 +872,18 @@ is signature-stable across every version in this document, including alpha25/alp
 all three breaks.** Use the `ButtonGroup` composable only when you actually need its
 overflow/compression behavior.
 
-### 7.3 `ComponentOverride` is gone; 7.4 `SplitButtonLayout` → `SplitButton` is RESOLVED
+### 7.3 `ComponentOverride` is gone; 7.4 the `SplitButtonLayout` → `SplitButton` rename **does not exist**
 
 `ComponentOverride` was removed across alpha23 and alpha25 (I3784b); `ExperimentalMaterial3ComponentOverrideApi`
 and the `LocalXOverride` hooks do not exist on alpha25+, and no migration is documented (§4.4).
 
-The `SplitButtonLayout` → `SplitButton` rename, which earlier versions of this file marked
-**UNVERIFIED** because it appeared on `androidx-main` with no release note, is **now documented**:
-alpha25, Ic9840. Parameter lists are identical, no Expressive opt-in is needed, and the rule by pin
-is `SplitButtonLayout` on 1.4.0 → alpha24, `SplitButton` on alpha25+ (§4.10).
+**Retraction.** Earlier versions of this file first marked a `SplitButtonLayout` → `SplitButton`
+rename **UNVERIFIED**, then wrongly declared it **RESOLVED** on the strength of the alpha25 release
+note (Ic9840). Reading the API surface directly reverses that: **there is no `SplitButton`
+composable, and `SplitButtonLayout` is not deprecated** — verified in
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14. The release
+note most plausibly refers to the deprecated `SplitButtonDefaults.*Shapes(CornerSize)` helpers
+(inference, not fact). Write `SplitButtonLayout` on every pin (§4.10).
 
 ### 7.5 `isAtTop` → `isAtStart` (alpha16)
 
@@ -1288,6 +1317,8 @@ Before declaring setup done:
    `ButtonGroup` call sites.
 8. If the project was on alpha24 or earlier, grep for the P0 breaks before building:
    `ToggleButtonDefaults.shapes(`, `animateWidth(`, `.scrollOffset`, `ComponentOverride`,
-   `trailingIcon =`, `TonalToggleButton`, `SplitButtonLayout`.
+   `trailingIcon =`, `TonalToggleButton`, `SplitButtonDefaults.leadingButtonShapes(`,
+   `SplitButtonDefaults.trailingButtonShapes(`. (`SplitButtonLayout` itself is **not** a break — it
+   is the current, undeprecated name; do not "migrate" it to `SplitButton`, which does not exist.)
 9. If you are ahead of the reference corpus (alpha25+), treat the compiler as authoritative over this
    document — alpha26's I71aff API-review sweep is unenumerated.

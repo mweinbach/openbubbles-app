@@ -1,24 +1,43 @@
 ---
 name: m3-expressive-navigation
 description: >
-  Builds navigation and adaptive layouts with Material 3 Expressive in Jetpack Compose —
-  ShortNavigationBar, WideNavigationRail, ModalWideNavigationRail, NavigationSuiteScaffold,
-  floating toolbars used as navigation, Navigation3 (NavDisplay, NavKey, ListDetailSceneStrategy),
-  ListDetailPaneScaffold, SupportingPaneScaffold, pane expansion with VerticalDragHandle,
-  window size classes, and predictive back. Use when the user asks about bottom navigation,
-  navigation rails, tablet/foldable layouts, list-detail, multi-pane, adaptive UI, nav3, or
-  screen transitions between destinations.
+  Builds navigation containers and Navigation3 routing with Material 3 Expressive in Jetpack
+  Compose — ShortNavigationBar, ShortNavigationBarItem, WideNavigationRail,
+  ModalWideNavigationRail, floating toolbars used as navigation, navigation item and indicator
+  APIs, Navigation3 (NavDisplay, NavKey, back stacks, entryProvider), transition specs, shared
+  element transitions across destinations, and predictive back. Use when the user asks about
+  bottom navigation, navigation rails, nav3, routing between screens, or screen transition
+  animations. For window size classes, pane scaffolds, list-detail/multi-pane layouts, foldables
+  and NavigationSuiteScaffold, use the m3-adaptive skill instead.
 ---
 
 # M3 Expressive Navigation & Adaptive Layout
+
+> **Deep adaptive material now lives in the `m3-adaptive` skill**, at
+> `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/`. Go there for window size classes and breakpoints,
+> `PaneScaffoldDirective`, `ListDetailPaneScaffold` / `SupportingPaneScaffold` recipes, pane
+> expansion, posture/foldables, `NavigationSuiteScaffold` and the full `NavigationSuiteType` surface,
+> and the `adaptive-navigation3` scene strategies.
+>
+> **This skill covers nav *containers* and Navigation3 routing** — `ShortNavigationBar`,
+> `WideNavigationRail`, `ModalWideNavigationRail`, toolbar-as-navigation, item/indicator APIs,
+> `NavDisplay`/`NavKey`/back stacks, transition specs and shared transitions. The pane-scaffold
+> material below is kept for continuity; where the two overlap, `m3-adaptive` is authoritative.
 
 ## Pick the container by window size, not by device type
 
 | Width size class | Container |
 | --- | --- |
-| Compact | `ShortNavigationBar` (or a `HorizontalFloatingToolbar` used as nav) |
-| Medium | `WideNavigationRail` collapsed |
-| Expanded | `WideNavigationRail` expanded, or a permanent drawer |
+| Compact (<600dp) | `ShortNavigationBar` (or a `HorizontalFloatingToolbar` used as nav) |
+| Medium (600–839dp) | `WideNavigationRail` collapsed |
+| Expanded (840–1199dp) | `WideNavigationRail` collapsed or expanded |
+| Large (1200–1599dp) | `WideNavigationRail` expanded, or a permanent drawer |
+| Extra-large (≥1600dp) | `WideNavigationRail` expanded, or a permanent drawer |
+
+**There are five width buckets, not three** — 0 / 600 / 840 / 1200 / 1600 dp. Large and Extra-large
+were added for desktop windowing and connected displays. Height still has three: 0 / 480 / 900 dp.
+`NavigationSuiteScaffoldDefaults.navigationSuiteType()` stops at a *collapsed* rail and has no
+Large/XL branch, so the last two rows require an explicit override — see the `m3-adaptive` skill.
 
 `NavigationSuiteScaffold` from `material3-adaptive-navigation-suite` does this switch for you
 and is the right default. Hand-rolling the switch off `WindowSizeClass` is only worth it when you
@@ -62,11 +81,17 @@ slide. Code in `references/adaptive-and-nav3.md`.
 
 ## Pane layouts
 
-- `ListDetailPaneScaffold` — list ⇄ detail, the common case.
+**Full treatment is in the `m3-adaptive` skill** —
+`${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md` has complete, corrected
+recipes for each of these. Summary only:
+
+- `ListDetailPaneScaffold` — list ⇄ detail, the common case. Prefer
+  `NavigableListDetailPaneScaffold`, which adds predictive back for you.
 - `SupportingPaneScaffold` — a main surface with a secondary panel (stats, queue, inspector).
-- Both take a `PaneScaffoldDirective`; override
-  `calculatePaneScaffoldDirective` to change gutters and margins (a 0dp gutter reads as a single
-  connected surface, which is often what an expressive layout wants).
+- Both take a `PaneScaffoldDirective`; prefer
+  `calculatePaneScaffoldDirective(currentWindowAdaptiveInfoV2()).copy(...)` over forking the
+  calculator, to change gutters and margins (a 0dp gutter reads as a single connected surface, which
+  is often what an expressive layout wants).
 - `VerticalDragHandle` + `paneExpansionState` + `Modifier.paneExpansionDraggable` lets the user
   resize panes. This is a genuinely expressive touch and is under-used.
 
@@ -74,8 +99,10 @@ slide. Code in `references/adaptive-and-nav3.md`.
 
 | Task | Read |
 | --- | --- |
-| `ShortNavigationBar`, `WideNavigationRail`, `ModalWideNavigationRail`, `NavigationSuiteScaffold`, toolbar-as-nav, item APIs | `references/nav-containers.md` |
-| Navigation3 setup, `NavDisplay`, `NavKey`, scene strategies, pane scaffolds, drag handles, predictive back, shared transitions across destinations | `references/adaptive-and-nav3.md` |
+| `ShortNavigationBar`, `WideNavigationRail`, `ModalWideNavigationRail`, toolbar-as-nav, item APIs | `references/nav-containers.md` |
+| Navigation3 setup, `NavDisplay`, `NavKey`, transition specs, shared transitions across destinations | `references/adaptive-and-nav3.md` |
+| `NavigationSuiteScaffold`, all 8 `NavigationSuiteType` values, `adaptive-navigation3` scene strategies | `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/navigation-suite.md` |
+| Window size classes, pane scaffolds, posture, adaptive recipes and troubleshooting | `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md` |
 
 ## Anti-patterns
 

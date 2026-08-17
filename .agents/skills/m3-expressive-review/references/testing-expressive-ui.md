@@ -692,7 +692,7 @@ Automation covers none of these. Do them on a device before calling an expressiv
 **Screen reader**
 
 - [ ] TalkBack over each **new container component** — `FloatingActionButtonMenu`, `FloatingToolbar`,
-      `ButtonGroup`, segmented list items, `SplitButton`, expressive `SearchBar`. These have the
+      `ButtonGroup`, segmented list items, `SplitButtonLayout`, expressive `SearchBar`. These have the
       least-settled semantics.
 - [ ] The expanded FAB menu can be **dismissed without touch** (switch access / keyboard), and its
       items do not interleave with the content behind it.

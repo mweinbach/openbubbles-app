@@ -105,7 +105,7 @@ icon-beside-label layout `[CANON]` prescribes at ≥600dp.
 `NavigationItemIconPosition` `[SRC]`: `Top`, `Start`.
 
 ```kotlin
-val medium = currentWindowAdaptiveInfo().windowSizeClass
+val medium = currentWindowAdaptiveInfoV2().windowSizeClass
     .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
 ShortNavigationBar(
@@ -477,28 +477,49 @@ implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1
 `WindowAdaptiveInfo`, handles insets, and gives you one item list instead of two. (Med declares the
 artifact and never calls it — that is a choice, not a recommendation.)
 
-`[CANONICAL-FORM]` — **not captured in this corpus.** Long-standing shape of the 1.x API. Confirm
-names against your artifact; the Expressive line keeps adding parameters.
+> **Full, verified surface is now in the `m3-adaptive` skill:**
+> `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/navigation-suite.md` — both overloads with
+> every parameter, all eight `NavigationSuiteType` values, the type-selection quirk, colors, state,
+> `NavigationSuiteScaffoldLayout`, both androidx `@Sampled` functions and Reply's production
+> implementation. The summary below is kept for continuity.
+
+**There are two overloads with different defaults** `[SRC]`. This is the **legacy** one
+(`navigationSuiteItems` + `NavigationSuiteScope.item`), whose default type comes from
+`calculateFromAdaptiveInfo` and therefore renders **classic** `NavigationBar`/`NavigationRail`, not
+the Expressive containers:
 
 ```kotlin
 @Composable
-fun NavigationSuiteScaffold(
+public fun NavigationSuiteScaffold(
     navigationSuiteItems: NavigationSuiteScope.() -> Unit,
     modifier: Modifier = Modifier,
     layoutType: NavigationSuiteType =
-        NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfo()),
+        NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(WindowAdaptiveInfoDefault),
     navigationSuiteColors: NavigationSuiteColors = NavigationSuiteDefaults.colors(),
     containerColor: Color = NavigationSuiteScaffoldDefaults.containerColor,
     contentColor: Color = NavigationSuiteScaffoldDefaults.contentColor,
+    state: NavigationSuiteScaffoldState = rememberNavigationSuiteScaffoldState(),
     content: @Composable () -> Unit = {},
 )
+```
 
+The **modern** overload takes `navigationItems: @Composable () -> Unit` (i.e. `NavigationSuiteItem`s),
+names the parameter `navigationSuiteType` rather than `layoutType`, defaults it from
+`NavigationSuiteScaffoldDefaults.navigationSuiteType(...)` (Expressive containers), and adds
+`navigationItemVerticalArrangement`, `primaryActionContent` and
+`primaryActionContentHorizontalAlignment`. **Prefer it.**
+
+The legacy item DSL `[SRC]` — note `icon` is required and sits *before* `modifier`, and `label` is
+optional here (in the modern `NavigationSuiteItem` it is a **required** nullable positional):
+
+```kotlin
 // NavigationSuiteScope
-fun item(
+public fun item(
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
     icon: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     label: @Composable (() -> Unit)? = null,
     alwaysShowLabel: Boolean = true,
     badge: (@Composable () -> Unit)? = null,
@@ -507,17 +528,32 @@ fun item(
 )
 ```
 
-**`NavigationSuiteType`** `[CANONICAL-FORM]` long-standing values: `NavigationBar`, `NavigationRail`,
-`NavigationDrawer`, `None`. `[UNVERIFIED]` the Expressive line has been adding Expressive-container
-variants (names of the form `ShortNavigationBarCompact` / `WideNavigationRailExpanded`) plus a
-`NavigationSuiteScaffoldDefaults.navigationSuiteType(...)` calculator alongside
-`calculateFromAdaptiveInfo(...)`. **Confirm the enum members via IDE autocomplete before writing a
-`when` over them** — never hand a user a branch on a member name you have not verified.
+**`NavigationSuiteType` has EIGHT values, not three or four** `[SRC]` — and it is a
+`@JvmInline value class` over `String`, **not an enum**, so there is no `values()` and no exhaustive
+`when`:
 
-**Overriding the type calculation** — the reason `layoutType` is a parameter:
+| Value | Renders | Position | Status |
+| --- | --- | --- | --- |
+| `ShortNavigationBarCompact` | `ShortNavigationBar`, vertical items | bottom | **Expressive-preferred** |
+| `ShortNavigationBarMedium` | `ShortNavigationBar`, horizontal items | bottom | **Expressive-preferred** |
+| `WideNavigationRailCollapsed` | collapsed `WideNavigationRail` | start | **Expressive-preferred** |
+| `WideNavigationRailExpanded` | expanded `WideNavigationRail` | start | **Expressive-preferred** |
+| `NavigationBar` | `NavigationBar` | bottom | legacy — KDoc: prefer `ShortNavigationBarCompact` |
+| `NavigationRail` | `NavigationRail` | start | legacy — KDoc: prefer `WideNavigationRailCollapsed` |
+| `NavigationDrawer` | `PermanentDrawerSheet` | start | legacy — KDoc: prefer `WideNavigationRailExpanded` |
+| `None` | nothing | — | discouraged — KDoc: prefer `NavigationSuiteScaffoldState.hide()` |
+
+`NavigationSuiteScaffoldDefaults.navigationSuiteType(...)` is the modern calculator (returns the
+Expressive types); `calculateFromAdaptiveInfo(...)` is the legacy one (returns only `NavigationBar` /
+`NavigationRail`). **Neither ever returns `WideNavigationRailExpanded`, `NavigationDrawer` or
+`None`** — you must select those yourself. Details and the exact selection logic:
+`${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/navigation-suite.md` §2–§3.
+
+**Overriding the type calculation** — the reason `layoutType` is a parameter. Note the `when` runs
+**largest → smallest**, because `isWidthAtLeastBreakpoint` is a `>=` test:
 
 ```kotlin
-val adaptiveInfo = currentWindowAdaptiveInfo()
+val adaptiveInfo = currentWindowAdaptiveInfoV2()
 val layoutType = when {
     // Cap at a rail: never use a drawer, even on very wide windows.
     adaptiveInfo.windowSizeClass
@@ -543,13 +579,16 @@ NavigationSuiteScaffold(
 }
 ```
 
-Other legitimate overrides: force the bar in tabletop posture regardless of width; pass
-`NavigationSuiteType.None` on an immersive route to hide nav without unmounting the scaffold (which
-would lose state).
+Other legitimate overrides: force the bar in tabletop posture regardless of width; select
+`WideNavigationRailExpanded` at `WIDTH_DP_LARGE_LOWER_BOUND` (1200dp) and above, which no default
+calculator will do for you.
+
+To hide nav on an immersive route, use **`NavigationSuiteScaffoldState.hide()`** (a `suspend`
+function on the `state` parameter), **not `NavigationSuiteType.None`** — the `None` KDoc says so
+explicitly, and it re-lays-out the scaffold instead of animating.
 
 **Skip it when** you need a custom transition between bar and rail (the scaffold cross-fades), a
-container that isn't a built-in type, rail state hoisted to a ViewModel, or you can't confirm the
-enum member you need. Then go to §5.
+container that isn't a built-in type, or rail state hoisted to a ViewModel. Then go to §5.
 
 ---
 
@@ -679,10 +718,11 @@ isExpandedScreen = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expand
 **Fix three things** when you adapt it:
 1. The item list is written out **three times**. Hoist to `List<NavItem>` and `forEach` in both branches.
 2. `calculateWindowSizeClass` is the older `material3-window-size-class` API. Prefer
-   `currentWindowAdaptiveInfo().windowSizeClass` — the adaptive scaffolds already consume it, so you
-   compute one value, not two (§9).
-3. Two-state only: medium widths get the bottom bar. Add a medium branch (`Centered` +
-   `iconPosition = Start`, or a collapsed rail) for canonical three-tier behaviour.
+   `currentWindowAdaptiveInfoV2().windowSizeClass` — the adaptive scaffolds already consume it, so
+   you compute one value, not two (§9).
+3. Two-state only: medium widths get the bottom bar. Add branches for the missing buckets
+   (`Centered` + `iconPosition = Start`, or a collapsed rail at medium; an expanded rail at Large)
+   — there are **five** width buckets, not two or three.
 
 ---
 
@@ -821,7 +861,7 @@ import androidx.compose.material3.rememberTooltipState
                                     } else {
                                         { item.onNavigateHome() }
                                     },
-                                    colors = ToggleButtonDefaults.toggleButtonColors(
+                                    colors = ToggleButtonDefaults.colors(
                                         containerColor = primaryContainer,
                                         contentColor = onPrimaryContainer,
                                         checkedContainerColor = primary,
@@ -1353,30 +1393,65 @@ navigation. Cite this when a user asks whether it's possible — yes, and here's
 
 ## 9. Window size classes
 
-**Use these** `[CORPUS]` (Tomato, throughout):
+> **Authoritative treatment is now in the `m3-adaptive` skill** —
+> `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md`. Summary below.
+
+**Use this:**
 
 ```kotlin
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.window.core.layout.WindowSizeClass
-import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 
-val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
+val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
 
-val widthExpanded = currentWindowAdaptiveInfo()
-    .windowSizeClass
-    .isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
+val widthExpanded =
+    windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
 ```
 
-Those three lines appear verbatim in `AlarmSettings.kt:139`, `AboutScreen.kt:111`,
+The same shape appears throughout Tomato `[CORPUS]` — `AlarmSettings.kt:139`, `AboutScreen.kt:111`,
 `SettingsMainScreen.kt:107`, `TimerSettings.kt:157`, `AppearanceSettings.kt:93`,
 `BackupRestoreScreen.kt:93`, `LastWeekScreen.kt:138`, `StatsMainScreen.kt:107` under
-`/root/work/repos/Tomato/shared/src/commonMain/kotlin/org/nsh07/pomodoro/ui/`.
+`/root/work/repos/Tomato/shared/src/commonMain/kotlin/org/nsh07/pomodoro/ui/` — except that Tomato
+calls the now-deprecated `currentWindowAdaptiveInfo()`. **`currentWindowAdaptiveInfo()` is
+`@Deprecated` at 1.3.0**; it defaults `supportLargeAndXLargeWidth = false`, so it clamps every window
+≥840dp to Expanded and you never see Large or Extra-large. Use `currentWindowAdaptiveInfoV2()`.
 
-Confirmed members `[CORPUS]`: `WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND` (600),
-`WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND` (840), `minWidthDp`, `minHeightDp`,
-`isWidthAtLeastBreakpoint(Int)`. `currentWindowAdaptiveInfo()` → `WindowAdaptiveInfo` with
+**Five width buckets, three height buckets** `[SRC window/window-core]`:
+
+| Axis | Bucket | Constant | Range |
+| --- | --- | --- | --- |
+| Width | Compact | *(implicit 0)* | `0 ≤ w < 600` |
+| Width | Medium | `WIDTH_DP_MEDIUM_LOWER_BOUND` = 600 | `600 ≤ w < 840` |
+| Width | Expanded | `WIDTH_DP_EXPANDED_LOWER_BOUND` = 840 | `840 ≤ w < 1200` |
+| Width | **Large** | `WIDTH_DP_LARGE_LOWER_BOUND` = 1200 | `1200 ≤ w < 1600` |
+| Width | **Extra-large** | `WIDTH_DP_EXTRA_LARGE_LOWER_BOUND` = 1600 | `w ≥ 1600` |
+| Height | Compact | *(implicit 0)* | `0 ≤ h < 480` |
+| Height | Medium | `HEIGHT_DP_MEDIUM_LOWER_BOUND` = 480 | `480 ≤ h < 900` |
+| Height | Expanded | `HEIGHT_DP_EXPANDED_LOWER_BOUND` = 900 | `h ≥ 900` |
+
+Height has **no** Large/XL. Large and Extra-large exist for desktop windowing and connected displays.
+
+Members `[SRC]`: `isWidthAtLeastBreakpoint(Int)`, `isHeightAtLeastBreakpoint(Int)`,
+`isAtLeastBreakpoint(Int, Int)`, plus the raw `minWidthDp` / `minHeightDp` (Ints). **There is no
+`containsWidthDp` / `containsHeightDp`.** `currentWindowAdaptiveInfoV2()` → `WindowAdaptiveInfo` with
 `windowSizeClass` and `windowPosture` (`isTabletop`, `separatingVerticalHingeBounds`,
 `occludingVerticalHingeBounds`, `allVerticalHingeBounds`).
+
+**All three predicates are `>=`, so `when` chains MUST go largest → smallest.** The class KDoc:
+*"these methods are order dependent as the smaller `minWidthDp` and `minHeightDp` would match all the
+breakpoints that are larger."*
+
+```kotlin
+when {
+    wsc.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXTRA_LARGE_LOWER_BOUND) -> {} // >= 1600
+    wsc.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_LARGE_LOWER_BOUND)       -> {} // >= 1200
+    wsc.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)    -> {} // >= 840
+    wsc.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)      -> {} // >= 600
+    else -> {}                                                                          // compact
+}
+```
+
+Write the smallest branch first and every window takes it.
 
 **Never:**
 
@@ -1394,7 +1469,7 @@ source of truth that disagrees at the boundary.
 
 The older `material3-window-size-class` API (`calculateWindowSizeClass(activity)` +
 `WindowWidthSizeClass.Expanded`, used by Med `[CORPUS]`) works and is not deprecated, but it is
-Activity-scoped and carries no posture. Prefer `currentWindowAdaptiveInfo()` in new code.
+Activity-scoped and carries no posture. Prefer `currentWindowAdaptiveInfoV2()` in new code.
 
 ---
 
@@ -1403,7 +1478,7 @@ Activity-scoped and carries no posture. Prefer `currentWindowAdaptiveInfo()` in 
 **Read this before recommending it.** `androidx.compose.ui.derivedMediaQuery` is **experimental**
 (`ExperimentalMediaQueryApi` + `ExperimentalComposeUiApi`), requires a **process-wide feature flag**,
 and is not what the adaptive scaffolds consume. `WindowSizeClass` /
-`currentWindowAdaptiveInfo()` (§9) remains the conservative choice and the only one that
+`currentWindowAdaptiveInfoV2()` (§9) remains the conservative choice and the only one that
 `NavigationSuiteScaffold`, `ListDetailPaneScaffold` and the scene strategies read. But this is not a
 fringe API — **Google's own `android/ai-samples/jetpacker` uses it instead of `WindowSizeClass`
 entirely**, so it belongs here as a documented alternative rather than an unknown.
@@ -1501,7 +1576,7 @@ than taking a `windowSizeClass` parameter. `TripCard` reads `tabletBreakpoint` i
 no prop-drilling of size classes through four layers of layout. That is what you are buying.
 
 **The cost:** it is a second source of truth. If any part of the app also uses
-`currentWindowAdaptiveInfo()` — and it will, the moment you add a pane scaffold or
+`currentWindowAdaptiveInfoV2()` — and it will, the moment you add a pane scaffold or
 `NavigationSuiteScaffold` — the two can disagree at a boundary, which is exactly the failure §9 warns
 about for `Configuration.screenWidthDp`. jetpacker avoids this by using **zero** adaptive artifacts.
 Mixing is the trap.
@@ -1564,7 +1639,7 @@ checking autocomplete.
 
 ### Verdict
 
-**Use `WindowSizeClass` / `currentWindowAdaptiveInfo()` unless you have jetpacker's exact shape:** no
+**Use `WindowSizeClass` / `currentWindowAdaptiveInfoV2()` unless you have jetpacker's exact shape:** no
 adaptive artifacts, no pane scaffolds, no navigation suite, and a strong preference for leaf
 components resolving their own layout. `derivedMediaQuery` gives you posture, pointer precision,
 keyboard kind and viewing distance in one receiver — genuinely more expressive than a width class —
@@ -1656,8 +1731,11 @@ rebuilding indicator, label animation and ripple. Check `ShortNavigationBarItem`
 **Hardcoded specs in nav** (`tween(200)`) — navigation then animates on a different curve than every
 other surface. Use `MaterialTheme.motionScheme`.
 
-**Guessing an enum member.** Do not write `NavigationSuiteType.<X>` or
-`ShortNavigationBarArrangement.<X>` without confirming it on the user's artifact version.
+**Guessing a member name.** `NavigationSuiteType`'s eight values are now verified and listed in §4
+(and in full in `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/navigation-suite.md` §2) — use
+those. It is a **value class over `String`, not an enum**, so a `when` *expression* over it still
+needs an `else`. Do not write `ShortNavigationBarArrangement.<X>` without confirming it on the
+user's artifact version.
 
 ---
 

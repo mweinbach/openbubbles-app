@@ -91,7 +91,7 @@ rg -n --type kotlin 'infiniteRepeatable|rememberInfiniteTransition'
 rg -n --type kotlin 'ANIMATOR_DURATION_SCALE|areAnimatorsEnabled|reduceMotion|MotionPolicy'
 
 # --- components (§B.7) ---
-rg -n --type kotlin 'ButtonGroup|ToggleButton|SplitButton'
+rg -n --type kotlin 'ButtonGroup|ToggleButton|SplitButtonLayout'
 rg -n --type kotlin 'FloatingActionButtonMenu|ToggleFloatingActionButton|ExtendedFloatingActionButton|SmallFloatingActionButton'
 rg -n --type kotlin 'FloatingToolbar|BottomAppBar\(|FlexibleBottomAppBar'
 rg -n --type kotlin 'LoadingIndicator|CircularProgressIndicator|LinearProgressIndicator|WavyProgressIndicator'
@@ -229,10 +229,16 @@ direction dynamically), and `compressionLimit` was retyped from `PaddingValues` 
 `compressionLimit = PaddingValues(...)` is now the compile error.
 Fix: apply the rename; for `ComponentOverride`, the mechanism is gone — the code must be restructured.
 
-**B1.7 [Note] `SplitButtonLayout` vs `SplitButton`.** The rename **landed in 1.5.0-alpha25 (Ic9840)** —
-a pure rename, identical parameter list, `SplitButtonLayout` surviving at warning-level deprecation.
-`SplitButtonLayout` is what resolves on 1.4.0 → alpha24; write `SplitButton` on alpha25+. Flag only if
-the code uses one name and the pin has the other.
+**B1.7 [Note] `SplitButtonLayout` is correct; `SplitButton` does not exist.** **Correction —
+this reverses what earlier versions of this checklist said.** There is no `SplitButtonLayout` →
+`SplitButton` rename. Verified in `compose/material3/material3/api/current.txt` at androidx HEAD
+`360e8cba`, 2026-08-14 (post-alpha26): `SplitButtonLayout(leadingButton, trailingButton, modifier,
+spacing)` is the only top-level split-button composable, it carries **no `@Deprecated` annotation**,
+and a top-level `SplitButton(` has zero matches in any api txt file. Do **not** flag
+`SplitButtonLayout` as an outdated name, and do not "migrate" it. What alpha25 did deprecate here
+are the `SplitButtonDefaults.leadingButtonShapes(CornerSize)` / `trailingButtonShapes(CornerSize)`
+helpers, superseded by `*ShapesFor(buttonHeight: Dp)` — flag those instead. (That the release note
+"Deprecated `SplitButtonLayout` API" meant those helpers is **inference, not fact**.)
 
 **B1.8 [Note] Adaptive artifacts on two version trains.** `material3-adaptive-navigation-suite` is
 versioned with the **material3** group (1.5.0-alpha26), not with `material3.adaptive`

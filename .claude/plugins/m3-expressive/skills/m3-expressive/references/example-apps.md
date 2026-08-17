@@ -113,8 +113,8 @@ dynamic-color generation, gated on `darkTheme`).
   `ShortNavigationBar` — do not treat that as a recommendation.
 - **Opt-in inconsistency.** It has a global `-opt-in` flag *and* 72 redundant annotations. Pick one
   strategy; the redundancy here is historical, not a pattern.
-- **`SplitButtonLayout` is the old name.** On newer artifacts check for `SplitButton` (see the
-  rename trap in `setup-and-versions.md` §6.4).
+- **`SplitButtonLayout` is the current name, not an old one.** There is no `SplitButton` composable
+  on any artifact — this app's usage is correct as written (see `setup-and-versions.md` §4.10).
 - **Heavy custom re-implementations.** `SquigglySlider`, the custom expressive-shape loading art, and
   the bespoke `FloatingNav` exist because stock components didn't fit that app. Reach for stock
   first; copy these only when you need that exact effect.
@@ -280,7 +280,10 @@ declared explicitly, `compose-bom:2026.05.01`, AGP 9.2.1, Kotlin 2.4.0.
 - **`ShortNavigationBar` ↔ `WideNavigationRail` adaptive switch** with
   `rememberWideNavigationRailState` (`services/MedApp.kt`). The **only** real usage of either.
 - **Reusable connected `OutlinedToggleButton` groups**, both single- and multi-select, with
-  `ToggleButtonDefaults.outlinedToggleButtonColors` (`elements/MainActivity/MedicineBottomSheet.kt`),
+  `ToggleButtonDefaults.outlinedToggleButtonColors` (`elements/MainActivity/MedicineBottomSheet.kt`)
+  — as shipped; on alpha26 that name is `@Deprecated @BytecodeOnly` and uncallable from Kotlin
+  source, so port it to `OutlinedToggleButtonDefaults.colors` (`current.txt` at androidx HEAD
+  `360e8cba`, 2026-08-14) —
   plus a two-button `ToggleButton` confirm affordance and a **custom
   `ToggleButtonDefaults.shapes()` with asymmetric corners** (`SettingsActivity.kt`).
 - **`PullToRefreshDefaults.LoadingIndicator`** ×3 — expressive pull-to-refresh done with the stock
@@ -356,7 +359,7 @@ only in narrow spots.** Specifically:
 - **Zero `expressiveLightColorScheme`/`expressiveDarkColorScheme`, zero dynamic color.** Hand-authored
   light/dark schemes only.
 - **Zero Expressive components.** No `ButtonGroup`, `FloatingToolbar` (either axis), `LoadingIndicator`,
-  `ContainedLoadingIndicator`, `Linear`/`CircularWavyProgressIndicator`, `SplitButton`, `ToggleButton`,
+  `ContainedLoadingIndicator`, `Linear`/`CircularWavyProgressIndicator`, `SplitButtonLayout`, `ToggleButton`,
   `ShortNavigationBar`, `WideNavigationRail`, `NavigationSuiteScaffold`, Carousel, `VerticalDragHandle`,
   `PullToRefresh`, `SearchBar`, `Slider`, `TimePicker`, `Snackbar`/`SnackbarHost`.
 - It reads as Expressive because of its **shape scale** — `Shapes(small = 8.dp, medium = 24.dp,
@@ -636,7 +639,7 @@ Checked 2026-08-14, all with zero `ExperimentalMaterial3ExpressiveApi` files:
 | Connected button groups (any layout) | **vivi-music** | 12 files; start with `ui/screens/equalizer/axion/AxionEqScreen.kt`, `ui/player/Queue.kt`, `ui/screens/artist/ArtistScreen.kt` |
 | `ButtonGroup` composable with overflow + `animateWidth` | **Tomato**, then **vivi-music** | `TimerScreen.kt:448`, `AlarmSettings.kt:350`; `ui/screens/AlbumScreen.kt:492` |
 | `ToggleButtonDefaults.shapes()` with custom/asymmetric corners | **Med** | `SettingsActivity.kt` |
-| `OutlinedToggleButton` / `outlinedToggleButtonColors` | **Med** | `elements/MainActivity/MedicineBottomSheet.kt` |
+| `OutlinedToggleButton` / `outlinedToggleButtonColors` (alpha26: `OutlinedToggleButtonDefaults.colors`) | **Med** | `elements/MainActivity/MedicineBottomSheet.kt` |
 | `SplitButtonLayout` | **vivi-music** | `ui/component/SortHeader.kt` (only real usage anywhere) |
 | FAB menu (`FloatingActionButtonMenu`, `ToggleFloatingActionButton`, `animateFloatingActionButton`) | **Med** | `elements/MainActivity/MainFAB.kt` (only real usage anywhere) |
 | `HorizontalFloatingToolbar` as bottom navigation | **Tomato** | `androidApp/.../ui/AppScreen.kt` |
@@ -712,12 +715,17 @@ say plainly that the pattern is not corroborated by a shipping app.
   different overload and gives you a static container). When a component has no `shapes =`, hand-roll
   with `interactionSource.collectIsPressedAsState()`. See `buttons.md` §"Pitfalls" and
   `morph-recipes.md` §3.
-- **`SplitButton` under its new name — now CONFIRMED, was UNVERIFIED.** The rename is documented:
-  **1.5.0-alpha25 (2026-07-15), Ic9840, *"Deprecated `SplitButtonLayout` Api to use `SplitButton`
-  instead."*** Verified from the alpha26 source tree as a pure rename — identical parameter list
-  (`leadingButton`, `trailingButton`, `modifier`, `spacing = SplitButtonDefaults.Spacing`), with
-  `SplitButtonLayout` surviving at warning-level deprecation and a `ReplaceWith`. `SplitButton`
-  requires **no** experimental opt-in (the string "Experimental" does not occur in `SplitButton.kt`).
-  Guidance: **use `SplitButton` on alpha25+**; `SplitButtonLayout` is the name in shipping community
-  code (vivi-music, on alpha23) and still compiles with a warning. The androidx samples module has 13
-  `SplitButtonLayout` hits — read them for shape, but expect the name to be the old one there.
+- **The `SplitButtonLayout` → `SplitButton` rename: RETRACTED, it does not exist.** An earlier
+  version of this file marked this question UNVERIFIED and then wrongly flipped it to CONFIRMED on
+  the strength of the alpha25 release note (Ic9840, *"Deprecated `SplitButtonLayout` Api"*). Reading
+  the API surface reverses that. Verified in `compose/material3/material3/api/current.txt` at
+  androidx HEAD `360e8cba`, 2026-08-14 (post-alpha26): the only top-level split-button composable is
+  `SplitButtonLayout(leadingButton, trailingButton, modifier, spacing)`, it carries **no
+  `@Deprecated` annotation**, and **no `SplitButton` composable exists** — zero matches for a
+  top-level `SplitButton(` in any api txt file. All 13 androidx samples/source call sites use
+  `SplitButtonLayout`, so read them as current, not legacy. What *is* deprecated is
+  `SplitButtonDefaults.leadingButtonShapes(CornerSize)` / `trailingButtonShapes(CornerSize)`, in
+  favor of `*ShapesFor(buttonHeight: Dp)` — most plausibly what the release note meant
+  (**inference, not fact**). Guidance: **write `SplitButtonLayout` on every pin.** Community code
+  (vivi-music, on alpha23) already has it right. No experimental opt-in is needed (the string
+  "Experimental" does not occur in `SplitButton.kt`).

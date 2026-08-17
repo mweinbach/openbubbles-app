@@ -2,7 +2,7 @@
 name: m3-expressive-components
 description: >
   Builds with Material 3 Expressive components in Jetpack Compose — ButtonGroup, ToggleButton,
-  SplitButton, the XSmall–XLarge button size scale, FloatingActionButtonMenu,
+  SplitButtonLayout, the XSmall–XLarge button size scale, FloatingActionButtonMenu,
   ToggleFloatingActionButton, animateFloatingActionButton, HorizontalFloatingToolbar and
   VerticalFloatingToolbar, LoadingIndicator, ContainedLoadingIndicator, LinearWavyProgressIndicator,
   CircularWavyProgressIndicator, wavy/squiggly sliders, MediumFlexibleTopAppBar,
@@ -20,7 +20,7 @@ the anti-patterns.
 
 | Family | Reference |
 | --- | --- |
-| `ButtonGroup`, `ToggleButton`, `SplitButton`, button size scale, icon buttons, chips | `references/buttons.md` |
+| `ButtonGroup`, `ToggleButton`, `SplitButtonLayout`, button size scale, icon buttons, chips | `references/buttons.md` |
 | FAB, `FloatingActionButtonMenu`, `ToggleFloatingActionButton`, floating toolbars | `references/fabs-and-toolbars.md` |
 | `LoadingIndicator`, wavy progress, pull-to-refresh, skeletons | `references/progress-and-loading.md` |
 | Flexible top app bars, subtitles, `FlexibleBottomAppBar`, `AppBarRow`/`AppBarColumn`, search bars | `references/app-bars.md` |
@@ -50,8 +50,13 @@ alternative: `Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)` w
 shapes, which gives the connected look with full layout control. Both are valid and both appear
 in the reference.
 
-**`SplitButtonLayout` was renamed to `SplitButton`** in 1.5.0-alpha25 — a pure rename, parameter
-list identical. `SplitButtonLayout` is what resolves on alpha24 and earlier.
+**The split-button composable is `SplitButtonLayout` on every version, including alpha26 — there is
+no `SplitButton` composable.** It carries no `@Deprecated` annotation (verified in
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14). An earlier
+version of this skill claimed a `SplitButtonLayout` → `SplitButton` rename in alpha25; that was
+wrong. The alpha25 note "Deprecated `SplitButtonLayout` API" most plausibly refers to the deprecated
+`SplitButtonDefaults.leadingButtonShapes(CornerSize)` / `trailingButtonShapes(CornerSize)` helpers,
+superseded by `*ShapesFor(buttonHeight: Dp)` — that reading is **inference, not fact**.
 
 **Button APIs broke in alpha25/alpha26.** Before writing any toggle button: `TonalToggleButton`
 is now `FilledTonalToggleButton` (pure rename), and `ToggleButtonDefaults.shapes` is replaced by

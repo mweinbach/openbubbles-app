@@ -1,19 +1,25 @@
 ---
 name: m3-expressive
 description: >
-  Entry point for Material 3 Expressive work in Android Jetpack Compose. Establishes the
-  correct material3 version and opt-in strategy, applies the Expressive design principles, and
-  routes to the specialist theming, motion, shapes, components, navigation and review skills.
-  Use when the user mentions Material 3 Expressive or M3 Expressive by name, asks to start or
-  set up an Expressive app, hits opt-in or unresolved-reference errors on
-  ExperimentalMaterial3ExpressiveApi, or asks to make a Compose app "feel like Android 16",
-  "more expressive", or "match the new Material design" without naming a specific component.
+  Setup and routing hub for Material 3 Expressive in Android Jetpack Compose. Pins the correct
+  material3 version, resolves opt-in and unresolved-reference errors, carries the Expressive
+  design principles, and routes to the specialist skills (best-practices, adaptive, theming,
+  motion, shapes, components, navigation, migration, review). Use when the user needs
+  dependency/version/gradle setup for Expressive, hits ExperimentalMaterial3ExpressiveApi or
+  "unresolved reference" compile errors, asks what Material 3 Expressive is or what its design
+  principles are, or asks to make a Compose app "feel like Android 16" without naming a
+  component or a screen. To actually build a screen, use m3-expressive-best-practices.
 ---
 
 # Material 3 Expressive for Jetpack Compose
 
 Route the work, then load only the reference files needed. Do not read every reference — pick
 by task.
+
+> **Building a screen rather than looking up an API? Go to `m3-expressive-best-practices`.** It
+> has complete worked screens, decision trees, do/don't pairs and a starter project, and is the
+> right default entry point for construction work. This skill is for setup, version/opt-in
+> questions, design principles, and routing.
 
 ## Step 1 — establish the version floor before writing any code
 
@@ -46,7 +52,7 @@ surface graduated across alpha18–alpha23. A measured census of the shipped sou
 
 - **Graduated, no opt-in**: `MaterialExpressiveTheme`, `MotionScheme`, floating toolbars,
   flexible app bars, `ShortNavigationBar` / `WideNavigationRail` / `ModalWideNavigationRail`,
-  search bars, carousels, `SplitButton`, the FAB menu family, wavy progress indicators.
+  search bars, carousels, `SplitButtonLayout`, the FAB menu family, wavy progress indicators.
 - **Still gated**: `LoadingIndicator` / `ContainedLoadingIndicator`, `MaterialShapes` +
   `toShape()` / `toPath()` (both promotions were *reverted* in alpha19), menu APIs,
   pull-to-refresh color APIs, and ToggleButton **size variants**. `ButtonGroup` is contested —
@@ -70,17 +76,21 @@ kotlin {
 code was written against it, check `references/setup-and-versions.md` §4 before touching buttons:
 `ToggleButtonDefaults.shapes` → `shapesFor(Dp)` is a *semantic* change and both old overloads are
 `DeprecationLevel.HIDDEN`, so old source hard-fails. `TonalToggleButton` → `FilledTonalToggleButton`
-and `SplitButtonLayout` → `SplitButton` are pure renames.
+is a pure rename. **`SplitButtonLayout` was *not* renamed** — it is the current, undeprecated name
+and no `SplitButton` composable exists; only the `SplitButtonDefaults.*Shapes(CornerSize)` helpers
+were deprecated.
 
 ## Step 2 — route to the right skill
 
 | The user wants… | Go to |
 | --- | --- |
+| To **build a screen** — a complete working example, best practice, "which component", a starter project | **m3-expressive-best-practices** |
+| Tablets, foldables, large screens, window size classes, list-detail / multi-pane, resizing bugs | **m3-adaptive** |
 | Theme setup, color schemes, dynamic color, typography, variable fonts, shape scale | **m3-expressive-theming** |
 | Animation, springs, `MotionScheme`, transitions, shared elements, gesture feel | **m3-expressive-motion** |
 | `MaterialShapes`, `Morph`, shape-by-interaction, segmented list corners | **m3-expressive-shapes** |
 | A specific component: buttons, FABs, toolbars, progress, app bars, lists, sliders | **m3-expressive-components** |
-| Nav bars, rails, adaptive layouts, Navigation3, list-detail panes | **m3-expressive-navigation** |
+| Nav bars, rails, toolbar-as-nav, Navigation3 routing, screen transitions | **m3-expressive-navigation** |
 | Critique / audit an existing screen or diff against Expressive guidance | **m3-expressive-review** |
 | An XML/Views app, MDC-Android, whether to migrate, theme bridging, interop | **m3-expressive-migration** |
 

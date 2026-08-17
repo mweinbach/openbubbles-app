@@ -1,7 +1,7 @@
 {
   "name": "m3-expressive",
-  "version": "0.2.0",
-  "description": "Build expressive Android apps with Material 3 Expressive and Jetpack Compose — theming, motion physics, shape morphing, the full Expressive component catalog, adaptive navigation, Views-to-Compose migration, and testing. Grounded in the material.io spec, the androidx source, Google's official samples, and real shipping open-source apps.",
+  "version": "0.3.0",
+  "description": "Build expressive, adaptive Android apps with Material 3 Expressive and Jetpack Compose — complete worked screens and best practices, theming, motion physics, shape morphing, the full component catalog, Material 3 Adaptive (window size classes, pane scaffolds, foldables), navigation, Views-to-Compose migration, review and testing. Grounded in the material.io spec, the androidx source, Google's official samples, and real shipping open-source apps.",
   "author": {
     "name": "Max Weinbach"
   },

@@ -1,5 +1,25 @@
 # Adaptive layouts and Navigation3 — NavDisplay, scene strategies, pane scaffolds, predictive back
 
+> **Deep adaptive material has moved to the `m3-adaptive` skill**, at
+> `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/`. Window size classes and breakpoints, pane scaffolds
+> and directives, pane expansion, posture/foldables, `NavigationSuiteScaffold` and the
+> `adaptive-navigation3` scene strategies are documented there against
+> `material3-adaptive` 1.3.0 / `material3` 1.5.0-alpha26:
+>
+> - `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/navigation-suite.md`
+> - `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md`
+>
+> **This file covers Navigation3 routing** — back stacks, `NavDisplay`, transition specs, shared
+> transitions — plus the corpus evidence for how shipping apps wire adaptivity. Pane-scaffold
+> material here is kept for continuity; where the two disagree, `m3-adaptive` is authoritative.
+>
+> **Two API corrections that apply to every snippet below.** `currentWindowAdaptiveInfo()` is
+> deprecated at 1.3.0 → use **`currentWindowAdaptiveInfoV2()`** (the old one defaults
+> `supportLargeAndXLargeWidth = false` and silently clamps everything ≥840dp to Expanded).
+> `currentWindowSize()` / `currentWindowDpSize()` are deprecated → use
+> **`LocalWindowInfo.current.containerSize` / `.containerDpSize`**. Verbatim `[CORPUS]` blocks are
+> left as the repos wrote them; the deprecation note travels with each.
+
 Containers (nav bar, rail, toolbar-as-nav) → `nav-containers.md`. This file is the back stack, the
 panes, and the transitions between destinations.
 
@@ -19,7 +39,7 @@ on 2026-08-12 and the rows below moved.)
 
 | Artifact | Stable | Alpha | Notes |
 | --- | --- | --- | --- |
-| `androidx.compose.material3.adaptive:adaptive` | **1.3.0** (2026-08-12) | — | `currentWindowAdaptiveInfo`, `WindowAdaptiveInfo`, `currentWindowDpSize` |
+| `androidx.compose.material3.adaptive:adaptive` | **1.3.0** (2026-08-12) | — | `currentWindowAdaptiveInfoV2`, `WindowAdaptiveInfo`, `Posture`, `collectFoldingFeaturesAsState`. **Deprecated in 1.3.0:** `currentWindowAdaptiveInfo`, `currentWindowSize`, `currentWindowDpSize` |
 | `androidx.compose.material3.adaptive:adaptive-layout` | **1.3.0** | — | `ListDetailPaneScaffold`, `SupportingPaneScaffold`, `AnimatedPane`, `PaneScaffoldDirective`, `PaneExpansionState` |
 | `androidx.compose.material3.adaptive:adaptive-navigation` | **1.3.0** | — | `rememberListDetailPaneScaffoldNavigator`, `rememberSupportingPaneScaffoldNavigator` |
 | `androidx.compose.material3.adaptive:adaptive-navigation3` | **ships within 1.3.0** | — | `ListDetailSceneStrategy`, `rememberListDetailSceneStrategy` — the nav3 bridge. **Stabilized into the 1.3.0 adaptive train** (it circulated earlier as a `1.0.0-SNAPSHOT`/pre-release artifact — see LastChat below) |
@@ -574,6 +594,10 @@ Non-fade variant, `[CORPUS]` `.../ui/statsScreen/StatsScreen.kt:85-100`:
 `veilOut` / `unveilIn` are Compose Animation 1.10+ expressive transitions — see the
 `m3-expressive-motion` skill.
 
+> Cited verbatim, and Tomato's `calculatePaneScaffoldDirective` here is **its own fork**, not the
+> AndroidX one (§5). It also calls the deprecated `currentWindowAdaptiveInfo()`. When adapting:
+> `calculatePaneScaffoldDirective(currentWindowAdaptiveInfoV2())`.
+
 ---
 
 ## 4. Nested `NavDisplay` + `ListDetailSceneStrategy`
@@ -694,7 +718,7 @@ regions to avoid (hinges).
 
 | Field | Controls |
 | --- | --- |
-| `maxHorizontalPartitions` | How many side-by-side panes are permitted. 1 = single pane (compact/medium), 2 = list+detail, 3 = list+detail+extra |
+| `maxHorizontalPartitions` | How many side-by-side panes are permitted. **1** at Compact (<600dp) *and* Medium (600–839dp), **2** at Expanded (840–1199dp), **3** at Large (1200–1599dp) and Extra-large (≥1600dp). Five width buckets, not three |
 | `horizontalPartitionSpacerSize` | The **gutter** between horizontal panes. Set 0.dp to make panes read as one connected surface |
 | `maxVerticalPartitions` | Stacked panes. 2 in tabletop posture so content sits above the fold and controls below |
 | `verticalPartitionSpacerSize` | Gutter between vertical partitions |
@@ -780,17 +804,32 @@ fun calculatePaneScaffoldDirective(
 }
 ```
 
-**Read the AndroidX defaults out of it** — this is a faithful copy: stock gutters 24dp horizontal
+**Read the AndroidX defaults out of it** — a mostly faithful copy: stock gutters 24dp horizontal
 (Tomato zeroed them) and 24dp vertical, 2 panes at 840dp, 3 at the next breakpoint, preferred pane
 width 360dp (412dp at 3 panes).
 
+> **Two bugs are visible in this fork; do not copy it as a template.** It compares
+> `windowSizeClass.minHeightDp` against the **width** constant `WIDTH_DP_EXPANDED_LOWER_BOUND` (840)
+> where AndroidX uses the height bucket (`HEIGHT_DP_EXPANDED_LOWER_BOUND` = 900), so the tall-window
+> branch never fires as intended; and its `when` collapses Large and Extra-large into one `else`.
+> Full analysis:
+> `${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md` → "Recipe: custom
+> directive".
+
 **Do not fork the whole function unless you must** — forking forfeits AndroidX's future breakpoint
-fixes. Cheaper (`[CANONICAL-FORM]`; `PaneScaffoldDirective` being a data class is `[UNVERIFIED]`):
+fixes. Cheaper (`[SRC]` — `PaneScaffoldDirective` is not a data class, but it exposes a public
+`copy(...)`; note the odd parameter order, `excludedBounds` comes *before*
+`defaultPanePreferredHeight`, so use named arguments):
 
 ```kotlin
-val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
+val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfoV2())
     .copy(horizontalPartitionSpacerSize = 0.dp)
 ```
+
+`copy` does **not** expose `shouldAutoFocusCurrentDestination` and always resets it to `true`.
+Full directive reference and the corrected Tomato fork analysis:
+`${CLAUDE_PLUGIN_ROOT}/skills/m3-adaptive/references/adaptive-recipes.md` → "Recipe: custom
+directive".
 
 Fork only to change the `when` shape itself (different breakpoints). Legitimate overrides: a 0dp
 gutter so panes read as one connected surface (expressive); capping `maxHorizontalPartitions = 2`
@@ -1197,6 +1236,9 @@ renders a fixed 336dp `Surface` nav pane plus a detail area, using `CompositionL
 suppress the detail pane's back button. Scroll position and last selection live in **file-level
 `var`s** so they survive route changes.
 
+> `currentWindowDpSize()` is **deprecated at 1.3.0** → `LocalWindowInfo.current.containerDpSize`.
+> The blocks below are verbatim; do not copy that call into new code.
+
 `[CORPUS]` `/root/work/repos/LastChat/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingsAdaptiveScaffold.kt`
 (lines 60–62, 86–170):
 
@@ -1359,7 +1401,8 @@ by rendering the nav list beside it in *every* settings route. That forces all t
 scroll (a `rememberSaveable` inside the pane dies with the route it lives in).
 
 **Costs, worst first:** file-level mutable state is process-global (leaks across sign-out);
-`currentWindowDpSize()` recomputes per route instead of sharing one `WindowAdaptiveInfo`; the 840×600
+`currentWindowDpSize()` is deprecated *and* recomputes per route instead of sharing one
+`WindowAdaptiveInfo` from `currentWindowAdaptiveInfoV2()`; the 840×600
 threshold is hardcoded, so posture is ignored entirely; the nav pane remounts on every route change
 and only *appears* stable because scroll is externally cached; no pane expansion, no hinge avoidance,
 no `AnimatedPane`.

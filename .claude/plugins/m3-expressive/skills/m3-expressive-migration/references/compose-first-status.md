@@ -222,7 +222,7 @@ the verbatim release-note bullet with the individual style names not audited.
 | **Wavy linear progress** | `Widget.Material3Expressive.LinearProgressIndicator.Wavy` `[SRC]`; attrs `app:waveAmplitude`, `app:wavelength`, `app:waveSpeed`; setters `setWaveAmplitude`/`setWavelength`/`setWaveSpeed` `[SRC]` | `LinearWavyProgressIndicator` |
 | **Wavy circular progress** | `Widget.Material3Expressive.CircularProgressIndicator.Wavy` `[SRC]` (`.Flat` variants exist and **Flat is the default**) | `CircularWavyProgressIndicator`, `WavyProgressIndicatorDefaults` |
 | **Loading indicator** | `LoadingIndicator` (1.13.0) `[SRC]` | `LoadingIndicator`, `LoadingIndicatorDefaults` (still `@ExperimentalMaterial3ExpressiveApi`) |
-| **Split button** | `MaterialSplitButton` (1.13.0) `[SRC]` | `SplitButton` (renamed from `SplitButtonLayout` in 1.5.0-alpha25) |
+| **Split button** | `MaterialSplitButton` (1.13.0) `[SRC]` | `SplitButtonLayout` (current, undeprecated at alpha26 — there is **no** `SplitButton` composable) |
 | **Button group — static** | `MaterialButtonGroup` (1.13.0) `[SRC]` | `ButtonGroup`, `ButtonGroupScope`, `ButtonGroupDefaults` |
 | **Button group — interactive resize / pressure response** | **none** | `ButtonGroupScope` + `Modifier.animateWidth(interactionSource, compressionLimit)` |
 | **Floating toolbar** | `FloatingToolbarLayout` (1.13.0) `[SRC]` | `FloatingToolbarScrollBehavior`, `FloatingToolbarState` `[SRC]` (composable entry-point names not audited — `[UNVERIFIED]`) |

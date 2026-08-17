@@ -775,7 +775,7 @@ Scaffold(
                                 } else {
                                     { item.onNavigateHome() }
                                 },
-                                colors = ToggleButtonDefaults.toggleButtonColors(
+                                colors = ToggleButtonDefaults.colors(
                                     containerColor = primaryContainer,
                                     contentColor = onPrimaryContainer,
                                     checkedContainerColor = primary,

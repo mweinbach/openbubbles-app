@@ -611,31 +611,31 @@ fun WavySlider(
     val density = LocalDensity.current
     val strokeWidthPx = with(density) { strokeWidth.toPx() }
     val thumbRadiusPx = with(density) { thumbRadius.toPx() }
-    val stroke = remember(strokeWidthPx) {
-        Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+    val stroke = remember(strokeWidthPx) { 
+        Stroke(width = strokeWidthPx, cap = StrokeCap.Round) 
     }
-
+    
     val normalizedValue = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
         .coerceIn(0f, 1f)
-
+    
     var isDragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(normalizedValue) }
-
+    
     val displayValue = if (isDragging) dragValue else normalizedValue
-
+    
     val animatedAmplitude by animateFloatAsState(
         targetValue = if (isPlaying) 1f else 0f,
         animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
         label = "amplitude"
     )
-
+    
     val activeColor = colors.activeTrackColor
     val inactiveColor = colors.inactiveTrackColor
     val thumbColor = colors.thumbColor
-
+    
     // Calculate container height to accommodate thumb
     val containerHeight = maxOf(WavyProgressIndicatorDefaults.LinearContainerHeight, thumbRadius * 2)
-
+    
     val baseModifier = modifier
         .fillMaxWidth()
         .height(containerHeight)
@@ -693,12 +693,12 @@ fun WavySlider(
             wavelength = wavelength,
             waveSpeed = waveSpeed
         )
-
+        
         // Draw circular thumb - synced with progress indicator position
         Canvas(modifier = Modifier.fillMaxSize()) {
             val thumbX = size.width * displayValue
             val thumbY = size.height / 2
-
+            
             drawCircle(
                 color = thumbColor,
                 radius = thumbRadiusPx,
@@ -794,7 +794,7 @@ fun SquigglySlider(
 
     var isDragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(value) }
-
+    
     val currentValue = if (isDragging) dragPosition else value
     val duration = valueRange.endInclusive - valueRange.start
     val position = currentValue - valueRange.start
@@ -991,7 +991,7 @@ fun SquigglySlider(
                 val phase = (x - waveStart) / waveLength
                 val waveCycle = phase - kotlin.math.floor(phase)
                 val waveValue = kotlin.math.cos(waveCycle * 2f * kotlin.math.PI.toFloat())
-
+                
                 // Calculate amplitude coefficient at this x position
                 val ampCoeff = if (transitionEnabled) {
                     val length = transitionPeriods * waveLength
@@ -999,7 +999,7 @@ fun SquigglySlider(
                 } else {
                     1f
                 }
-
+                
                 return centerY + waveValue * lineAmplitude * heightFraction * ampCoeff
             }
 
@@ -1148,7 +1148,7 @@ fun VolumeSlider(
         inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
         inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant
     )
-
+    
     val stopIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     Slider(

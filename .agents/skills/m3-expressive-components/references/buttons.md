@@ -29,13 +29,23 @@ Signatures verified against the androidx tree pinned at alpha26's terminal commi
 | `TonalToggleButton(...)` | **`FilledTonalToggleButton(...)`** | WARNING | No — warns. Identical param list. |
 | `ToggleButtonDefaults.shapes()` | **`ToggleButtonDefaults.shapesFor(buttonHeight: Dp)`** | **HIDDEN** | **Yes — hard fail** |
 | `ToggleButtonDefaults.shapes(shape, pressedShape, checkedShape)` | **`ToggleButtonShapes(shape, pressedShape, checkedShape)`** | **HIDDEN** | **Yes — hard fail** |
-| `SplitButtonLayout(...)` | **`SplitButton(...)`** | WARNING | No — warns. Identical param list. |
+| `SplitButtonDefaults.leadingButtonShapes(CornerSize)` / `trailingButtonShapes(CornerSize)` | **`leadingButtonShapesFor(Dp)` / `trailingButtonShapesFor(Dp)`** | **Deprecated** | Warns. **Correction:** an earlier reading of the alpha25 note "Deprecated `SplitButtonLayout` Api" as a `SplitButtonLayout` → `SplitButton` composable rename was **wrong** — no `SplitButton` composable exists; `SplitButtonLayout` is current and undeprecated. |
 | `Modifier.animateWidth(is, compressionLimit: PaddingValues)` | **`animateWidth(is, compressionLimit: Dp)`** or **`animateWidth(is)`** | type change | **Yes** |
 | `interface ButtonGroupScope` | **`sealed interface ButtonGroupScope`** | sealed | **Yes** if you implemented it |
+| `ToggleButtonDefaults.elevatedToggleButtonColors()` | **`ElevatedToggleButtonDefaults.colors()`** | **`@Deprecated @BytecodeOnly`** | **Yes — hard fail** |
+| `ToggleButtonDefaults.filledTonalToggleButtonColors()` / `tonalToggleButtonColors()` | **`FilledTonalToggleButtonDefaults.colors()`** | **`@Deprecated @BytecodeOnly`** | **Yes — hard fail** |
+| `ToggleButtonDefaults.outlinedToggleButtonColors()` | **`OutlinedToggleButtonDefaults.colors()`** | **`@Deprecated @BytecodeOnly`** | **Yes — hard fail** |
+| `ToggleButtonDefaults.outlinedToggleButtonBorder(enabled, checked)` | **`OutlinedToggleButtonDefaults.border(enabled, checked)`** | **`@Deprecated @BytecodeOnly`** | **Yes — hard fail** |
 
-New in alpha26: `ElevatedToggleButtonDefaults`, `FilledTonalToggleButtonDefaults`,
-`OutlinedToggleButtonDefaults` — the per-variant color/shape defaults were split out of
-`ToggleButtonDefaults`, which had its non-semantic shape properties cleaned up (Ia0a85).
+**Additions in alpha26 — `ElevatedToggleButtonDefaults`, `FilledTonalToggleButtonDefaults`,
+`OutlinedToggleButtonDefaults`.** This is where the per-variant toggle-button colors now live: each
+exposes `colors()` (zero-arg plus a six-named-parameter overload), and `OutlinedToggleButtonDefaults`
+additionally exposes `border(enabled, checked)`. They were split out of `ToggleButtonDefaults`, which
+also had its non-semantic shape properties cleaned up (Ia0a85). `@BytecodeOnly` on the old names
+means the symbols survive for **binary** compatibility with already-compiled artifacts, but they have
+no `@KotlinOnly` overload — so they are **uncallable from Kotlin source** and a call site fails to
+compile rather than warning. Full member lists in §4 (`ToggleButtonDefaults`), all verified against
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba` (2026-08-14, post-alpha26).
 
 New in alpha25: `OutlinedToggleButton` gained **smooth border stroke animations** (Icb433) — the
 border now animates between checked/unchecked instead of snapping. No API change, no opt-out.
@@ -43,7 +53,7 @@ border now animates between checked/unchecked instead of snapping. No API change
 **Opt-in status.** Most of this family has graduated and needs **no** caller opt-in:
 `Button` and all five variants, `ToggleButton`, `ElevatedToggleButton`, `FilledTonalToggleButton`,
 `OutlinedToggleButton`, `ToggleButtonDefaults.shapesFor`, the three new `*ToggleButtonDefaults`
-objects, and `SplitButton` (the string "Experimental" does not occur anywhere in `SplitButton.kt`
+objects, and `SplitButtonLayout` (the string "Experimental" does not occur anywhere in `SplitButton.kt`
 at the alpha26 SHA). Still gated at alpha26:
 
 - **`ToggleButton` size variants** — `@ExperimentalMaterial3ExpressiveApi`. Verified from the
@@ -332,7 +342,7 @@ fun ToggleButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     shapes: ToggleButtonShapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight),
-    colors: ToggleButtonColors = ToggleButtonDefaults.toggleButtonColors(),
+    colors: ToggleButtonColors = ToggleButtonDefaults.colors(),
     elevation: ButtonElevation? = ButtonDefaults.buttonElevation(),
     border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight),
@@ -344,12 +354,17 @@ fun ToggleButton(
 Variants — names verified, individual signatures parallel with different `colors`/`elevation`/
 `border` defaults `[UNVERIFIED for exact defaults]`:
 
-| Composable | Colors factory (≤ alpha25) | Colors factory (alpha26+) |
+| Composable | Colors factory (≤ alpha25) — **uncallable from Kotlin at alpha26** | Colors factory (alpha26+) |
 | --- | --- | --- |
-| `ToggleButton` | `ToggleButtonDefaults.toggleButtonColors()` | unchanged |
-| **`FilledTonalToggleButton`** (was `TonalToggleButton`) | `ToggleButtonDefaults.filledTonalToggleButtonColors()` | `FilledTonalToggleButtonDefaults.filledTonalToggleButtonColors()` |
-| `OutlinedToggleButton` | `ToggleButtonDefaults.outlinedToggleButtonColors()` + `outlinedToggleButtonBorder()` | `OutlinedToggleButtonDefaults.*` |
-| `ElevatedToggleButton` | `ToggleButtonDefaults.elevatedToggleButtonColors()` | `ElevatedToggleButtonDefaults.*` |
+| `ToggleButton` | `ToggleButtonDefaults.colors()` | unchanged — still `ToggleButtonDefaults.colors()` |
+| **`FilledTonalToggleButton`** (was `TonalToggleButton`) | `ToggleButtonDefaults.filledTonalToggleButtonColors()` | `FilledTonalToggleButtonDefaults.colors()` |
+| `OutlinedToggleButton` | `ToggleButtonDefaults.outlinedToggleButtonColors()` + `outlinedToggleButtonBorder()` | `OutlinedToggleButtonDefaults.colors()` + `OutlinedToggleButtonDefaults.border(enabled, checked)` |
+| `ElevatedToggleButton` | `ToggleButtonDefaults.elevatedToggleButtonColors()` | `ElevatedToggleButtonDefaults.colors()` |
+
+The middle column is history, not API: at alpha26 those four names exist only as
+`@Deprecated @BytecodeOnly` and cannot be referenced from Kotlin source (verified in
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14). Only
+`ToggleButtonDefaults.colors()` survives on the shared object.
 
 > **Renamed in alpha25 (Icb433):** `TonalToggleButton` → **`FilledTonalToggleButton`**. Pure rename,
 > the parameter list is byte-identical — verified by reading both declarations. The old name survives
@@ -367,7 +382,7 @@ public fun FilledTonalToggleButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     shapes: ToggleButtonShapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight),
-    colors: ToggleButtonColors = FilledTonalToggleButtonDefaults.filledTonalToggleButtonColors(),
+    colors: ToggleButtonColors = FilledTonalToggleButtonDefaults.colors(),
     elevation: ButtonElevation? = ButtonDefaults.filledTonalButtonElevation(),
     border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight),
@@ -381,28 +396,56 @@ Icon-only siblings: `FilledIconToggleButton`, `FilledTonalIconToggleButton`,
 
 ## `ToggleButtonDefaults`
 
-`[ANDROIDX]` structure verified; some literal values `[UNVERIFIED]`.
+`[ANDROIDX]` **Complete Kotlin-callable surface, verified** against
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba` (2026-08-14,
+post-alpha26). Some literal values still `[UNVERIFIED]`. Anything not in this block either does
+not exist or is `@Deprecated @BytecodeOnly` — see the migration table below.
 
 ```kotlin
+// properties — this is the complete list
 ToggleButtonDefaults.MinHeight        // = ButtonSmallTokens.ContainerHeight = 40.dp
 ToggleButtonDefaults.IconSpacing      // = 8.dp  — corpus-verified in use
 ToggleButtonDefaults.IconSize         // = 20.dp
 ToggleButtonDefaults.ContentPadding
 
-// shapes
-ToggleButtonDefaults.roundShape
-ToggleButtonDefaults.squareShape
+// shapes — exactly three, all @Composable Shape properties
+ToggleButtonDefaults.shape
+ToggleButtonDefaults.pressedShape
+ToggleButtonDefaults.checkedShape
 
-@Composable fun shapesFor(buttonHeight: Dp): ToggleButtonShapes   // alpha25+ — the ONLY factory
-// plus per-size (extraSmall / medium / large / extraLarge) round/square/pressed/selected variants
-
-// colors
-ToggleButtonDefaults.toggleButtonColors()
-ToggleButtonDefaults.elevatedToggleButtonColors()        // → ElevatedToggleButtonDefaults on alpha26
-ToggleButtonDefaults.filledTonalToggleButtonColors()     // → FilledTonalToggleButtonDefaults on alpha26
-ToggleButtonDefaults.outlinedToggleButtonColors()        // → OutlinedToggleButtonDefaults on alpha26
-ToggleButtonDefaults.outlinedToggleButtonBorder()   // conditional BorderStroke by enabled/checked
+// functions — exactly two
+@Composable fun shapesFor(buttonHeight: Dp): ToggleButtonShapes   // alpha25+ — the ONLY shape factory
+@Composable fun colors(...): ToggleButtonColors                   // base ToggleButton only
 ```
+
+> **There is no `ToggleButtonDefaults.roundShape` and no `ToggleButtonDefaults.squareShape`.**
+> Earlier revisions of this file asserted both; neither appears anywhere in `current.txt` at
+> `360e8cba`. The shape properties are `shape` / `pressedShape` / `checkedShape`.
+> `ButtonDefaults.squareShape` *does* exist — do not carry it over to `ToggleButtonDefaults`.
+
+### Variant colors and border moved off `ToggleButtonDefaults` (alpha26)
+
+The per-variant color and border factories are `@Deprecated @BytecodeOnly` at alpha26. They stay
+in the binary so already-compiled artifacts keep linking, but they carry **no `@KotlinOnly`
+overload, so they cannot be called from Kotlin source at all** — a call site is a hard compile
+error, not a deprecation warning. The replacements are the per-variant defaults objects added in
+alpha26. All rows verified in `current.txt` at `360e8cba`:
+
+| Old — uncallable from Kotlin source at alpha26 | New — verified Kotlin-callable |
+| --- | --- |
+| `ToggleButtonDefaults.elevatedToggleButtonColors(...)` | `ElevatedToggleButtonDefaults.colors(...)` |
+| `ToggleButtonDefaults.filledTonalToggleButtonColors(...)` | `FilledTonalToggleButtonDefaults.colors(...)` |
+| `ToggleButtonDefaults.tonalToggleButtonColors(...)` | `FilledTonalToggleButtonDefaults.colors(...)` |
+| `ToggleButtonDefaults.outlinedToggleButtonColors(...)` | `OutlinedToggleButtonDefaults.colors(...)` |
+| `ToggleButtonDefaults.outlinedToggleButtonBorder(enabled, checked)` | `OutlinedToggleButtonDefaults.border(enabled, checked)` |
+| `ToggleButtonDefaults.shapes()` / `shapes(a, b, c)` | `ToggleButtonDefaults.shapesFor(Dp)` / `ToggleButtonShapes(a, b, c)` |
+
+Each new object exposes `colors()` in two Kotlin-callable forms — zero-arg, and a six-named-parameter
+overload (`containerColor`, `contentColor`, `disabledContainerColor`, `disabledContentColor`,
+`checkedContainerColor`, `checkedContentColor`). `OutlinedToggleButtonDefaults` adds
+`border(enabled: Boolean, checked: Boolean): BorderStroke?`. Note the method on all three is plain
+`colors()` — **not** `elevatedToggleButtonColors()` / `filledTonalToggleButtonColors()` /
+`outlinedToggleButtonColors()` re-homed under a new receiver.
 
 ## `shapes()` → `shapesFor()` / `ToggleButtonShapes(...)` — migration (alpha25, Icb433)
 
@@ -442,9 +485,11 @@ Rules of thumb:
 `ToggleButtonShapes` = `{ shape, pressedShape, checkedShape }` — three states, not two. That third
 slot is what makes checked-ness read as a shape change and not just a color change.
 
-Corpus-verified named parameters on `toggleButtonColors()`: `containerColor`, `contentColor`,
+Corpus-verified named parameters on `ToggleButtonDefaults.colors()`: `containerColor`, `contentColor`,
 `checkedContainerColor`, `checkedContentColor`, `disabledContainerColor`, `disabledContentColor`.
-On `outlinedToggleButtonColors()`: `checkedContainerColor`, `checkedContentColor`.
+The same six names are the parameter list on `ElevatedToggleButtonDefaults.colors()`,
+`FilledTonalToggleButtonDefaults.colors()` and `OutlinedToggleButtonDefaults.colors()`; the
+corpus most often passes just `checkedContainerColor` and `checkedContentColor`.
 
 ## When to use
 
@@ -506,7 +551,7 @@ ToggleButton(
         shape = RoundedCornerShape(topStartPercent = 50, topEndPercent = 50, bottomStartPercent = 15, bottomEndPercent = 15),
         checkedShape = RoundedCornerShape(50)
     ),
-    colors = ToggleButtonDefaults.toggleButtonColors(
+    colors = ToggleButtonDefaults.colors(
         containerColor = Color.Transparent,
         checkedContainerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -627,7 +672,7 @@ private fun ToolSelectorToggleButton(
         shapes = ToggleButtonDefaults.shapes(          // ← alpha20 code; see below
             checkedShape = MaterialTheme.shapes.large,
         ),
-        colors = ToggleButtonDefaults.toggleButtonColors(
+        colors = ToggleButtonDefaults.colors(
             checkedContainerColor = MaterialTheme.colorScheme.onSurface,
             containerColor = MaterialTheme.colorScheme.surface,
         ),
@@ -1141,7 +1186,7 @@ FlowRow(
         },
         enabled = !isListenTogetherGuest,
         shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-        colors = ToggleButtonDefaults.toggleButtonColors(
+        colors = ToggleButtonDefaults.colors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1171,7 +1216,7 @@ FlowRow(
   `checkedContainerColor = TextBackgroundColor.copy(alpha = 0.4f)`. Check contrast — see §12.
 - **As dialog buttons** — `.../ui/screens/settings/AccountSettingsScreen.kt`: Cancel / Clear Data /
   Keep Data as one connected group, destructive middle tinted with
-  `toggleButtonColors(contentColor = MaterialTheme.colorScheme.error)`, and the recommended option
+  `ToggleButtonDefaults.colors(contentColor = MaterialTheme.colorScheme.error)`, and the recommended option
   expressed as `checked = true` rather than a separate style.
 - **Horizontally scrollable** — `.../vivimusic/changelog/changelogscreen.kt`: same index-driven
   shapes inside `Row(Modifier.horizontalScroll(rememberScrollState()))` instead of weights. Med's
@@ -1277,6 +1322,11 @@ fun ThemePickerListItem(
 Single-select scrolls horizontally; multi-select distributes with `weight(1f)` and takes a
 `Set<Int>`. A near-identical copy lives at `NotificationsSettingsActivity.kt:713-735`.
 
+**Updated for alpha26.** Med ships `ToggleButtonDefaults.outlinedToggleButtonColors(...)`; that name
+is `@Deprecated @BytecodeOnly` and no longer callable from Kotlin source, so both helpers below are
+shown with `OutlinedToggleButtonDefaults.colors(...)` (verified in
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14).
+
 ```kotlin
 @Composable
 fun OutlinedSingleSelectButtonGroup(
@@ -1297,7 +1347,7 @@ fun OutlinedSingleSelectButtonGroup(
                     options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                     else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                 },
-                colors = ToggleButtonDefaults.outlinedToggleButtonColors(
+                colors = OutlinedToggleButtonDefaults.colors(   // was ToggleButtonDefaults.outlinedToggleButtonColors() pre-alpha26
                     checkedContainerColor = MaterialTheme.colorScheme.primary,
                     checkedContentColor = MaterialTheme.colorScheme.onPrimary
                 )
@@ -1334,7 +1384,7 @@ fun MultiSelectConnectedButtonGroupWithFlowLayout(
                     options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                     else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                 },
-                colors = ToggleButtonDefaults.outlinedToggleButtonColors(
+                colors = OutlinedToggleButtonDefaults.colors(   // was ToggleButtonDefaults.outlinedToggleButtonColors() pre-alpha26
                     checkedContainerColor = MaterialTheme.colorScheme.primary,
                     checkedContentColor = MaterialTheme.colorScheme.onPrimary
                 )
@@ -1370,7 +1420,7 @@ Row(
         checked = false,
         onCheckedChange = { onNo() },
         shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-        colors = ToggleButtonDefaults.toggleButtonColors(
+        colors = ToggleButtonDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
@@ -1385,37 +1435,36 @@ Row(
 
 ---
 
-# 8. `SplitButton` (was `SplitButtonLayout`)
+# 8. `SplitButtonLayout`
 
-## The rename — RESOLVED
+## The name — there is no `SplitButton` composable
 
-**`SplitButtonLayout` → `SplitButton`, landed in 1.5.0-alpha25 (Ic9840).** This was previously
-marked `[UNVERIFIED]` in this file; it is now verified from the androidx tree pinned at alpha26's
-terminal commit `4d087bd6f764b8425a70fd94102f855aa382d94b`, and it appears in the alpha25 release
-notes as "Deprecated `SplitButtonLayout` Api to use `SplitButton` instead".
+**The composable is `SplitButtonLayout`. It is the current, non-deprecated name at alpha26, and
+there is no `SplitButton` composable at all.** Verified in
+`compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14
+(post-alpha26): the only top-level split-button composable in `SplitButtonKt` is
+`SplitButtonLayout`, it carries **no** `@Deprecated` annotation, and a case-sensitive search for a
+top-level `SplitButton(` returns zero matches in any api txt file. All **13** call sites in
+androidx's own `material3` Kotlin sources and samples use `SplitButtonLayout`.
 
-It is a **pure rename with an identical parameter list**. The old name survives at the default
-`DeprecationLevel.WARNING` with a `ReplaceWith`, so old source still compiles — noisily.
+> **Correction.** An earlier version of this file claimed `SplitButtonLayout` was renamed to
+> `SplitButton` in 1.5.0-alpha25 (Ic9840) — a "pure rename", "RESOLVED", old name deprecated at
+> WARNING. **That was wrong.** No such rename exists in the API surface. The alpha25 release note
+> "Deprecated `SplitButtonLayout` Api" most plausibly refers to the deprecated
+> `SplitButtonDefaults.*Shapes(CornerSize)` helpers (`leadingButtonShapes(CornerSize)`,
+> `trailingButtonShapes(CornerSize)`), which *are* marked `@Deprecated` in `current.txt` and were
+> superseded by `leadingButtonShapesFor(Dp)` / `trailingButtonShapesFor(Dp)`. **That reading of the
+> release note is inference, not fact** — what is fact is that `SplitButtonLayout` is present and
+> undeprecated, and `SplitButton` does not exist.
 
-- On **1.4.0 and 1.5.0-alpha ≤ alpha24**: only `SplitButtonLayout` resolves.
-- On **alpha25+**: write `SplitButton`. `SplitButtonLayout` still resolves and still works.
+- On **1.4.0, all 1.5.0-alphas, and alpha26**: write `SplitButtonLayout`. There is no version on
+  which `SplitButton` resolves.
 
 ```kotlin
-// [ANDROIDX] verified at the alpha26 SHA
-@Deprecated(
-    message = "Renamed to SplitButton",
-    replaceWith = ReplaceWith("SplitButton(leadingButton, trailingButton, modifier, spacing)"),
-)
+// [ANDROIDX] verified in compose/material3/material3/api/current.txt
+// at androidx HEAD 360e8cba, 2026-08-14 — no @Deprecated annotation
 @Composable
 public fun SplitButtonLayout(
-    leadingButton: @Composable () -> Unit,
-    trailingButton: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-    spacing: Dp = SplitButtonDefaults.Spacing,
-)
-
-@Composable
-fun SplitButton(
     leadingButton: @Composable () -> Unit,
     trailingButton: @Composable () -> Unit,
     modifier: Modifier = Modifier,
@@ -1425,9 +1474,9 @@ fun SplitButton(
 
 > **Opt-in: none needed on alpha20+.** In 1.4.0 this was `ExperimentalMaterial3ExpressiveApi`.
 > At the alpha26 SHA the string "Experimental" does **not occur anywhere** in `SplitButton.kt`, so
-> neither `SplitButton` nor `SplitButtonDefaults.LeadingButton`/`TrailingButton` requires a caller
-> opt-in. Any `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` kept solely for a split button is
-> now redundant.
+> neither `SplitButtonLayout` nor `SplitButtonDefaults.LeadingButton`/`TrailingButton` requires a
+> caller opt-in. Any `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` kept solely for a split
+> button is now redundant.
 
 ## When to use
 
@@ -1496,6 +1545,13 @@ Note the asymmetry: **leading** takes `onClick`; **trailing** style-variants tak
 `checked`/`onCheckedChange` — the trailing button is the dropdown *toggle*, and its checked state is
 real state, not decoration.
 
+> **Deprecated shape helpers.** The `shapes` defaults above use `leadingButtonShapesFor(Dp)` /
+> `trailingButtonShapesFor(Dp)`. The older `SplitButtonDefaults.leadingButtonShapes(CornerSize)` and
+> `SplitButtonDefaults.trailingButtonShapes(CornerSize)` are marked `@Deprecated` — verified in
+> `compose/material3/material3/api/current.txt` at androidx HEAD `360e8cba`, 2026-08-14. If you
+> pass a `CornerSize` to a `*Shapes(...)` helper, migrate to the `*ShapesFor(buttonHeight: Dp)`
+> form. Build a `SplitButtonShapes(shape, pressedShape, checkedShape)` directly for full control.
+
 `AnimatedTrailingButton` appears in some doc summaries but could **not** be verified as public
 `[UNVERIFIED / probably not public]`. The rotation animation in every real sample is done by
 animating the icon inside `TrailingButton(checked = …)`.
@@ -1552,7 +1608,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout   // alpha25+: androidx.compose.material3.SplitButton
+import androidx.compose.material3.SplitButtonLayout   // current name on every version incl. alpha26
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
@@ -1576,7 +1632,7 @@ inline fun <reified T : Enum<T>> SortHeader(
 
     val displayDescending = showDescending == true && sortType != PlaylistSongSortType.CUSTOM
 
-    SplitButtonLayout(          // alpha25+: SplitButton( — same params, pure rename
+    SplitButtonLayout(          // still the name at alpha26 — there is no SplitButton composable
         leadingButton = {
             SplitButtonDefaults.LeadingButton(
                 onClick = { menuExpanded = !menuExpanded },
@@ -1688,7 +1744,7 @@ inline fun <reified T : Enum<T>> SortHeader(
 
 **Pitfalls**
 
-- The `DropdownMenu` is a **sibling** of `SplitButton`, not a child. It anchors to the
+- The `DropdownMenu` is a **sibling** of `SplitButtonLayout`, not a child. It anchors to the
   position in the composition, so keep it immediately after.
 - `LeadingButton` and `TrailingButton` are `SplitButtonDefaults` members, not top-level composables.
 - The trailing button's `checked` state is what you animate the chevron off. Do not add a separate
