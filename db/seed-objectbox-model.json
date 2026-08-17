@@ -109,7 +109,7 @@
     },
     {
       "id": "3:9017250848141753702",
-      "lastPropertyId": "53:3383140454393138192",
+      "lastPropertyId": "54:6316719500959209658",
       "name": "Chat",
       "properties": [
         {
@@ -346,6 +346,11 @@
         {
           "id": "53:3383140454393138192",
           "name": "customThemeDark",
+          "type": 9
+        },
+        {
+          "id": "54:6316719500959209658",
+          "name": "senderOverride",
           "type": 9
         }
       ],
