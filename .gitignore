@@ -78,3 +78,5 @@ codegen_logs
 android/.project
 db/libobjectbox-jni*
 desktopApp/libobjectbox-jni*
+core/libobjectbox-jni*
+app-native/libobjectbox-jni*
