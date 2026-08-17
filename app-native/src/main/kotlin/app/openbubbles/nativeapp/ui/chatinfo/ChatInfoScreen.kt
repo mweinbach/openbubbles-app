@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -100,6 +101,8 @@ data class ParticipantRow(
 
 /**
  * Conversation details and group mutations backed by the on-device engine.
+ * In a direct conversation this screen is the contact card for the other
+ * person; in a group it lists participants whose rows open a contact sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,12 +119,15 @@ fun ChatInfoScreen(
     onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
     /**
-     * False when this screen renders as the visible extra pane (or a levitated
-     * dialog) beside the conversation: there is nothing to navigate back to.
+     * False when this screen renders beside its list — the detail pane on
+     * two-pane layouts or the third pane on expanded ones — where there is
+     * nothing to navigate back to.
      */
     showBackButton: Boolean = true,
     onOpenChat: (Long) -> Unit = {},
     onOpenAttachment: (String) -> Unit = {},
+    /** Local file for an attachment guid; feeds the shared-photo thumbnails. */
+    attachmentFile: (String) -> File? = { null },
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -253,6 +259,8 @@ fun ChatInfoScreen(
                     onMessage = { openDirectChat(details.handleAddress) },
                     onFaceTime = { startFaceTime() },
                     onOpenAttachment = onOpenAttachment,
+                    posterFile = posterFile,
+                    attachmentFile = attachmentFile,
                     modifier = Modifier.weight(1f),
                 )
             } else {
@@ -292,54 +300,58 @@ fun ChatInfoScreen(
                 onChoose = { pickBackground.launch("image/*") },
                 onClear = { launchAction(onClearBackground) },
             )
-            if (directParticipant == null && participants.isNotEmpty()) {
-                Text(
-                    text = "PARTICIPANTS",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 6.dp),
-                )
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 4.dp,
-                        // Keep the last row above the gesture bar; only the
-                        // group-only leave button used to carry this inset.
-                        bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
-                ) {
-                    itemsIndexed(participants, key = { _, it -> it.address }) { index, participant ->
-                        ParticipantListRow(
-                            participant = participant,
-                            shape = segmentedRowShape(index, participants.size),
-                            onOpen = { openContact = participant },
-                            onRemove = if (isGroup) {
-                                { launchAction(action = { onRemoveParticipant(participant.address) }) }
-                            } else {
-                                null
-                            },
-                        )
-                    }
-                    if (isGroup) {
-                        item(key = "add-participant") {
-                            OutlinedButton(
-                                onClick = { addDialog = true },
-                                shapes = ButtonDefaults.shapes(),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text("Add participant") }
+            // Groups list their participants; a direct chat's card above is
+            // the whole story, so the empty placeholder never renders under it.
+            if (directParticipant == null) {
+                if (participants.isNotEmpty()) {
+                    Text(
+                        text = "PARTICIPANTS",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 6.dp),
+                    )
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            // Keep the last row above the gesture bar; only the
+                            // group-only leave button used to carry this inset.
+                            bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
+                    ) {
+                        itemsIndexed(participants, key = { _, it -> it.address }) { index, participant ->
+                            ParticipantListRow(
+                                participant = participant,
+                                shape = segmentedRowShape(index, participants.size),
+                                onOpen = { openContact = participant },
+                                onRemove = if (isGroup) {
+                                    { launchAction(action = { onRemoveParticipant(participant.address) }) }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                        if (isGroup) {
+                            item(key = "add-participant") {
+                                OutlinedButton(
+                                    onClick = { addDialog = true },
+                                    shapes = ButtonDefaults.shapes(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Add participant") }
+                            }
                         }
                     }
-                }
-            } else {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "No participants found",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                } else {
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No participants found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (isGroup) {
@@ -437,6 +449,8 @@ fun ChatInfoScreen(
                 openContact = null
                 onOpenAttachment(guid)
             },
+            posterFile = rememberPosterFile(row.address),
+            attachmentFile = attachmentFile,
         )
     }
 }
@@ -491,6 +505,11 @@ private fun HeaderSection(chat: ChatListItem?, participantCount: Int, posterFile
     }
 }
 
+/**
+ * Compact background control: a small current-background thumbnail, the
+ * source label, and Choose/Change + clear actions in one row — not a banner
+ * card, so the contact card stays the focus of this screen.
+ */
 @Composable
 private fun BackgroundSection(
     chat: ChatListItem?,
@@ -499,49 +518,58 @@ private fun BackgroundSection(
 ) {
     val path = chat?.effectiveBackgroundPath()
     val file = remember(path) { path?.let(::File)?.takeIf { it.isFile } }
-    val decoded = rememberDecodedImage(file, maxDimensionPx = 720)
+    val decoded = rememberDecodedImage(file, maxDimensionPx = 256)
     Surface(
         shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (decoded != null) {
-                Image(
-                    bitmap = decoded.image,
-                    contentDescription = "Current chat background",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(2.4f)
-                        .clip(MaterialTheme.shapes.largeIncreased),
-                )
-            }
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = if (decoded == null) 14.dp else 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
             ) {
-                Text("Chat background", style = MaterialTheme.typography.titleMedium)
+                if (decoded != null) {
+                    Image(
+                        bitmap = decoded.image,
+                        contentDescription = "Current chat background",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Photo,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Chat background", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     when {
                         chat?.customBackgroundPath != null -> "On this device"
                         chat?.transcriptBackgroundPath != null -> "Synced from Apple"
-                        else -> "Use a photo behind this conversation"
+                        else -> "No background set"
                     },
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    if (chat?.customBackgroundPath != null) {
-                        TextButton(onClick = onClear) {
-                            Text(if (chat.transcriptBackgroundPath != null) "Use synced background" else "Remove")
-                        }
-                    }
-                    TextButton(onClick = onChoose) {
-                        Text(if (path == null) "Choose photo" else "Change")
-                    }
+            }
+            if (chat?.customBackgroundPath != null) {
+                TextButton(onClick = onClear) {
+                    Text(if (chat.transcriptBackgroundPath != null) "Use synced" else "Remove")
                 }
+            }
+            TextButton(onClick = onChoose) {
+                Text(if (path == null) "Choose" else "Change")
             }
         }
     }

@@ -4,19 +4,29 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
@@ -42,6 +52,12 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
@@ -54,14 +70,19 @@ import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.findmy.FindMyPort
 import app.openbubbles.nativeapp.ui.findmy.FmPoint
 import app.openbubbles.nativeapp.ui.findmy.RustFindMyPort
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val ContactContentMaxWidth = 840.dp
+
+/** Side of one shared-photo thumbnail in the contact card strip. */
+private val SharedPhotoTileSize = 96.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +97,8 @@ fun ContactSheet(
     onMessage: () -> Unit,
     onFaceTime: () -> Unit,
     onOpenAttachment: (String) -> Unit,
+    posterFile: File? = null,
+    attachmentFile: (String) -> File? = { null },
     modifier: Modifier = Modifier,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier) {
@@ -89,6 +112,8 @@ fun ContactSheet(
             onMessage = onMessage,
             onFaceTime = onFaceTime,
             onOpenAttachment = onOpenAttachment,
+            posterFile = posterFile,
+            attachmentFile = attachmentFile,
             modifier = Modifier
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
@@ -96,6 +121,12 @@ fun ContactSheet(
     }
 }
 
+/**
+ * The contact card shown from a conversation: poster-or-avatar identity
+ * header, Message/Call/FaceTime actions, the shared-photo strip, contact
+ * info, Find My, and remaining shared links/files — the sections an iPhone
+ * contact preview carries, in that order.
+ */
 @Composable
 fun ContactDetailsCard(
     details: ContactDetails,
@@ -107,10 +138,14 @@ fun ContactDetailsCard(
     onMessage: () -> Unit,
     onFaceTime: () -> Unit,
     onOpenAttachment: (String) -> Unit,
+    posterFile: File? = null,
+    attachmentFile: (String) -> File? = { null },
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val photos = sharedContent.filter { it.isImage && it.attachmentGuid != null }
+    val otherShared = sharedContent.filterNot { it.isImage && it.attachmentGuid != null }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -124,26 +159,39 @@ fun ContactDetailsCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ChatAvatar(
-                title = details.displayName,
-                avatarColor = avatarColorFor(details.handleAddress),
-                size = 96.dp,
-                avatarPath = details.avatarPath,
-            )
-            Text(
-                text = details.displayName,
-                style = MaterialTheme.typography.headlineSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (conversationTitle != null) {
+            // Contact poster when the person set one: the image card with the
+            // name overlaid, like the iOS contact preview. Without a poster,
+            // the centered avatar + name form.
+            val poster = rememberDecodedImage(posterFile, maxDimensionPx = 1080)
+            if (poster != null) {
+                ContactPosterHeader(
+                    title = details.displayName,
+                    subtitle = conversationTitle,
+                    image = poster.image,
+                    aspectRatio = poster.aspectRatio,
+                )
+            } else {
+                ChatAvatar(
+                    title = details.displayName,
+                    avatarColor = avatarColorFor(details.handleAddress),
+                    size = 96.dp,
+                    avatarPath = details.avatarPath,
+                )
                 Text(
-                    text = conversationTitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    text = details.displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (conversationTitle != null) {
+                    Text(
+                        text = conversationTitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             conversationSubtitle?.let {
                 Text(
@@ -175,6 +223,11 @@ fun ContactDetailsCard(
                 onClick = onFaceTime,
             )
         }
+        SharedPhotosSection(
+            photos = photos,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
+        )
         if (details.phones.isNotEmpty() || details.emails.isNotEmpty()) {
             ContactSection("Contact info") {
                 details.phones.forEach { phone ->
@@ -199,9 +252,9 @@ fun ContactDetailsCard(
             location = location,
             onOpenMaps = { point -> openLocationInMaps(context, details.displayName, point) },
         )
-        if (sharedContent.isNotEmpty()) {
+        if (otherShared.isNotEmpty()) {
             ContactSection("Shared") {
-                sharedContent.forEach { item ->
+                otherShared.forEach { item ->
                     SharedContentRow(
                         item = item,
                         onClick = {
@@ -211,6 +264,136 @@ fun ContactDetailsCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Contact-poster style identity header: the poster image cropped to a portrait
+ * card (clamped around 3:4) with the name and service label overlaid on a
+ * bottom scrim.
+ */
+@Composable
+private fun ContactPosterHeader(
+    title: String,
+    subtitle: String?,
+    image: ImageBitmap,
+    aspectRatio: Float,
+) {
+    val clamped = aspectRatio.coerceIn(0.6f, 1.4f)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 280.dp)
+            .aspectRatio(clamped)
+            .clip(MaterialTheme.shapes.extraLarge),
+    ) {
+        Image(
+            bitmap = image,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            0.55f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.65f),
+                        ),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(20.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Recent images from the conversation as a scrolling thumbnail strip, the
+ * "photos" row of an iPhone contact preview. Tiles without a local copy (not
+ * downloaded yet) keep their place with a tonal placeholder.
+ */
+@Composable
+private fun SharedPhotosSection(
+    photos: List<SharedContentPreview>,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+) {
+    if (photos.isEmpty()) return
+    ContactSection("Shared photos") {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(photos, key = { it.id }) { photo ->
+                SharedPhotoTile(
+                    photo = photo,
+                    file = photo.attachmentGuid?.let(attachmentFile),
+                    onOpen = { photo.attachmentGuid?.let(onOpenAttachment) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedPhotoTile(
+    photo: SharedContentPreview,
+    file: File?,
+    onOpen: () -> Unit,
+) {
+    val decoded = rememberDecodedImage(file, maxDimensionPx = 256)
+    Box(
+        modifier = Modifier
+            .size(SharedPhotoTileSize)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(role = Role.Button, onClickLabel = "Open photo", onClick = onOpen),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bitmap = decoded?.image
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = photo.label,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            )
+            Icon(
+                imageVector = Icons.Filled.Photo,
+                contentDescription = photo.label,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -497,7 +680,9 @@ private fun ContactDetailsCardPreview() {
             ),
             sharedContent = listOf(
                 SharedContentPreview("1", "trailhead.jpg", attachmentGuid = "a1", isImage = true),
-                SharedContentPreview("2", "x.com/status/…", url = "https://x.com"),
+                SharedContentPreview("2", "summit.png", attachmentGuid = "a2", isImage = true),
+                SharedContentPreview("3", "swim.jpeg", attachmentGuid = "a3", isImage = true),
+                SharedContentPreview("4", "x.com/status/…", url = "https://x.com"),
             ),
             conversationTitle = "iMessage",
             conversationSubtitle = "Last active today",

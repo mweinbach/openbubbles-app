@@ -1,16 +1,23 @@
 package app.openbubbles.nativeapp.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
+import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
+import app.openbubbles.nativeapp.ui.chatinfo.ContactDetailsCard
+import app.openbubbles.nativeapp.ui.chatinfo.ContactLocationUi
 import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
@@ -336,5 +343,42 @@ fun SettingsScreenScreenshot() {
 fun OnboardingScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {
         OnboardingScreen(onFinished = {}, onLaunchSignIn = {})
+    }
+}
+
+/**
+ * The contact preview opened from a conversation header: avatar identity,
+ * action row, shared-photo strip (placeholders — no local files in the
+ * renderer), contact info, and Find My.
+ */
+@PreviewTest
+@Preview(name = "contact-card", device = Devices.PHONE, showBackground = true)
+@Preview(name = "contact-card-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ContactDetailsCardScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ContactDetailsCard(
+            details = ContactDetails(
+                displayName = "Alex Chen",
+                avatarPath = null,
+                phones = listOf("+1 (555) 010-2030"),
+                emails = listOf("alex@icloud.com"),
+                handleAddress = "alex@icloud.com",
+            ),
+            location = ContactLocationUi.NotSharing,
+            sharedContent = listOf(
+                SharedContentPreview("p1", "trailhead.jpg", attachmentGuid = "g1", isImage = true),
+                SharedContentPreview("p2", "summit.png", attachmentGuid = "g2", isImage = true),
+                SharedContentPreview("p3", "swim.jpeg", attachmentGuid = "g3", isImage = true),
+                SharedContentPreview("l1", "Yosemite - NPS", url = "https://www.nps.gov/yose"),
+            ),
+            conversationTitle = "iMessage",
+            conversationSubtitle = "Last active 4:12 PM",
+            smsChat = false,
+            onMessage = {},
+            onFaceTime = {},
+            onOpenAttachment = {},
+            modifier = Modifier.padding(16.dp),
+        )
     }
 }
