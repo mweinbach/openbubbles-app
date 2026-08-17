@@ -52,3 +52,25 @@ fun formatConversationDay(
 /** Local calendar day for a timestamp, used to detect day boundaries. */
 fun localDay(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
     Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+
+/**
+ * Elapsed-time label for "last checked" style status rows: "just now",
+ * "5 min ago", "3 h ago", "Yesterday", then a short date.
+ */
+fun formatRelativePast(
+    epochMillis: Long,
+    zone: ZoneId = ZoneId.systemDefault(),
+    nowMillis: Long = System.currentTimeMillis(),
+): String {
+    if (epochMillis <= 0L) return "never"
+    val elapsedMs = (nowMillis - epochMillis).coerceAtLeast(0L)
+    val minutes = elapsedMs / 60_000L
+    if (minutes < 1) return "just now"
+    if (minutes < 60) return "$minutes min ago"
+    val hours = minutes / 60
+    if (hours < 24) return "$hours h ago"
+    val date = Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+    val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    if (date == nowDate.minusDays(1)) return "Yesterday"
+    return shortDateFormat.format(Instant.ofEpochMilli(epochMillis).atZone(zone))
+}

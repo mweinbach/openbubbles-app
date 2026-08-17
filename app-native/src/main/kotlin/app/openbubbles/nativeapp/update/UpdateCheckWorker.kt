@@ -7,7 +7,7 @@ import androidx.work.WorkerParameters
 import java.io.IOException
 
 /**
- * Daily/self-serve update check. Short by design: fetch the feed, download if
+ * Twice-daily/self-serve update check. Short by design: fetch the feed, download if
  * applicable, post the "Update ready" notification. Installing always stays
  * behind a user action (notification tap or Settings button).
  *

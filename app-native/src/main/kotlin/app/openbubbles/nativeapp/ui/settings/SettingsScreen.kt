@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
@@ -52,10 +53,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
@@ -100,7 +99,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -129,6 +127,7 @@ import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
 import app.openbubbles.nativeapp.update.UpdateSettings
 import app.openbubbles.nativeapp.ui.common.formatBytes
+import app.openbubbles.nativeapp.ui.common.formatRelativePast
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -160,7 +159,7 @@ private enum class SettingsSection(
     Account("Account", "Registration, handles, sign out", Icons.Filled.AccountCircle),
     ICloud("iCloud", "History, Keychain, contacts", Icons.Filled.Cloud),
     Notifications("Notifications", "Previews, replies, reactions", Icons.Filled.Notifications),
-    Messaging("Messaging", "Sending address, read receipts, SMS", Icons.AutoMirrored.Filled.Chat),
+    Messaging("Messaging", "Sending address, archived chats, SMS", Icons.AutoMirrored.Filled.Chat),
     Power("Power", "Battery saver", Icons.Filled.PowerSettingsNew),
     Appearance("Appearance", "Theme and color", Icons.Filled.Palette),
     Storage("Storage & backup", "Attachments and local backup", Icons.Filled.Storage),
@@ -186,6 +185,8 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenFindMy: () -> Unit = {},
+    onOpenArchived: () -> Unit = {},
+    archivedCount: Int = 0,
     showBackButton: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -365,6 +366,18 @@ fun SettingsScreen(
     var updateRefresh by remember { mutableStateOf(0) }
     val pendingUpdate = remember(updateRefresh) {
         UpdateCoordinator.pendingUpdate(context)
+    }
+    var showUpdateSheet by rememberSaveable { mutableStateOf(false) }
+    val lastCheckMs = remember(updateRefresh) { UpdateSettings.lastCheckMs(context) }
+    // A skipped version keeps its downloaded record (only the deferral is
+    // set), so its display name is still available for the "skipped" state.
+    val skippedVersionName = remember(updateRefresh) {
+        val deferred = UpdateSettings.deferredVersionCode(context)
+        if (deferred > 0L && deferred == UpdateSettings.pendingVersionCode(context)) {
+            UpdateSettings.pendingVersionName(context)
+        } else {
+            null
+        }
     }
 
     fun runUpdateCheck() {
@@ -847,7 +860,7 @@ fun SettingsScreen(
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 3,
+                    count = 4,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
                     icon = Icons.AutoMirrored.Filled.Send,
                 )
@@ -860,8 +873,20 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 3,
+                    count = 4,
                     icon = Icons.Filled.DoneAll,
+                )
+                SettingsActionItem(
+                    title = "Archived conversations",
+                    supporting = if (archivedCount == 0) {
+                        "None"
+                    } else {
+                        "$archivedCount archived"
+                    },
+                    onClick = onOpenArchived,
+                    index = 2,
+                    count = 4,
+                    icon = Icons.Filled.Archive,
                 )
                 // One row for the SMS role: the chip tone says whether it is
                 // active, the tap opens the system role picker either way.
@@ -875,8 +900,8 @@ fun SettingsScreen(
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 2,
-                    count = 3,
+                    index = 3,
+                    count = 4,
                     multiline = true,
                     icon = Icons.Filled.Sms,
                     iconTone = if (isDefaultSmsApp) {
@@ -1033,75 +1058,37 @@ fun SettingsScreen(
 
             }
             if (filter == null || filter == SettingsSection.About) {
-                val hasStatusRow = updateStatus != null || updateError != null
-                val aboutCount = 1 + (if (pendingUpdate != null) 2 else 1) +
-                    (if (hasStatusRow) 1 else 0)
                 SettingsGroup(title = if (showTitles) "About" else null) {
                     SettingsInfoItem(
                         title = "OpenBubbles",
                         supporting = "Version ${versionName ?: "unknown"}",
                         index = 0,
-                        count = aboutCount,
+                        count = 2,
                         icon = Icons.Filled.Info,
                     )
-                    if (pendingUpdate != null) {
-                        SettingsActionItem(
-                            title = "Install update ${pendingUpdate.versionName}",
-                            supporting = pendingUpdate.notes?.take(200)?.ifBlank { null },
-                            onClick = { runInstallPending() },
-                            index = 1,
-                            count = aboutCount,
-                            multiline = true,
-                            icon = Icons.Filled.SystemUpdate,
-                            iconTone = SettingsRowTone.Active,
-                        )
-                        SettingsActionItem(
-                            title = "Skip this version",
-                            supporting = "Hide this update until the next release",
-                            onClick = {
-                                UpdateSettings.deferVersionCode(context, pendingUpdate.versionCode)
-                                updateRefresh++
-                            },
-                            index = 2,
-                            count = aboutCount,
-                            icon = Icons.Filled.SkipNext,
-                        )
-                    } else {
-                        SettingsActionItem(
-                            title = "Check for updates",
-                            supporting = "Internal releases are served from GitHub",
-                            onClick = { runUpdateCheck() },
-                            index = 1,
-                            count = aboutCount,
-                            busy = updateBusy,
-                            enabled = !updateBusy,
-                            icon = Icons.Filled.Refresh,
-                        )
-                    }
-                    if (hasStatusRow) {
-                        SettingsInfoItem(
-                            title = if (updateError != null) "Update problem" else "Updates",
-                            supporting = updateError ?: updateStatus ?: "",
-                            index = aboutCount - 1,
-                            count = aboutCount,
-                            multiline = true,
-                            titleColor = if (updateError != null) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                Color.Unspecified
-                            },
-                            icon = if (updateError != null) {
-                                Icons.Filled.ErrorOutline
-                            } else {
-                                Icons.Filled.CheckCircle
-                            },
-                            tone = if (updateError != null) {
-                                SettingsRowTone.Error
-                            } else {
-                                SettingsRowTone.Active
-                            },
-                        )
-                    }
+                    // One entry point to the update center (sheet): the row
+                    // carries the state, the sheet carries the detail.
+                    val pending = pendingUpdate
+                    SettingsActionItem(
+                        title = "App updates",
+                        supporting = when {
+                            pending != null -> "Version ${pending.versionName} is ready to install"
+                            updateBusy -> "Checking for updates…"
+                            updateError != null -> "Couldn't check for updates — tap to retry"
+                            lastCheckMs <= 0L -> "Automatic checks twice a day"
+                            else -> "Up to date · checked ${formatRelativePast(lastCheckMs)}"
+                        },
+                        onClick = { showUpdateSheet = true },
+                        index = 1,
+                        count = 2,
+                        multiline = true,
+                        icon = Icons.Filled.SystemUpdate,
+                        iconTone = when {
+                            pending != null -> SettingsRowTone.Active
+                            updateError != null -> SettingsRowTone.Error
+                            else -> SettingsRowTone.Neutral
+                        },
+                    )
                 }
             }
         }
@@ -1181,6 +1168,25 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showUpdateSheet) {
+        UpdateSheet(
+            currentVersionName = versionName,
+            pendingUpdate = pendingUpdate,
+            skippedVersionName = skippedVersionName,
+            lastCheckMs = lastCheckMs,
+            checking = updateBusy,
+            status = updateStatus,
+            error = updateError,
+            onCheckNow = ::runUpdateCheck,
+            onInstall = ::runInstallPending,
+            onSkip = { code ->
+                UpdateSettings.deferVersionCode(context, code)
+                updateRefresh++
+            },
+            onDismiss = { showUpdateSheet = false },
+        )
     }
 
     if (showSignOutConfirmation) {

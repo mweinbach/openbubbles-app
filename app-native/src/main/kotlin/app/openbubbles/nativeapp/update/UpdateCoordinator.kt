@@ -35,7 +35,7 @@ object UpdateCoordinator {
     private const val NOTIFICATION_ID = 4101
     private const val WORK_NAME = "openbubbles-update-check"
     const val ACTION_INSTALL_NOW = "app.openbubbles.nativeapp.action.UPDATE_INSTALL_NOW"
-    private const val APP_OPEN_THROTTLE_MS = 6L * 60 * 60 * 1000 // 6h
+    private const val APP_OPEN_THROTTLE_MS = 60L * 60 * 1000 // 1h
 
     /** Result of a manual or background check, for the Settings UI. */
     sealed interface CheckResult {
@@ -44,9 +44,9 @@ object UpdateCoordinator {
         data class Failed(val message: String) : CheckResult
     }
 
-    /** Daily background check — same pattern as `BatterySaver.schedule`. */
+    /** Twice-daily background check — same pattern as `BatterySaver.schedule`. */
     fun schedule(context: Context) {
-        val request = PeriodicWorkRequestBuilder<UpdateCheckWorker>(1, TimeUnit.DAYS)
+        val request = PeriodicWorkRequestBuilder<UpdateCheckWorker>(12, TimeUnit.HOURS)
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -191,10 +191,16 @@ object UpdateCoordinator {
         data class Failed(val message: String) : InstallNowResult
     }
 
-    /** Settings helper: the pending update when its verified APK still exists. */
+    /**
+     * Settings helper: the pending update when its verified APK still exists
+     * and the user has not skipped exactly this version. (Skipping only sets
+     * the deferral — the download stays — so the UI must honor it here or the
+     * install prompt would reappear right after "Skip this version".)
+     */
     fun pendingUpdate(context: Context): PendingUpdate? {
         val code = UpdateSettings.pendingVersionCode(context)
         if (code <= 0L) return null
+        if (UpdateSettings.deferredVersionCode(context) == code) return null
         val dir = UpdateDownloader.updatesDir(context.cacheDir)
         if (!UpdateDownloader.apkFileFor(dir, code).isFile) return null
         return PendingUpdate(
