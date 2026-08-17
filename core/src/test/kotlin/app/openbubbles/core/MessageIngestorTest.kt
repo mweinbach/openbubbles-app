@@ -268,6 +268,169 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `transcript background without conversation data resolves the chat by peer address`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val chatRow = chatBox().all.single()
+
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            // Live wallpaper pushes carry no ConversationData; the chat comes
+            // from the message's cid, which is the bare peer address for DMs.
+            val chat = capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "bg-live-1",
+                        sender = friend,
+                        conversation = null,
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = 9uL,
+                            chatId = "friend@icloud.com",
+                            remove = false,
+                            mmcsXml = "<mmcs/>",
+                        ),
+                        sentTimestamp = 1_700_000_300_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+            assertEquals(chatRow.id, chat?.id)
+        } finally {
+            capturing.close()
+        }
+
+        assertEquals(
+            listOf(
+                TranscriptBackgroundUpdate(
+                    chatId = chatRow.id,
+                    version = 9L,
+                    remove = false,
+                    mmcsXml = "<mmcs/>",
+                ),
+            ),
+            updates,
+        )
+    }
+
+    @Test
+    fun `transcript background without conversation data resolves group chats by guid ref`() = runBlocking<Unit> {
+        val groupGuid = "sender-group-guid"
+        ingestor.ingest(
+            push(
+                textInst(
+                    "group-msg-1",
+                    friend,
+                    "hello group",
+                    conv = conversation(me, friend, "mailto:third@icloud.com", senderGuid = groupGuid),
+                ),
+            ),
+            myHandles,
+        )
+        val chatRow = chatBox().all.single()
+
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            val chat = capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "bg-live-2",
+                        sender = friend,
+                        conversation = null,
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = 10uL,
+                            chatId = groupGuid,
+                            remove = true,
+                            mmcsXml = null,
+                        ),
+                        sentTimestamp = 1_700_000_400_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+            assertEquals(chatRow.id, chat?.id)
+        } finally {
+            capturing.close()
+        }
+
+        assertEquals(
+            listOf(
+                TranscriptBackgroundUpdate(
+                    chatId = chatRow.id,
+                    version = 10L,
+                    remove = true,
+                    mmcsXml = null,
+                ),
+            ),
+            updates,
+        )
+    }
+
+    @Test
+    fun `transcript background without a chat id falls back to the sender's direct chat`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val chatRow = chatBox().all.single()
+
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            val chat = capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "bg-live-3",
+                        sender = friend,
+                        conversation = null,
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = 11uL,
+                            chatId = null,
+                            remove = false,
+                            mmcsXml = "<mmcs/>",
+                        ),
+                        sentTimestamp = 1_700_000_500_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+            assertEquals(chatRow.id, chat?.id)
+        } finally {
+            capturing.close()
+        }
+
+        assertEquals(
+            listOf(
+                TranscriptBackgroundUpdate(
+                    chatId = chatRow.id,
+                    version = 11L,
+                    remove = false,
+                    mmcsXml = "<mmcs/>",
+                ),
+            ),
+            updates,
+        )
+    }
+
+    @Test
     fun `empty message is dropped`() = runBlocking<Unit> {
         val empty = UMessageInst(
             id = "msg-empty",

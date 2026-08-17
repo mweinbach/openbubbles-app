@@ -4,6 +4,7 @@ import android.content.Context
 import app.openbubbles.core.sync.TranscriptBackgroundHandler
 import app.openbubbles.core.sync.TranscriptBackgroundUpdate
 import app.openbubbles.db.Chat
+import io.objectbox.Box
 import io.objectbox.BoxStore
 import java.io.File
 import java.io.FileOutputStream
@@ -15,12 +16,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UPosterKind
 import uniffi.rust_lib_bluebubbles.parsePoster
 
 internal class TranscriptBackgroundStore(
     private val store: BoxStore,
     private val filesDir: File,
     private val cacheDir: File,
+    /** Wallpaper image bytes for the poster payload; empty means "cleared". */
     private val loadImage: suspend (mmcsXml: String, payload: File) -> ByteArray,
 ) : TranscriptBackgroundHandler {
 
@@ -36,7 +39,15 @@ internal class TranscriptBackgroundStore(
                 ?: error("push state unavailable for transcript background")
             state.downloadMmcs(mmcsXml, payload.absolutePath, null)
             parsePoster(payload.readBytes()).use { poster ->
-                poster.watch().backgroundImage
+                when (poster.kind()) {
+                    // Apple encodes "wallpaper cleared" as a dynamic or
+                    // gradient poster set (the Dart client deleted the local
+                    // poster for these kinds).
+                    is UPosterKind.TranscriptDynamic,
+                    is UPosterKind.TranscriptGradient,
+                    -> ByteArray(0)
+                    else -> poster.watch().backgroundImage
+                }
             }
         },
     )
@@ -53,11 +64,7 @@ internal class TranscriptBackgroundStore(
                 check(isDirectory || mkdirs()) { "failed to create transcript background directory" }
             }
             if (update.remove) {
-                val previous = initial.transcriptPosterPath
-                initial.transcriptPosterPath = null
-                initial.transcriptBackgroundVersion = update.version
-                chatBox.put(initial)
-                deleteOwnedBackground(previous, directory, null)
+                removeBackground(chatBox, initial, update.version, directory)
                 return@withLock
             }
 
@@ -68,10 +75,16 @@ internal class TranscriptBackgroundStore(
             var staged: File? = null
             try {
                 val image = loadImage(mmcsXml, payload)
-                check(image.isNotEmpty()) { "transcript background did not contain an image" }
 
                 val current = chatBox.get(update.chatId) ?: return@withLock
                 if (hasApplied(current, update)) {
+                    return@withLock
+                }
+
+                if (image.isEmpty()) {
+                    // Dynamic/gradient posters (no wallpaper image) are how
+                    // Apple clears a chat background — apply as a removal.
+                    removeBackground(chatBox, current, update.version, directory)
                     return@withLock
                 }
 
@@ -104,6 +117,19 @@ internal class TranscriptBackgroundStore(
                 runCatching { payload.delete() }
             }
         }
+    }
+
+    private fun removeBackground(
+        chatBox: Box<Chat>,
+        chat: Chat,
+        version: Long,
+        directory: File,
+    ) {
+        val previous = chat.transcriptPosterPath
+        chat.transcriptPosterPath = null
+        chat.transcriptBackgroundVersion = version
+        chatBox.put(chat)
+        deleteOwnedBackground(previous, directory, null)
     }
 
     private fun moveAtomically(source: File, destination: File) {

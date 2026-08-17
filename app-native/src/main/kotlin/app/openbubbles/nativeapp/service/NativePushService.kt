@@ -270,16 +270,10 @@ class NativePushService : Service(), MsgReceiver {
     ) {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
         val background = inst.message as? UMessage.SetTranscriptBackground ?: return
-        val box = CoreGraph.store?.boxFor(app.openbubbles.db.Chat::class.java) ?: return
-        val target = chat ?: background.chatId?.let { guid ->
-            box.query()
-                .equal(
-                    app.openbubbles.db.Chat_.guid,
-                    guid,
-                    io.objectbox.query.QueryBuilder.StringOrder.CASE_SENSITIVE,
-                )
-                .build().use { it.findFirst() }
-        } ?: return
+        // The ingestor already resolved the chat (cid handle / rust guid /
+        // sender fallback); a null means we do not know the conversation yet
+        // and the history sync that imports it applies the wallpaper instead.
+        val target = chat ?: return
         transcriptBackgroundStore.apply(
             TranscriptBackgroundUpdate(
                 chatId = target.id,
