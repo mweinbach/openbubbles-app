@@ -6,7 +6,7 @@
 # CI never sees that key, so CI cannot publish production-signed updates.
 #
 # Each release carries two assets:
-#   openbubbles-<versionName>.apk  — universal (arm64-v8a + x86_64) release APK
+#   openbubbles-<versionName>-<versionCode>.apk — universal release APK
 #   update.json                    — the in-app update feed consumed by
 #                                    app.openbubbles.nativeapp.update
 #
@@ -112,7 +112,9 @@ fi
 log "production keystore present"
 
 # ------------------------------------------------------- version gate ------
-read_gradle() { sed -n "s/^[[:space:]]*$1[[:space:]]\+\(.*\)$/\1/p" "$BUILD_GRADLE" | head -1; }
+read_gradle() {
+    awk -v key="$1" '$1 == key { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }' "$BUILD_GRADLE"
+}
 current_name="$(read_gradle versionName | tr -d '"')"
 current_code="$(read_gradle versionCode)"
 [ -n "$current_name" ] && [ -n "$current_code" ] || \
@@ -161,7 +163,7 @@ fi
 # ----------------------------------------------------------- checksum ------
 SHA256="$(shasum -a 256 "$APK_PATH" | awk '{print $1}')"
 BYTES="$(wc -c < "$APK_PATH" | tr -d ' ')"
-APK_ASSET="openbubbles-$VERSION_NAME.apk"
+APK_ASSET="openbubbles-$VERSION_NAME-$VERSION_CODE.apk"
 log "apk: $APK_ASSET ($BYTES bytes, sha256 $SHA256)"
 
 STAGED_APK="$TMP_DIR/$APK_ASSET"
@@ -186,9 +188,10 @@ cat "$TMP_DIR/update.json"
 printf '%s' "$NOTES" > "$TMP_DIR/release-notes.md"
 
 # ------------------------------------------------------------ publish ------
-TAG="v$VERSION_NAME"
+TAG="v$VERSION_NAME-$VERSION_CODE"
+TARGET_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ "$DRY_RUN" -eq 1 ]; then
-    log "dry-run: would run: gh release create $TAG $APK_ASSET update.json (repo $REPO_SLUG)"
+    log "dry-run: would run: gh release create $TAG $APK_ASSET update.json (repo $REPO_SLUG, target $TARGET_SHA)"
     exit 0
 fi
 if gh api "repos/$REPO_SLUG/releases/tags/$TAG" >/dev/null 2>&1; then
@@ -197,6 +200,7 @@ fi
 (cd "$TMP_DIR" && gh release create "$TAG" \
     "$APK_ASSET" "update.json" \
     --repo "$REPO_SLUG" \
+    --target "$TARGET_SHA" \
     --title "OpenBubbles $VERSION_NAME" \
     --notes-file release-notes.md)
 log "published $TAG to $REPO_SLUG — devices will pick it up on the next check"
