@@ -55,7 +55,12 @@ object CloudSyncWiring {
         val store = CoreGraph.store ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stateStore = PrefsCloudSyncStateStore(prefs)
-        val port = UniffiCloudSyncPort(state)
+        val limitPreferences = HistorySyncPreferences(context.applicationContext)
+        val port = HistoryLimitedCloudSyncPort(
+            delegate = UniffiCloudSyncPort(state),
+            store = store,
+            window = { limitPreferences.window },
+        )
         val transcriptBackgroundStore = TranscriptBackgroundStore(context.applicationContext) { state }
         managerRef.set(
             CloudSyncManager(

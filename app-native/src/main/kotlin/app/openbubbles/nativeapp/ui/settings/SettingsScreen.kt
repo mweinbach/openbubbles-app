@@ -71,6 +71,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.HistorySyncPreferences
+import app.openbubbles.nativeapp.data.HistorySyncWindow
 import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
 import app.openbubbles.nativeapp.data.MessagingPrefs
@@ -146,10 +148,13 @@ fun SettingsScreen(
     var signingOut by remember { mutableStateOf(false) }
     var signOutError by remember { mutableStateOf<String?>(null) }
     val messagingPrefs = remember(context) { MessagingPrefs(context) }
+    val historySyncPreferences = remember(context) { HistorySyncPreferences(context) }
     var defaultSendingHandle by remember {
         mutableStateOf(messagingPrefs.defaultSendingHandle)
     }
     var showDefaultSendingHandleDialog by remember { mutableStateOf(false) }
+    var historySyncWindow by remember { mutableStateOf(historySyncPreferences.window) }
+    var showHistorySyncLimitDialog by remember { mutableStateOf(false) }
     val availableSendingHandles = remember(registeredHandles) {
         registeredHandles.sortedWith(
             compareBy<String>(
@@ -572,22 +577,25 @@ fun SettingsScreen(
                     inClique == false ->
                         "Join Secure iCloud Keychain before Messages in iCloud history can be decrypted"
                     syncProgress != null && syncing ->
-                        "${syncProgress!!.phase}: ${syncProgress!!.chatsDone} chats, " +
+                        "${historySyncWindow.title} · ${syncProgress!!.phase}: " +
+                            "${syncProgress!!.chatsDone} chats, " +
                             "${syncProgress!!.messagesDone} messages, ${syncProgress!!.attachmentsDone} attachments"
                     syncSummary?.error != null -> "Sync failed: ${syncSummary!!.error}"
                     syncSummary?.cancelled == true -> "History sync stopped; progress was saved"
                     syncSummary != null ->
-                        "Synced ${syncSummary!!.totalChats} chats, " +
+                        "${historySyncWindow.title} · Synced ${syncSummary!!.totalChats} chats, " +
                             "${syncSummary!!.totalMessages} messages, " +
                             "${syncSummary!!.totalAttachments} attachments " +
                             "(${syncSummary!!.chatTombstones + syncSummary!!.messageTombstones + syncSummary!!.attachmentTombstones} removed) " +
                             "in ${syncSummary!!.durationMs / 1000}s"
-                    else -> "Downloads your Messages in iCloud history to this device"
+                    else ->
+                        "${historySyncWindow.description}. Attachment files download only when opened."
                 }
                 val manager = syncManager
                 val recoveryCode = savedRecoveryCode
                 val icloudRows = buildList {
                     add("history")
+                    add("limit")
                     if (manager != null && inClique == false) add("join")
                     if (manager != null && syncing) add("stop")
                     if (manager != null && !syncing && inClique == true) add("sync")
@@ -602,6 +610,16 @@ fun SettingsScreen(
                             supporting = historySupporting,
                             index = index,
                             count = count,
+                            multiline = true,
+                        )
+                        "limit" -> SettingsActionItem(
+                            title = "History download limit",
+                            supporting = historySyncWindow.title +
+                                ". Applies to new downloads; messages already on this device stay here.",
+                            onClick = { showHistorySyncLimitDialog = true },
+                            index = index,
+                            count = count,
+                            enabled = !syncing,
                             multiline = true,
                         )
                         "join" -> SettingsActionItem(
@@ -621,8 +639,8 @@ fun SettingsScreen(
                             count = count,
                         )
                         "sync" -> SettingsActionItem(
-                            title = "Sync all history now",
-                            supporting = "Download Messages in iCloud to this device",
+                            title = "Sync selected history now",
+                            supporting = "Apply ${historySyncWindow.title.lowercase()} to this full history download",
                             onClick = ::syncAllHistory,
                             index = index,
                             count = count,
@@ -1160,6 +1178,54 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showDefaultSendingHandleDialog = false }) {
+                    Text("Done")
+                }
+            },
+        )
+    }
+
+    if (showHistorySyncLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showHistorySyncLimitDialog = false },
+            title = { Text("History download limit") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "The selected time window limits new message-history downloads. " +
+                            "Chat records still sync so new messages route correctly.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SettingsGroup {
+                        HistorySyncWindow.entries.forEachIndexed { index, option ->
+                            SettingsChoiceItem(
+                                title = option.title,
+                                supporting = option.description,
+                                selected = historySyncWindow == option,
+                                onClick = {
+                                    historySyncWindow = option
+                                    historySyncPreferences.window = option
+                                },
+                                index = index,
+                                count = HistorySyncWindow.entries.size,
+                            )
+                        }
+                    }
+                    Text(
+                        "Attachment metadata follows the selected messages, but attachment files " +
+                            "download only when opened. Reducing the window does not delete local history.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showHistorySyncLimitDialog = false }) {
                     Text("Done")
                 }
             },
