@@ -400,3 +400,19 @@ interface ChatBackgroundActions {
     suspend fun setLocalBackground(chatId: Long, file: File)
     suspend fun clearLocalBackground(chatId: Long)
 }
+
+/**
+ * Cross-store search for the dedicated search page: message bodies and
+ * link-carrying messages from the transcript store, plus the synced contact
+ * list for people matches.
+ */
+interface SearchRepository {
+    /** Newest-first messages whose body contains [query], across all chats. */
+    suspend fun searchMessages(query: String, limit: Int = 25): List<MessageItem> = emptyList()
+
+    /** Newest-first messages carrying a URL that match [query]. */
+    suspend fun searchLinks(query: String, limit: Int = 25): List<MessageItem> = emptyList()
+
+    /** Synced/native contacts for the people section. */
+    suspend fun contacts(): List<app.openbubbles.core.contacts.RawContact> = emptyList()
+}

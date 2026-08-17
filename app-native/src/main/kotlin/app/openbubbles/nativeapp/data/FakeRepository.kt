@@ -435,6 +435,50 @@ object FakeFaceTimeCaller : FaceTimeCaller {
         error("FaceTime requires an active Apple push connection")
 }
 
+/** Canned search results for previews and screenshot tests. */
+object FakeSearchRepository : SearchRepository {
+    override suspend fun searchMessages(query: String, limit: Int): List<MessageItem> = listOf(
+        MessageItem(
+            id = 9_201, text = "grabbing coffee now, want anything?",
+            isFromMe = true, date = 1_759_700_000_000, status = MessageStatus.DELIVERED,
+            isGroupEvent = false, reactionEmoji = null, guid = "fake-search-1", chatId = 2,
+        ),
+        MessageItem(
+            id = 9_202, text = "coffee sounds perfect — see you at the trailhead",
+            isFromMe = false, date = 1_759_690_000_000, status = MessageStatus.READ,
+            isGroupEvent = false, reactionEmoji = null, guid = "fake-search-2",
+            senderAddress = "alex@icloud.com", chatId = 2,
+        ),
+    )
+
+    override suspend fun searchLinks(query: String, limit: Int): List<MessageItem> = listOf(
+        MessageItem(
+            id = 9_203, text = "https://www.nps.gov/yose/index.htm",
+            isFromMe = false, date = 1_759_680_000_000, status = MessageStatus.READ,
+            isGroupEvent = false, reactionEmoji = null, guid = "fake-search-3",
+            senderAddress = "alex@icloud.com", chatId = 2,
+            richLink = RichLinkPreview(
+                url = "https://www.nps.gov/yose/index.htm",
+                displayHost = "nps.gov",
+                title = "Yosemite National Park",
+                summary = "Plan the route, check conditions, and get ready for Saturday's hike.",
+                imageBytes = null, imageMime = null, iconBytes = null, iconMime = null,
+            ),
+        ),
+    )
+
+    override suspend fun contacts(): List<app.openbubbles.core.contacts.RawContact> = listOf(
+        app.openbubbles.core.contacts.RawContact(
+            id = "fake-1", displayName = "Alex Chen", firstName = "Alex", lastName = "Chen",
+            avatarPath = null, addresses = listOf("alex@icloud.com"),
+        ),
+        app.openbubbles.core.contacts.RawContact(
+            id = "fake-2", displayName = "Mark Linsangan", firstName = "Mark", lastName = "Linsangan",
+            avatarPath = null, addresses = listOf("+17033092799"),
+        ),
+    )
+}
+
 /** Fake [AttachmentSender] (no real upload; bubble settles like a text send). */
 object FakeAttachmentSender : AttachmentSender {
     override suspend fun send(
@@ -502,6 +546,7 @@ object AppGraph {
     val typing: TypingRepository get() = CoreGraph.typing
     val attachments: AttachmentProvider get() = CoreGraph.attachments
     val chatInfo: ChatInfoRepository get() = CoreGraph.chatInfo
+    val search: SearchRepository get() = CoreGraph.search
     val chatInfoActions: ChatInfoActions get() = CoreGraph.chatInfoActions
     val chatBackgroundActions: ChatBackgroundActions get() = CoreGraph.chatBackgroundActions
 

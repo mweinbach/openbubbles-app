@@ -119,6 +119,49 @@ class MessageRepo(
             .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
 
+    /**
+     * Newest-first messages whose body contains [text] (case-insensitive),
+     * across every conversation. Reactions (which duplicate their target's
+     * text in some sync paths) and deleted rows are excluded.
+     */
+    fun searchText(text: String, limit: Int = 25): List<MessageItem> {
+        val needle = text.trim()
+        if (needle.isEmpty()) return emptyList()
+        return messageBox.query(
+            Message_.text.contains(needle, QueryBuilder.StringOrder.CASE_INSENSITIVE)
+                .and(Message_.associatedMessageGuid.isNull())
+                .and(Message_.dateDeleted.isNull()),
+        )
+            .orderDesc(Message_.dateCreated)
+            .orderDesc(Message_.id)
+            .build()
+            .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+    }
+
+    /**
+     * Newest-first link-carrying messages matching [text]: the body or the
+     * parsed link metadata contains the needle, and the message actually
+     * carries a URL (rich-link metadata or an http(s) address in the body).
+     */
+    fun searchLinks(text: String, limit: Int = 25): List<MessageItem> {
+        val needle = text.trim()
+        if (needle.isEmpty()) return emptyList()
+        val matchesNeedle = Message_.text.contains(needle, QueryBuilder.StringOrder.CASE_INSENSITIVE)
+            .or(Message_.dbMetadata.contains(needle, QueryBuilder.StringOrder.CASE_INSENSITIVE))
+        val carriesLink = Message_.dbMetadata.notNull()
+            .or(Message_.text.contains("http://", QueryBuilder.StringOrder.CASE_INSENSITIVE))
+            .or(Message_.text.contains("https://", QueryBuilder.StringOrder.CASE_INSENSITIVE))
+        return messageBox.query(
+            matchesNeedle.and(carriesLink)
+                .and(Message_.associatedMessageGuid.isNull())
+                .and(Message_.dateDeleted.isNull()),
+        )
+            .orderDesc(Message_.dateCreated)
+            .orderDesc(Message_.id)
+            .build()
+            .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+    }
+
     /** Root plus every reply attached to the same root part, oldest first. */
     fun threadMessages(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
         val chatIds = conversationChatIds(chatId)

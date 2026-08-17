@@ -123,6 +123,7 @@ dependencies {
     implementation libs.androidx.material3
     implementation libs.androidx.material3.windowsize
     implementation libs.androidx.material3.adaptive.navigation.suite
+    implementation libs.androidx.graphics.shapes
 
     // material3.adaptive is a DIFFERENT version train (1.3.0) from material3.
     implementation libs.androidx.adaptive

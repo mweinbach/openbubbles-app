@@ -412,6 +412,9 @@ object CoreGraph {
             FakeChatInfoRepository
         }
     }
+    val search: SearchRepository by lazy {
+        messageRepo?.let(::CoreSearchRepository) ?: FakeSearchRepository
+    }
     val chatInfoActions: ChatInfoActions by lazy {
         if (store != null) CoreChatInfoActions else FakeChatInfoActions
     }
@@ -595,6 +598,24 @@ private val TAPBACK_EMOJI = mapOf(
     "love" to "❤️", "like" to "👍", "dislike" to "👎", "laugh" to "😂",
     "emphasize" to "‼️", "question" to "❓",
 )
+
+/** Transcript + contact search backed by the local store; links parse lazily in the mapper. */
+private class CoreSearchRepository(
+    private val repo: MessageRepo,
+) : SearchRepository {
+    override suspend fun searchMessages(query: String, limit: Int): List<MessageItem> =
+        withContext(Dispatchers.IO) {
+            repo.searchText(query, limit).map(::coreMessageToUi)
+        }
+
+    override suspend fun searchLinks(query: String, limit: Int): List<MessageItem> =
+        withContext(Dispatchers.IO) {
+            repo.searchLinks(query, limit).map(::coreMessageToUi)
+        }
+
+    override suspend fun contacts(): List<app.openbubbles.core.contacts.RawContact> =
+        withContext(Dispatchers.IO) { CoreGraph.preferredContacts() }
+}
 
 private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = MessageItem(
     id = item.id,

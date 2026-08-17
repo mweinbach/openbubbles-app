@@ -97,6 +97,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Destination | Files | State |
 |---|---|---|
 | Chat list | `ui/chatlist/ChatListScreen.kt`, `ChatListViewModel.kt` | VM + `ChatListRepository`; long-press selects many chats for archive/delete |
+| Search | `ui/search/SearchScreen.kt`, `SearchViewModel.kt` | VM + `SearchRepository`; chats/people/messages/links sections, match highlighting |
 | Archived chats | same list screen, `ChatListKind.Archive` | Opened from Settings; unarchive or delete |
 | Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt` | VM + send/action/attachment/typing ports |
 | New chat | `ui/chatcreator/NewChatScreen.kt` | local + `CoreGraph.findOrCreateChat` |

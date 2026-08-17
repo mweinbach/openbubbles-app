@@ -2,10 +2,13 @@ package app.openbubbles.nativeapp.ui.chatlist
 
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,7 +32,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -38,7 +40,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.Button
@@ -47,19 +48,22 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,7 +79,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
-import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
@@ -83,8 +86,10 @@ import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
+import app.openbubbles.nativeapp.ui.common.rememberPolygonMorph
 import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -103,9 +108,9 @@ enum class ChatListKind { Inbox, Archive }
 @Composable
 fun ChatListScreen(
     uiState: ChatListUiState,
-    onQueryChange: (String) -> Unit,
     onChatClick: (ChatListItem) -> Unit,
     onNewChat: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
     onOpenFindMy: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onTogglePinned: (ChatListItem) -> Unit = {},
@@ -142,11 +147,8 @@ fun ChatListScreen(
     var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     var actionChat by remember { mutableStateOf<ChatListItem?>(null) }
     var confirmDeleteIds by remember { mutableStateOf<Set<Long>?>(null) }
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     val selecting = selectedIds.isNotEmpty()
-    val searchVisible = !selecting && kind == ChatListKind.Inbox &&
-        (searchExpanded || uiState.query.isNotBlank())
     val paneColor = containerColor ?: MaterialTheme.colorScheme.surface
     val visibleChats = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
         when (kind) {
@@ -228,27 +230,10 @@ fun ChatListScreen(
                                 }
                             }
                         } else if (kind == ChatListKind.Inbox) {
-                            IconButton(
-                                onClick = {
-                                    if (searchVisible) {
-                                        searchExpanded = false
-                                        onQueryChange("")
-                                    } else {
-                                        searchExpanded = true
-                                    }
-                                },
-                            ) {
+                            IconButton(onClick = onOpenSearch) {
                                 Icon(
-                                    imageVector = if (searchVisible) {
-                                        Icons.Filled.Clear
-                                    } else {
-                                        Icons.Filled.Search
-                                    },
-                                    contentDescription = if (searchVisible) {
-                                        "Close search"
-                                    } else {
-                                        "Search conversations"
-                                    },
+                                    imageVector = Icons.Filled.Search,
+                                    contentDescription = "Search",
                                 )
                             }
                             Box {
@@ -298,26 +283,11 @@ fun ChatListScreen(
                         scrolledContainerColor = paneColor,
                     ),
                 )
-                if (searchVisible) {
-                    SearchField(
-                        value = uiState.query,
-                        onValueChange = onQueryChange,
-                        modifier = Modifier
-                            .widthIn(max = ListContentMaxWidth)
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
             }
         },
         floatingActionButton = {
-            if (kind == ChatListKind.Inbox && !selecting) {
-                FloatingActionButton(
-                    onClick = onNewChat,
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Icon(Icons.Filled.Edit, contentDescription = "New chat")
-                }
+            if (kind == ChatListKind.Inbox) {
+                NewChatFab(onClick = onNewChat, visible = !selecting)
             }
         },
     ) { padding ->
@@ -335,7 +305,6 @@ fun ChatListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 EmptyState(
-                    query = "",
                     onNewChat = {},
                     archive = true,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxSize(),
@@ -348,7 +317,6 @@ fun ChatListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 EmptyState(
-                    query = uiState.query,
                     onNewChat = onNewChat,
                     modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxSize(),
                 )
@@ -856,34 +824,41 @@ private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The new-chat action: a Medium FAB in the Expressive cookie shape that
+ * morphs into a circle while pressed, and scales/fades out of the corner
+ * when multi-select takes over the list. The polygon morph is the screen's
+ * one hero shape — everything else holds the rounded-rect baseline.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
+private fun NewChatFab(
+    onClick: () -> Unit,
+    visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    TextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier,
-        placeholder = { Text("Search") },
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-        trailingIcon = if (value.isNotEmpty()) {
-            {
-                IconButton(onClick = { onValueChange("") }) {
-                    Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                }
-            }
-        } else {
-            null
-        },
-        singleLine = true,
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = pillTextFieldColors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val morphProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = fastSpatialSpec(),
+        label = "newChatFabMorph",
     )
+    MediumFloatingActionButton(
+        onClick = onClick,
+        shape = rememberPolygonMorph(MaterialShapes.Cookie9Sided, MaterialShapes.Circle, morphProgress),
+        interactionSource = interactionSource,
+        modifier = modifier.animateFloatingActionButton(
+            visible = visible,
+            alignment = Alignment.BottomEnd,
+        ),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Edit,
+            contentDescription = "New chat",
+            modifier = Modifier.size(FloatingActionButtonDefaults.MediumIconSize),
+        )
+    }
 }
 
 @Composable
@@ -893,18 +868,13 @@ private fun LoadingState(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Branded, actionable empty state: for no-query it points at the FAB with a
- * "Start a chat" button; for an active query it explains the miss.
- */
+/** Branded, actionable empty state pointing at the new-chat FAB. */
 @Composable
 private fun EmptyState(
-    query: String,
     onNewChat: () -> Unit,
     modifier: Modifier = Modifier,
     archive: Boolean = false,
 ) {
-    val hasQuery = query.isNotBlank()
     Column(
         modifier = modifier.padding(horizontal = 32.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -917,11 +887,7 @@ private fun EmptyState(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = when {
-                        hasQuery -> Icons.Filled.SearchOff
-                        archive -> Icons.Filled.Archive
-                        else -> Icons.Filled.ChatBubble
-                    },
+                    imageVector = if (archive) Icons.Filled.Archive else Icons.Filled.ChatBubble,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp),
@@ -930,25 +896,21 @@ private fun EmptyState(
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            text = when {
-                hasQuery -> "No results"
-                archive -> "No archived conversations"
-                else -> "No conversations yet"
-            },
+            text = if (archive) "No archived conversations" else "No conversations yet",
             style = MaterialTheme.typography.titleLargeEmphasized,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = when {
-                hasQuery -> "Nothing matches “${query.trim()}”"
-                archive -> "Long-press conversations on the main list to archive them. They stay on this account until you delete them."
-                else -> "Messages you send and receive will show up here."
+            text = if (archive) {
+                "Long-press conversations on the main list to archive them. They stay on this account until you delete them."
+            } else {
+                "Messages you send and receive will show up here."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        if (!hasQuery && !archive) {
+        if (!archive) {
             Spacer(Modifier.height(20.dp))
             Button(onClick = onNewChat, shapes = ButtonDefaults.shapes()) {
                 Icon(
@@ -1022,7 +984,6 @@ private fun ChatListScreenPreview() {
                     ),
                 ),
             ),
-            onQueryChange = {},
             onChatClick = {},
         )
     }

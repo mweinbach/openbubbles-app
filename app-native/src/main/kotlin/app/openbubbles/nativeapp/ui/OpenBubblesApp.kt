@@ -77,6 +77,8 @@ import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
+import app.openbubbles.nativeapp.ui.search.SearchScreen
+import app.openbubbles.nativeapp.ui.search.SearchViewModel
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.common.LocalAppSharedTransitionScope
 import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
@@ -105,6 +107,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val ARCHIVED = "archived"
     const val FIND_MY = "findmy"
+    const val SEARCH = "search"
     const val NEW_CHAT = "newchat"
     fun chat(chatId: Long): String = "chat/$chatId"
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
@@ -153,6 +156,9 @@ data class NewChatKey(
 data class ChatInfoKey(val chatId: Long) : NavKey
 
 @Serializable
+data object SearchKey : NavKey
+
+@Serializable
 data class AttachmentKey(val guid: String, val chatId: Long? = null) : NavKey
 
 @Serializable
@@ -164,6 +170,7 @@ private fun NavKey.toRoute(): String = when (this) {
     is SettingsKey -> Routes.SETTINGS
     is ArchivedChatsKey -> Routes.ARCHIVED
     is FindMyKey -> Routes.FIND_MY
+    is SearchKey -> Routes.SEARCH
     is NewChatKey -> Routes.newChat(recipients, body, useSms)
     is ChatInfoKey -> Routes.chatInfo(chatId)
     is AttachmentKey -> Routes.attachment(guid, chatId)
@@ -183,6 +190,7 @@ private fun routeToKey(route: String): NavKey? = when {
     route == Routes.SETTINGS -> SettingsKey
     route == Routes.ARCHIVED -> ArchivedChatsKey
     route == Routes.FIND_MY -> FindMyKey
+    route == Routes.SEARCH -> SearchKey
     route.substringBefore('?') == Routes.NEW_CHAT -> NewChatKey(
         recipients = routeParameter(route, "to")?.split('\u001f')?.filter(String::isNotBlank).orEmpty(),
         body = routeParameter(route, "body"),
@@ -266,7 +274,7 @@ fun OpenBubblesApp(
         // it so the detail pane never renders orphaned beside nothing.
         backStack.removeAll {
             it is SettingsKey || it is FindMyKey || it is NewChatKey ||
-                it is LoginKey || it is ArchivedChatsKey
+                it is LoginKey || it is ArchivedChatsKey || it is SearchKey
         }
         while (backStack.size > 1 &&
             (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
@@ -474,8 +482,8 @@ fun OpenBubblesApp(
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     ChatListScreen(
                         uiState = state,
-                        onQueryChange = viewModel::onQueryChange,
                         onChatClick = { chat -> openChat(chat.id) },
+                        onOpenSearch = { navigateTo(SearchKey) },
                         onVisibleChatsChanged = { ids ->
                             transcriptPrefetchJob?.cancel()
                             transcriptPrefetchJob = prefetchScope.launch {
@@ -662,7 +670,6 @@ fun OpenBubblesApp(
                         kind = ChatListKind.Archive,
                         showBackButton = true,
                         onBack = { popBack() },
-                        onQueryChange = viewModel::onQueryChange,
                         onChatClick = { chat -> openChat(chat.id) },
                         onArchive = viewModel::archive,
                         onUnarchive = viewModel::unarchive,
@@ -681,6 +688,35 @@ fun OpenBubblesApp(
                         onRefresh = viewModel::refresh,
                         onBack = { popBack() },
                         showBackButton = true,
+                    )
+                }
+
+                entry<SearchKey>(metadata = overlayMetadata) {
+                    val viewModel: SearchViewModel =
+                        viewModel(factory = SearchViewModel.factory(AppGraph.search, AppGraph.chats))
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val searchScope = rememberCoroutineScope()
+                    fun openResult(chatId: Long) {
+                        // The page is transient — land back on the list, not on search.
+                        popBack()
+                        openChat(chatId)
+                    }
+                    SearchScreen(
+                        uiState = state,
+                        onQueryChange = viewModel::onQueryChange,
+                        onOpenChat = ::openResult,
+                        onOpenContact = { contact ->
+                            val address = contact.addresses.firstOrNull() ?: return@SearchScreen
+                            searchScope.launch {
+                                val chatId = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        CoreGraph.findOrCreateChat(listOf(address), sms = false)
+                                    }.getOrNull()
+                                }
+                                if (chatId != null) openResult(chatId)
+                            }
+                        },
+                        onBack = { popBack() },
                     )
                 }
 

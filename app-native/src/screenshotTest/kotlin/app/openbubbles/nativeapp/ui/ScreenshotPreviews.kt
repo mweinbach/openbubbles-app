@@ -29,6 +29,9 @@ import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
+import app.openbubbles.nativeapp.ui.search.SearchMessageRow
+import app.openbubbles.nativeapp.ui.search.SearchScreen
+import app.openbubbles.nativeapp.ui.search.SearchUiState
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 
@@ -150,7 +153,6 @@ fun ChatListScreenScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = sampleState(),
-            onQueryChange = {},
             onChatClick = {},
         )
     }
@@ -164,7 +166,6 @@ fun ChatListEmptyScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = ChatListUiState(),
-            onQueryChange = {},
             onChatClick = {},
         )
     }
@@ -180,7 +181,6 @@ fun ChatListArchiveEmptyScreenshot() {
             uiState = ChatListUiState(),
             kind = ChatListKind.Archive,
             showBackButton = true,
-            onQueryChange = {},
             onChatClick = {},
         )
     }
@@ -227,6 +227,73 @@ fun ChatListRowSelectedScreenshot() {
             ),
             onClick = {},
             selected = true,
+        )
+    }
+}
+
+/** Dedicated search: sectioned chats/people/messages/links with match highlighting. */
+@PreviewTest
+@Preview(name = "search", device = Devices.PHONE, showBackground = true)
+@Preview(name = "search-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun SearchScreenScreenshot() {
+    val chat = ChatListItem(
+        id = 2,
+        title = "Alex Chen",
+        snippet = "grabbing coffee now, want anything?",
+        date = FIXED_NOW - 52 * 60_000L,
+        unread = 0,
+        pinned = false,
+        avatarColor = 0xFF006C4C,
+    )
+    OpenBubblesTheme(dynamicColor = false) {
+        SearchScreen(
+            uiState = SearchUiState(
+                query = "coffee",
+                chats = listOf(chat),
+                people = listOf(
+                    app.openbubbles.core.contacts.RawContact(
+                        id = "p1",
+                        displayName = "Courtney Coffeeson",
+                        firstName = "Courtney",
+                        lastName = "Coffeeson",
+                        avatarPath = null,
+                        addresses = listOf("courtney@icloud.com"),
+                    ),
+                ),
+                messages = listOf(
+                    SearchMessageRow(
+                        guid = "m1",
+                        chatId = 2,
+                        chat = chat,
+                        text = "coffee sounds perfect — see you at the trailhead",
+                        dateMillis = FIXED_NOW - 55 * 60_000L,
+                    ),
+                ),
+                links = listOf(
+                    SearchMessageRow(
+                        guid = "m2",
+                        chatId = 2,
+                        chat = chat,
+                        text = "https://www.nps.gov/yose/index.htm",
+                        dateMillis = FIXED_NOW - 60 * 60_000L,
+                        link = RichLinkPreview(
+                            url = "https://www.nps.gov/yose/index.htm",
+                            displayHost = "nps.gov",
+                            title = "Coffee Country: Yosemite National Park",
+                            summary = null,
+                            imageBytes = null,
+                            imageMime = null,
+                            iconBytes = null,
+                            iconMime = null,
+                        ),
+                    ),
+                ),
+            ),
+            onQueryChange = {},
+            onOpenChat = {},
+            onOpenContact = {},
+            onBack = {},
         )
     }
 }

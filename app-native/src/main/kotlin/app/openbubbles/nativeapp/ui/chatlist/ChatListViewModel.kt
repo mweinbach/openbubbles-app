@@ -7,15 +7,13 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 data class ChatListUiState(
     val loading: Boolean = false,
-    val query: String = "",
     val pinned: List<ChatListItem> = emptyList(),
     val chats: List<ChatListItem> = emptyList(),
     val archived: List<ChatListItem> = emptyList(),
@@ -28,37 +26,21 @@ class ChatListViewModel(
     private val repository: ChatListRepository,
 ) : ViewModel() {
 
-    private val query = MutableStateFlow("")
-
     val uiState: StateFlow<ChatListUiState> =
-        combine(repository.chats(), query) { chats, rawQuery ->
-            val trimmed = rawQuery.trim()
-            val filtered = if (trimmed.isEmpty()) {
-                chats
-            } else {
-                chats.filter { chat ->
-                    chat.title.contains(trimmed, ignoreCase = true) ||
-                        chat.snippet?.contains(trimmed, ignoreCase = true) == true
-                }
-            }
+        repository.chats().map { chats ->
             ChatListUiState(
                 loading = false,
-                query = rawQuery,
                 // Core already returns pins in their persisted pinIndex order.
                 // Re-sorting by message date made pin placement unstable.
-                pinned = filtered.filter { it.pinned && !it.archived },
-                chats = filtered.filter { !it.pinned && !it.archived }.sortedByDescending { it.date },
-                archived = filtered.filter { it.archived }.sortedByDescending { it.date },
+                pinned = chats.filter { it.pinned && !it.archived },
+                chats = chats.filter { !it.pinned && !it.archived }.sortedByDescending { it.date },
+                archived = chats.filter { it.archived }.sortedByDescending { it.date },
             )
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = ChatListUiState(loading = true),
         )
-
-    fun onQueryChange(value: String) {
-        query.value = value
-    }
 
     fun markRead(id: Long) = repository.markRead(id)
 
