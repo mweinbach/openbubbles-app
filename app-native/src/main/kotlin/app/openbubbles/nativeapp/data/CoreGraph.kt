@@ -10,7 +10,6 @@ import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.model.MessageMapper
-import app.openbubbles.core.model.participantAddresses
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.send.buildSendConversation
@@ -395,7 +394,13 @@ object CoreGraph {
         if (!dir.isDirectory) 0L else dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
     val chatInfo: ChatInfoRepository by lazy {
-        store?.let { st -> CoreChatInfoRepository(st) } ?: FakeChatInfoRepository
+        val repo = chatRepo
+        val st = store
+        if (repo != null && st != null) {
+            CoreChatInfoRepository(repo, st)
+        } else {
+            FakeChatInfoRepository
+        }
     }
     val chatInfoActions: ChatInfoActions by lazy {
         if (store != null) CoreChatInfoActions else FakeChatInfoActions
@@ -1035,21 +1040,21 @@ private class CoreAttachmentProvider(
     }
 }
 
-/** Participant addresses for the group-info screen. */
+/** Participant addresses and shared media for the conversation-details screen. */
 private class CoreChatInfoRepository(
+    private val repo: ChatRepo,
     private val store: BoxStore,
 ) : ChatInfoRepository {
     override fun participantAddresses(chatId: Long): List<String> = runCatching {
-        // Shared chat semantics: groups list members, direct chats resolve the
-        // other person (falling back to the chat identifier), self excluded.
-        store.boxFor(Chat::class.java).get(chatId)
-            ?.participantAddresses(PushStateHolder.myHandles)
-            .orEmpty()
+        repo.participantAddresses(chatId)
     }.getOrDefault(emptyList())
 
     override fun sharedContent(chatId: Long, limit: Int): List<SharedContentPreview> = runCatching {
+        val ids = repo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
+            .distinct()
+            .toLongArray()
         val messages = store.boxFor(Message::class.java).query()
-            .equal(Message_.chatId, chatId)
+            .`in`(Message_.chatId, ids)
             .isNull(Message_.dateDeleted)
             .equal(Message_.hasAttachments, true)
             .orderDesc(Message_.dateCreated)

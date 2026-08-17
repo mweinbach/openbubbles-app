@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -140,6 +141,7 @@ fun ContactDetailsCard(
     onOpenAttachment: (String) -> Unit,
     posterFile: File? = null,
     attachmentFile: (String) -> File? = { null },
+    scrollable: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -149,7 +151,7 @@ fun ContactDetailsCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
+            .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -599,6 +601,7 @@ internal fun rememberContactLocation(
     addresses: List<String>,
     port: FindMyPort = remember { RustFindMyPort { PushStateHolder.state } },
 ): ContactLocationUi {
+    if (LocalInspectionMode.current) return ContactLocationUi.NotSharing
     return produceState<ContactLocationUi>(
         initialValue = ContactLocationUi.Loading,
         addresses,

@@ -15,9 +15,11 @@ import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetailsCard
 import app.openbubbles.nativeapp.ui.chatinfo.ContactLocationUi
+import app.openbubbles.nativeapp.ui.chatinfo.ParticipantRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
@@ -379,6 +381,34 @@ fun ContactDetailsCardScreenshot() {
             onFaceTime = {},
             onOpenAttachment = {},
             modifier = Modifier.padding(16.dp),
+        )
+    }
+}
+
+/**
+ * Full conversation-details destination for a 1:1 chat. Must stay a
+ * full-screen contact page — never an empty "No participants found" card.
+ */
+@PreviewTest
+@Preview(name = "chat-info-direct", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-info-direct-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatInfoDirectScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatInfoScreen(
+            chat = ChatListItem(
+                id = 2,
+                title = "Alex Chen",
+                snippet = null,
+                date = FIXED_NOW,
+                unread = 0,
+                pinned = false,
+                avatarColor = 0xFF006C4C,
+                avatarAddress = "alex@icloud.com",
+                isGroup = false,
+            ),
+            participants = listOf(ParticipantRow("alex@icloud.com", "Alex Chen")),
+            onBack = {},
         )
     }
 }

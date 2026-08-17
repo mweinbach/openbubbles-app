@@ -125,3 +125,30 @@ internal fun locationAccuracy(meters: Double?): String? = meters?.takeIf { it > 
         String.format(java.util.Locale.US, "%.1f km", it / 1000)
     }
 }
+
+/** Direct chats render the contact card; groups keep the participant list. */
+internal fun shouldShowDirectContactCard(isGroup: Boolean?): Boolean = isGroup == false
+
+/**
+ * Address used to resolve the 1:1 contact card. The conversation list's
+ * [avatarAddress] is the same identity the header already shows; handle
+ * rows are a fallback for older ingests that never linked them.
+ */
+internal fun directContactAddress(
+    avatarAddress: String?,
+    participantAddresses: List<String>,
+): String = avatarAddress?.takeIf { it.isNotBlank() }
+    ?: participantAddresses.firstOrNull { it.isNotBlank() }.orEmpty()
+
+/** Fold extra conversation handles (phone + email threads) into the card. */
+internal fun mergeContactAddresses(
+    details: ContactDetails,
+    extraAddresses: List<String>,
+): ContactDetails {
+    val extras = extraAddresses.map(::displayContactAddress).filter { it.isNotBlank() }
+    if (extras.isEmpty()) return details
+    return details.copy(
+        phones = (details.phones + extras.filterNot(::isEmailAddress)).distinct(),
+        emails = (details.emails + extras.filter(::isEmailAddress)).distinct(),
+    )
+}

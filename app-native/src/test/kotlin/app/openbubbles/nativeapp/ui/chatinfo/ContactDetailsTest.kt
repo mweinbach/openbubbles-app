@@ -107,4 +107,30 @@ class ContactDetailsTest {
         assertFalse(addressesMatch("mom@icloud.com", "dad@icloud.com"))
         assertTrue(addressesMatch("tel:+15551234567", "+1 (555) 123-4567"))
     }
+
+    @Test
+    fun `direct chats show the contact card even with no participant rows`() {
+        assertTrue(shouldShowDirectContactCard(isGroup = false))
+        assertFalse(shouldShowDirectContactCard(isGroup = true))
+        assertFalse(shouldShowDirectContactCard(isGroup = null))
+        assertEquals("+17033092799", directContactAddress("+17033092799", emptyList()))
+        assertEquals("friend@icloud.com", directContactAddress(null, listOf("friend@icloud.com")))
+        assertEquals("", directContactAddress(null, emptyList()))
+    }
+
+    @Test
+    fun `merged 1-1 handles appear as phone and email on the card`() {
+        val details = resolveContactDetails(
+            handleAddress = "+17033092799",
+            fallbackName = "Mark Linsangan",
+            contacts = emptyList(),
+        )
+        val merged = mergeContactAddresses(
+            details,
+            listOf("+17033092799", "mark@icloud.com"),
+        )
+        assertEquals("Mark Linsangan", merged.displayName)
+        assertEquals(listOf("+17033092799"), merged.phones)
+        assertEquals(listOf("mark@icloud.com"), merged.emails)
+    }
 }

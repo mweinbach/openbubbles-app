@@ -27,7 +27,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -35,8 +37,9 @@ import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -119,9 +122,9 @@ fun ChatInfoScreen(
     onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
     /**
-     * False when this screen renders beside its list — the detail pane on
-     * two-pane layouts or the third pane on expanded ones — where there is
-     * nothing to navigate back to.
+     * False only when this screen is a visible third pane (~1200dp). On
+     * phones and two-pane layouts it replaces the conversation, so back
+     * returns to the chat.
      */
     showBackButton: Boolean = true,
     onOpenChat: (Long) -> Unit = {},
@@ -141,7 +144,7 @@ fun ChatInfoScreen(
     var participantText by remember { mutableStateOf("") }
     var openContact by remember { mutableStateOf<ParticipantRow?>(null) }
     val isGroup = chat?.isGroup == true && !chat.isSms
-    val directParticipant = participants.singleOrNull()?.takeIf { chat?.isGroup != true }
+    val showDirectCard = shouldShowDirectContactCard(chat?.isGroup)
 
     fun launchAction(action: suspend () -> Unit, onSuccess: () -> Unit = {}) {
         scope.launch {
@@ -223,10 +226,15 @@ fun ChatInfoScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Conversation Details") },
+                title = {
+                    Text(chat?.title?.takeIf { it.isNotBlank() } ?: "Conversation")
+                },
                 navigationIcon = {
                     if (showBackButton) {
-                        IconButton(onClick = onBack) {
+                        FilledTonalIconButton(
+                            onClick = onBack,
+                            shapes = IconButtonDefaults.shapes(),
+                        ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
@@ -236,19 +244,28 @@ fun ChatInfoScreen(
     ) { padding ->
         // The primary participant's contact poster (db Handle.posterPath),
         // when a decoded image exists, replaces the initials header.
-        val primaryAddress = participants.firstOrNull()?.address ?: chat?.avatarAddress
-        val posterFile = rememberPosterFile(primaryAddress)
+        val primaryAddress = directContactAddress(
+            chat?.avatarAddress,
+            participants.map { it.address },
+        )
+        val posterFile = rememberPosterFile(primaryAddress.ifBlank { null })
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            if (directParticipant != null && chat != null) {
-                val details = rememberContactDetails(
-                    address = directParticipant.address,
-                    fallbackName = directParticipant.name ?: chat.title,
-                )
+        if (showDirectCard && chat != null) {
+            val details = mergeContactAddresses(
+                rememberContactDetails(
+                    address = directContactAddress(chat.avatarAddress, participants.map { it.address }),
+                    fallbackName = chat.title,
+                ),
+                participants.map { it.address },
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
+            ) {
                 ContactDetailsCard(
                     details = details,
                     location = rememberContactLocation(details.allAddresses),
@@ -256,53 +273,60 @@ fun ChatInfoScreen(
                     conversationTitle = if (chat.isSms) "SMS" else "iMessage",
                     conversationSubtitle = "Last active ${formatListTimestamp(chat.date)}",
                     smsChat = chat.isSms,
-                    onMessage = { openDirectChat(details.handleAddress) },
+                    onMessage = { openDirectChat(details.handleAddress.ifBlank { chat.avatarAddress.orEmpty() }) },
                     onFaceTime = { startFaceTime() },
                     onOpenAttachment = onOpenAttachment,
                     posterFile = posterFile,
                     attachmentFile = attachmentFile,
-                    modifier = Modifier.weight(1f),
+                    scrollable = false,
                 )
-            } else {
+                BackgroundSection(
+                    chat = chat,
+                    onChoose = { pickBackground.launch("image/*") },
+                    onClear = { launchAction(onClearBackground) },
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
                 HeaderSection(
                     chat = chat,
                     participantCount = participants.size,
                     posterFile = posterFile,
                 )
-            }
-            if (isGroup) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = { renameDialog = true },
-                        shapes = ButtonDefaults.shapes(),
-                        modifier = Modifier.weight(1f),
+                if (isGroup) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Rename")
+                        OutlinedButton(
+                            onClick = { renameDialog = true },
+                            shapes = ButtonDefaults.shapes(),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Rename")
+                        }
+                        OutlinedButton(
+                            onClick = { pickGroupPhoto.launch("image/*") },
+                            shapes = ButtonDefaults.shapes(),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Group photo") }
                     }
-                    OutlinedButton(
-                        onClick = { pickGroupPhoto.launch("image/*") },
-                        shapes = ButtonDefaults.shapes(),
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Group photo") }
+                    if (chat.avatarPath != null) {
+                        TextButton(
+                            onClick = { launchAction(onRemoveGroupIcon) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Remove group photo") }
+                    }
                 }
-                if (chat.avatarPath != null) {
-                    TextButton(
-                        onClick = { launchAction(onRemoveGroupIcon) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Remove group photo") }
-                }
-            }
-            BackgroundSection(
-                chat = chat,
-                onChoose = { pickBackground.launch("image/*") },
-                onClear = { launchAction(onClearBackground) },
-            )
-            // Groups list their participants; a direct chat's card above is
-            // the whole story, so the empty placeholder never renders under it.
-            if (directParticipant == null) {
+                BackgroundSection(
+                    chat = chat,
+                    onChoose = { pickBackground.launch("image/*") },
+                    onClear = { launchAction(onClearBackground) },
+                )
                 if (participants.isNotEmpty()) {
                     Text(
                         text = "PARTICIPANTS",
@@ -316,8 +340,6 @@ fun ChatInfoScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 4.dp,
-                            // Keep the last row above the gesture bar; only the
-                            // group-only leave button used to carry this inset.
                             bottom = 4.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                         ),
                         verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
@@ -344,7 +366,7 @@ fun ChatInfoScreen(
                             }
                         }
                     }
-                } else {
+                } else if (isGroup) {
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         Text(
                             text = "No participants found",
@@ -353,28 +375,28 @@ fun ChatInfoScreen(
                         )
                     }
                 }
-            }
-            if (isGroup) {
-                OutlinedButton(
-                    onClick = { confirmLeave = true },
-                    shapes = ButtonDefaults.shapes(shape = MaterialTheme.shapes.medium),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .navigationBarsPadding(),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Leave this conversation",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
+                if (isGroup) {
+                    OutlinedButton(
+                        onClick = { confirmLeave = true },
+                        shapes = ButtonDefaults.shapes(shape = MaterialTheme.shapes.medium),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .navigationBarsPadding(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Leave this conversation",
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 }
             }
         }
@@ -854,6 +876,31 @@ private fun ChatInfoScreenPreview() {
             ),
             onBack = {},
             onLeaveChat = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun ChatInfoDirectScreenPreview() {
+    OpenBubblesTheme {
+        ChatInfoScreen(
+            chat = ChatListItem(
+                id = 2,
+                title = "Mark Linsangan",
+                snippet = null,
+                date = System.currentTimeMillis(),
+                unread = 0,
+                pinned = false,
+                avatarColor = 0xFF006C4C,
+                avatarAddress = "+17033092799",
+                isGroup = false,
+            ),
+            // Empty on purpose: 1:1 chats must still show the contact card
+            // when handle rows were never linked.
+            participants = emptyList(),
+            onBack = {},
         )
     }
 }

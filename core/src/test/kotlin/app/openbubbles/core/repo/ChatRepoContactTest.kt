@@ -255,6 +255,47 @@ class ChatRepoContactTest {
         assertEquals(2, ChatRepo(store).chats().size)
     }
 
+    @Test
+    fun `participant addresses union related direct chats`() {
+        val mobile = handle("+15550000001")
+        val email = handle("jamie@icloud.com")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:jamie",
+                    displayName = "Jamie Example",
+                    firstName = "Jamie",
+                    lastName = "Example",
+                    avatarPath = null,
+                    addresses = listOf(mobile.address, email.address),
+                ),
+            ),
+        )
+        val first = chat("chat-mobile", mobile, "from phone", 100L)
+        chat("chat-email", email, "from email", 200L)
+
+        assertEquals(
+            listOf("+15550000001", "jamie@icloud.com").sorted(),
+            ChatRepo(store).participantAddresses(first.id).sorted(),
+        )
+    }
+
+    @Test
+    fun `participant addresses fall back to the chat identifier`() {
+        val chat = Chat().apply {
+            guid = "iMessage;-;friend@icloud.com"
+            chatIdentifier = "friend@icloud.com"
+            style = 45
+            isRpSms = false
+        }
+        store.boxFor(Chat::class.java).put(chat)
+
+        assertEquals(
+            listOf("friend@icloud.com"),
+            ChatRepo(store).participantAddresses(chat.id),
+        )
+    }
+
     private fun handle(address: String): Handle = Handle().apply {
         this.address = address
         service = "iMessage"

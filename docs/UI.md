@@ -81,7 +81,7 @@ Do not add Navigation2 / Accompanist.
 
 - Compact: list and chat are full-screen destinations.
 - Medium+: list | chat (`calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth`).
-- ~1200.dp: chat info is a third pane; otherwise it levitates (`AdaptStrategy.Levitate()`).
+- ~1200.dp: chat info is a third pane. Otherwise it uses detail-pane metadata (full-screen on phones, swaps beside the list on two-pane). Do not levitate it.
 - `openChat()` **swaps** the open conversation. Back from a chat always lands on the list.
 - Find My and Settings live in the chat-list **profile menu**, not extra top-bar icons or a bottom nav.
 - Opening a chat from Settings/Find My pops those keys first so the detail pane is not orphaned.

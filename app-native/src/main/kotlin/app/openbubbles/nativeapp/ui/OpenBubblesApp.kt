@@ -18,8 +18,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.VerticalDragHandle
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
-import androidx.compose.material3.adaptive.layout.AdaptStrategy
-import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldDefaults
 import androidx.compose.material3.adaptive.layout.PaneExpansionAnchor
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
@@ -201,9 +199,10 @@ private fun routeToKey(route: String): NavKey? = when {
  *
  * The chat list and a conversation are a list-detail pair: on a compact window
  * they are separate full-screen destinations, and from medium width up they sit
- * side by side, with conversation details taking the third pane. That behavior
- * comes from [ListDetailSceneStrategy] reading pane metadata off the back stack
- * rather than from any explicit width branching here.
+ * side by side. Conversation details take the third pane only when three
+ * partitions fit; otherwise they replace the conversation as the detail pane.
+ * That behavior comes from [ListDetailSceneStrategy] reading pane metadata off
+ * the back stack rather than from any explicit width branching here.
  */
 @Composable
 fun OpenBubblesApp(
@@ -227,11 +226,13 @@ fun OpenBubblesApp(
     // v2 window-info variant with the two-panes-on-medium override: a messaging
     // client is the canonical list-detail app, so foldables and portrait
     // tablets get list|chat instead of a stretched phone layout, and from
-    // 1200dp up conversation details get the third pane.
+    // 1200dp up conversation details get the third pane. Below that they
+    // replace the conversation so the page is never a levitated card.
     val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(
         currentWindowAdaptiveInfoV2(),
     )
     val isMultiPane = directive.maxHorizontalPartitions > 1
+    val threePane = directive.maxHorizontalPartitions >= 3
 
     fun navigateTo(key: NavKey) {
         if (backStack.lastOrNull() == key) return
@@ -385,12 +386,6 @@ fun OpenBubblesApp(
     val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>(
         directive = directive,
         paneExpansionState = paneExpansionState,
-        // Two panes can't fit list + chat + details: details levitate as a
-        // dialog there instead of hiding outright (the default), which made
-        // the details button a dead end on foldables and portrait tablets.
-        adaptStrategies = ListDetailPaneScaffoldDefaults.adaptStrategies(
-            extraPaneAdaptStrategy = AdaptStrategy.Levitate(),
-        ),
         paneExpansionDragHandle = { state ->
             // One interaction source for both the drag modifier and the handle,
             // so the handle's pressed shape morph tracks the actual drag.
@@ -555,29 +550,40 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<ChatInfoKey>(metadata = ListDetailSceneStrategy.extraPane()) { key ->
+                entry<ChatInfoKey>(
+                    metadata = if (threePane) {
+                        ListDetailSceneStrategy.extraPane()
+                    } else {
+                        ListDetailSceneStrategy.detailPane()
+                    },
+                ) { key ->
                     val chatId = key.chatId
                     val chats by remember(chatId) { AppGraph.chats.chats() }
                         .collectAsStateWithLifecycle(initialValue = emptyList())
-                    val chat = chats.firstOrNull { it.id == chatId }
+                    val chat = chats.firstOrNull { it.id == chatId || chatId in it.memberChatIds }
                     var participantRevision by remember(chatId) {
                         androidx.compose.runtime.mutableIntStateOf(0)
                     }
                     val addresses by produceState<List<String>>(
-                        initialValue = emptyList(),
+                        initialValue = listOfNotNull(chat?.avatarAddress),
                         chatId,
+                        chat?.memberChatIds,
+                        chat?.avatarAddress,
                         participantRevision,
                     ) {
-                        value = withContext(Dispatchers.IO) { AppGraph.chatInfo.participantAddresses(chatId) }
+                        val loaded = withContext(Dispatchers.IO) {
+                            AppGraph.chatInfo.participantAddresses(chatId)
+                        }
+                        value = loaded.ifEmpty { listOfNotNull(chat?.avatarAddress) }
                     }
                     val participants = rememberParticipantRows(addresses)
                     ChatInfoScreen(
                         chat = chat,
                         participants = participants,
                         onBack = { popBack() },
-                        // A visible extra pane (or levitated dialog) has
-                        // nothing to navigate back to.
-                        showBackButton = !isMultiPane,
+                        // Third pane sits beside the chat; phones and two-pane
+                        // replace the conversation, so back has somewhere to go.
+                        showBackButton = !threePane,
                         onRename = { name ->
                             AppGraph.chatInfoActions.rename(chatId, name)
                         },
@@ -601,6 +607,7 @@ fun OpenBubblesApp(
                         onOpenAttachment = { guid ->
                             navigateTo(AttachmentKey(guid, chatId))
                         },
+                        attachmentFile = AppGraph.attachments::localFile,
                     )
                 }
 

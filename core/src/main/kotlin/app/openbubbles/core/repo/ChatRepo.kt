@@ -10,6 +10,7 @@ import app.openbubbles.core.model.GROUP_CHAT_STYLE
 import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.core.model.otherDirectHandle
 import app.openbubbles.core.model.otherDirectHandles
+import app.openbubbles.core.model.participantAddresses
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.ContactV2
@@ -87,6 +88,22 @@ class ChatRepo(
                     .sorted()
             }
             .ifEmpty { listOf(chatId) }
+    }
+
+    /**
+     * Everyone in this conversation except the local account.
+     *
+     * Direct chats that were contact-grouped (phone + email threads) union
+     * every related protocol chat. A 1:1 row with no linked handles still
+     * falls back to [Chat.chatIdentifier] so the contact sheet matches the
+     * conversation list.
+     */
+    fun participantAddresses(chatId: Long): List<String> {
+        val self = selfAddresses()
+        return relatedDirectChatIds(chatId)
+            .ifEmpty { listOf(chatId) }
+            .flatMap { id -> chatBox.get(id)?.participantAddresses(self).orEmpty() }
+            .distinct()
     }
 
     /**
