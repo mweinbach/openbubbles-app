@@ -3,12 +3,14 @@ package app.openbubbles.nativeapp.ui.chat
 import android.content.Intent
 import android.net.Uri
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -272,12 +274,16 @@ fun buildConversationEntries(
 
         val above = entries.getOrNull(i + 1) as? ConversationEntry.Message
         val below = entries.getOrNull(i - 1) as? ConversationEntry.Message
+        val isReply = message.replyToGuid != null
+        val belowIsReply = below?.message?.replyToGuid != null
         val tightTop = above != null &&
             above.message.rendersAsBubble() &&
-            above.message.authorKey() == message.authorKey()
+            above.message.authorKey() == message.authorKey() &&
+            !isReply
         val tightBottom = below != null &&
             below.message.rendersAsBubble() &&
-            below.message.authorKey() == message.authorKey()
+            below.message.authorKey() == message.authorKey() &&
+            !belowIsReply
         val showName = showSenderNames &&
             !message.isFromMe &&
             message.senderAddress != null &&
@@ -313,7 +319,8 @@ fun ChatScreen(
      * detail pane in a list-detail layout does not show a back arrow.
      */
     showBackButton: Boolean = true,
-    onSendAttachment: (OutgoingAttachment) -> Unit = {},
+    onStageAttachments: (List<OutgoingAttachment>) -> Unit = {},
+    onRemovePendingAttachment: (OutgoingAttachment) -> Unit = {},
     onReply: (MessageItem, Long) -> Unit = { _, _ -> },
     onOpenReplyThread: (MessageItem) -> Unit = {},
     onCloseReplyThread: () -> Unit = {},
@@ -506,20 +513,46 @@ fun ChatScreen(
             topBar = {
                 TopAppBar(
                     title = {
-                        ChatHeader(
-                            chat = uiState.chat,
-                            modifier = Modifier.clickable(
-                                onClickLabel = "Open conversation details",
-                                role = Role.Button,
-                                onClick = onOpenChatInfo,
-                            ),
-                        )
+                        if (openThread != null) {
+                            Text("Thread")
+                        } else {
+                            ChatHeader(
+                                chat = uiState.chat,
+                                modifier = Modifier.clickable(
+                                    onClickLabel = "Open conversation details",
+                                    role = Role.Button,
+                                    onClick = onOpenChatInfo,
+                                ),
+                            )
+                        }
                     },
                     subtitle = {
-                        Text(if (uiState.chat?.isSms == true) "SMS / MMS" else "iMessage")
+                        if (openThread != null) {
+                            val root = openThread.messages.firstOrNull { it.guid == openThread.rootGuid }
+                                ?: openThread.messages.firstOrNull()
+                            Text(
+                                text = root?.text?.ifBlank {
+                                    root.attachmentMeta?.name ?: "Replies"
+                                } ?: "Replies",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        } else {
+                            Text(if (uiState.chat?.isSms == true) "SMS / MMS" else "iMessage")
+                        }
                     },
                     navigationIcon = {
-                        if (showBackButton) {
+                        if (openThread != null) {
+                            FilledTonalIconButton(
+                                onClick = onCloseReplyThread,
+                                shapes = IconButtonDefaults.shapes(),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Close thread",
+                                )
+                            }
+                        } else if (showBackButton) {
                             FilledTonalIconButton(
                                 onClick = onBack,
                                 shapes = IconButtonDefaults.shapes(),
@@ -590,6 +623,33 @@ fun ChatScreen(
                     uiState.initialLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         LoadingIndicator()
                     }
+                    openThread != null -> ReplyThreadPane(
+                        thread = openThread,
+                        smsChat = smsChat,
+                        senderNames = senderNames,
+                        attachmentFile = attachmentFile,
+                        onOpenAttachment = onOpenAttachment,
+                        onDownloadAttachment = onDownloadAttachment,
+                        onReply = onReplyFromThread,
+                        onLongPressPart = { message, part ->
+                            if (message.status != MessageStatus.SENDING) {
+                                selectedAction = SelectedMessageAction(message, part)
+                            }
+                        },
+                        onDownloadSticker = { guid ->
+                            onDownloadAttachment(
+                                AttachmentMeta(
+                                    guid = guid,
+                                    mime = "image/*",
+                                    name = "Sticker",
+                                    sizeBytes = null,
+                                    isImage = true,
+                                    downloaded = false,
+                                ),
+                            )
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     uiState.messages.isEmpty() && !isTyping ->
                         ChatEmptyState(Modifier.fillMaxSize())
                     else -> LazyColumn(
@@ -770,18 +830,6 @@ fun ChatScreen(
                 pendingSticker = null
                 stickerTarget = null
             },
-        )
-    }
-
-    uiState.replyThread?.let { thread ->
-        ReplyThreadSheet(
-            thread = thread,
-            threadSmsChat = smsChat,
-            attachmentFile = attachmentFile,
-            onOpenAttachment = onOpenAttachment,
-            onDownloadAttachment = onDownloadAttachment,
-            onReply = { message -> onReplyFromThread(message, thread.part) },
-            onDismiss = onCloseReplyThread,
         )
     }
 
@@ -1059,68 +1107,6 @@ private fun StickerPlacementSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReplyThreadSheet(
-    thread: ReplyThreadState,
-    threadSmsChat: Boolean,
-    attachmentFile: (String) -> File?,
-    onOpenAttachment: (String) -> Unit,
-    onDownloadAttachment: (AttachmentMeta) -> Unit,
-    onReply: (MessageItem) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                "Replies",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-            if (thread.loading) {
-                Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
-                    LoadingIndicator()
-                }
-            } else if (thread.messages.isEmpty()) {
-                Text(
-                    "No replies found for this message part.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(20.dp),
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().height(420.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                ) {
-                    items(thread.messages, key = { it.id }) { message ->
-                        MessageBubble(
-                            message = message,
-                            showStatus = false,
-                            smsChat = threadSmsChat,
-                            attachmentFile = attachmentFile,
-                            onOpenAttachment = onOpenAttachment,
-                            onDownloadAttachment = onDownloadAttachment,
-                            onSwipeReply = if (canSwipeReply(message)) {
-                                { onReply(message) }
-                            } else {
-                                null
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        TextButton(
-                            onClick = { onReply(message) },
-                            modifier = Modifier.padding(horizontal = 18.dp),
-                        ) { Text("Reply") }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @Composable
 private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
     Row(
@@ -1316,15 +1302,45 @@ private fun MessageInputBarPreview() {
                 onAttachClick = {},
                 onAttachLongClick = {},
             )
+            MessageInputBar(
+                value = "I clicked on",
+                onValueChange = {},
+                onSend = {},
+                onAttachClick = {},
+                onAttachLongClick = {},
+                composerActionLabel = "Replying",
+                composerActionText = "For the contact sheet I gave it a screenshot and said when I click contact sheet",
+                composerActionFromMe = true,
+                inputPlaceholder = "Reply",
+            )
+            MessageInputBar(
+                value = "",
+                onValueChange = {},
+                onSend = {},
+                onAttachClick = {},
+                onAttachLongClick = {},
+                pendingAttachments = listOf(
+                    OutgoingAttachment(
+                        File("/nonexistent/trailhead.jpg"),
+                        "image/jpeg", "public.jpeg", "trailhead.jpg", 2_411_520L,
+                    ),
+                    OutgoingAttachment(
+                        File("/nonexistent/itinerary.pdf"),
+                        "application/pdf", "com.adobe.pdf", "itinerary.pdf", 412_676L,
+                    ),
+                ),
+                onRemovePendingAttachment = {},
+            )
         }
     }
 }
 
 /**
  * Expressive capsule input bar: tonal attachment action + growing text field
- * + a send action that morphs color/scale when text is present.
+ * + a send action that morphs color/scale when the draft has content.
  * Long-press the send button for the send-effect picker; long-press the
- * paperclip to attach any file.
+ * paperclip to attach any file. Picked media stages on the draft as a
+ * removable thumbnail strip above the field and rides the next send.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1335,14 +1351,20 @@ private fun MessageInputBar(
     onAttachClick: () -> Unit,
     onAttachLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    pendingAttachments: List<OutgoingAttachment> = emptyList(),
+    onRemovePendingAttachment: (OutgoingAttachment) -> Unit = {},
     pendingEffect: SendEffectOption? = null,
     onClearPendingEffect: () -> Unit = {},
     onSendLongClick: () -> Unit = {},
     composerActionLabel: String? = null,
     composerActionText: String? = null,
+    composerActionFromMe: Boolean = false,
+    smsChat: Boolean = false,
+    inputPlaceholder: String = "Message",
     onClearComposerAction: () -> Unit = {},
 ) {
     val hasText = value.isNotBlank()
+    val hasContent = hasText || pendingAttachments.isNotEmpty()
     val inputFocus = remember { FocusRequester() }
     LaunchedEffect(composerActionLabel) {
         if (composerActionLabel != null) {
@@ -1353,7 +1375,7 @@ private fun MessageInputBar(
     // Color is an effects animation; the button's size response is spatial.
     // (The spec helpers read the theme scheme and honor reduced motion.)
     val sendContainer by animateColorAsState(
-        targetValue = if (hasText) {
+        targetValue = if (hasContent) {
             MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
@@ -1362,7 +1384,7 @@ private fun MessageInputBar(
         label = "sendContainer",
     )
     val sendContent by animateColorAsState(
-        targetValue = if (hasText) {
+        targetValue = if (hasContent) {
             MaterialTheme.colorScheme.onPrimary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
@@ -1468,6 +1490,33 @@ private fun MessageInputBar(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     PendingEffectChip(option = option, onClear = onClearPendingEffect)
+                }
+            }
+        }
+        // Draft attachments staged from the picker; each removes itself,
+        // everything rides the next send. Initial state mirrors visibility so
+        // a restored draft (rotation, recomposition entry) renders without an
+        // enter animation — and first-frame captures see the strip.
+        val attachmentsVisibility = remember {
+            MutableTransitionState(pendingAttachments.isNotEmpty())
+        }.apply { targetState = pendingAttachments.isNotEmpty() }
+        AnimatedVisibility(
+            visibleState = attachmentsVisibility,
+            enter = expandVertically(defaultSpatialSpec()) +
+                fadeIn(defaultEffectsSpec()),
+            exit = shrinkVertically(defaultSpatialSpec()) +
+                fadeOut(defaultEffectsSpec()),
+        ) {
+            LazyRow(
+                modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(pendingAttachments, key = { it.file.absolutePath }) { attachment ->
+                    StagedAttachmentThumb(
+                        attachment = attachment,
+                        onRemove = { onRemovePendingAttachment(attachment) },
+                    )
                 }
             }
         }

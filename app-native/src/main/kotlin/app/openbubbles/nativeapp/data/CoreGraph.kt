@@ -14,6 +14,7 @@ import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.send.buildSendConversation
 import app.openbubbles.core.send.selectSendingHandle
+import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -826,7 +827,10 @@ private class CoreChatListRepository(
     private fun memberIds(id: Long): List<Long> =
         repo.relatedDirectChatIds(id).ifEmpty { listOf(id) }
 
-    override fun markRead(id: Long) = memberIds(id).forEach(repo::markRead)
+    override fun markRead(id: Long) {
+        memberIds(id).forEach(repo::markRead)
+        AppContext.current?.let { Notifications.cancelForChat(it, id) }
+    }
 
     override fun setPinned(id: Long, pinned: Boolean) =
         memberIds(id).forEach { repo.setPinned(it, pinned) }
@@ -1168,6 +1172,7 @@ private object CoreSender : Sender {
 /** Local unread-state update plus the legacy iMessage read-receipt routing. */
 private object CoreReadReceiptSender : ReadReceiptSender {
     override suspend fun markRead(chatId: Long, messageGuid: String?) {
+        AppContext.current?.let { Notifications.cancelForChat(it, chatId) }
         val store = CoreGraph.store ?: return
         val chatRepo = ChatRepo(store)
         val relatedChatIds = chatRepo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }

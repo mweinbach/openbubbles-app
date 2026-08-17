@@ -153,6 +153,38 @@ class NotificationPreviewTest {
         )
     }
 
+    @Test
+    fun `cancel matching covers related ids conversation keys and guids`() {
+        val keep = PostedNotificationRef(1, chatId = 8L, conversationId = "chat-8")
+        val byChatId = PostedNotificationRef(2, chatId = 7L, conversationId = "other")
+        val byConversation = PostedNotificationRef(3, chatId = 0L, conversationId = "chat-7")
+        val byGuid = PostedNotificationRef(4, chatId = 0L, chatGuid = "guid-7")
+        val tagged = PostedNotificationRef(5, tag = "msg", chatId = 9L)
+
+        val matches = matchingConversationNotifications(
+            entries = listOf(keep, byChatId, byConversation, byGuid, tagged),
+            relatedChatIds = setOf(7L, 9L),
+            conversationIds = setOf("chat-7"),
+            chatGuids = setOf("guid-7"),
+        )
+
+        assertEquals(setOf(2, 3, 4, 5), matches.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `visible conversation tracks the open chat and its siblings`() {
+        VisibleConversation.reset()
+        VisibleConversation.enter(listOf(7L, 9L))
+        assertEquals(true, VisibleConversation.contains(7L))
+        assertEquals(true, VisibleConversation.contains(9L))
+        assertEquals(false, VisibleConversation.contains(8L))
+
+        VisibleConversation.leave(listOf(9L))
+        assertEquals(false, VisibleConversation.contains(7L))
+        assertEquals(false, VisibleConversation.contains(9L))
+        VisibleConversation.reset()
+    }
+
     private fun message(vararg parts: UPart) = UMessageInst(
         id = "message-id",
         sender = "mailto:friend@icloud.com",

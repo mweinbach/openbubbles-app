@@ -349,6 +349,81 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `opening a thread keeps the tapped message when the query is empty`() = runTest(dispatcher) {
+        val model = model(RecordingSender(), RecordingActions())
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        val tapped = message(guid = "child", replyToGuid = "missing")
+        model.openReplyThread(tapped)
+        advanceUntilIdle()
+
+        val thread = model.uiState.value.replyThread
+        assertEquals("missing", thread?.rootGuid)
+        assertEquals(false, thread?.loading)
+        assertEquals(listOf("child"), thread?.messages?.map { it.guid })
+        assertEquals("missing", model.uiState.value.replyingTo?.rootGuid)
+    }
+
+    @Test
+    fun `sending from an open thread keeps the thread and reply target`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val root = message(id = 1L, guid = "root", text = "original")
+        val child = message(id = 2L, guid = "child", text = "reply", replyToGuid = "root")
+        val model = model(
+            sender,
+            RecordingActions(),
+            messageRepository = object : MessageListRepository by StaticMessages {
+                override fun thread(chatId: Long, rootGuid: String, part: Long) = listOf(root, child)
+            },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        model.openReplyThread(child)
+        advanceUntilIdle()
+        model.onInputChange("another")
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(Triple(7L, "another", "root"), sender.reply)
+        assertEquals("root", model.uiState.value.replyThread?.rootGuid)
+        assertEquals("root", model.uiState.value.replyingTo?.rootGuid)
+    }
+
+    @Test
+    fun `closing a thread without typed text clears the composer reply`() = runTest(dispatcher) {
+        val model = model(RecordingSender(), RecordingActions())
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        model.openReplyThread(message(guid = "child", replyToGuid = "root"))
+        advanceUntilIdle()
+        model.closeReplyThread()
+        advanceUntilIdle()
+
+        assertEquals(null, model.uiState.value.replyThread)
+        assertEquals(null, model.uiState.value.replyingTo)
+    }
+
+    @Test
+    fun `new incoming messages while open mark the conversation read again`() = runTest(dispatcher) {
+        val messages = MutableMessages(
+            listOf(message(id = 1L, guid = "seen", text = "already here", fromMe = false)),
+        )
+        val receipts = RecordingReadReceipts()
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+            readReceiptSender = receipts,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        assertEquals(listOf<Pair<Long, String?>>(7L to null), receipts.marked)
+
+        messages.value.value += message(id = 2L, guid = "fresh", text = "just arrived", fromMe = false)
+        advanceUntilIdle()
+
+        assertEquals(listOf(7L to null, 7L to "fresh"), receipts.marked)
+    }
+
+    @Test
     fun `slower reply lookup cannot overwrite a newer thread`() = runTest(dispatcher) {
         val messages = BlockingThreadMessages()
         val model = model(
@@ -583,15 +658,34 @@ private class RecordingActions : MessageActions {
 }
 
 private object NoopAttachmentSender : AttachmentSender {
-    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) = Unit
+    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) = Unit
 }
 
 private class RecordingAttachmentSender : AttachmentSender {
     var calls = 0
+    var chatId: Long? = null
+    var caption: String? = null
+    var attachmentNames: List<String> = emptyList()
 
-    override suspend fun send(chatId: Long, attachment: OutgoingAttachment, caption: String?) {
+    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) {
         calls++
+        this.chatId = chatId
+        this.caption = caption
+        attachmentNames = attachments.mapNotNull { it.name }
     }
+}
+
+private class FailingAttachmentSender : AttachmentSender {
+    override suspend fun send(chatId: Long, attachments: List<OutgoingAttachment>, caption: String?) =
+        error("upload broke")
+}
+
+/** Temp-file [OutgoingAttachment] factory; callers delete `file` when done. */
+private fun tempAttachment(name: String): OutgoingAttachment {
+    val file = File.createTempFile("draft-att", ".${name.substringAfterLast('.')}").apply {
+        writeBytes(byteArrayOf(1, 2, 3))
+    }
+    return OutgoingAttachment(file, "image/jpeg", "public.jpeg", name, file.length())
 }
 
 private class RecordingStickerSender : StickerSender {

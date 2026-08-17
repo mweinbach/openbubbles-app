@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.ui
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
@@ -11,10 +12,13 @@ import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chat.ReplyTarget
+import app.openbubbles.nativeapp.ui.chat.ReplyThreadState
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetailsCard
@@ -287,6 +291,180 @@ fun ChatScreenScreenshot() {
                     message(3, "grabbing coffee now, want anything?", fromMe = true, status = MessageStatus.DELIVERED),
                 ),
                 typingSenders = listOf("alex@icloud.com"),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/**
+ * Draft attachment strip: picked media stages on the composer instead of
+ * sending instantly, each thumbnail removable, all riding the next send.
+ */
+@PreviewTest
+@Preview(name = "chat-attachments", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-attachments-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenAttachmentsScreenshot() {
+    val staged = remember {
+        // Real PNGs decoded by the thumbnail strip (hand-encoded so the
+        // preview does not depend on android.graphics, which the JVM
+        // screenshot environment cannot encode).
+        listOf(
+            "trailhead.jpg" to STAGED_PHOTO_ONE_PNG,
+            "summit.jpg" to STAGED_PHOTO_TWO_PNG,
+        ).map { (name, png) ->
+            // createTempFile: the JVM screenshot engine resolves cacheDir to
+            // the module directory, which must not collect preview artifacts.
+            val file = java.io.File.createTempFile("staged-$name", ".png")
+            file.writeBytes(java.util.Base64.getDecoder().decode(png))
+            // Note: thumbnails render their placeholder tiles here — the
+            // screenshot engine stubs android.graphics, so the photo branch
+            // (the same Image(bitmap) the sticker sheet uses) is not
+            // pixel-verifiable on JVM.
+            OutgoingAttachment(
+                file = file,
+                mime = "image/jpeg",
+                uti = "public.jpeg",
+                name = name,
+                sizeBytes = file.length(),
+            )
+        }
+    }
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Alex Chen",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(
+                    message(1, "send me the trail photos when you can!", fromMe = false),
+                    message(2, "on it — picking the keepers now", fromMe = true, status = MessageStatus.DELIVERED),
+                ),
+                input = "here are the best two",
+                pendingAttachments = staged,
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/** 120x120 green gradient PNG (base64), rendered by the first draft thumb. */
+private const val STAGED_PHOTO_ONE_PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAACd0lEQVR42u3RVVYQABSE4VkOCIigICEgCJsQWzGwFQNbUQSxu7u7u7u7Xcz1rmPO//CdM8/zq2DV8IAvcYJ74K4csKWC1a0BXypc0xrwlYFHBHypsDsHbKlwbQ7YUr+ekQFfBLYP3Dsq4Ev91uWALRX1jQ74IrB94PU5YEtFG8YEfKl445iArww8NuBLxZtywJaKN+eALZVsGRfwRWD7wFvHB3ypZFsO2FL/7RMCvghsH3hHDthS/51tAV8q3dUW8JWBJwZ8qXR3DthS6Z4csKUBeycFfBHYPvC+yQFfGrA/B2yp7MCUgC8C2wc+mAO2VHaoPeBL5YfbA74y8NSAL5UfyQFbKj+aA7Y08Ni0gC8C2wc+Pj3gSwNP5IAtDTo5I+CLwPaBT+WALQ06PTPgSxVnZgZ8ZeBZAV+qOJsDtlRxLgdsqfL87IAvAtsHvjAn4EuVF3PAlgZfmhvwRWD7wJdzwJYGX+kI+FLV1Y6Arww8L+BLVddywJaqrueALVXfmB/wRWD7wDcXBHyp+lYO2FLN7YUBXwS2D3wnB2yp5m5nwJdq73UGfGXgRQFfqr2fA7ZU+yAHbGnIw8UBXwS2D/xoScCXhjzOAVuqe7I04IvA9oGf5oAt1T1bFvCl+ufLAr4y8PKAL9W/yAFbqn+ZA7bU8GpFwBeB7QO/XhnwpYY3OWBLQ9+uCvgisH3gdzlgS0PfdwV8qfFDV8BXBl4d8KXGjzlgS42fcsCWmj6vCfgisH3gL90BX2r6mgO2NOzb2oAvAtsH/p4DtjTsR0/Al5p/9gR8ZeDegC81/8oBW2r+nQO21PJnXcAXge0D/+0L+FLLvxyw9R/yzXHefokhJAAAAABJRU5ErkJggg=="
+
+/** 120x120 orange gradient PNG (base64), rendered by the second draft thumb. */
+private const val STAGED_PHOTO_TWO_PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAACLUlEQVR42u3RaTpQYRgAUAsTEREREdlJFEVRFEVRFO2kQZMmTZo0adKkSZN+vT33u3cVPefHWcEpObOjNDJnM52lca5zXXK+KzfbVRazO8viQuHirvLkUqa7PC53r0+u9OTmeipibndFXC1c21OZXM/0VsaN3g3Jzb7cfF9VzO+tiluF2/uqkzuZ/uq4278xuTeQWxioiYX9NXG/8OBAbfIwM1gbjwY3JY+HcotDdbF4sC6eFJ4eqk+eZYbr4/nw5uTFSG5ppCGWDjfEy8KrI43J68xoY7wZ3ZK8HcstjzXF8tGmeFd4f6w5+ZAZb46P41uTTxO5lYmWWDneEp8LX060Jl8zk63xbXJb8n0qtzrVFqsn2+JH4eep9uRXZro9fk9vT/7M5NZmOmLtdEf8LZQIFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsOD/OfgfobRQ+nhKO+AAAAAASUVORK5CYII="
+
+/** Inline reply quotes and the focused thread view. */
+@PreviewTest
+@Preview(name = "chat-reply", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reply-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenReplyScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        val original = message(
+            1,
+            "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "root")
+        val reply = message(
+            2,
+            "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
+            fromMe = true,
+            status = MessageStatus.FAILED,
+        ).copy(
+            guid = "child",
+            replyToGuid = "root",
+            replyPreviewText = original.text,
+        )
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Mark",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(original, reply),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+@PreviewTest
+@Preview(name = "chat-thread", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-thread-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenThreadScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        val original = message(
+            1,
+            "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "root")
+        val reply = message(
+            2,
+            "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
+            fromMe = false,
+        ).copy(guid = "child", replyToGuid = "root", senderAddress = "mark@icloud.com")
+        val follow = message(
+            3,
+            "I'll add one, the models like to be considerate of storage and data by default",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "follow", replyToGuid = "root")
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Mark",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(original, reply, follow),
+                input = "I clicked on",
+                replyingTo = ReplyTarget(
+                    message = original,
+                    rootGuid = "root",
+                    part = 0L,
+                    partLocator = "0:0:20",
+                ),
+                replyThread = ReplyThreadState(
+                    rootGuid = "root",
+                    part = 0L,
+                    messages = listOf(original, reply, follow),
+                    loading = false,
+                    sourceMessage = reply,
+                ),
             ),
             onInputChange = {},
             onSend = {},

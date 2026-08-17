@@ -31,11 +31,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -60,6 +62,7 @@ import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
+import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatViewModel
@@ -316,6 +319,7 @@ fun OpenBubblesApp(
         val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
         if (chatId != null && chatId > 0L) {
+            AppContext.current?.let { Notifications.cancelForChat(it, chatId) }
             if (backStack.none { it is ChatKey && it.chatId == chatId }) {
                 openChat(chatId)
             }
@@ -502,6 +506,11 @@ fun OpenBubblesApp(
 
                 entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
                     val chatId = key.chatId
+                    val conversationContext = LocalContext.current
+                    DisposableEffect(chatId) {
+                        Notifications.onConversationVisible(conversationContext, chatId)
+                        onDispose { Notifications.onConversationHidden(chatId) }
+                    }
                     val viewModel: ChatViewModel = viewModel(
                         key = "chat-$chatId",
                         factory = ChatViewModel.factory(
@@ -524,7 +533,8 @@ fun OpenBubblesApp(
                         onInputChange = viewModel::onInputChange,
                         onSend = viewModel::sendMessage,
                         onLoadOlder = viewModel::loadOlder,
-                        onSendAttachment = viewModel::sendAttachment,
+                        onStageAttachments = viewModel::stageAttachments,
+                        onRemovePendingAttachment = viewModel::removePendingAttachment,
                         onReply = viewModel::beginReply,
                         onOpenReplyThread = viewModel::openReplyThread,
                         onCloseReplyThread = viewModel::closeReplyThread,

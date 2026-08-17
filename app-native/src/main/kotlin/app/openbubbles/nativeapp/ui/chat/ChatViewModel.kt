@@ -52,7 +52,7 @@ data class ChatUiState(
     val screenEffect: ScreenEffectTrigger? = null,
     /** Message part selected as the root of the next threaded reply. */
     val replyingTo: ReplyTarget? = null,
-    /** Part-aware reply thread currently expanded in the conversation sheet. */
+    /** Part-aware reply thread currently focused in the conversation. */
     val replyThread: ReplyThreadState? = null,
     /** My text message currently being edited. */
     val editingMessage: MessageItem? = null,
@@ -77,6 +77,7 @@ data class ReplyThreadState(
     val part: Long,
     val messages: List<MessageItem> = emptyList(),
     val loading: Boolean = true,
+    val sourceMessage: MessageItem? = null,
 )
 
 /** Identifies the message whose send effect should play (once). */
@@ -152,6 +153,8 @@ class ChatViewModel(
     /** Message ids whose send effect has already been played (once each). */
     private val playedEffectMessageIds = mutableSetOf<Long>()
     private var effectBaselineInitialized = false
+    private var lastMarkedIncomingGuid: String? = null
+    private var readBaselineInitialized = false
 
     private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
 
@@ -164,7 +167,10 @@ class ChatViewModel(
 
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)
-            .onEach(::observeMessageEffects)
+            .onEach { list ->
+                observeMessageEffects(list)
+                observeIncomingReadState(list)
+            }
             .stateIn(
                 viewModelScope,
                 SharingStarted.Eagerly,
@@ -181,6 +187,24 @@ class ChatViewModel(
     private fun preferredChatId(): Long = chat.value?.preferredChatId ?: chatId
 
     private fun sourceChatId(message: MessageItem): Long = message.chatId ?: preferredChatId()
+
+    /**
+     * Opening already marks the conversation read. Later incoming rows that
+     * land while this transcript is still open should do the same so the
+     * unread badge and notification cannot come back for a message the user
+     * is looking at.
+     */
+    private fun observeIncomingReadState(list: List<MessageItem>) {
+        val newestIncoming = list.lastOrNull { !it.isFromMe }
+        if (!readBaselineInitialized) {
+            readBaselineInitialized = true
+            lastMarkedIncomingGuid = newestIncoming?.guid
+            return
+        }
+        if (newestIncoming == null || newestIncoming.guid == lastMarkedIncomingGuid) return
+        lastMarkedIncomingGuid = newestIncoming.guid
+        viewModelScope.launch { readReceiptSender.markRead(chatId, newestIncoming.guid) }
+    }
 
     private fun observeMessageEffects(list: List<MessageItem>) {
         if (!effectBaselineInitialized) {
@@ -210,7 +234,7 @@ class ChatViewModel(
         }.combine(replyingTo) { state, reply ->
             state.copy(replyingTo = reply)
         }.combine(replyThread) { state, thread ->
-            state.copy(replyThread = thread)
+            state.copy(replyThread = thread?.let { mergeReplyThread(it, state.messages) })
         }.combine(editingMessage) { state, editing ->
             state.copy(editingMessage = editing)
         }.combine(actionError) { state, error ->
@@ -259,8 +283,7 @@ class ChatViewModel(
                     else -> sender.sendWithEffect(targetChatId, text, effectId)
                 }
             }.onSuccess {
-                editingMessage.value = null
-                replyingTo.value = null
+                settleComposerAfterSend()
             }.onFailure { failure ->
                 input.value = text
                 actionError.value = failure.message ?: "Message operation failed"
@@ -346,9 +369,19 @@ class ChatViewModel(
         val rootGuid = message.replyToGuid ?: message.guid
         val part = message.replyToPart ?: 0L
         replyThreadJob?.cancel()
-        replyThread.value = ReplyThreadState(rootGuid, part)
+        // Seed the focused thread with the tapped message so the pane is never
+        // empty while the part-aware query runs — and so a failed query still
+        // has something to show.
+        replyThread.value = ReplyThreadState(
+            rootGuid = rootGuid,
+            part = part,
+            messages = listOf(message),
+            loading = true,
+            sourceMessage = message,
+        )
+        beginReply(message)
         replyThreadJob = viewModelScope.launch(Dispatchers.IO) {
-            val messages = try {
+            val loaded = try {
                 messageRepository.thread(sourceChatId(message), rootGuid, part)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -361,7 +394,10 @@ class ChatViewModel(
             }
             val current = replyThread.value
             if (current?.rootGuid == rootGuid && current.part == part) {
-                replyThread.value = ReplyThreadState(rootGuid, part, messages, loading = false)
+                val messages = ensureThreadContains(loaded, message)
+                replyThread.value = current.copy(messages = messages, loading = false)
+                val root = messages.firstOrNull { it.guid == rootGuid } ?: message
+                beginReply(root, part)
             }
         }
     }
@@ -370,6 +406,9 @@ class ChatViewModel(
         replyThreadJob?.cancel()
         replyThreadJob = null
         replyThread.value = null
+        if (input.value.isBlank() && editingMessage.value == null) {
+            replyingTo.value = null
+        }
     }
 
     fun consumeScreenEffect(messageId: Long) {
@@ -377,7 +416,6 @@ class ChatViewModel(
     }
 
     fun replyFromThread(message: MessageItem, part: Long) {
-        closeReplyThread()
         beginReply(message, part)
     }
 

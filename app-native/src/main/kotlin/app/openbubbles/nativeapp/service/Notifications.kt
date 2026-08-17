@@ -86,6 +86,7 @@ object Notifications {
         senderName: String? = null,
         messageGuid: String? = null,
     ) {
+        if (isConversationVisible(chatId)) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
         val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId)
@@ -370,19 +371,76 @@ object Notifications {
         nm.notify(requestCode, notification)
     }
 
+    /**
+     * Marks [chatId] (and its merged direct siblings) as the conversation the
+     * user is looking at, then dismisses its notifications. Incoming posts for
+     * those chats are suppressed until [onConversationHidden].
+     */
+    fun onConversationVisible(context: Context, chatId: Long) {
+        VisibleConversation.enter(relatedIdsFor(chatId))
+        cancelForChat(context, chatId)
+    }
+
+    fun onConversationHidden(chatId: Long) {
+        VisibleConversation.leave(relatedIdsFor(chatId))
+    }
+
+    fun isConversationVisible(chatId: Long): Boolean {
+        if (VisibleConversation.contains(chatId)) return true
+        return relatedIdsFor(chatId).any(VisibleConversation::contains)
+    }
+
     /** Cancels every notification posted for [chatId] (children + summary). */
     fun cancelForChat(context: Context, chatId: Long) {
         if (chatId <= 0L) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
-        val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId).toSet()
-        val conversationId = "chat-${relatedChatIds.minOrNull() ?: chatId}"
-        nm.activeNotifications
-            .filter { active ->
+        val relatedChatIds = relatedIdsFor(chatId)
+        val conversationIds = relatedChatIds.map { "chat-$it" }.toSet()
+        // Always drop the stable ids we post with, even if extras were stripped
+        // or the shade still holds a related-chat sibling from an older build.
+        relatedChatIds.forEach { id ->
+            nm.cancel(conversationNotificationId(id))
+        }
+        matchingConversationNotifications(
+            entries = nm.activeNotifications.map { active ->
                 val extras = active.notification.extras
-                extras.getLong(EXTRA_CHAT_ID) in relatedChatIds ||
-                    extras.getString(EXTRA_CONVERSATION_ID) == conversationId
-            }
-            .forEach { nm.cancel(it.id) }
+                PostedNotificationRef(
+                    id = active.id,
+                    tag = active.tag,
+                    chatId = extras.getLong(EXTRA_CHAT_ID),
+                    conversationId = extras.getString(EXTRA_CONVERSATION_ID),
+                    chatGuid = extras.getString(EXTRA_CHAT_GUID),
+                )
+            },
+            relatedChatIds = relatedChatIds,
+            conversationIds = conversationIds,
+        ).forEach { nm.cancel(it.tag, it.id) }
+    }
+
+    /** Notification-tap path: the PendingIntent carries a guid, not a row id. */
+    fun cancelForChatGuid(context: Context, chatGuid: String) {
+        if (chatGuid.isBlank()) return
+        val chatId = CoreGraph.chatIdForGuid(chatGuid)
+        if (chatId != null && chatId > 0L) {
+            cancelForChat(context, chatId)
+            return
+        }
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        matchingConversationNotifications(
+            entries = nm.activeNotifications.map { active ->
+                val extras = active.notification.extras
+                PostedNotificationRef(
+                    id = active.id,
+                    tag = active.tag,
+                    chatId = extras.getLong(EXTRA_CHAT_ID),
+                    conversationId = extras.getString(EXTRA_CONVERSATION_ID),
+                    chatGuid = extras.getString(EXTRA_CHAT_GUID),
+                )
+            },
+            relatedChatIds = emptySet(),
+            conversationIds = emptySet(),
+            chatGuids = setOf(chatGuid),
+        ).forEach { nm.cancel(it.tag, it.id) }
     }
 
     /** Removes redundant notifications left by older per-message notification builds. */
@@ -638,8 +696,15 @@ object Notifications {
                 it.id != keepNotificationId &&
                     it.notification.extras.getLong(EXTRA_CHAT_ID) == chatId
             }
-            .forEach { nm.cancel(it.id) }
+            .forEach { nm.cancel(it.tag, it.id) }
     }
+
+    private fun relatedIdsFor(chatId: Long): Set<Long> =
+        runCatching { CoreGraph.relatedDirectChatIds(chatId) }
+            .getOrDefault(emptyList())
+            .ifEmpty { listOf(chatId) }
+            .filter { it > 0L }
+            .toSet()
 
     /**
      * Lazily creates (and keeps renamed) the chat's channel: IMPORTANCE_HIGH
@@ -678,6 +743,48 @@ object Notifications {
 
 internal fun conversationNotificationId(chatId: Long): Int =
     "openbubbles-chat:$chatId".hashCode()
+
+internal data class PostedNotificationRef(
+    val id: Int,
+    val tag: String? = null,
+    val chatId: Long,
+    val conversationId: String? = null,
+    val chatGuid: String? = null,
+)
+
+internal fun matchingConversationNotifications(
+    entries: List<PostedNotificationRef>,
+    relatedChatIds: Set<Long>,
+    conversationIds: Set<String>,
+    chatGuids: Set<String> = emptySet(),
+): List<PostedNotificationRef> = entries.filter { entry ->
+    entry.chatId in relatedChatIds ||
+        entry.conversationId in conversationIds ||
+        (entry.chatGuid != null && entry.chatGuid in chatGuids)
+}
+
+/** Process-level "this conversation is on screen" so incoming posts stay quiet. */
+internal object VisibleConversation {
+    @Volatile
+    private var chatIds: Set<Long> = emptySet()
+
+    fun enter(ids: Collection<Long>) {
+        chatIds = ids.filter { it > 0L }.toSet()
+    }
+
+    fun leave(ids: Collection<Long>) {
+        val leaving = ids.toSet()
+        if (chatIds.any { it in leaving }) {
+            chatIds = emptySet()
+        }
+    }
+
+    fun contains(chatId: Long): Boolean = chatId in chatIds
+
+    fun reset() {
+        chatIds = emptySet()
+    }
+}
 
 internal data class ConversationNotificationEntry(
     val id: Int,

@@ -16,6 +16,7 @@ import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.data.OfficialEngineProbe
+import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.core.Hello
@@ -202,6 +203,7 @@ class NativeMainActivity : ComponentActivity() {
         // do not prefetch; only the tap does, so the list stays cheap.
         pendingChatGuid?.let { guid ->
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                Notifications.cancelForChatGuid(this@NativeMainActivity, guid)
                 val chatId = CoreGraph.chatIdForGuid(guid) ?: return@launch
                 AppGraph.messages.prime(chatId)
             }

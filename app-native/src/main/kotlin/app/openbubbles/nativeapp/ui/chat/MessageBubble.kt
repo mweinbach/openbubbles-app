@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -276,7 +277,7 @@ fun MessageBubble(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     senderDisplayName: String? = null,
-    replyPreview: String? = null,
+    replyQuote: ReplyQuote? = null,
     onOpenReplyThread: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
@@ -364,26 +365,12 @@ fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
-            if (message.replyToGuid != null) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.clickable(onClick = onOpenReplyThread),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.padding(start = 8.dp).size(width = 3.dp, height = 30.dp)
-                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp)),
-                        )
-                        Text(
-                            text = "Reply to ${replyPreview?.ifBlank { "attachment" } ?: "message"}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
-                }
+            replyQuote?.let { quote ->
+                ReplyQuotePreview(
+                    quote = quote,
+                    smsChat = smsChat,
+                    onOpen = onOpenReplyThread,
+                )
             }
             attachments.forEachIndexed { index, attachment ->
                 Box {
@@ -553,6 +540,58 @@ private fun InvisibleInkBubble(
                     // RenderEffect blur is a no-op below Android 12.
                     if (!revealed) Modifier.blur(12.dp) else Modifier,
                 ),
+        )
+    }
+}
+
+/**
+ * Smaller original-message bubble sitting above a reply, colored like the
+ * original sender the way Apple Messages does. Tapping opens the thread.
+ */
+@Composable
+private fun ReplyQuotePreview(
+    quote: ReplyQuote,
+    smsChat: Boolean,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
+    Column(
+        modifier = modifier,
+        horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = bubbleColor,
+            contentColor = bubbleContent,
+            modifier = Modifier.clickable(
+                onClickLabel = "View reply thread",
+                role = Role.Button,
+                onClick = onOpen,
+            ),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                quote.senderName?.let { name ->
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = quote.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .size(width = 2.dp, height = 6.dp)
+                .background(bubbleColor, RoundedCornerShape(1.dp)),
         )
     }
 }
@@ -768,6 +807,45 @@ private fun MessageGroupingPreview() {
             MessageBubble(
                 message = previewMessage("grabbing coffee now, want anything?", isFromMe = true, status = MessageStatus.SENT).copy(id = 4),
                 showStatus = false,
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun MessageReplyPreview() {
+    OpenBubblesTheme {
+        Column {
+            MessageBubble(
+                message = previewMessage(
+                    "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+                    isFromMe = true,
+                    status = MessageStatus.DELIVERED,
+                ).copy(id = 1),
+                showStatus = false,
+            )
+            MessageBubble(
+                message = previewMessage(
+                    "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
+                    isFromMe = true,
+                    status = MessageStatus.FAILED,
+                ).copy(id = 2, replyToGuid = "root"),
+                showStatus = true,
+                replyQuote = ReplyQuote(
+                    text = "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+                    fromMe = true,
+                ),
+            )
+            MessageBubble(
+                message = previewMessage("I'll add one, the models like to be considerate of storage and data by default", isFromMe = false)
+                    .copy(id = 3, replyToGuid = "root"),
+                showStatus = false,
+                replyQuote = ReplyQuote(
+                    text = "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+                    fromMe = true,
+                ),
             )
         }
     }
