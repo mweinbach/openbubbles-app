@@ -59,6 +59,7 @@ import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
@@ -82,7 +83,9 @@ import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import uniffi.rust_lib_bluebubbles.hasSavedUsers
@@ -210,6 +213,7 @@ fun OpenBubblesApp(
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+    val prefetchScope = rememberCoroutineScope()
 
     // A conversation shown beside its list must not offer a back arrow, and the
     // navigation container stays visible in that layout. The directive is the
@@ -241,6 +245,7 @@ fun OpenBubblesApp(
      * conversation always lands on the list.
      */
     fun openChat(chatId: Long) {
+        prefetchScope.launch { AppGraph.messages.prime(chatId, TRANSCRIPT_OPEN_LIMIT) }
         val key = ChatKey(chatId)
         if (backStack.lastOrNull() == key) return
         // A conversation belongs to the Chats tab: entering one from another
@@ -462,6 +467,9 @@ fun OpenBubblesApp(
                         uiState = state,
                         onQueryChange = viewModel::onQueryChange,
                         onChatClick = { chat -> openChat(chat.id) },
+                        onVisibleChatsChanged = { ids ->
+                            prefetchScope.launch { AppGraph.messages.prefetch(ids) }
+                        },
                         selectedChatId = selectedChatId,
                         containerColor = if (isMultiPane) {
                             MaterialTheme.colorScheme.surfaceContainerLow

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
@@ -54,12 +55,14 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -69,12 +72,16 @@ import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 
 private val ListContentMaxWidth = 840.dp
 
@@ -112,6 +119,11 @@ fun ChatListScreen(
      */
     header: @Composable ColumnScope.() -> Unit = {},
     footer: @Composable ColumnScope.() -> Unit = {},
+    /**
+     * Conversation ids currently on screen plus a small off-screen buffer.
+     * Used to warm the newest transcripts so opening a row is instant.
+     */
+    onVisibleChatsChanged: (List<Long>) -> Unit = {},
 ) {
     var selectedChat by remember { mutableStateOf<ChatListItem?>(null) }
     var confirmDelete by remember { mutableStateOf<ChatListItem?>(null) }
@@ -247,6 +259,7 @@ fun ChatListScreen(
                 selectedChatId = selectedChatId,
                 header = header,
                 footer = footer,
+                onVisibleChatsChanged = onVisibleChatsChanged,
             )
         }
     }
@@ -307,10 +320,41 @@ private fun ChatSections(
     selectedChatId: Long?,
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
+    onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
     val itemSpecs = rememberItemAnimationSpecs()
+    val listState = rememberLazyListState()
+    val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived) {
+        uiState.pinned.map { it.id } + uiState.chats.map { it.id } + uiState.archived.map { it.id }
+    }
+    val pinnedIds = remember(uiState.pinned) { uiState.pinned.map { it.id } }
+
+    LaunchedEffect(orderedIds) {
+        onVisibleChatsChanged(visibleTranscriptPrefetchIds(orderedIds, emptyList()))
+    }
+    LaunchedEffect(listState, orderedIds, pinnedIds) {
+        snapshotFlow {
+            val visible = LinkedHashSet<Long>()
+            listState.layoutInfo.visibleItemsInfo.forEach { item ->
+                when (val key = item.key) {
+                    "pinned-grid" -> visible += pinnedIds
+                    is String -> if (key.startsWith("chat-")) {
+                        key.removePrefix("chat-").toLongOrNull()?.let(visible::add)
+                    }
+                }
+            }
+            visibleTranscriptPrefetchIds(orderedIds, visible)
+        }
+            .distinctUntilChanged()
+            .collectLatest { ids ->
+                delay(64)
+                onVisibleChatsChanged(ids)
+            }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

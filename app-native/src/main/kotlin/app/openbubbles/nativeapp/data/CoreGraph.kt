@@ -10,6 +10,7 @@ import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.participantAddresses
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.send.buildSendConversation
@@ -29,6 +30,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,8 +42,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
@@ -82,7 +91,25 @@ object CoreGraph {
     val ingestor: MessageIngestor? by lazy {
         val st = store ?: return@lazy null
         val root = AppContext.current?.dataDir?.let { File(it, "app_flutter") }
-        MessageIngestor(st, scope, root?.let { AttachmentStore(st, it) })
+        MessageIngestor(
+            st,
+            scope,
+            root?.let { AttachmentStore(st, it) },
+            transcriptBackgroundHandler = transcriptBackgroundStore,
+        )
+    }
+
+    /**
+     * Applies Apple chat backgrounds arriving over live push. History sync
+     * builds its own copy (CloudSyncWiring); both coordinate through the
+     * store's process-wide write mutex and the same chat_backgrounds
+     * directory, so a background set on another Apple device lands from
+     * whichever path sees it first.
+     */
+    private val transcriptBackgroundStore: TranscriptBackgroundStore? by lazy {
+        val context = AppContext.current ?: return@lazy null
+        store ?: return@lazy null
+        TranscriptBackgroundStore(context.applicationContext) { PushStateHolder.state }
     }
 
     /**
@@ -828,33 +855,76 @@ internal class CoreMessageListRepository(
         var newestId: Long? = null
     }
 
+    private class Snapshot(
+        val items: List<MessageItem>,
+        val newestId: Long?,
+        val limit: Int,
+        val warmedAt: Long = System.currentTimeMillis(),
+        @Volatile var stale: Boolean = false,
+    )
+
     /** Independent bounded window per open conversation. */
     private val windows = ConcurrentHashMap<Long, PagingWindow>()
+    private val snapshots = ConcurrentHashMap<Long, Snapshot>()
+    private val retained = ConcurrentHashMap.newKeySet<Long>()
+    private val locks = ConcurrentHashMap<Long, Mutex>()
+    private val warmLimiter = Semaphore(3)
+
+    @Volatile
+    private var desired: Set<Long> = emptySet()
 
     private fun window(chatId: Long, initialLimit: Int): PagingWindow =
         windows.computeIfAbsent(chatId) { PagingWindow(initialLimit) }
 
+    private fun lockFor(chatId: Long): Mutex = locks.getOrPut(chatId) { Mutex() }
+
+    override fun cached(chatId: Long): List<MessageItem> = snapshots[chatId]?.items.orEmpty()
+
+    override suspend fun prefetch(
+        chatIds: Collection<Long>,
+        limit: Int,
+    ) {
+        val wanted = chatIds.toSet()
+        desired = wanted
+        val keep = wanted + retained
+        snapshots.keys.filter { it !in keep }.forEach { snapshots.remove(it) }
+        windows.keys.filter { it !in keep }.forEach { windows.remove(it) }
+        locks.keys.filter { it !in keep }.forEach { locks.remove(it) }
+        if (wanted.isEmpty()) return
+        coroutineScope {
+            wanted.map { chatId ->
+                async { warmLimiter.withPermit { warm(chatId, limit) } }
+            }.awaitAll()
+        }
+    }
+
+    override suspend fun prime(chatId: Long, limit: Int) {
+        retained.add(chatId)
+        warmLimiter.withPermit { warm(chatId, limit) }
+    }
+
     override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> {
+        retained.add(chatId)
         val paging = window(chatId, limit)
+        if (paging.size.value < limit) paging.size.value = limit
         return paging.size.flatMapLatest { size ->
+            val requested = size.coerceAtLeast(limit)
             // Combined with the upload board so progress ticks re-emit the page.
             combine(
-                repo.observeMessages(chatId, size.coerceAtLeast(limit)),
+                repo.observeMessages(chatId, requested),
                 UploadProgressBoard.progress,
             ) { page, _ ->
-                val previousNewest = paging.newestId
-                if (page.isNotEmpty()) {
-                    paging.newestId = page.first().id
-                    val newlyPrepended = previousNewest?.let { previous ->
-                        page.indexOfFirst { it.id == previous }
-                    } ?: 0
-                    if (newlyPrepended > 0) {
-                        // Keep already-loaded older rows when new messages land.
-                        paging.size.value += newlyPrepended
+                pageToUi(chatId, paging, page)
+            }
+                .onStart {
+                    val cached = snapshots[chatId]?.items
+                    if (!cached.isNullOrEmpty() && cached.size >= requested) {
+                        emit(cached)
+                    } else {
+                        emit(pageToUi(chatId, paging, repo.messages(chatId, requested)))
                     }
                 }
-                enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
-            }.flowOn(Dispatchers.IO)
+                .flowOn(Dispatchers.IO)
         }
     }
 
@@ -874,7 +944,72 @@ internal class CoreMessageListRepository(
         )
 
     override fun release(chatId: Long) {
-        windows.remove(chatId)
+        retained.remove(chatId)
+        val keep = snapshots[chatId]?.items.orEmpty().takeLast(TRANSCRIPT_OPEN_LIMIT)
+        if (keep.isEmpty() || chatId !in desired) {
+            snapshots.remove(chatId)
+            windows.remove(chatId)
+            locks.remove(chatId)
+            return
+        }
+        rememberSnapshot(chatId, keep)
+        windows[chatId]?.let { paging ->
+            paging.size.value = keep.size.coerceAtLeast(TRANSCRIPT_PREFETCH_LIMIT)
+            paging.newestId = keep.lastOrNull()?.id
+        }
+    }
+
+    private fun pageToUi(
+        chatId: Long,
+        paging: PagingWindow,
+        page: List<app.openbubbles.core.model.MessageItem>,
+    ): List<MessageItem> {
+        val previousNewest = paging.newestId
+        if (page.isNotEmpty()) {
+            paging.newestId = page.first().id
+            val newlyPrepended = previousNewest?.let { previous ->
+                page.indexOfFirst { it.id == previous }
+            } ?: 0
+            if (newlyPrepended > 0) {
+                paging.size.value += newlyPrepended
+            }
+        }
+        val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+        rememberSnapshot(chatId, ui)
+        return ui
+    }
+
+    private suspend fun warm(chatId: Long, limit: Int) {
+        lockFor(chatId).withLock {
+            val existing = snapshots[chatId]
+            val now = System.currentTimeMillis()
+            if (existing != null &&
+                !existing.stale &&
+                existing.limit >= limit &&
+                now - existing.warmedAt < 750L
+            ) {
+                return
+            }
+            val ui = withContext(Dispatchers.IO) {
+                val page = repo.messages(chatId, limit)
+                enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+            }
+            rememberSnapshot(chatId, ui)
+            window(chatId, limit).apply {
+                if (size.value < ui.size) size.value = ui.size
+                newestId = ui.lastOrNull()?.id
+            }
+        }
+    }
+
+    private fun rememberSnapshot(chatId: Long, items: List<MessageItem>) {
+        snapshots[chatId] = Snapshot(
+            items = items,
+            newestId = items.lastOrNull()?.id,
+            limit = items.size,
+            warmedAt = System.currentTimeMillis(),
+            stale = false,
+        )
     }
 }
 
@@ -905,8 +1040,11 @@ private class CoreChatInfoRepository(
     private val store: BoxStore,
 ) : ChatInfoRepository {
     override fun participantAddresses(chatId: Long): List<String> = runCatching {
-        val chat = store.boxFor(Chat::class.java).get(chatId) ?: return emptyList()
-        chat.handles.map { it.formattedAddress ?: it.address }
+        // Shared chat semantics: groups list members, direct chats resolve the
+        // other person (falling back to the chat identifier), self excluded.
+        store.boxFor(Chat::class.java).get(chatId)
+            ?.participantAddresses(PushStateHolder.myHandles)
+            .orEmpty()
     }.getOrDefault(emptyList())
 
     override fun sharedContent(chatId: Long, limit: Int): List<SharedContentPreview> = runCatching {

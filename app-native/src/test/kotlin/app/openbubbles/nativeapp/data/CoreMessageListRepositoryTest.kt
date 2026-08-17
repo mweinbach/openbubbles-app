@@ -71,6 +71,52 @@ class CoreMessageListRepositoryTest {
     }
 
     @Test
+    fun `prefetch caches the newest page without opening the chat`() = runBlocking {
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        val cached = repository.cached(firstChat.id)
+        assertEquals(10, cached.size)
+        assertEquals("message 91", cached.first().text)
+        assertEquals("message 100", cached.last().text)
+        assertTrue(cached.zipWithNext().all { (a, b) -> a.date <= b.date })
+    }
+
+    @Test
+    fun `prefetch evicts chats that leave the window`() = runBlocking {
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        assertEquals(10, repository.cached(firstChat.id).size)
+        repository.prefetch(listOf(secondChat.id), limit = 10)
+        assertTrue(repository.cached(firstChat.id).isEmpty())
+        assertEquals(10, repository.cached(secondChat.id).size)
+    }
+
+    @Test
+    fun `an open chat is retained while the list window moves`() = runBlocking {
+        repository.prime(firstChat.id, limit = 30)
+        assertEquals(30, repository.cached(firstChat.id).size)
+        repository.prefetch(listOf(secondChat.id), limit = 10)
+        assertEquals(30, repository.cached(firstChat.id).size)
+        assertEquals(10, repository.cached(secondChat.id).size)
+    }
+
+    @Test
+    fun `prime expands a prefetched snapshot`() = runBlocking {
+        repository.prefetch(listOf(firstChat.id), limit = 10)
+        assertEquals(10, repository.cached(firstChat.id).size)
+        repository.prime(firstChat.id, limit = 30)
+        assertEquals(30, repository.cached(firstChat.id).size)
+        assertEquals("message 71", repository.cached(firstChat.id).first().text)
+        assertEquals("message 100", repository.cached(firstChat.id).last().text)
+    }
+
+    @Test
+    fun `release drops a snapshot once it is no longer desired`() = runBlocking {
+        repository.prime(firstChat.id, limit = 30)
+        repository.release(firstChat.id)
+        repository.prefetch(listOf(secondChat.id), limit = 10)
+        assertTrue(repository.cached(firstChat.id).isEmpty())
+    }
+
+    @Test
     fun `new messages do not evict already loaded history`() = runBlocking {
         val initial = repository.messages(firstChat.id, limit = 30, before = null).first()
         repository.loadMore(firstChat.id, before = initial.first().id, count = 20)

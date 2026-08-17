@@ -53,6 +53,24 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `prefetched messages are visible before the live query emits`() = runTest(dispatcher) {
+        val warmed = listOf(message(id = 11L, guid = "warm", text = "already here"))
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = object : MessageListRepository by StaticMessages {
+                override fun cached(chatId: Long) = warmed
+                override fun messages(chatId: Long, limit: Int, before: Long?): Flow<List<MessageItem>> =
+                    kotlinx.coroutines.flow.emptyFlow()
+            },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        runCurrent()
+
+        assertEquals(listOf("already here"), model.uiState.value.messages.map { it.text })
+    }
+
+    @Test
     fun `reply targets the thread root`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val actions = RecordingActions()

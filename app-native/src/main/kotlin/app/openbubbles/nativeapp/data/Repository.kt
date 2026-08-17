@@ -162,6 +162,26 @@ interface MessageListRepository {
     /** Root plus replies for one part-aware thread, oldest first. */
     fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> = emptyList()
 
+    /**
+     * Instant snapshot of a warmed transcript, oldest first. Empty when this
+     * conversation has not been prefetched or opened yet.
+     */
+    fun cached(chatId: Long): List<MessageItem> = emptyList()
+
+    /**
+     * Warm the newest [limit] messages for list-adjacent chats and drop
+     * snapshots that left the window. Does not keep a live ObjectBox
+     * subscription — incoming messages refresh only the still-desired set.
+     */
+    suspend fun prefetch(
+        chatIds: Collection<Long>,
+        limit: Int = TRANSCRIPT_PREFETCH_LIMIT,
+    ) = Unit
+
+    /** Expand one conversation immediately (row tap or notification tap). */
+    suspend fun prime(chatId: Long, limit: Int = TRANSCRIPT_OPEN_LIMIT) =
+        prefetch(listOf(chatId), limit)
+
     /** Releases per-conversation paging state when its ViewModel is cleared. */
     fun release(chatId: Long) = Unit
 }

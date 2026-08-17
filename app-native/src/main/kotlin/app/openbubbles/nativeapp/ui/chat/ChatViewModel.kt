@@ -18,6 +18,7 @@ import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
+import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
 import kotlinx.coroutines.CancellationException
@@ -93,7 +94,7 @@ object PendingSendEffect {
     var effectId: String? = null
 }
 
-private const val INITIAL_LIMIT = 30
+private const val INITIAL_LIMIT = TRANSCRIPT_OPEN_LIMIT
 private const val PAGE_SIZE = 20
 
 /**
@@ -161,7 +162,11 @@ class ChatViewModel(
     private val messages: StateFlow<List<MessageItem>> =
         messageRepository.messages(chatId, limit = INITIAL_LIMIT, before = null)
             .onEach(::observeMessageEffects)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                messageRepository.cached(chatId),
+            )
 
     private val typingSenders: StateFlow<List<String>> =
         combine(typingRepository.typing(), chat) { entries, item ->
