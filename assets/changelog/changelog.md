@@ -2,6 +2,40 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.2.0
+
+### Enhancements
+
+- Voice messages now play right in the conversation. Audio messages show an
+  expressive inline player — a big play/pause button, a seekable wave that
+  flattens while paused, and the recording's length — instead of opening as
+  a file, for memos you send and receive alike. Only one memo plays at a
+  time, and it stops when you leave the conversation.
+- Recording is now review-first: tap the new stop button mid-take and the
+  recording parks in the composer as a playable draft, so you can listen
+  back and type a caption before sending it all as one message. (Tapping
+  send while recording still sends the take immediately.)
+- Photos, videos, and voice memos now download themselves. Incoming media
+  up to the size you pick in Settings → Messaging → Auto-download media
+  arrives on its own — 10 MB by default, adjustable up to unlimited — and
+  anything bigger still shows a download button.
+- Per-conversation send-from address: long-press a chat and choose
+  Send from… to pin it to one of your registered addresses (or back to the
+  app default). Your default sending address now also wins over the address
+  a conversation happened to arrive on.
+- Group chats anchor each sender's avatar beside the bottom bubble of their
+  run, the way iOS does.
+
+### Fixes
+
+- Conversation time separators land above the first message of each cluster
+  again, following the Apple Messages cadence: a new calendar day or an
+  hour-plus quiet gap starts a fresh timestamped cluster.
+- iCloud chat wallpapers sync again: backgrounds set from another device now
+  resolve their conversation correctly, a cleared background applies as a
+  removal, and one broken wallpaper record can no longer wedge
+  message-history sync (which also stalled new messages for some chats).
+
 ## v2.1.2
 
 ### Enhancements
