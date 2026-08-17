@@ -1,6 +1,8 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
@@ -44,6 +46,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -53,21 +56,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -87,6 +93,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -94,6 +101,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -109,10 +117,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -153,6 +161,7 @@ import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -301,9 +310,9 @@ fun buildConversationEntries(
  * Conversation view: reversed LazyColumn (newest at the bottom, stays pinned
  * while sending), day separators, bubbles with attachments, edited/unsent
  * rendering, reactions and delivery status, older-history paging when
- * scrolled to the top, an animated typing indicator, draft attachments via
- * the system photo picker (multi-select; long-press the paperclip for any
- * file) that ride the next send, and an IME-aware input bar.
+ * scrolled to the top, an animated typing indicator, draft attachments staged
+ * from the + menu (multi-select photo picker, any file, or an in-place voice
+ * recording) that ride the next send, and an IME-aware input bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -462,6 +471,56 @@ fun ChatScreen(
         }
     }
 
+    // ---- Voice message recording -----------------------------------------
+    // Started from the + menu (after the mic runtime permission). While a
+    // take is live the composer swaps to a timer + live level bars, the send
+    // circle stops-and-sends, and discard (or leaving the screen) deletes it.
+    var audioRecording by remember { mutableStateOf<AudioRecordingSession?>(null) }
+    val focusManager = LocalFocusManager.current
+
+    fun startAudioRecording() {
+        if (audioRecording != null) return
+        focusManager.clearFocus()
+        val session = AudioRecordingSession.start(context)
+        if (session == null) {
+            scope.launch { snackbarHostState.showSnackbar("Could not start recording") }
+        } else {
+            audioRecording = session
+        }
+    }
+
+    val requestMicPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startAudioRecording()
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Microphone access is needed to record audio messages")
+            }
+        }
+    }
+
+    // Pump the session clock + mic levels on a light cadence while live.
+    LaunchedEffect(audioRecording) {
+        val session = audioRecording ?: return@LaunchedEffect
+        while (isActive) {
+            session.tick()
+            delay(120)
+        }
+    }
+
+    BackHandler(enabled = audioRecording != null) {
+        audioRecording?.discard()
+        audioRecording = null
+    }
+
+    // Navigating away (or any disposal) mid-take must not leak the recorder.
+    val latestRecording = rememberUpdatedState(audioRecording)
+    DisposableEffect(Unit) {
+        onDispose { latestRecording.value?.discard() }
+    }
+
     // Contact names for group sender labels and "<name> unsent a message"
     // rows (best effort).
     val senderNames = remember { mutableStateMapOf<String, String>() }
@@ -598,13 +657,45 @@ fun ChatScreen(
                 MessageInputBar(
                     value = uiState.input,
                     onValueChange = onInputChange,
-                    onSend = onSend,
-                    onAttachClick = {
+                    onSend = {
+                        val session = audioRecording
+                        if (session != null) {
+                            // Stop-and-send: the take rides the staged-attachment
+                            // send path; whatever is typed becomes its caption.
+                            audioRecording = null
+                            val recorded = session.finish()
+                            if (recorded == null) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Recording too short — try again")
+                                }
+                            } else {
+                                onStageAttachments(listOf(recorded))
+                                onSend()
+                            }
+                        } else {
+                            onSend()
+                        }
+                    },
+                    onPickMedia = {
                         pickMedia.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
                         )
                     },
-                    onAttachLongClick = { pickFile.launch("*/*") },
+                    onPickFile = { pickFile.launch("*/*") },
+                    onRecordAudio = {
+                        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            startAudioRecording()
+                        } else {
+                            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    recording = audioRecording?.let { RecordingUiState(it.elapsedMillis, it.levels) },
+                    onCancelRecording = {
+                        audioRecording?.discard()
+                        audioRecording = null
+                    },
                     pendingAttachments = uiState.pendingAttachments,
                     onRemovePendingAttachment = onRemovePendingAttachment,
                     pendingEffect = pendingOption,
@@ -1300,22 +1391,25 @@ private fun MessageInputBarPreview() {
                 value = "",
                 onValueChange = {},
                 onSend = {},
-                onAttachClick = {},
-                onAttachLongClick = {},
+                onPickMedia = {},
+                onPickFile = {},
+                onRecordAudio = {},
             )
             MessageInputBar(
                 value = "see you at the trailhead!",
                 onValueChange = {},
                 onSend = {},
-                onAttachClick = {},
-                onAttachLongClick = {},
+                onPickMedia = {},
+                onPickFile = {},
+                onRecordAudio = {},
             )
             MessageInputBar(
                 value = "I clicked on",
                 onValueChange = {},
                 onSend = {},
-                onAttachClick = {},
-                onAttachLongClick = {},
+                onPickMedia = {},
+                onPickFile = {},
+                onRecordAudio = {},
                 composerActionLabel = "Replying",
                 composerActionText = "For the contact sheet I gave it a screenshot and said when I click contact sheet",
                 composerActionFromMe = true,
@@ -1325,8 +1419,26 @@ private fun MessageInputBarPreview() {
                 value = "",
                 onValueChange = {},
                 onSend = {},
-                onAttachClick = {},
-                onAttachLongClick = {},
+                onPickMedia = {},
+                onPickFile = {},
+                onRecordAudio = {},
+                recording = RecordingUiState(
+                    elapsedMillis = 74_000,
+                    levels = listOf(
+                        0.10f, 0.32f, 0.58f, 0.40f, 0.82f, 0.50f, 0.22f, 0.46f,
+                        0.68f, 0.36f, 0.55f, 0.28f, 0.64f, 0.48f, 0.30f, 0.74f,
+                        0.42f, 0.20f, 0.56f, 0.34f,
+                    ),
+                ),
+                onCancelRecording = {},
+            )
+            MessageInputBar(
+                value = "",
+                onValueChange = {},
+                onSend = {},
+                onPickMedia = {},
+                onPickFile = {},
+                onRecordAudio = {},
                 pendingAttachments = listOf(
                     OutgoingAttachment(
                         File("/nonexistent/trailhead.jpg"),
@@ -1344,11 +1456,15 @@ private fun MessageInputBarPreview() {
 }
 
 /**
- * Expressive capsule input bar: tonal attachment action + growing text field
- * + a send action that morphs color/scale when the draft has content.
- * Long-press the send button for the send-effect picker; long-press the
- * paperclip to attach any file. Picked media stages on the draft as a
- * removable thumbnail strip above the field and rides the next send.
+ * Expressive composer: a tonal capsule holding the + attach menu and a
+ * growing text field (up to three lines, then it scrolls; the IME action
+ * stays a plain newline), plus a circular send action outside the capsule
+ * that springs in scale when the draft gains content and morphs its corners
+ * while pressed. The + menu stages photos/videos or any file on the draft
+ * (a removable thumbnail strip above the field rides the next send) and
+ * starts an in-place voice recording; while a take is live the capsule
+ * swaps to a timer with live level bars and the send circle stops-and-sends
+ * it. Long-press the send circle for the send-effect picker.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1356,9 +1472,12 @@ private fun MessageInputBar(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
-    onAttachClick: () -> Unit,
-    onAttachLongClick: () -> Unit,
+    onPickMedia: () -> Unit,
+    onPickFile: () -> Unit,
+    onRecordAudio: () -> Unit,
     modifier: Modifier = Modifier,
+    recording: RecordingUiState? = null,
+    onCancelRecording: () -> Unit = {},
     pendingAttachments: List<OutgoingAttachment> = emptyList(),
     onRemovePendingAttachment: (OutgoingAttachment) -> Unit = {},
     pendingEffect: SendEffectOption? = null,
@@ -1374,6 +1493,9 @@ private fun MessageInputBar(
 ) {
     val hasText = value.isNotBlank()
     val hasContent = hasText || pendingAttachments.isNotEmpty()
+    // A live voice take is sendable even with an empty draft: the send circle
+    // is the stop-and-send action for it.
+    val sendActive = hasContent || recording != null
     val inputFocus = remember { FocusRequester() }
     LaunchedEffect(composerActionLabel) {
         if (composerActionLabel != null) {
@@ -1384,7 +1506,7 @@ private fun MessageInputBar(
     // Color is an effects animation; the button's size response is spatial.
     // (The spec helpers read the theme scheme and honor reduced motion.)
     val sendContainer by animateColorAsState(
-        targetValue = if (hasContent) {
+        targetValue = if (sendActive) {
             MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
@@ -1393,7 +1515,7 @@ private fun MessageInputBar(
         label = "sendContainer",
     )
     val sendContent by animateColorAsState(
-        targetValue = if (hasContent) {
+        targetValue = if (sendActive) {
             MaterialTheme.colorScheme.onPrimary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
@@ -1402,16 +1524,16 @@ private fun MessageInputBar(
         label = "sendContent",
     )
     val sendScale by animateFloatAsState(
-        targetValue = if (hasContent) 1f else 0.9f,
+        targetValue = if (sendActive) 1f else 0.9f,
         animationSpec = fastSpatialSpec(),
         label = "sendScale",
     )
-    // Press corner-morph: the send action rounds out extra while pressed, the
-    // same interaction signal the shapes= button defaults encode.
+    // Press corner-morph: the circle softens into a squircle while pressed,
+    // the same interaction signal the shapes= button defaults encode.
     val sendInteractionSource = remember { MutableInteractionSource() }
     val sendPressed by sendInteractionSource.collectIsPressedAsState()
-    val sendCorner by animateFloatAsState(
-        targetValue = if (sendPressed) 32f else 28f,
+    val sendCornerPercent by animateFloatAsState(
+        targetValue = if (sendPressed) 30f else 50f,
         animationSpec = fastSpatialSpec(),
         label = "sendCorner",
     )
@@ -1533,102 +1655,265 @@ private fun MessageInputBar(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.extraLargeIncreased,
-                // The container role already carries the tonal layer; stacking
-                // elevation tint on it double-signals the same thing.
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    .widthIn(max = ConversationContentMaxWidth).fillMaxWidth(),
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = ConversationContentMaxWidth)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(6.dp),
-                    verticalAlignment = Alignment.Bottom,
+                Surface(
+                    shape = MaterialTheme.shapes.extraLargeIncreased,
+                    // The container role already carries the tonal layer; stacking
+                    // elevation tint on it double-signals the same thing.
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(48.dp).combinedClickable(
-                            role = Role.Button,
-                            onClickLabel = "Attach photo or video",
-                            onLongClickLabel = "Attach any file",
-                            onClick = onAttachClick,
-                            onLongClick = onAttachLongClick,
-                        ),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Filled.AttachFile,
-                                contentDescription = "Attach photo or video",
-                                modifier = Modifier.size(24.dp),
+                    if (recording != null) {
+                        RecordingComposerRow(
+                            state = recording,
+                            onDiscard = onCancelRecording,
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.padding(6.dp),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            AttachMenuButton(
+                                onPickMedia = onPickMedia,
+                                onPickFile = onPickFile,
+                                onRecordAudio = onRecordAudio,
+                            )
+                            BasicTextField(
+                                value = value,
+                                onValueChange = onValueChange,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                                    .focusRequester(inputFocus)
+                                    .semantics { contentDescription = "Message input" },
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                // Grows to three lines, then scrolls.
+                                maxLines = 3,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                ),
+                                decorationBox = { innerTextField ->
+                                    // 12dp + 24sp line + 12dp matches the 48dp
+                                    // attach button, so a single-line draft sits
+                                    // dead-center in the capsule.
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    ) {
+                                        if (value.isEmpty()) {
+                                            Text(
+                                                text = inputPlaceholder,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
                             )
                         }
                     }
-                    BasicTextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
-                            .focusRequester(inputFocus)
-                            .semantics { contentDescription = "Message input" },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        maxLines = 5,
-                        keyboardOptions = KeyboardOptions(
-                            imeAction = ImeAction.Send,
-                            capitalization = KeyboardCapitalization.Sentences,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onSend = { if (hasContent && sendEnabled) onSend() },
-                        ),
-                        decorationBox = { innerTextField ->
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                            ) {
-                                if (value.isEmpty()) {
-                                    Text(
-                                        text = inputPlaceholder,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .graphicsLayer {
-                                scaleX = sendScale
-                                scaleY = sendScale
-                            }
-                            .clip(RoundedCornerShape(sendCorner))
-                            .background(sendContainer)
-                            .combinedClickable(
-                                interactionSource = sendInteractionSource,
-                                indication = LocalIndication.current,
-                                enabled = hasContent && sendEnabled,
-                                role = Role.Button,
-                                onClickLabel = "Send",
-                                onLongClickLabel = "Choose send effect",
-                                onClick = onSend,
-                                onLongClick = onSendLongClick,
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowUpward,
-                            contentDescription = "Send",
-                            tint = sendContent,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
                 }
+                // The send circle lives outside the capsule: it springs in
+                // scale when the draft becomes sendable and morphs from
+                // circle to squircle while pressed.
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .graphicsLayer {
+                            scaleX = sendScale
+                            scaleY = sendScale
+                        }
+                        .clip(RoundedCornerShape(sendCornerPercent.roundToInt()))
+                        .background(sendContainer)
+                        .combinedClickable(
+                            interactionSource = sendInteractionSource,
+                            indication = LocalIndication.current,
+                            enabled = sendActive && sendEnabled,
+                            role = Role.Button,
+                            onClickLabel = "Send",
+                            onLongClickLabel = "Choose send effect",
+                            onClick = onSend,
+                            onLongClick = onSendLongClick,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowUpward,
+                        contentDescription = "Send",
+                        tint = sendContent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The + action anchoring the attach menu: photos/videos, any file, or an
+ * in-place voice recording. The icon rotates into a × while the menu is
+ * open, a spatial spring so it settles with the same feel as the send circle.
+ */
+@Composable
+private fun AttachMenuButton(
+    onPickMedia: () -> Unit,
+    onPickFile: () -> Unit,
+    onRecordAudio: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val iconRotation by animateFloatAsState(
+        targetValue = if (menuOpen) 45f else 0f,
+        animationSpec = fastSpatialSpec(),
+        label = "attachIconRotation",
+    )
+    Box(modifier = modifier) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp).clickable(
+                role = Role.Button,
+                onClickLabel = "Attach",
+            ) { menuOpen = true },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Attach",
+                    modifier = Modifier
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = iconRotation },
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Photos or videos") },
+                leadingIcon = { Icon(Icons.Filled.Photo, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onPickMedia()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("File") },
+                leadingIcon = {
+                    Icon(Icons.AutoMirrored.Filled.InsertDriveFile, contentDescription = null)
+                },
+                onClick = {
+                    menuOpen = false
+                    onPickFile()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Audio message") },
+                leadingIcon = { Icon(Icons.Filled.Mic, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRecordAudio()
+                },
+            )
+        }
+    }
+}
+
+/**
+ * The capsule's recording state: a discard action, a pulsing record dot with
+ * the elapsed time, and live mic level bars. The send circle beside the
+ * capsule stops and sends the take.
+ */
+@Composable
+private fun RecordingComposerRow(
+    state: RecordingUiState,
+    onDiscard: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp).clickable(
+                role = Role.Button,
+                onClickLabel = "Discard recording",
+                onClick = onDiscard,
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Discard recording",
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        // The pulse is decorative, so it drops out entirely when the user
+        // asked the OS to remove animations; the dot stays as the state cue.
+        val pulseAlpha = if (LocalReduceMotion.current) {
+            1f
+        } else {
+            val pulse = rememberInfiniteTransition(label = "recordingPulse")
+            val alpha by pulse.animateFloat(
+                initialValue = 1f,
+                targetValue = 0.25f,
+                animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+                label = "recordingPulseAlpha",
+            )
+            alpha
+        }
+        Box(
+            modifier = Modifier
+                .padding(start = 14.dp)
+                .size(10.dp)
+                .graphicsLayer { alpha = pulseAlpha }
+                .background(MaterialTheme.colorScheme.error, CircleShape),
+        )
+        Text(
+            text = formatRecordingTime(state.elapsedMillis),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 10.dp),
+        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(32.dp)
+                .padding(end = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            state.levels.forEach { level ->
+                val barHeight by animateFloatAsState(
+                    targetValue = 4f + level * 22f,
+                    animationSpec = fastSpatialSpec(),
+                    label = "recordingLevel",
+                )
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(barHeight.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                )
             }
         }
     }
