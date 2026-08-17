@@ -445,6 +445,42 @@ object CoreGraph {
         }
     }
 
+    /**
+     * Fire-and-forget auto-download of a chat's incoming media attachments
+     * (images, videos, audio) up to the Settings → Messaging ceiling
+     * ([MessagingPrefs.autoDownloadMaxBytes]; 0 disables, negative means
+     * unlimited). Runs when a conversation opens and after a live push
+     * ingest, so photos and voice memos are on disk before their bubbles
+     * need them; larger payloads keep waiting for the download chip.
+     */
+    fun autoDownloadForChat(chatId: Long) {
+        val manager = attachmentManager ?: return
+        val context = AppContext.current ?: return
+        val maxBytes = MessagingPrefs(context).autoDownloadMaxBytes
+        if (maxBytes == 0L) return
+        scope.launch(Dispatchers.IO) {
+            manager.pendingFor(chatId)
+                .asSequence()
+                .filter { !it.isOutgoing }
+                .filter { attachment ->
+                    isAutoDownloadEligible(
+                        mime = attachment.mimeType,
+                        totalBytes = attachment.totalBytes.takeIf { bytes -> bytes > 0L },
+                        hasTransferMetadata = attachment.metadata?.containsKey("rustpush") == true ||
+                            attachment.metadata?.containsKey("cloud") == true,
+                        maxBytes = maxBytes,
+                    )
+                }
+                .forEach { attachment ->
+                    launch {
+                        runCatching {
+                            manager.download(attachment).collect { /* terminal is enough here */ }
+                        }
+                    }
+                }
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Backup / restore — additive zone
     // ---------------------------------------------------------------------------

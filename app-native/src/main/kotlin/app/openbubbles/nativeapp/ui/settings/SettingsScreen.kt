@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
@@ -112,6 +113,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
+import app.openbubbles.nativeapp.data.AutoDownloadLimit
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.HistorySyncPreferences
 import app.openbubbles.nativeapp.data.HistorySyncWindow
@@ -206,6 +208,10 @@ fun SettingsScreen(
     var showDefaultSendingHandleDialog by remember { mutableStateOf(false) }
     var historySyncWindow by remember { mutableStateOf(historySyncPreferences.window) }
     var showHistorySyncLimitDialog by remember { mutableStateOf(false) }
+    var autoDownloadLimit by remember {
+        mutableStateOf(AutoDownloadLimit.fromPersistedValue(messagingPrefs.autoDownloadMaxBytes))
+    }
+    var showAutoDownloadDialog by remember { mutableStateOf(false) }
     val availableSendingHandles = remember(registeredHandles) {
         registeredHandles.sortedWith(
             compareBy<String>(
@@ -860,7 +866,7 @@ fun SettingsScreen(
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 4,
+                    count = 5,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
                     icon = Icons.AutoMirrored.Filled.Send,
                 )
@@ -873,8 +879,16 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 4,
+                    count = 5,
                     icon = Icons.Filled.DoneAll,
+                )
+                SettingsActionItem(
+                    title = "Auto-download media",
+                    supporting = autoDownloadLimit.title,
+                    onClick = { showAutoDownloadDialog = true },
+                    index = 2,
+                    count = 5,
+                    icon = Icons.Filled.DownloadForOffline,
                 )
                 SettingsActionItem(
                     title = "Archived conversations",
@@ -884,8 +898,8 @@ fun SettingsScreen(
                         "$archivedCount archived"
                     },
                     onClick = onOpenArchived,
-                    index = 2,
-                    count = 4,
+                    index = 3,
+                    count = 5,
                     icon = Icons.Filled.Archive,
                 )
                 // One row for the SMS role: the chip tone says whether it is
@@ -900,8 +914,8 @@ fun SettingsScreen(
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 3,
-                    count = 4,
+                    index = 4,
+                    count = 5,
                     multiline = true,
                     icon = Icons.Filled.Sms,
                     iconTone = if (isDefaultSmsApp) {
@@ -1302,6 +1316,49 @@ fun SettingsScreen(
         )
     }
 
+    if (showAutoDownloadDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoDownloadDialog = false },
+            title = { Text("Auto-download media") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Incoming photos, videos, and voice memos up to the selected " +
+                            "size download on their own. Anything larger shows a " +
+                            "download button instead.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SettingsGroup {
+                        AutoDownloadLimit.entries.forEachIndexed { index, option ->
+                            SettingsChoiceItem(
+                                title = option.title,
+                                supporting = option.description,
+                                selected = autoDownloadLimit == option,
+                                onClick = {
+                                    autoDownloadLimit = option
+                                    messagingPrefs.autoDownloadMaxBytes = option.persistedValue
+                                },
+                                index = index,
+                                count = AutoDownloadLimit.entries.size,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAutoDownloadDialog = false }) {
+                    Text("Done")
+                }
+            },
+        )
+    }
+
     if (showHistorySyncLimitDialog) {
         AlertDialog(
             onDismissRequest = { showHistorySyncLimitDialog = false },
@@ -1335,8 +1392,9 @@ fun SettingsScreen(
                         }
                     }
                     Text(
-                        "Attachment metadata follows the selected messages, but attachment files " +
-                            "download only when opened. Reducing the window does not delete local history.",
+                        "Attachment metadata follows the selected messages; files auto-download " +
+                            "up to your Auto-download media size and the rest download when opened. " +
+                            "Reducing the window does not delete local history.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

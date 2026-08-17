@@ -553,6 +553,9 @@ object AppGraph {
     /** Fire-and-forget attachment download (no-op on the fake path). */
     fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)
 
+    /** Size-capped media auto-download for a conversation (no-op on the fake path). */
+    fun autoDownloadForChat(chatId: Long) = CoreGraph.autoDownloadForChat(chatId)
+
     /** Attachment cache maintenance for the settings screen. */
     fun attachmentsCacheBytes(): Long = CoreGraph.attachmentsCacheBytes()
     fun clearAttachmentCache(): Long = CoreGraph.clearAttachmentCache()

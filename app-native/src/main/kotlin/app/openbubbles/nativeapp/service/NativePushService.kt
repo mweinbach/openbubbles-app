@@ -245,6 +245,11 @@ class NativePushService : Service(), MsgReceiver {
         syncGroupIcon(decoded, chat)
         syncStickerAttachments(decoded)
         syncTranscriptBackground(decoded, chat)
+        if (result.isNewIncomingMessage) {
+            // Size-capped media auto-download (Settings → Messaging); the
+            // bubble's download chip remains for anything over the ceiling.
+            chat?.let { CoreGraph.autoDownloadForChat(it.id) }
+        }
         if (allowNotifications && result.isNewIncomingMessage) {
             notifyIncoming(decoded, chat)
         }

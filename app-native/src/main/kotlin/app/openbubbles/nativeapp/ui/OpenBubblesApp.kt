@@ -536,6 +536,12 @@ fun OpenBubblesApp(
                         Notifications.onConversationVisible(conversationContext, chatId)
                         onDispose { Notifications.onConversationHidden(chatId) }
                     }
+                    // Size-capped media auto-download (Settings → Messaging):
+                    // opening a conversation fetches eligible photos, videos,
+                    // and voice memos so their bubbles render/play inline.
+                    LaunchedEffect(chatId) {
+                        AppGraph.autoDownloadForChat(chatId)
+                    }
                     val viewModel: ChatViewModel = viewModel(
                         key = "chat-$chatId",
                         factory = ChatViewModel.factory(

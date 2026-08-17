@@ -37,9 +37,28 @@ class MessagingPrefs(context: Context) {
             prefs.edit().putBoolean(KEY_SEND_READ_RECEIPTS, value).apply()
         }
 
-    private companion object {
-        const val PREFS_NAME = "messaging_prefs"
-        const val KEY_DEFAULT_SENDING_HANDLE = "default_sending_handle"
-        const val KEY_SEND_READ_RECEIPTS = "send_read_receipts"
+    /**
+     * Largest incoming image/video/audio payload (bytes) that downloads
+     * automatically: 0 disables auto-download, [AUTO_DOWNLOAD_UNLIMITED]
+     * fetches every supported payload. Defaults to
+     * [DEFAULT_AUTO_DOWNLOAD_MAX_BYTES].
+     */
+    var autoDownloadMaxBytes: Long
+        get() = prefs.getLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, DEFAULT_AUTO_DOWNLOAD_MAX_BYTES)
+        set(value) {
+            prefs.edit().putLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, value).apply()
+        }
+
+    companion object {
+        /** Sentinel for [autoDownloadMaxBytes]: every supported payload auto-downloads. */
+        const val AUTO_DOWNLOAD_UNLIMITED: Long = -1L
+
+        /** Out-of-the-box ceiling: 10 MiB, matching the legacy client's behavior. */
+        const val DEFAULT_AUTO_DOWNLOAD_MAX_BYTES: Long = 10L * 1024L * 1024L
+
+        private const val PREFS_NAME = "messaging_prefs"
+        private const val KEY_DEFAULT_SENDING_HANDLE = "default_sending_handle"
+        private const val KEY_SEND_READ_RECEIPTS = "send_read_receipts"
+        private const val KEY_AUTO_DOWNLOAD_MAX_BYTES = "auto_download_max_bytes"
     }
 }
