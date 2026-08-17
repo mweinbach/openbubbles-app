@@ -93,6 +93,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
@@ -632,6 +634,11 @@ fun ChatScreen(
                                     } else {
                                         { part -> selectedAction = SelectedMessageAction(entry.message, part) }
                                     },
+                                    onSwipeReply = if (canSwipeReply(entry.message)) {
+                                        { part -> onReply(entry.message, part) }
+                                    } else {
+                                        null
+                                    },
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .animateItem(
                                             fadeInSpec = itemSpecs.fadeIn,
@@ -1078,6 +1085,11 @@ private fun ReplyThreadSheet(
                             attachmentFile = attachmentFile,
                             onOpenAttachment = onOpenAttachment,
                             onDownloadAttachment = onDownloadAttachment,
+                            onSwipeReply = if (canSwipeReply(message)) {
+                                { onReply(message) }
+                            } else {
+                                null
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         TextButton(
@@ -1313,6 +1325,12 @@ private fun MessageInputBar(
     onClearComposerAction: () -> Unit = {},
 ) {
     val hasText = value.isNotBlank()
+    val inputFocus = remember { FocusRequester() }
+    LaunchedEffect(composerActionLabel) {
+        if (composerActionLabel != null) {
+            runCatching { inputFocus.requestFocus() }
+        }
+    }
 
     // Color is an effects animation; the button's size response is spatial.
     // (The spec helpers read the theme scheme and honor reduced motion.)
@@ -1458,6 +1476,7 @@ private fun MessageInputBar(
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 8.dp)
+                            .focusRequester(inputFocus)
                             .semantics { contentDescription = "Message input" },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,

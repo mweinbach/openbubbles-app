@@ -44,6 +44,7 @@ Bubbles ([`MessageBubble.kt`](../app-native/src/main/kotlin/app/openbubbles/nati
 mine end-aligned (theme primary, or SMS green); theirs start-aligned `surfaceContainerHigh`;
 20.dp corners, 8.dp on grouped same-author edges; width 78% of the **transcript pane**, cap 320.dp.
 Status ticks only on the latest outgoing or FAILED. Group events and unsends are centered captions.
+Slide a bubble toward the start edge to begin an inline reply (long-press still opens the action sheet).
 
 Content width caps at 840.dp on list, transcript, and Find My.
 

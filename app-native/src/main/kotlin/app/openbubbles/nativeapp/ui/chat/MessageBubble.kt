@@ -42,6 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -277,6 +280,8 @@ fun MessageBubble(
     onOpenReplyThread: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
+    /** Slide the bubble toward the start edge to begin an inline reply. */
+    onSwipeReply: ((Long) -> Unit)? = null,
     /** True when this conversation is carrier SMS — outgoing bubbles go green. */
     smsChat: Boolean = false,
 ) {
@@ -307,6 +312,11 @@ fun MessageBubble(
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
     val attachmentParts = attachments.mapTo(hashSetOf()) { it.partIndex }
     val textPart = message.replyPartLocators.keys.firstOrNull { it !in attachmentParts } ?: 0L
+    val defaultReplyPart = when {
+        showTextBubble -> textPart
+        attachments.isNotEmpty() -> attachments.last().partIndex
+        else -> textPart
+    }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -316,10 +326,30 @@ fun MessageBubble(
         // pane sizes its bubbles against that pane rather than the whole display.
         val maxBubbleWidth = bubbleMaxWidth(maxWidth)
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        SwipeToReplyBox(
+            enabled = onSwipeReply != null,
+            onReply = { onSwipeReply?.invoke(defaultReplyPart) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (onSwipeReply != null) {
+                        Modifier.semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction("Reply") {
+                                    onSwipeReply.invoke(defaultReplyPart)
+                                    true
+                                },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+            contentAlignment = if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
         Box(
             modifier = Modifier
                 .widthIn(max = maxBubbleWidth)
-                .align(if (message.isFromMe) Alignment.CenterEnd else Alignment.CenterStart)
                 .onSizeChanged { contentSize = it },
         ) {
             Column(
@@ -473,6 +503,7 @@ fun MessageBubble(
                     onDownloadSticker = onDownloadSticker,
                 )
             }
+        }
         }
     }
 }
