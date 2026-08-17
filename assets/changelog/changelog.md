@@ -2,6 +2,34 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.1.2
+
+### Enhancements
+
+- New dedicated search page: search chats, people, messages, and links from
+  one field. Results are grouped into sections with the matching text
+  highlighted — tapping a chat or message opens the conversation, a person
+  opens (or starts) your 1:1 chat, and a link opens right in the browser.
+- Voice messages: the composer's new + menu offers photos/videos, any file,
+  and audio messages. Recording shows a live level meter and timer right in
+  the composer, and the send button stops and sends the take — typed text
+  rides along as the caption.
+- The send button is now a circle beside the text box that springs to life
+  when there's something to send and morphs shape while pressed. The text
+  box grows to three lines as you type, then scrolls, and the keyboard keeps
+  a normal return key for multiline drafts.
+- The new-chat button is an expressive cookie shape that morphs into a
+  circle when pressed.
+- Conversation details (shared photos, contact info, Find My location) now
+  preload while you're viewing a chat, so the details pane opens instantly
+  instead of loading each section on tap.
+
+### Fixes
+
+- The composer's placeholder text and buttons are properly centered.
+- The chat list's inline search field no longer overlaps pinned
+  conversations — search now lives on its own page.
+
 ## v2.1.1
 
 ### Enhancements
