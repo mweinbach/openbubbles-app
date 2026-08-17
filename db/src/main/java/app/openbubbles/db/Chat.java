@@ -68,6 +68,7 @@ public class Chat {
     public String title;
     public String customThemeLight;
     public String customThemeDark;
+    public String senderOverride;
     public final ToMany<Handle> handles = new ToMany<>(this, Chat_.handles);
     @Backlink(to = "chat")
     public final ToMany<Message> messages = new ToMany<>(this, Chat_.messages);
