@@ -8,8 +8,13 @@ uniffi::setup_scaffolding!();
 
 pub static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     info!("creating runner");
+    // A single worker head-of-line blocks the APS socket behind whatever
+    // else is running (journal writes, CloudKit pages, foreign callbacks).
+    // Keep the pool small — this is a phone — but never one thread.
+    let workers = std::thread::available_parallelism()
+        .map_or(2, |cores| cores.get().clamp(2, 4));
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
+        .worker_threads(workers)
         .thread_name("tokio-rustpush")
         .enable_all()
         .build().unwrap()
@@ -20,31 +25,37 @@ pub mod bbhwinfo {
 }
 
 pub fn init_logger(path: &Path) {
+    // Every record is formatted and fanned out to both sinks (logcat + the
+    // rotating file), and rustpush's hot paths log heavily at debug (full
+    // payload hex dumps, per-page sync traces). Release builds cap at Info so
+    // debug!/trace! arguments are never even evaluated; debug builds keep
+    // the full firehose.
+    let max_level = if cfg!(debug_assertions) { log::Level::Debug } else { log::Level::Info };
+    let level_spec = if cfg!(debug_assertions) { "debug" } else { "info" };
+
     #[cfg(target_os = "android")]
     let system = android_logger::AndroidLogger::new(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
+        android_logger::Config::default().with_max_level(max_level.to_level_filter()),
     );
     #[cfg(not(target_os = "android"))]
     let system = {
         if let Err(_) = std::env::var("RUST_LOG") {
-            std::env::set_var("RUST_LOG", "debug");
+            std::env::set_var("RUST_LOG", level_spec);
         }
         pretty_env_logger::formatted_builder()
             .build()
     };
 
-    println!("here??");
-    
-    let (logger, _) = Logger::try_with_str("debug").expect("No logger?")
+    let (logger, _) = Logger::try_with_str(level_spec).expect("No logger?")
         .log_to_file(FileSpec::default().directory(path.join("logs")).suppress_timestamp())
         .append()
         .format(opt_format)
-        .cleanup_in_background_thread(false)
+        .cleanup_in_background_thread(true)
         .rotate(Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 10 /* 10 MB */), Naming::Numbers, Cleanup::KeepLogFiles(1))
         .write_mode(WriteMode::BufferAndFlush)
         .build().unwrap();
-    
-    let _ = multi_log::MultiLogger::init(vec![Box::new(system), logger], log::Level::Trace);
+
+    let _ = multi_log::MultiLogger::init(vec![Box::new(system), logger], max_level);
 
     // Rust's default panic hook writes to stderr, which is discarded on Android.
     // Route panics through `log` so they reach logcat (and the file logger above).

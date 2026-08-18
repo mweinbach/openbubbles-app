@@ -407,7 +407,15 @@ impl NativePushState {
 
                                 if let PushMessage::IMessage(message) = &msg {
                                     loop {
-                                        let result = MESSAGE_LOG.lock().await.insert(message.clone());
+                                        // The journal write fsyncs; park a blocking-pool
+                                        // thread, not a runtime worker that also drives
+                                        // the APS socket.
+                                        let entry = message.clone();
+                                        let result = tokio::task::spawn_blocking(move || {
+                                            MESSAGE_LOG.blocking_lock().insert(entry)
+                                        }).await.unwrap_or_else(|join| {
+                                            Err(anyhow::anyhow!("journal task panicked: {join}"))
+                                        });
                                         match result {
                                             Ok(_) => break,
                                             Err(error) => {
@@ -438,13 +446,17 @@ impl NativePushState {
                                         }
                                         info!("re-emitting pointer {key}, retry {retry}");
                                         // we still haven't been handled, attempt to handle again
-                                        handler_ref.receieved_msg(key, retry);
+                                        let handler_retry = handler_ref.clone();
+                                        tokio::task::spawn_blocking(move || handler_retry.receieved_msg(key, retry));
                                         tokio::time::sleep(Duration::from_secs(30)).await;
                                     }
                                 });
 
                                 info!("emitting pointer {key}");
-                                handler.receieved_msg(key, 0);
+                                // The foreign callback crosses into Kotlin over JNA;
+                                // whatever it does must never block the receive loop.
+                                let handler_emit = handler.clone();
+                                tokio::task::spawn_blocking(move || handler_emit.receieved_msg(key, 0));
                             },
                             PollResult::Cont(None) => continue,
                             PollResult::Stop => break

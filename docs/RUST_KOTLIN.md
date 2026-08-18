@@ -38,9 +38,11 @@ is process-wide and must run before provision or login: `uniffiEnsureInitialized
 owns the live `NativePushState`:
 
 1. Apply poll vs live from the start intent **before** `initNative`.
-2. `initNative` restores on the one-worker Tokio runtime (`tokio-rustpush`) and calls `nativeReady`.
+2. `initNative` restores on the small (2–4 worker) Tokio runtime (`tokio-rustpush`) and calls
+   `nativeReady`.
 3. Hop off that thread immediately. Sync UniFFI methods `RUNTIME.block_on` — calling them from
-   `nativeReady` / `receievedMsg` on Tokio **deadlocks**.
+   `nativeReady` / `receievedMsg` on a runtime thread **panics/deadlocks** regardless of the
+   worker count.
 4. Incoming events are pointers into `QUEUED_MESSAGES` (`ptrToMessage` → ingest → `completeMessage`).
 5. Complete a pointer **only after** `:core` ingest succeeds. Rust re-emits failures (30s, max 5).
 
