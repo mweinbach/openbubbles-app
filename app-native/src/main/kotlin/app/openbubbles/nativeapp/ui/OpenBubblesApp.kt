@@ -38,6 +38,7 @@ import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
 import androidx.compose.material3.toShape
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +56,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -295,6 +300,13 @@ fun OpenBubblesApp(
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
+    val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
+    val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
+    val accountConnection = accountConnectionUiState(
+        hasLiveState = pushState != null,
+        registration = registrationState,
+        lastError = pushError,
+    )
     val prefetchScope = rememberCoroutineScope()
     var transcriptPrefetchJob by remember { mutableStateOf<Job?>(null) }
 
@@ -640,8 +652,18 @@ fun OpenBubblesApp(
                             if (selectedChatId != null && selectedChatId in ids) navigateHome()
                         },
                         header = {
-                            if (pushState == null) {
-                                SignInBanner(onSignIn = { navigateTo(LoginKey) })
+                            accountConnection?.let { connection ->
+                                AccountConnectionBanner(
+                                    state = connection,
+                                    onAction = {
+                                        when (connection.action) {
+                                            AccountConnectionAction.SignIn -> navigateTo(LoginKey)
+                                            AccountConnectionAction.Retry ->
+                                                NativePushService.reloadAfterLogin(listContext)
+                                            null -> Unit
+                                        }
+                                    },
+                                )
                             }
                         },
                         footer = { DebugStatusFooter(debugLines) },
@@ -1115,15 +1137,33 @@ private fun NoConversationSelected() {
     }
 }
 
-/** Shown when no live push state is installed: gate to the login flow. */
+/** Persistent, actionable account state above the chat list. */
 @Composable
-private fun SignInBanner(onSignIn: () -> Unit) {
+private fun AccountConnectionBanner(
+    state: AccountConnectionUiState,
+    onAction: () -> Unit,
+) {
+    val containerColor = when (state.tone) {
+        AccountConnectionTone.Neutral -> MaterialTheme.colorScheme.surfaceContainerHigh
+        AccountConnectionTone.Attention -> MaterialTheme.colorScheme.tertiaryContainer
+        AccountConnectionTone.Error -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (state.tone) {
+        AccountConnectionTone.Neutral -> MaterialTheme.colorScheme.onSurface
+        AccountConnectionTone.Attention -> MaterialTheme.colorScheme.onTertiaryContainer
+        AccountConnectionTone.Error -> MaterialTheme.colorScheme.onErrorContainer
+    }
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = containerColor,
+        contentColor = contentColor,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .semantics {
+                isTraversalGroup = true
+                liveRegion = LiveRegionMode.Polite
+            },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -1132,8 +1172,8 @@ private fun SignInBanner(onSignIn: () -> Unit) {
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = contentColor.copy(alpha = 0.12f),
+                contentColor = contentColor,
                 modifier = Modifier.size(38.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -1146,17 +1186,25 @@ private fun SignInBanner(onSignIn: () -> Unit) {
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sign in to message",
+                    text = state.title,
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = "Use your Apple ID to send and receive iMessages.",
+                    text = state.supporting,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = contentColor.copy(alpha = 0.78f),
                 )
             }
-            FilledTonalButton(onClick = onSignIn) {
-                Text("Sign in")
+            if (state.busy) {
+                CircularProgressIndicator(
+                    color = contentColor,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else if (state.action != null && state.actionLabel != null) {
+                FilledTonalButton(onClick = onAction) {
+                    Text(state.actionLabel)
+                }
             }
         }
     }

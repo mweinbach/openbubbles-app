@@ -182,23 +182,40 @@ class NativePushService : Service(), MsgReceiver {
         val registration = runCatching { state.getRegstate() }
             .onFailure { error -> Log.w(TAG, "failed to read IDS registration state", error) }
             .getOrNull() ?: return
+        PushStateHolder.updateRegistration(registration)
         when (registration) {
             is URegisterState.Failed -> {
                 if (registrationRequiresSignIn(registration)) {
-                    Log.w(TAG, "Apple account reauthentication required; stopping automatic reconnect")
-                    reconnectJob?.cancel()
-                    reconnectJob = null
-                    PushStateHolder.clear()
-                    PushStateHolder.reportError(ACCOUNT_REAUTH_REQUIRED_MESSAGE)
-                    updateStatus(ACCOUNT_REAUTH_REQUIRED_STATUS)
-                    stopSelf()
+                    markAccountSignInRequired(registration)
                 } else {
                     PushStateHolder.reportError("Apple messaging registration failed: ${registration.error}")
+                    updateStatus(REGISTRATION_FAILED_STATUS)
                 }
             }
-            URegisterState.Registering -> Unit
-            is URegisterState.Registered -> Unit
+            URegisterState.Registering -> updateStatus(REGISTERING_STATUS)
+            is URegisterState.Registered -> {
+                PushStateHolder.clearError()
+                updateStatus(CONNECTED_STATUS)
+            }
         }
+    }
+
+    private fun markAccountSignInRequired(registration: URegisterState.Failed) {
+        // A rejected IDS renewal does not necessarily invalidate the current
+        // APNs session. Keep it alive so already-addressed messages can still
+        // be received and the durable journal can drain while the user signs
+        // in again. The status and UI must still make the degraded account
+        // state explicit instead of calling this fully connected.
+        Log.w(TAG, "Apple account reauthentication required; keeping current push session active")
+        PushStateHolder.updateRegistration(registration)
+        PushStateHolder.reportError(registration.error)
+        updateStatus(
+            if (registration.error.startsWith(ACCOUNT_TWO_FACTOR_REQUIRED_PREFIX)) {
+                ACCOUNT_TWO_FACTOR_REQUIRED_STATUS
+            } else {
+                ACCOUNT_REAUTH_REQUIRED_STATUS
+            },
+        )
     }
 
     /**
@@ -367,6 +384,20 @@ class NativePushService : Service(), MsgReceiver {
                     handlesError = it
                 }
                 .getOrDefault(emptySet())
+            val registration = runCatching { live.getRegstate() }
+                .onFailure { Log.e(TAG, "failed to read restored IDS registration state", it) }
+                .getOrElse { error ->
+                    activeState = null
+                    stopState(live)
+                    PushStateHolder.clear()
+                    PushStateHolder.reportError(
+                        "Apple registration status unavailable: " +
+                            (error.message ?: error.javaClass.simpleName),
+                    )
+                    updateStatus(DISCONNECTED_STATUS)
+                    scheduleReconnect(generation, "registration status unavailable")
+                    return@launch
+                }
             if (generation != initGeneration.get()) {
                 stopState(live)
                 return@launch
@@ -379,13 +410,23 @@ class NativePushService : Service(), MsgReceiver {
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempt = 0
-            PushStateHolder.install(live, handles)
-            handlesError?.let {
-                PushStateHolder.reportError(
-                    "Registered handles unavailable: ${it.message ?: it.javaClass.simpleName}",
+            PushStateHolder.install(live, handles, registration)
+            if (registration is URegisterState.Failed && registrationRequiresSignIn(registration)) {
+                markAccountSignInRequired(registration)
+            } else {
+                handlesError?.let {
+                    PushStateHolder.reportError(
+                        "Registered handles unavailable: ${it.message ?: it.javaClass.simpleName}",
+                    )
+                }
+                updateStatus(
+                    when (registration) {
+                        is URegisterState.Registered -> CONNECTED_STATUS
+                        URegisterState.Registering -> REGISTERING_STATUS
+                        is URegisterState.Failed -> REGISTRATION_FAILED_STATUS
+                    },
                 )
             }
-            updateStatus(CONNECTED_STATUS)
             // Contact sync is independent of Messages-in-iCloud history and
             // uses the same self-hosted Apple session. Keep it off the APNs
             // owner coroutine so a slow CardDAV collection never delays the
@@ -597,6 +638,9 @@ class NativePushService : Service(), MsgReceiver {
         private const val STATUS_NOTIFICATION_ID = 1001
         private const val CONNECTING_STATUS = "Connecting to Apple push"
         private const val CONNECTED_STATUS = "Connected to Apple push"
+        private const val REGISTERING_STATUS = "Registering iMessage with Apple"
+        private const val REGISTRATION_FAILED_STATUS = "Apple messaging registration failed"
+        private const val ACCOUNT_TWO_FACTOR_REQUIRED_STATUS = "Apple ID verification required"
         private const val ACCOUNT_REAUTH_REQUIRED_STATUS = "Apple ID sign-in required"
         private const val DISCONNECTED_STATUS = "Apple push disconnected"
         internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
@@ -666,10 +710,12 @@ internal fun reconnectDelayMs(attempt: Int): Long {
     return (2_000L shl bounded).coerceAtMost(120_000L)
 }
 
-internal const val ACCOUNT_REAUTH_REQUIRED_MESSAGE =
-    "Apple ID session expired. Sign in again to renew messaging access. Your local messages are still here."
+internal const val ACCOUNT_TWO_FACTOR_REQUIRED_PREFIX = "Apple ID verification required."
 
 internal fun registrationRequiresSignIn(state: URegisterState): Boolean =
     state is URegisterState.Failed &&
         state.retryWait == null &&
-        state.error.startsWith("Apple ID session expired.")
+        (
+            state.error.startsWith("Apple ID session expired.") ||
+                state.error.startsWith(ACCOUNT_TWO_FACTOR_REQUIRED_PREFIX)
+            )

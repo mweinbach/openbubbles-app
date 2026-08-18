@@ -72,6 +72,14 @@ class NativePushServiceStartTest {
                 ),
             ),
         )
+        assertTrue(
+            registrationRequiresSignIn(
+                URegisterState.Failed(
+                    retryWait = null,
+                    error = "Apple ID verification required. Complete two-factor authentication.",
+                ),
+            ),
+        )
         assertFalse(
             registrationRequiresSignIn(
                 URegisterState.Failed(retryWait = 300uL, error = "temporary"),

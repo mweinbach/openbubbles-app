@@ -63,6 +63,7 @@ import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UPushMessage
+import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UReportMessage
 import uniffi.rust_lib_bluebubbles.parseCallPoster
 import java.io.File
@@ -715,11 +716,28 @@ object PushStateHolder {
     val lastErrorFlow = _lastError.asStateFlow()
     val lastError: String? get() = _lastError.value
 
-    fun install(state: NativePushState, handles: Set<String>) {
+    private val _registrationState = MutableStateFlow<URegisterState?>(null)
+    val registrationStateFlow = _registrationState.asStateFlow()
+    val registrationState: URegisterState? get() = _registrationState.value
+
+    fun install(
+        state: NativePushState,
+        handles: Set<String>,
+        registration: URegisterState,
+    ) {
         _state.value = state
         _myHandles.value = handles
-        _lastError.value = null
+        updateRegistration(registration)
         AppContext.current?.let { CloudSyncWiring.onStateInstalled(it, state) }
+    }
+
+    fun updateRegistration(registration: URegisterState) {
+        _registrationState.value = registration
+        if (registration is URegisterState.Registered) _lastError.value = null
+    }
+
+    fun clearError() {
+        _lastError.value = null
     }
 
     fun reportError(message: String) {
@@ -730,6 +748,7 @@ object PushStateHolder {
         _state.value = null
         _myHandles.value = emptySet()
         if (resetError) _lastError.value = null
+        _registrationState.value = null
         CloudSyncWiring.clear()
     }
 }

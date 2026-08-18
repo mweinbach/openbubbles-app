@@ -625,11 +625,13 @@ pub struct SharedPushState {
 
 pub const ACCOUNT_REAUTH_REQUIRED: &str =
     "Apple ID session expired. Sign in again to renew messaging access.";
+pub const ACCOUNT_TWO_FACTOR_REQUIRED: &str =
+    "Apple ID verification required. Complete two-factor authentication to renew messaging access.";
 
 #[derive(Default)]
 struct IDSAuthLifecycle {
     refresh_attempted: bool,
-    reauth_required: bool,
+    reauth_error: Option<&'static str>,
 }
 
 static IDS_AUTH_LIFECYCLE: LazyLock<std::sync::Mutex<std::collections::HashMap<String, IDSAuthLifecycle>>> =
@@ -642,17 +644,17 @@ fn update_ids_auth_lifecycle(path: &str, update: impl FnOnce(&mut IDSAuthLifecyc
     update(lifecycle.entry(path.to_string()).or_default());
 }
 
-pub fn account_reauth_required(path: &str) -> bool {
+pub fn account_reauth_error(path: &str) -> Option<&'static str> {
     IDS_AUTH_LIFECYCLE
         .lock()
         .expect("IDS auth lifecycle lock poisoned")
         .get(path)
-        .map(|state| state.reauth_required)
-        .unwrap_or(false)
+        .and_then(|state| state.reauth_error)
 }
 
 enum IDSAuthRefreshError {
     LoginRequired,
+    TwoFactorRequired,
     Transient(anyhow::Error),
 }
 
@@ -684,6 +686,12 @@ async fn refresh_apple_ids_auth(state: &SharedPushState) -> Result<(), IDSAuthRe
 
     match account.login_email_pass(&username, &password).await {
         Ok(rustpush::LoginState::LoggedIn) => {}
+        Ok(
+            rustpush::LoginState::NeedsDevice2FA
+            | rustpush::LoginState::Needs2FAVerification
+            | rustpush::LoginState::NeedsSMS2FA
+            | rustpush::LoginState::NeedsSMS2FAVerification(_),
+        ) => return Err(IDSAuthRefreshError::TwoFactorRequired),
         Ok(_) => return Err(IDSAuthRefreshError::LoginRequired),
         Err(error) => return Err(IDSAuthRefreshError::Transient(error.into())),
     }
@@ -2157,7 +2165,7 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                     if refresh_attempted {
                         warn!("IDS authentication still rejected after automatic renewal");
                         update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
-                            lifecycle.reauth_required = true;
+                            lifecycle.reauth_error = Some(ACCOUNT_REAUTH_REQUIRED);
                         });
                     } else {
                         info!("IDS authentication expired; refreshing account credentials");
@@ -2177,7 +2185,13 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                             Err(IDSAuthRefreshError::LoginRequired) => {
                                 warn!("Apple account requires interactive sign-in before IDS can renew");
                                 update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
-                                    lifecycle.reauth_required = true;
+                                    lifecycle.reauth_error = Some(ACCOUNT_REAUTH_REQUIRED);
+                                });
+                            }
+                            Err(IDSAuthRefreshError::TwoFactorRequired) => {
+                                warn!("Apple account requires interactive two-factor authentication before IDS can renew");
+                                update_ids_auth_lifecycle(&state.conf_dir, |lifecycle| {
+                                    lifecycle.reauth_error = Some(ACCOUNT_TWO_FACTOR_REQUIRED);
                                 });
                             }
                             Err(IDSAuthRefreshError::Transient(error)) => {

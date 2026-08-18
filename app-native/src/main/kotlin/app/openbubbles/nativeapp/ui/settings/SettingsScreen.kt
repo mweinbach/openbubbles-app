@@ -143,6 +143,10 @@ import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
 import app.openbubbles.nativeapp.update.UpdateSettings
+import app.openbubbles.nativeapp.ui.AccountConnectionAction
+import app.openbubbles.nativeapp.ui.AccountConnectionTone
+import app.openbubbles.nativeapp.ui.AccountConnectionUiState
+import app.openbubbles.nativeapp.ui.accountConnectionUiState
 import app.openbubbles.nativeapp.ui.adaptive.settingsTwoPaneSplit
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.formatRelativePast
@@ -187,10 +191,56 @@ private enum class SettingsSection(
 }
 
 private fun describeRegstate(state: URegisterState): String = when (state) {
-    is URegisterState.Registered ->
-        if (state.nextS > 0) "Registered — next check-in in ${state.nextS}s" else "Registered"
+    is URegisterState.Registered -> when {
+        state.nextS >= 86_400 -> "Registered · renews in ${state.nextS / 86_400} days"
+        state.nextS >= 3_600 -> "Registered · renews in ${state.nextS / 3_600} hours"
+        state.nextS > 0 -> "Registered · renews soon"
+        else -> "Registered"
+    }
     URegisterState.Registering -> "Registering…"
     is URegisterState.Failed -> "Failed: ${state.error}"
+}
+
+@Composable
+private fun AccountRecoverySettingsItem(
+    recovery: AccountConnectionUiState,
+    index: Int,
+    count: Int,
+    onAction: (AccountConnectionAction) -> Unit,
+) {
+    val rowTone = when (recovery.tone) {
+        AccountConnectionTone.Neutral -> SettingsRowTone.Neutral
+        AccountConnectionTone.Attention -> SettingsRowTone.Active
+        AccountConnectionTone.Error -> SettingsRowTone.Error
+    }
+    val icon = when {
+        recovery.busy -> Icons.Filled.Sync
+        recovery.tone == AccountConnectionTone.Error -> Icons.Filled.CloudOff
+        else -> Icons.Filled.AccountCircle
+    }
+    val action = recovery.action
+    if (action != null) {
+        SettingsActionItem(
+            title = recovery.title,
+            supporting = recovery.supporting,
+            onClick = { onAction(action) },
+            index = index,
+            count = count,
+            multiline = true,
+            icon = icon,
+            iconTone = rowTone,
+        )
+    } else {
+        SettingsInfoItem(
+            title = recovery.title,
+            supporting = recovery.supporting,
+            index = index,
+            count = count,
+            multiline = true,
+            icon = icon,
+            tone = rowTone,
+        )
+    }
 }
 
 /**
@@ -221,6 +271,12 @@ fun SettingsScreen(
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val registeredHandles by PushStateHolder.myHandlesFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
+    val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
+    val accountConnection = accountConnectionUiState(
+        hasLiveState = pushState != null,
+        registration = registrationState,
+        lastError = pushError,
+    )
     var showSignOutConfirmation by rememberSaveable { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     var signOutError by remember { mutableStateOf<String?>(null) }
@@ -693,34 +749,50 @@ fun SettingsScreen(
                 title = if (showTitles) "Account" else null,
             ) {
                 if (pushState == null) {
-                    SettingsInfoItem(
-                        title = "Not connected",
-                        supporting = pushError ?: "Sign in from the banner on the chat list",
+                    val recovery = checkNotNull(accountConnection)
+                    AccountRecoverySettingsItem(
+                        recovery = recovery,
                         index = 0,
                         count = 1,
-                        multiline = pushError != null,
-                        icon = Icons.Filled.CloudOff,
-                        tone = if (pushError != null) {
-                            SettingsRowTone.Error
-                        } else {
-                            SettingsRowTone.Neutral
+                        onAction = { action ->
+                            when (action) {
+                                AccountConnectionAction.SignIn -> onOpenSignIn()
+                                AccountConnectionAction.Retry ->
+                                    NativePushService.reloadAfterLogin(context)
+                            }
                         },
                     )
                 } else {
                     val error = pushError
                     val accountRows = buildList {
+                        if (accountConnection != null) add("recovery")
                         add("registration")
                         add("handles")
-                        if (error != null) add("error")
+                        if (error != null && accountConnection == null) add("error")
                         add("signout")
                     }
                     val count = accountRows.size
                     accountRows.forEachIndexed { index, row ->
                         when (row) {
+                            "recovery" -> {
+                                val recovery = checkNotNull(accountConnection)
+                                AccountRecoverySettingsItem(
+                                    recovery = recovery,
+                                    index = index,
+                                    count = count,
+                                    onAction = { action ->
+                                        when (action) {
+                                            AccountConnectionAction.SignIn -> onOpenSignIn()
+                                            AccountConnectionAction.Retry ->
+                                                NativePushService.reloadAfterLogin(context)
+                                        }
+                                    },
+                                )
+                            }
                             "registration" -> {
                                 // Icon + chip tone carry the state at a glance;
                                 // the supporting text keeps the detail.
-                                val reg = connection?.regstate
+                                val reg = registrationState ?: connection?.regstate
                                 val (regIcon, regTone) = when (reg) {
                                     is URegisterState.Registered ->
                                         Icons.Filled.CheckCircle to SettingsRowTone.Active
