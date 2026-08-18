@@ -279,14 +279,21 @@ class NativePushService : Service(), MsgReceiver {
         // sender fallback); a null means we do not know the conversation yet
         // and the history sync that imports it applies the wallpaper instead.
         val target = chat ?: return
-        transcriptBackgroundStore.apply(
-            TranscriptBackgroundUpdate(
-                chatId = target.id,
-                version = background.version.toLong(),
-                remove = background.remove,
-                mmcsXml = background.mmcsXml,
-            ),
-        )
+        // The wallpaper is decoration: a payload Apple's variants defeat
+        // (or a dropped MMCS object) must never fail the journal entry it
+        // rides on, or every later message wedges behind the retry loop.
+        runCatching {
+            transcriptBackgroundStore.apply(
+                TranscriptBackgroundUpdate(
+                    chatId = target.id,
+                    version = background.version.toLong(),
+                    remove = background.remove,
+                    mmcsXml = background.mmcsXml,
+                ),
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "failed to apply transcript background for chat ${target.id}", error)
+        }
     }
 
     /** Download and persist group-photo changes carried by an incoming event. */

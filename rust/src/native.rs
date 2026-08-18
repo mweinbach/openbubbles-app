@@ -216,7 +216,30 @@ pub struct MessageLog {
     journal_path: PathBuf,
     journal: File,
     journal_len: usize,
+    /// Size of the journal right after the last compaction. Rewriting the
+    /// journal is O(live bytes); comparing against this makes compaction
+    /// amortized O(appended bytes) instead of once per entry.
+    last_compacted_len: usize,
     current_id: u64,
+}
+
+/// Compaction policy. The naive rule — rewrite whenever the file exceeds
+/// [MIN_JOURNAL_BYTES] — rewrites the entire journal on *every* record while
+/// a large backlog drains (each Finish only shrinks the live set by one), so
+/// draining N entries costs O(N²) I/O. Instead:
+///
+/// - Skip compaction entirely for small journals.
+/// - Otherwise rewrite only once the file has more than doubled since the
+///   last compaction, so at least half of each rewrite is reclaimable and
+///   total rewrite work stays proportional to total appends.
+/// - Always tidy up when the live map is empty: a finished drain leaves a
+///   file of dead Finish records, and one final rewrite empties it.
+fn should_compact(journal_len: usize, last_compacted_len: usize, pending_is_empty: bool) -> bool {
+    const MIN_JOURNAL_BYTES: usize = 1024 * 128;
+    if journal_len <= MIN_JOURNAL_BYTES {
+        return false;
+    }
+    pending_is_empty || journal_len > last_compacted_len.saturating_mul(2)
 }
 
 impl MessageLog {
@@ -248,6 +271,7 @@ impl MessageLog {
             journal_path,
             journal,
             journal_len: total_read,
+            last_compacted_len: 0,
             current_id,
         }
     }
@@ -287,13 +311,14 @@ impl MessageLog {
             .open(&self.journal_path)?;
         self.journal.seek(std::io::SeekFrom::Start(compacted_len as u64))?;
         self.journal_len = compacted_len;
+        self.last_compacted_len = compacted_len;
 
         info!("Compacted journal!");
         Ok(())
     }
 
     fn log_entry(&mut self, item: MessageJournal) -> anyhow::Result<()> {
-        if self.journal_len > 1024 * 128 {
+        if should_compact(self.journal_len, self.last_compacted_len, self.messages.is_empty()) {
             if let Err(e) = self.compact_journal() {
                 warn!("Error compacting journal {e}");
             }
@@ -590,5 +615,34 @@ impl NativePushState {
                 warn!("Failed to decline publish status {e}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::should_compact;
+
+    #[test]
+    fn small_journals_never_compact() {
+        assert!(!should_compact(0, 0, false));
+        assert!(!should_compact(1024 * 128, 200_000, false));
+    }
+
+    #[test]
+    fn large_journal_compacts_only_after_doubling() {
+        // Fresh start (never compacted): a large file reclaims once.
+        assert!(should_compact(300_000, 0, false));
+        // Just past the floor but under 2x the last compacted size: skip.
+        assert!(!should_compact(300_000, 200_000, false));
+        // Dead records now exceed the live set: rewrite.
+        assert!(should_compact(500_000, 200_000, false));
+    }
+
+    #[test]
+    fn emptied_journal_tidies_up() {
+        // A finished drain leaves only dead Finish records; compact them.
+        assert!(should_compact(300_000, 200_000, true));
+        // But not while the file is small anyway.
+        assert!(!should_compact(1_000, 0, true));
     }
 }
