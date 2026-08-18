@@ -615,6 +615,10 @@ class MessageIngestor(
         if (mistakeFor.dateDelivered != null) return // stray device complaining post-delivery
         // Error receipts are only honored for messages sent from my handles.
         if (inst.sender == null || !myHandles.contains(inst.sender)) return
+        // Read receipts reuse the acknowledged message's guid as their
+        // envelope id. A rate-limited receipt must not paint the incoming
+        // bubble we were acknowledging as a failed send.
+        if (!mistakeFor.isFromMe) return
         mistakeFor.error = msg.status.toLong()
         markFailed(mistakeFor, msg.statusStr)
     }
