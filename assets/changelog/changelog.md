@@ -2,6 +2,29 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.3
+
+### Enhancements
+
+- Conversations now include the remaining native message tools: richer
+  tapback and reply actions, forwarding, editing and unsending, bookmarks,
+  reminder controls, spam reporting, and Recently Deleted recovery.
+- The composer now supports mentions, subject lines, camera capture,
+  location sharing, and Android's share-to-OpenBubbles flow. Live Photos
+  and supported iMessage app balloons also render in the transcript.
+- Settings now exposes iCloud Passwords and Shared Albums, plus profile
+  sharing, Focus status, and expanded connection diagnostics.
+
+### Fixes
+
+- Native libraries now meet Android's 16 KB page-size requirements. The
+  recovered OpenBubbles compatibility bridge is aligned for 16 KB pages
+  and the JNA dispatcher has been updated, removing the compatibility
+  warning on newer devices.
+- Restoring a backup can no longer reopen the app against a store that is
+  still shutting down, and outgoing group messages stop showing Sending…
+  as soon as the first recipient acknowledges them.
+
 ## v2.3.2
 
 ### Enhancements

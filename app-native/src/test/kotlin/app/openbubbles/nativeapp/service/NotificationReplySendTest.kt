@@ -79,7 +79,13 @@ class NotificationReplySendTest {
         val saved = messageRepo.messages(chat.id).single()
         assertEquals(echo.id, saved.guid)
         assertEquals("Reply from notification", saved.text)
-        assertEquals(MessageStatus.SENT, saved.status)
+        assertEquals(MessageStatus.SENDING, saved.status)
+
+        ingestor.ingest(UPushMessage.SendConfirm(uuid = echo.id, error = null), setOf(myHandle))
+
+        val confirmed = messageRepo.messages(chat.id).single()
+        assertEquals(echo.id, confirmed.guid)
+        assertEquals(MessageStatus.SENT, confirmed.status)
     }
 
     @Test
