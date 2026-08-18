@@ -2,6 +2,18 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.8
+
+### Fixes
+
+- This device now keeps one stable iCloud Keychain identity. Repairing
+  or rebuilding iCloud state used to register a brand-new keychain
+  "device" in your circle each time, piling up ghost OpenBubbles entries
+  next to your real devices. The peer identity is now preserved across
+  repairs and re-sign-ins, and trust re-derives without creating a new
+  device; a fresh identity is only created when the old one was actually
+  removed from the circle.
+
 ## v2.3.7
 
 ### Enhancements
