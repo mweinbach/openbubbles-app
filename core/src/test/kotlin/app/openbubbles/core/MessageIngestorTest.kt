@@ -617,6 +617,26 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `send confirm error for an incoming guid does not mark that bubble failed`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("incoming-sc-1", friend, "hello")), myHandles)
+        ingestor.ingest(
+            UPushMessage.SendConfirm(
+                uuid = "incoming-sc-1",
+                error = "Could not deliver message. The recipient does not have iMessage or you are being rate-limited.",
+            ),
+            myHandles,
+        )
+
+        val row = messageByGuid("incoming-sc-1")
+        assertNotNull(row)
+        assertFalse(row.isFromMe)
+        assertNull(row.errorMessage)
+        assertNull(row.sendingServiceId)
+        assertEquals(0, messageBox().all.count { it.guid.startsWith("error-protocol") })
+        assertEquals(app.openbubbles.core.model.MessageStatus.SENT, messageRepo.statusOf(row))
+    }
+
+    @Test
     fun `unavailable push state resolves staged send as failed`() = runBlocking<Unit> {
         val chat = chatForFixture()
         messageRepo.stageOutgoingMessage(
@@ -683,6 +703,31 @@ class MessageIngestorTest {
         assertNotNull(row)
         assertNull(row.stagingGuid)
         assertNull(messageByGuid("temp-abcdef12"))
+    }
+
+    @Test
+    fun `sms confirm error for an incoming guid does not mark that bubble failed`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("incoming-sms-1", friend, "hello", sms = true)), myHandles)
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "incoming-sms-1",
+                    sender = me,
+                    conversation = conversation(me, friend),
+                    message = UMessage.SmsConfirmSent(status = false),
+                    sentTimestamp = 1_700_000_050_000uL,
+                    sendDelivered = false,
+                    verificationFailed = false,
+                )
+            ),
+            myHandles,
+        )
+
+        val row = messageByGuid("incoming-sms-1")
+        assertNotNull(row)
+        assertFalse(row.isFromMe)
+        assertNull(row.errorMessage)
+        assertEquals(0, messageBox().all.count { it.guid.startsWith("error-protocol") })
     }
 
     @Test

@@ -175,6 +175,12 @@ class SendRoutingTest {
     }
 
     @Test
+    fun `Apple read receipts are deferred while history sync is running`() {
+        assertFalse(shouldSendAppleReadReceiptNow(historySyncActive = true))
+        assertTrue(shouldSendAppleReadReceiptNow(historySyncActive = false))
+    }
+
+    @Test
     fun `receipt cancellation is a coroutine signal rather than a push failure`() {
         val cancelled = CancellationException("Job was cancelled")
 

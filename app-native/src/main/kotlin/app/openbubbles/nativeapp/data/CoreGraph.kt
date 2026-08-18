@@ -1366,6 +1366,11 @@ private object CoreReadReceiptSender : ReadReceiptSender {
     private suspend fun sendReadReceipt(store: BoxStore, chatId: Long, messageGuid: String?) {
         val chat = store.boxFor(Chat::class.java).get(chatId) ?: return
         if (!shouldSendAppleReadReceipt(chat)) return
+        // Local unread is already cleared. Do not start another IDS lookup
+        // while CloudKit is rewriting transcripts — opening many chats or
+        // tapping notification mark-as-read during backfill is the same
+        // class of storm as the open-transcript observer.
+        if (!shouldSendAppleReadReceiptNow(CloudSyncWiring.syncing.value)) return
         val state = PushStateHolder.state ?: return
         val sender = sendingHandle(chat) ?: return
         val receiptGuid = messageGuid?.takeUnless {
@@ -1408,6 +1413,8 @@ internal fun appleReadReceiptFailureMessage(error: Throwable): String? =
     }
 
 internal fun shouldSendAppleReadReceipt(chat: Chat): Boolean = chat.isRpSms != true
+
+internal fun shouldSendAppleReadReceiptNow(historySyncActive: Boolean): Boolean = !historySyncActive
 
 /**
  * Local unread is cleared on every related protocol chat. The Apple
