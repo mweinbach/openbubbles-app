@@ -1896,16 +1896,6 @@ private fun AttachMenuButton(
                 onClickLabel = "Attach",
             ) { menuOpen = true },
         ) {
-            DropdownMenuItem(
-                text = { Text("Take photo") },
-                leadingIcon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
-                onClick = { menuOpen = false; onCameraPhoto() },
-            )
-            DropdownMenuItem(
-                text = { Text("Record video") },
-                leadingIcon = { Icon(Icons.Filled.VideoCall, contentDescription = null) },
-                onClick = { menuOpen = false; onCameraVideo() },
-            )
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Filled.Add,
@@ -1920,6 +1910,16 @@ private fun AttachMenuButton(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
         ) {
+            DropdownMenuItem(
+                text = { Text("Take photo") },
+                leadingIcon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
+                onClick = { menuOpen = false; onCameraPhoto() },
+            )
+            DropdownMenuItem(
+                text = { Text("Record video") },
+                leadingIcon = { Icon(Icons.Filled.VideoCall, contentDescription = null) },
+                onClick = { menuOpen = false; onCameraVideo() },
+            )
             DropdownMenuItem(
                 text = { Text("Photos or videos") },
                 leadingIcon = { Icon(Icons.Filled.Photo, contentDescription = null) },
