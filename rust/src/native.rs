@@ -101,6 +101,11 @@ impl NativePushState {
     pub(crate) fn shared(&self) -> &SharedPushState {
         &self.state
     }
+
+    /// Owned handle for async exports whose futures outlive the borrow.
+    pub(crate) fn shared_arc(&self) -> Arc<SharedPushState> {
+        self.state.clone()
+    }
 }
 
 #[uniffi::export]

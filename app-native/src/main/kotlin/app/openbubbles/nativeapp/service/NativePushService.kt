@@ -317,9 +317,7 @@ class NativePushService : Service(), MsgReceiver {
         val state = PushStateHolder.state ?: return
         val iconDir = File(filesDir, "group_icons").apply { mkdirs() }
         val destination = File(iconDir, "${target.id}-${inst.id.hashCode()}.png")
-        runInterruptible(Dispatchers.IO) {
-            state.downloadMmcs(iconXml, destination.absolutePath, null)
-        }
+        state.downloadMmcs(iconXml, destination.absolutePath, null)
         target.customAvatarPath?.takeIf { it != destination.absolutePath }?.let {
             runCatching { File(it).delete() }
         }

@@ -242,7 +242,7 @@ internal suspend fun sendAppleNotificationReply(
     chatGuid: String,
     sender: String,
     text: String,
-    send: () -> UMessageInst,
+    send: suspend () -> UMessageInst,
     ingest: suspend (UMessageInst) -> Unit,
 ): NotificationReplySendResult {
     val stage = stageOutgoingText(store, chatGuid, sender, text)

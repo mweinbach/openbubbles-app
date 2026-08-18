@@ -370,14 +370,12 @@ object DesktopGraph {
 
         try {
             val afterGuid = chat.dbLatestMessage.target?.let { it.stagingGuid ?: it.guid }
-            val inst = runInterruptible(Dispatchers.IO) {
-                pushState.sendText(
-                    buildSendConversation(chat, afterGuid, myHandle),
-                    myHandle,
-                    text,
-                    null, null, null, null,
-                )
-            }
+            val inst = pushState.sendText(
+                buildSendConversation(chat, afterGuid, myHandle),
+                myHandle,
+                text,
+                null, null, null, null,
+            )
             // Promote the staged row to the Rust guid so the echo and receipts
             // find it (the swap Dart performs).
             st.runInTx {

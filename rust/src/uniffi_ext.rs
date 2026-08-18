@@ -38,9 +38,12 @@
 //!   on `NativePushState` drive the bytes.
 //! - Transfer progress uses the plain `UProgressCallback` trait (the UniFFI
 //!   equivalent of FRB's StreamSink progress events).
-//! - Exports are synchronous and drive the global RUNTIME via `block_on`.
-//!   Kotlin callers should stay off the main thread (they already run on
-//!   Dispatchers.IO in the service layer).
+//! - Most exports are synchronous and drive the global RUNTIME via
+//!   `block_on`; Kotlin callers stay off the main thread (they already run
+//!   on Dispatchers.IO in the service layer). The hot transfer paths —
+//!   sends and attachment up/downloads — are async exports (`suspend fun`
+//!   in Kotlin) driven through [drive_ffi], so a long network transfer
+//!   suspends the Kotlin coroutine instead of parking one of its threads.
 
 use crate::api::api::{self, PushMessage, SharedPushState};
 use crate::native::NativePushState;
@@ -469,17 +472,41 @@ fn reaction_from_idx(idx: u64, emoji: Option<String>) -> Option<Reaction> {
     })
 }
 
-fn send_inst(state: &SharedPushState, inst: MessageInst) -> Result<UMessageInst, UError> {
-    RUNTIME
-        .block_on(api::send(&state.client, &state.local_broadcast, inst.clone()))
+async fn send_inst_on(state: &SharedPushState, inst: MessageInst) -> Result<UMessageInst, UError> {
+    api::send(&state.client, &state.local_broadcast, inst.clone())
+        .await
         .map(|_| conv_inst(&inst))
         .map_err(|e| UError::SendFailed { reason: e.to_string() })
 }
-#[uniffi::export]
+
+fn send_inst(state: &SharedPushState, inst: MessageInst) -> Result<UMessageInst, UError> {
+    RUNTIME.block_on(send_inst_on(state, inst))
+}
+
+/// Runs an async export's work without occupying a runtime worker: the
+/// future is driven to completion from a blocking-pool thread — the same
+/// execution profile the sync exports have (a parked thread polling via
+/// `block_on`), except the parked thread is Rust's, so the Kotlin caller
+/// suspends instead of blocking one of its Dispatchers.IO threads for the
+/// whole network transfer.
+async fn drive_ffi<T, F>(task: F) -> Result<T, UError>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = Result<T, UError>> + Send + 'static,
+{
+    // Spawn on RUNTIME's own blocking pool (not the ambient context uniffi's
+    // async wrapper provides) so this never depends on who polls the export.
+    RUNTIME
+        .spawn_blocking(move || RUNTIME.block_on(task))
+        .await
+        .unwrap_or_else(|join| Err(UError::Failed { reason: format!("engine task panicked: {join}") }))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
     /// Send a plain (optionally formatted-later) text message. Returns the
     /// staged MessageInst — `id` is the staging GUID to persist.
-    pub fn send_text(
+    pub async fn send_text(
         &self,
         conversation: UConversation,
         sender: String,
@@ -489,20 +516,23 @@ impl NativePushState {
         effect: Option<String>,
         subject: Option<String>,
     ) -> Result<UMessageInst, UError> {
-        let mut normal = NormalMessage::new(text, MessageType::IMessage);
-        normal.reply_guid = reply_guid;
-        normal.reply_part = reply_part;
-        normal.effect = effect;
-        normal.subject = subject;
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Message(normal),
-        ));
-        send_inst(self.shared(), inst)
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut normal = NormalMessage::new(text, MessageType::IMessage);
+            normal.reply_guid = reply_guid;
+            normal.reply_part = reply_part;
+            normal.effect = effect;
+            normal.subject = subject;
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
-    pub fn send_parts(
+    pub async fn send_parts(
         &self,
         conversation: UConversation,
         sender: String,
@@ -512,51 +542,60 @@ impl NativePushState {
         effect: Option<String>,
         subject: Option<String>,
     ) -> Result<UMessageInst, UError> {
-        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
-        normal.parts = back_parts(parts)?;
-        normal.reply_guid = reply_guid;
-        normal.reply_part = reply_part;
-        normal.effect = effect;
-        normal.subject = subject;
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Message(normal),
-        ));
-        send_inst(self.shared(), inst)
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+            normal.parts = back_parts(parts)?;
+            normal.reply_guid = reply_guid;
+            normal.reply_part = reply_part;
+            normal.effect = effect;
+            normal.subject = subject;
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
-    pub fn send_typing(&self, conversation: UConversation, sender: String, typing: bool) -> Result<(), UError> {
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Typing(typing, None),
-        ));
-        send_inst(self.shared(), inst).map(|_| ())
+    pub async fn send_typing(&self, conversation: UConversation, sender: String, typing: bool) -> Result<(), UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Typing(typing, None),
+            ).await;
+            send_inst_on(&state, inst).await.map(|_| ())
+        }).await
     }
 
-    pub fn send_read(
+    pub async fn send_read(
         &self,
         conversation: UConversation,
         sender: String,
         message_guid: String,
     ) -> Result<(), UError> {
-        let mut inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Read,
-        ));
-        // Read receipts identify the newest message they acknowledge. A fresh
-        // random id is a valid iMessage envelope but cannot update the remote
-        // transcript's read state.
-        inst.id = message_guid;
-        send_inst(self.shared(), inst).map(|_| ())
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Read,
+            ).await;
+            // Read receipts identify the newest message they acknowledge. A fresh
+            // random id is a valid iMessage envelope but cannot update the remote
+            // transcript's read state.
+            inst.id = message_guid;
+            send_inst_on(&state, inst).await.map(|_| ())
+        }).await
     }
 
     /// Send (or remove, with `enable: false`) a tapback.
     /// `reaction_idx`: 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize,
     /// 5 question; 6 + `emoji` for custom emoji tapbacks.
-    pub fn send_reaction(
+    pub async fn send_reaction(
         &self,
         conversation: UConversation,
         sender: String,
@@ -567,20 +606,23 @@ impl NativePushState {
         to_text: String,
         enable: bool,
     ) -> Result<UMessageInst, UError> {
-        let reaction = reaction_from_idx(reaction_idx, emoji).ok_or(UError::InvalidArgument { reason: "invalid reaction idx".to_string() })?;
-        let react = ReactMessage {
-            to_uuid,
-            to_part,
-            reaction: ReactMessageType::React { reaction, enable },
-            to_text,
-            embedded_profile: None,
-        };
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::React(react),
-        ));
-        send_inst(self.shared(), inst)
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let reaction = reaction_from_idx(reaction_idx, emoji).ok_or(UError::InvalidArgument { reason: "invalid reaction idx".to_string() })?;
+            let react = ReactMessage {
+                to_uuid,
+                to_part,
+                reaction: ReactMessageType::React { reaction, enable },
+                to_text,
+                embedded_profile: None,
+            };
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::React(react),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
     /// Upload an image and attach it as a positional sticker to one message
@@ -1957,8 +1999,8 @@ fn create_dest(dest_path: &str) -> Result<std::fs::File, UError> {
 /// `Attachment::new_mmcs` path from api.rs `upload_attachment`). Returns the
 /// opaque attachment; persist it with `UAttachment::save_attachment` so the
 /// transfer survives restarts, or send it right away with `send_attachment`.
-fn upload_attachment_inner(
-    conn: &rustpush::APSConnection,
+async fn upload_attachment_task(
+    conn: rustpush::APSConnection,
     file_path: String,
     mime: String,
     uti: String,
@@ -1968,17 +2010,29 @@ fn upload_attachment_inner(
     let path = Path::new(&file_path);
     let mut file = std::fs::File::open(path)
         .map_err(|e| UError::InvalidArgument { reason: format!("cannot open {}: {e}", path.display()) })?;
-    let prepared = RUNTIME
-        .block_on(MMCSFile::prepare_put(&mut file))
+    let prepared = MMCSFile::prepare_put(&mut file)
+        .await
         .map_err(|e| UError::Failed { reason: format!("failed to prepare attachment: {e}") })?;
     file.rewind()
         .map_err(|e| UError::Failed { reason: format!("failed to rewind {}: {e}", path.display()) })?;
     let name = name.unwrap_or_else(|| {
         path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "attachment".to_string())
     });
-    RUNTIME
-        .block_on(Attachment::new_mmcs(conn, &prepared, file, &mime, &uti, &name, progress_cb(progress)))
+    Attachment::new_mmcs(&conn, &prepared, file, &mime, &uti, &name, progress_cb(progress))
+        .await
         .map_err(|e| UError::Failed { reason: format!("attachment upload failed: {e}") })
+}
+
+/// Sync shim for the exports that have not moved to async yet (stickers).
+fn upload_attachment_inner(
+    conn: &rustpush::APSConnection,
+    file_path: String,
+    mime: String,
+    uti: String,
+    name: Option<String>,
+    progress: Option<Arc<dyn UProgressCallback>>,
+) -> Result<Attachment, UError> {
+    RUNTIME.block_on(upload_attachment_task(conn.clone(), file_path, mime, uti, name, progress))
 }
 
 /// UPart -> MessagePart (needed for edit-message parts coming from Kotlin).
@@ -2079,47 +2133,53 @@ impl UAttachment {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
     /// Download an incoming attachment to `dest_path` (Kotlin chose the
     /// path; parent directories are created). Mirrors the api.rs
     /// `download_attachment` sink loop, including inline attachments (bytes
     /// written straight to the file).
-    pub fn download_attachment(
+    pub async fn download_attachment(
         &self,
         attachment: Arc<UAttachment>,
         dest_path: String,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<(), UError> {
-        let mut file = create_dest(&dest_path)?;
-        RUNTIME
-            .block_on(attachment.inner.get_attachment(&self.shared().conn, &mut file, progress_cb(progress)))
-            .map_err(|e| UError::Failed { reason: format!("attachment download failed: {e}") })?;
-        file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
-        Ok(())
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut file = create_dest(&dest_path)?;
+            attachment.inner.get_attachment(&state.conn, &mut file, progress_cb(progress))
+                .await
+                .map_err(|e| UError::Failed { reason: format!("attachment download failed: {e}") })?;
+            file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
+            Ok(())
+        }).await
     }
 
     /// Download a bare MMCS file (e.g. a group icon from
     /// `UMessage.IconChange.icon_xml`) to `dest_path`.
-    pub fn download_mmcs(
+    pub async fn download_mmcs(
         &self,
         mmcs_xml: String,
         dest_path: String,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<(), UError> {
-        let mmcs = mmcs_from_xml(&mmcs_xml)?;
-        let mut file = create_dest(&dest_path)?;
-        RUNTIME
-            .block_on(mmcs.get_attachment(&self.shared().conn, &mut file, progress_cb(progress)))
-            .map_err(|e| UError::Failed { reason: format!("mmcs download failed: {e}") })?;
-        file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
-        Ok(())
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mmcs = mmcs_from_xml(&mmcs_xml)?;
+            let mut file = create_dest(&dest_path)?;
+            mmcs.get_attachment(&state.conn, &mut file, progress_cb(progress))
+                .await
+                .map_err(|e| UError::Failed { reason: format!("mmcs download failed: {e}") })?;
+            file.flush().map_err(|e| UError::Failed { reason: format!("failed to flush {dest_path}: {e}") })?;
+            Ok(())
+        }).await
     }
 
     /// Upload a local file to MMCS without sending a message (api.rs
     /// `upload_attachment`). Persist the result XML before sending if the
     /// send may be retried after a restart.
-    pub fn upload_attachment(
+    pub async fn upload_attachment(
         &self,
         file_path: String,
         mime: String,
@@ -2127,16 +2187,19 @@ impl NativePushState {
         name: Option<String>,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<Arc<UAttachment>, UError> {
-        Ok(Arc::new(UAttachment {
-            inner: upload_attachment_inner(&self.shared().conn, file_path, mime, uti, name, progress)?,
-        }))
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            Ok(Arc::new(UAttachment {
+                inner: upload_attachment_task(state.conn.clone(), file_path, mime, uti, name, progress).await?,
+            }))
+        }).await
     }
 
     /// Upload a local file and send it as an attachment message in one call
     /// (the Dart `sendAttachment` flow). `text` is an optional caption part
     /// sent before the attachment. Returns the staged MessageInst; `id` is
     /// the staging GUID to persist.
-    pub fn send_attachment(
+    pub async fn send_attachment(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2152,34 +2215,37 @@ impl NativePushState {
         voice: bool,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<UMessageInst, UError> {
-        let attachment =
-            upload_attachment_inner(&self.shared().conn, file_path, mime, uti, name, progress)?;
-        let mut parts: Vec<IndexedMessagePart> = Vec::new();
-        if let Some(text) = text.filter(|t| !t.is_empty()) {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let attachment =
+                upload_attachment_task(state.conn.clone(), file_path, mime, uti, name, progress).await?;
+            let mut parts: Vec<IndexedMessagePart> = Vec::new();
+            if let Some(text) = text.filter(|t| !t.is_empty()) {
+                parts.push(IndexedMessagePart {
+                    part: MessagePart::Text(text, TextFormat::default()),
+                    idx: None,
+                    ext: None,
+                });
+            }
             parts.push(IndexedMessagePart {
-                part: MessagePart::Text(text, TextFormat::default()),
+                part: MessagePart::Attachment(attachment),
                 idx: None,
                 ext: None,
             });
-        }
-        parts.push(IndexedMessagePart {
-            part: MessagePart::Attachment(attachment),
-            idx: None,
-            ext: None,
-        });
-        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
-        normal.parts = MessageParts(parts);
-        normal.reply_guid = reply_guid;
-        normal.reply_part = reply_part;
-        normal.effect = effect;
-        normal.subject = subject;
-        normal.voice = voice;
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Message(normal),
-        ));
-        send_inst(self.shared(), inst)
+            let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+            normal.parts = MessageParts(parts);
+            normal.reply_guid = reply_guid;
+            normal.reply_part = reply_part;
+            normal.effect = effect;
+            normal.subject = subject;
+            normal.voice = voice;
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
     /// Multi-attachment variant of [`send_attachment`]: uploads every file in
@@ -2189,7 +2255,7 @@ impl NativePushState {
     /// with one entry per file. The progress callback fires per file, in
     /// order; each upload's counters restart at zero. Returns the staged
     /// MessageInst; `id` is the staging GUID to persist.
-    pub fn send_attachments(
+    pub async fn send_attachments(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2205,49 +2271,52 @@ impl NativePushState {
         voice: bool,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<UMessageInst, UError> {
-        let count = file_paths.len();
-        if count == 0 {
-            return Err(UError::Failed { reason: "send_attachments requires at least one file".into() });
-        }
-        if mimes.len() != count || utis.len() != count || names.len() != count {
-            return Err(UError::Failed { reason: "send_attachments metadata arrays must match file_paths".into() });
-        }
-        let mut parts: Vec<IndexedMessagePart> = Vec::with_capacity(count + 1);
-        if let Some(text) = text.filter(|t| !t.is_empty()) {
-            parts.push(IndexedMessagePart {
-                part: MessagePart::Text(text, TextFormat::default()),
-                idx: None,
-                ext: None,
-            });
-        }
-        for (index, file_path) in file_paths.into_iter().enumerate() {
-            let attachment = upload_attachment_inner(
-                &self.shared().conn,
-                file_path,
-                mimes[index].clone(),
-                utis[index].clone(),
-                names[index].clone(),
-                progress.clone(),
-            )?;
-            parts.push(IndexedMessagePart {
-                part: MessagePart::Attachment(attachment),
-                idx: None,
-                ext: None,
-            });
-        }
-        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
-        normal.parts = MessageParts(parts);
-        normal.reply_guid = reply_guid;
-        normal.reply_part = reply_part;
-        normal.effect = effect;
-        normal.subject = subject;
-        normal.voice = voice;
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::Message(normal),
-        ));
-        send_inst(self.shared(), inst)
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let count = file_paths.len();
+            if count == 0 {
+                return Err(UError::Failed { reason: "send_attachments requires at least one file".into() });
+            }
+            if mimes.len() != count || utis.len() != count || names.len() != count {
+                return Err(UError::Failed { reason: "send_attachments metadata arrays must match file_paths".into() });
+            }
+            let mut parts: Vec<IndexedMessagePart> = Vec::with_capacity(count + 1);
+            if let Some(text) = text.filter(|t| !t.is_empty()) {
+                parts.push(IndexedMessagePart {
+                    part: MessagePart::Text(text, TextFormat::default()),
+                    idx: None,
+                    ext: None,
+                });
+            }
+            for (index, file_path) in file_paths.into_iter().enumerate() {
+                let attachment = upload_attachment_task(
+                    state.conn.clone(),
+                    file_path,
+                    mimes[index].clone(),
+                    utis[index].clone(),
+                    names[index].clone(),
+                    progress.clone(),
+                ).await?;
+                parts.push(IndexedMessagePart {
+                    part: MessagePart::Attachment(attachment),
+                    idx: None,
+                    ext: None,
+                });
+            }
+            let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+            normal.parts = MessageParts(parts);
+            normal.reply_guid = reply_guid;
+            normal.reply_part = reply_part;
+            normal.effect = effect;
+            normal.subject = subject;
+            normal.voice = voice;
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
     /// Edit a previously-sent message part (Dart `edit`). `to_uuid` is the

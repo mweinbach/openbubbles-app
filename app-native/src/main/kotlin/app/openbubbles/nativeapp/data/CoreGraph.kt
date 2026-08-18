@@ -1602,28 +1602,26 @@ private object CoreSender : Sender {
                     val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
                     val conversation = sendConversation(store, chat, myHandle)
                     maybeShareProfile(pushState, chat, conversation, myHandle)
-                    val inst = runInterruptible(Dispatchers.IO) {
-                        if (mentions.isEmpty()) {
-                            pushState.sendText(
-                                conversation,
-                                myHandle,
-                                text,
-                                replyGuid,
-                                replyPartLocator,
-                                effectId,
-                                subject,
-                            )
-                        } else {
-                            pushState.sendParts(
-                                conversation,
-                                myHandle,
-                                outgoingMessageParts(text, mentions),
-                                replyGuid,
-                                replyPartLocator,
-                                effectId,
-                                subject,
-                            )
-                        }
+                    val inst = if (mentions.isEmpty()) {
+                        pushState.sendText(
+                            conversation,
+                            myHandle,
+                            text,
+                            replyGuid,
+                            replyPartLocator,
+                            effectId,
+                            subject,
+                        )
+                    } else {
+                        pushState.sendParts(
+                            conversation,
+                            myHandle,
+                            outgoingMessageParts(text, mentions),
+                            replyGuid,
+                            replyPartLocator,
+                            effectId,
+                            subject,
+                        )
                     }
                     failureLookupGuid = inst.id
                     // Promote the staged row to the Rust staging guid so the echo and
@@ -1772,9 +1770,7 @@ private object CoreReadReceiptSender : ReadReceiptSender {
         val notifyOthers = chat.autoSendReadReceipts || globalReceipts
         val conversation = readReceiptConversation(chat, sender, receiptGuid, notifyOthers)
         try {
-            runInterruptible(Dispatchers.IO) {
-                state.sendRead(conversation, sender, receiptGuid)
-            }
+            state.sendRead(conversation, sender, receiptGuid)
         } catch (error: Throwable) {
             val failureMessage = appleReadReceiptFailureMessage(error) ?: throw error
             PushStateHolder.reportError(failureMessage)
@@ -1818,18 +1814,16 @@ private object CoreMessageActions : MessageActions {
         require(reactionIndex in 0..6) { "invalid reaction" }
         require(reactionIndex != 6 || !emoji.isNullOrBlank()) { "custom reaction requires an emoji" }
         val (state, conversation, sender, ingestor) = actionContext(chatId)
-        val inst = runInterruptible(Dispatchers.IO) {
-            state.sendReaction(
-                conversation,
-                sender,
-                messageGuid,
-                messagePart.toULong(),
-                reactionIndex.toULong(),
-                emoji,
-                messageText,
-                enable,
-            )
-        }
+        val inst = state.sendReaction(
+            conversation,
+            sender,
+            messageGuid,
+            messagePart.toULong(),
+            reactionIndex.toULong(),
+            emoji,
+            messageText,
+            enable,
+        )
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
@@ -2302,36 +2296,34 @@ internal object CoreAttachmentSender : AttachmentSender {
         graph.launchBackground {
             var failureLookupGuid = prepared.tempGuid
             try {
-                val inst = runInterruptible(Dispatchers.IO) {
-                    // Rust reports per-file counters that restart at zero for each
-                    // upload; fold them into one cumulative (done, total) pair.
-                    var completedBefore = 0L
-                    var lastDone = 0L
-                    var lastTotal = 0L
-                    pushState.sendAttachments(
-                        prepared.conversation,
-                        prepared.myHandle,
-                        prepared.payloads.map { it.absolutePath },
-                        caption?.takeIf { it.isNotBlank() },
-                        attachments.map { it.mime },
-                        attachments.map { it.uti },
-                        attachments.map { it.name },
-                        null, null, null, subject, false,
-                        object : uniffi.rust_lib_bluebubbles.UProgressCallback {
-                            override fun onProgress(done: ULong, total: ULong) {
-                                val doneLong = done.toLong()
-                                val totalLong = total.toLong()
-                                if (doneLong < lastDone) completedBefore += lastTotal
-                                lastDone = doneLong
-                                lastTotal = totalLong
-                                UploadProgressBoard.update(
-                                    progressGuid,
-                                    (completedBefore + doneLong).coerceAtMost(grandTotal) to grandTotal,
-                                )
-                            }
-                        },
-                    )
-                }
+                // Rust reports per-file counters that restart at zero for each
+                // upload; fold them into one cumulative (done, total) pair.
+                var completedBefore = 0L
+                var lastDone = 0L
+                var lastTotal = 0L
+                val inst = pushState.sendAttachments(
+                    prepared.conversation,
+                    prepared.myHandle,
+                    prepared.payloads.map { it.absolutePath },
+                    caption?.takeIf { it.isNotBlank() },
+                    attachments.map { it.mime },
+                    attachments.map { it.uti },
+                    attachments.map { it.name },
+                    null, null, null, subject, false,
+                    object : uniffi.rust_lib_bluebubbles.UProgressCallback {
+                        override fun onProgress(done: ULong, total: ULong) {
+                            val doneLong = done.toLong()
+                            val totalLong = total.toLong()
+                            if (doneLong < lastDone) completedBefore += lastTotal
+                            lastDone = doneLong
+                            lastTotal = totalLong
+                            UploadProgressBoard.update(
+                                progressGuid,
+                                (completedBefore + doneLong).coerceAtMost(grandTotal) to grandTotal,
+                            )
+                        }
+                    },
+                )
                 failureLookupGuid = inst.id
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
                 val realAttachmentGuids = normal?.let {
