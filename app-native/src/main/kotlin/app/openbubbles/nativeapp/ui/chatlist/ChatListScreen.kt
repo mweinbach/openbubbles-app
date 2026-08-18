@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -82,8 +83,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
@@ -102,6 +105,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 
 private val ListContentMaxWidth = 840.dp
+
+/** Minimum pinned-tile width, matching [GridCells.Adaptive] column math. */
+internal val PinnedChatMinCell = 120.dp
+
+/** Column count [GridCells.Adaptive] would use for [maxWidth]. */
+internal fun pinnedChatColumnCount(maxWidth: Dp, minCell: Dp = PinnedChatMinCell): Int =
+    maxOf(1, (maxWidth / minCell).toInt())
 
 /** Inbox is the main conversation list; Archive is the Settings manager. */
 enum class ChatListKind { Inbox, Archive }
@@ -179,8 +189,27 @@ fun ChatListScreen(
         }
     }
     BackHandler(enabled = selecting) { clearSelection() }
+    val listState = rememberLazyListState()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    var hideFabOnScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        var lastIndex = 0
+        var lastOffset = 0
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            val goingDown = index > lastIndex ||
+                (index == lastIndex && offset > lastOffset + 4)
+            val goingUp = index < lastIndex ||
+                (index == lastIndex && offset < lastOffset - 4)
+            if (goingDown) hideFabOnScroll = true
+            if (goingUp || (index == 0 && offset == 0)) hideFabOnScroll = false
+            lastIndex = index
+            lastOffset = offset
+        }
+    }
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = paneColor,
         topBar = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -295,12 +324,13 @@ fun ChatListScreen(
                         containerColor = paneColor,
                         scrolledContainerColor = paneColor,
                     ),
+                    scrollBehavior = scrollBehavior,
                 )
             }
         },
         floatingActionButton = {
             if (kind == ChatListKind.Inbox) {
-                NewChatFab(onClick = onNewChat, visible = !selecting)
+                NewChatFab(onClick = onNewChat, visible = !selecting && !hideFabOnScroll)
             }
         },
     ) { padding ->
@@ -339,6 +369,7 @@ fun ChatListScreen(
             else -> ChatSections(
                 uiState = uiState,
                 kind = kind,
+                listState = listState,
                 contentPadding = PaddingValues(
                     top = padding.calculateTopPadding() + 4.dp,
                     bottom = padding.calculateBottomPadding() + 88.dp,
@@ -439,6 +470,7 @@ fun ChatListScreen(
 private fun ChatSections(
     uiState: ChatListUiState,
     kind: ChatListKind,
+    listState: LazyListState,
     contentPadding: PaddingValues,
     onChatClick: (ChatListItem) -> Unit,
     onChatLongClick: (ChatListItem) -> Unit,
@@ -449,7 +481,6 @@ private fun ChatSections(
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
     val itemSpecs = rememberItemAnimationSpecs()
-    val listState = rememberLazyListState()
     val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
         when (kind) {
             ChatListKind.Inbox -> uiState.pinned.map { it.id } + uiState.chats.map { it.id }
@@ -548,11 +579,7 @@ private fun PinnedChatsGrid(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
-        val columns = when {
-            maxWidth >= 760.dp -> 6
-            maxWidth >= 560.dp -> 4
-            else -> 3
-        }
+        val columns = pinnedChatColumnCount(maxWidth)
         val avatarSize = if (columns >= 4) 76.dp else 72.dp
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             chats.chunked(columns).forEach { rowChats ->

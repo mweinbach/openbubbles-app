@@ -54,6 +54,7 @@ private const val FIXED_NOW = 1_760_000_000_000L
 @Preview(name = "phone", device = Devices.PHONE, showBackground = true)
 @Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true)
 @Preview(name = "tablet", device = Devices.TABLET, showBackground = true)
+@Preview(name = "desktop", device = Devices.DESKTOP, showBackground = true)
 annotation class FormFactorPreviews
 
 private fun sampleState() = ChatListUiState(
