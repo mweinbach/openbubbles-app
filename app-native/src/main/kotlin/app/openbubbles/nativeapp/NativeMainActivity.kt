@@ -97,7 +97,7 @@ private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = ru
 }.getOrDefault(value)
 
 class NativeMainActivity : FragmentActivity() {
-    private var debugLines: List<String> = emptyList()
+    private var debugLines: List<String> by mutableStateOf(emptyList())
     private var resumeRoute: String? = null
     private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
     private var pendingShareRequest: IncomingShareRequest? by mutableStateOf(null)
@@ -117,10 +117,19 @@ class NativeMainActivity : FragmentActivity() {
 
         // Boot the Rust runtime (state dirs + keystore) before any UI can
         // provision or sign in — onboarding reaches Rust before the push
-        // service ever starts.
+        // service ever starts. The UniFFI smoke test lives in the same
+        // coroutine: loading the .so (dlopen + JNA proxy + checksum sweep)
+        // is a first-frame stall when run on the main thread.
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { app.openbubbles.nativeapp.data.RustBoot.ensureStarted(this@NativeMainActivity, filesDir.absolutePath) }
                 .onFailure { android.util.Log.e("RustBoot", "boot failed", it) }
+            val rustStatus = try {
+                uniffiEnsureInitialized()
+                "uniffi ok — isLocked=${isLocked()}"
+            } catch (t: Throwable) {
+                "rust load failed: ${t.message}"
+            }
+            debugLines = listOf(Hello.greeting(), rustStatus)
         }
 
         // Permission priming moved into the onboarding flow; returning users
@@ -129,23 +138,13 @@ class NativeMainActivity : FragmentActivity() {
             syncContacts()
         }
 
-        // Smoke test: load the Cargo-built librust_lib_bluebubbles.so and call
-        // through UniFFI.
-        // Shown as a small status footer on the chat list.
-        val rustStatus = try {
-            uniffiEnsureInitialized()
-            "uniffi ok — isLocked=${isLocked()}"
-        } catch (t: Throwable) {
-            "rust load failed: ${t.message}"
-        }
-
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 android.util.Log.i("OfficialEngineProbe", OfficialEngineProbe.probe().summary())
             }
         }
 
-        debugLines = listOf(Hello.greeting(), rustStatus)
+        debugLines = listOf(Hello.greeting())
         resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
         pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
             IncomingShareRequest(
