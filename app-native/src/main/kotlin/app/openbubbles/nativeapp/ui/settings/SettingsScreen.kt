@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Healing
+import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -226,6 +227,14 @@ fun SettingsScreen(
     var showRepairConfirmation by rememberSaveable { mutableStateOf(false) }
     var repairing by remember { mutableStateOf(false) }
     var repairError by remember { mutableStateOf<String?>(null) }
+    // The emulated Mac's identity, so the user can match this device
+    // against the entry Apple shows in their trusted-device / keychain list.
+    var deviceInfo by remember { mutableStateOf<uniffi.rust_lib_bluebubbles.UDeviceInfo?>(null) }
+    LaunchedEffect(pushState) {
+        deviceInfo = pushState?.let { state ->
+            withContext(Dispatchers.IO) { runCatching { state.deviceInfo() }.getOrNull() }
+        }
+    }
     val messagingPrefs = remember(context) { MessagingPrefs(context) }
     val profilePrefs = remember(context) { ProfilePrefs(context) }
     val historySyncPreferences = remember(context) { HistorySyncPreferences(context) }
@@ -847,6 +856,7 @@ fun SettingsScreen(
                     // Signed in but iCloud sync unavailable = the keychain
                     // state on this device is missing or was corrupted.
                     if (pushState != null && manager == null) add("repair")
+                    if (deviceInfo != null) add("device")
                     add("contacts")
                 }
                 val count = icloudRows.size
@@ -915,6 +925,36 @@ fun SettingsScreen(
                             count = count,
                             icon = Icons.Filled.CloudDownload,
                         )
+                        "device" -> {
+                            val info = deviceInfo
+                            SettingsActionItem(
+                                title = "This device in iCloud",
+                                supporting = if (info != null) {
+                                    "${info.name} · Serial ${info.serial}\n" +
+                                        "Tap to copy the serial to match it in your Apple device list"
+                                } else {
+                                    "Loading…"
+                                },
+                                onClick = {
+                                    info?.let {
+                                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                                        clipboard?.setPrimaryClip(
+                                            android.content.ClipData.newPlainText("Device serial", it.serial),
+                                        )
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Serial ${it.serial} copied",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                                index = index,
+                                count = count,
+                                enabled = info != null,
+                                multiline = true,
+                                icon = Icons.Filled.Laptop,
+                            )
+                        }
                         "repair" -> SettingsActionItem(
                             title = "Repair iCloud sync",
                             supporting = "Reset this device's iCloud state, then sign in again to rebuild it",

@@ -1511,6 +1511,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1655,6 +1657,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_sh
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_device_info(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth(
 ): Short
@@ -2084,6 +2088,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`p
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_device_info(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2746,6 +2752,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote() != 56044.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_device_info() != 22640.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth() != 60368.toShort()) {
@@ -6184,6 +6193,15 @@ public interface NativePushStateInterface {
      */
     fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
 
+    /**
+     * Identity of the emulated hardware this device presents to Apple:
+     * the Mac model name, serial number, and OS version. Surfaced in
+     * Settings so the user can match this device against the entry that
+     * appears in their iCloud Keychain / trusted-device list on real
+     * Apple devices.
+     */
+    fun `deviceInfo`(): UDeviceInfo
+
     fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
 
     /**
@@ -6883,6 +6901,26 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
 
+
+
+
+    /**
+     * Identity of the emulated hardware this device presents to Apple:
+     * the Mac model name, serial number, and OS version. Surfaced in
+     * Settings so the user can match this device against the entry that
+     * appears in their iCloud Keychain / trusted-device list on real
+     * Apple devices.
+     */
+    @Throws(UException::class)override fun `deviceInfo`(): UDeviceInfo {
+            return FfiConverterTypeUDeviceInfo.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_device_info(
+        it, _status)
+}
+    }
+    )
+    }
 
 
     override fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)

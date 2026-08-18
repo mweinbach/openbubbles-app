@@ -1872,6 +1872,17 @@ impl NativePushState {
             .map_err(|e| UError::Failed { reason: e.to_string() })
     }
 
+    /// Identity of the emulated hardware this device presents to Apple:
+    /// the Mac model name, serial number, and OS version. Surfaced in
+    /// Settings so the user can match this device against the entry that
+    /// appears in their iCloud Keychain / trusted-device list on real
+    /// Apple devices.
+    pub fn device_info(&self) -> Result<UDeviceInfo, UError> {
+        let info = api::get_device_info(&self.shared().os_config)
+            .map_err(|e| UError::Failed { reason: e.to_string() })?;
+        Ok(UDeviceInfo { name: info.name, serial: info.serial, os_version: info.os_version })
+    }
+
     /// All handles (emails + phone numbers) registered for this account.
     /// The intake layer uses these to decide `isFromMe`.
     pub fn get_handles(&self) -> Result<Vec<String>, UError> {
