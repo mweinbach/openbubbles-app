@@ -2,6 +2,17 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.9
+
+### Fixes
+
+- The "Repair iCloud sync" action now appears in the case it was built
+  for: a device that is signed in but whose iCloud Keychain check fails
+  ("no iCloud Keychain on this state"). It was previously hidden whenever
+  the sync manager existed, which is exactly this situation, so it never
+  showed. Join iCloud Keychain is hidden in that broken state since it
+  cannot succeed there.
+
 ## v2.3.8
 
 ### Fixes
