@@ -85,9 +85,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # Must run before checkout: five private repositories are pulled in as
+      # Must run before checkout: six private repositories are pulled in as
       # (nested) submodules — rustpush, telephony_plus, apple-private-apis,
-      # open-absinthe, android-smsmms — and GITHUB_TOKEN only sees this repo.
+      # open-absinthe, clearadi, android-smsmms — and GITHUB_TOKEN only sees
+      # this repo.
       # GitHub allows a deploy key on a single repository, so each gets its
       # own read-only key plus an SSH host alias.
       - name: Grant submodule read access (read-only deploy keys)
@@ -96,6 +97,7 @@ jobs:
           KEY_TELEPHONY: ${{ secrets.SUBMODULE_KEY_TELEPHONY }}
           KEY_APIS: ${{ secrets.SUBMODULE_KEY_APIS }}
           KEY_ABSINTHE: ${{ secrets.SUBMODULE_KEY_ABSINTHE }}
+          KEY_CLEARADI: ${{ secrets.SUBMODULE_KEY_CLEARADI }}
           KEY_SMSMMS: ${{ secrets.SUBMODULE_KEY_SMSMMS }}
         run: |
           mkdir -p ~/.ssh
@@ -106,6 +108,7 @@ jobs:
           github-telephony|KEY_TELEPHONY|mweinbach/telephony_plus
           github-apis|KEY_APIS|mweinbach/apple-private-apis-private
           github-absinthe|KEY_ABSINTHE|mweinbach/openabsinthe-private
+          github-clearadi|KEY_CLEARADI|mweinbach/clearadi-private
           github-smsmms|KEY_SMSMMS|mweinbach/android-smsmms
           ALIASES
             key="${!keyvar}"
