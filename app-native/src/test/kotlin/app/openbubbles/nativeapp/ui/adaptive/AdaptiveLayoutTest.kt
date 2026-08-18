@@ -97,6 +97,31 @@ class AdaptiveLayoutTest {
     }
 
     @Test
+    fun `compact height stays a single pane even on medium width`() {
+        val landscapePhone = messagingListDetailDirective(
+            WindowAdaptiveInfo(
+                windowSizeClass = WindowSizeClass(
+                    minWidthDp = WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+                    minHeightDp = 0,
+                ),
+                windowPosture = Posture(),
+            ),
+        )
+        assertEquals(1, landscapePhone.maxHorizontalPartitions)
+
+        val foldableInner = messagingListDetailDirective(
+            WindowAdaptiveInfo(
+                windowSizeClass = WindowSizeClass(
+                    minWidthDp = WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+                    minHeightDp = WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND,
+                ),
+                windowPosture = Posture(),
+            ),
+        )
+        assertEquals(2, foldableInner.maxHorizontalPartitions)
+    }
+
+    @Test
     fun `separating vertical hinge is excluded from the pane directive`() {
         val book = Posture(
             isTabletop = false,

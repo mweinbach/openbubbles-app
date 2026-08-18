@@ -20,10 +20,22 @@ import androidx.window.core.layout.WindowSizeClass
  * The 24dp list|detail gutter is zeroed so the panes read as one
  * connected surface (Nav3 recipe, b/418201867). Tonal layering still
  * separates list (`surfaceContainerLow`) from conversation (`surface`).
+ *
+ * Compact height (phone landscape, <480dp) stays a single pane so the
+ * transcript and composer are not clipped beside a squeezed list.
  */
-fun messagingListDetailDirective(info: WindowAdaptiveInfo): PaneScaffoldDirective =
-    calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info)
+fun messagingListDetailDirective(info: WindowAdaptiveInfo): PaneScaffoldDirective {
+    val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info)
         .copy(horizontalPartitionSpacerSize = 0.dp)
+    val compactHeight = !info.windowSizeClass.isHeightAtLeastBreakpoint(
+        WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND,
+    )
+    return if (compactHeight && directive.maxHorizontalPartitions > 1) {
+        directive.copy(maxHorizontalPartitions = 1)
+    } else {
+        directive
+    }
+}
 
 /**
  * Horizontal pane count this client wants for a messaging window.
