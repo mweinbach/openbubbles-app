@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import app.openbubbles.core.attachment.AttachmentMedia
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,11 +68,20 @@ data class AttachmentMeta(
     val downloaded: Boolean,
     /** iMessage part index this attachment occupies. */
     val partIndex: Long = 0L,
+    val uti: String? = null,
 ) {
-    val isVideo: Boolean get() = mime?.startsWith("video/", ignoreCase = true) == true
+    val isVideo: Boolean
+        get() = !isImage && AttachmentMedia.isVideo(mime, uti, name)
 
     /** Audio payloads render as an inline voice-memo player instead of a file row. */
-    val isAudio: Boolean get() = mime?.startsWith("audio/", ignoreCase = true) == true
+    val isAudio: Boolean
+        get() = !isImage && !isVideo && AttachmentMedia.isAudio(mime, uti, name)
+
+    val isPdf: Boolean
+        get() = !isImage && !isVideo && !isAudio && AttachmentMedia.isPdf(mime, uti, name)
+
+    val playbackMime: String
+        get() = AttachmentMedia.suggestedMime(mime, uti, name)
 }
 
 /** One sticker image transformed over its target bubble. */

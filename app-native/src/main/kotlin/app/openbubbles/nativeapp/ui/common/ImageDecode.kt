@@ -122,32 +122,84 @@ fun rememberDecodedImage(
             return@produceState
         }
         val decoded = withContext(Dispatchers.IO) {
-            runCatching {
-                if (!file!!.isFile) return@runCatching null
-                val orientation = file.readImageOrientation()
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.absolutePath, bounds)
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
-                    bounds.outHeight / (sample * 2) >= maxDimensionPx
-                ) {
-                    sample *= 2
-                }
-                val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    ?: return@runCatching null
-                val oriented = bitmap.applyImageOrientation(orientation)
-                DecodedImage(
-                    image = oriented.asImageBitmap(),
-                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
-                )
-            }.getOrNull()
+            decodeLocalImage(file, maxDimensionPx)
         }
         if (decoded != null) ImageDecodeCache.put(key, decoded)
         value = decoded
     }.value
+}
+
+/**
+ * Decodes a local still image. [BitmapFactory] handles JPEG/PNG/WebP;
+ * [ImageDecoder] is the HEIC/HEIF/AVIF fallback on API 28+.
+ */
+internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
+    if (file == null || !file.isFile) return null
+    return decodeLocalImageWithBitmapFactory(file, maxDimensionPx)
+        ?: decodeLocalImageWithImageDecoder(file, maxDimensionPx)
+}
+
+private fun decodeLocalImageWithBitmapFactory(file: File, maxDimensionPx: Int): DecodedImage? =
+    runCatching {
+        val orientation = file.readImageOrientation()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
+            bounds.outHeight / (sample * 2) >= maxDimensionPx
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: return@runCatching null
+        val oriented = bitmap.applyImageOrientation(orientation)
+        DecodedImage(
+            image = oriented.asImageBitmap(),
+            aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
+        )
+    }.getOrNull()
+
+private fun decodeLocalImageWithImageDecoder(file: File, maxDimensionPx: Int): DecodedImage? {
+    if (Build.VERSION.SDK_INT < 28) return null
+    return runCatching {
+        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+            val width = info.size.width
+            val height = info.size.height
+            if (width > 0 && height > 0) {
+                var sample = 1
+                while (width / (sample * 2) >= maxDimensionPx ||
+                    height / (sample * 2) >= maxDimensionPx
+                ) {
+                    sample *= 2
+                }
+                decoder.setTargetSize(
+                    (width / sample).coerceAtLeast(1),
+                    (height / sample).coerceAtLeast(1),
+                )
+            }
+        }
+        DecodedImage(
+            image = bitmap.asImageBitmap(),
+            aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+        )
+    }.getOrNull()
+}
+
+internal fun Bitmap.scaledToMaxDimension(maxDimensionPx: Int): Bitmap {
+    val longest = maxOf(width, height)
+    if (longest <= maxDimensionPx) return this
+    val scale = maxDimensionPx.toFloat() / longest.toFloat()
+    val scaled = Bitmap.createScaledBitmap(
+        this,
+        (width * scale).toInt().coerceAtLeast(1),
+        (height * scale).toInt().coerceAtLeast(1),
+        true,
+    )
+    if (scaled !== this) recycle()
+    return scaled
 }
 
 /**

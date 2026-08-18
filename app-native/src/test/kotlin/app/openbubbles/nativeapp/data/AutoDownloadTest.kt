@@ -39,8 +39,26 @@ class AutoDownloadTest {
         assertTrue(isAutoDownloadEligible("image/jpeg", 100L, true, ceiling))
         assertTrue(isAutoDownloadEligible("video/quicktime", 100L, true, ceiling))
         assertTrue(isAutoDownloadEligible("audio/mp4", 100L, true, ceiling))
-        assertFalse(isAutoDownloadEligible("application/pdf", 100L, true, ceiling))
+        assertTrue(isAutoDownloadEligible("application/pdf", 100L, true, ceiling))
+        assertTrue(
+            isAutoDownloadEligible(
+                mime = "application/octet-stream",
+                totalBytes = 100L,
+                hasTransferMetadata = true,
+                maxBytes = ceiling,
+                name = "RenderedVideo.mov",
+            ),
+        )
+        assertTrue(
+            isAutoDownloadEligible(
+                mime = "image/heic",
+                totalBytes = 100L,
+                hasTransferMetadata = true,
+                maxBytes = ceiling,
+            ),
+        )
         assertFalse(isAutoDownloadEligible(null, 100L, true, ceiling))
+        assertFalse(isAutoDownloadEligible("application/zip", 100L, true, ceiling))
     }
 
     @Test

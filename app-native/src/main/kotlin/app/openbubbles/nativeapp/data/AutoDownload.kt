@@ -1,5 +1,7 @@
 package app.openbubbles.nativeapp.data
 
+import app.openbubbles.core.attachment.AttachmentMedia
+
 /**
  * Size ceiling for the automatic download of incoming media attachments,
  * shown as a single-choice list in Settings → Messaging. [maxBytes] is the
@@ -61,26 +63,25 @@ enum class AutoDownloadLimit(
 }
 
 /**
- * True when an incoming attachment should download without a tap: the mime
- * type is media we can render or play inline (images, videos, audio — voice
- * memos must be on disk for the in-chat player), the payload is fetchable
- * (the row carries the transfer metadata the downloader needs), and the
- * declared size fits within [maxBytes]. A missing size is treated as small:
- * Apple's transfer records almost always declare one, and blocking a
- * size-less voice memo would break inline playback.
+ * True when an incoming attachment should download without a tap: the
+ * payload is media we can render or play inline (images including HEIC,
+ * videos including QuickTime/HEVC, audio, and PDFs), it is fetchable (the
+ * row carries the transfer metadata the downloader needs), and the declared
+ * size fits within [maxBytes]. A missing size is treated as small: Apple's
+ * transfer records almost always declare one, and blocking a size-less
+ * voice memo would break inline playback.
  */
 fun isAutoDownloadEligible(
     mime: String?,
     totalBytes: Long?,
     hasTransferMetadata: Boolean,
     maxBytes: Long,
+    uti: String? = null,
+    name: String? = null,
 ): Boolean {
     if (maxBytes == 0L) return false
     if (!hasTransferMetadata) return false
-    val media = mime?.lowercase()?.let {
-        it.startsWith("image/") || it.startsWith("video/") || it.startsWith("audio/")
-    } == true
-    if (!media) return false
+    if (!AttachmentMedia.isInlinePreviewable(mime, uti, name)) return false
     if (maxBytes == MessagingPrefs.AUTO_DOWNLOAD_UNLIMITED) return true
     val size = totalBytes ?: 0L
     return size <= maxBytes
