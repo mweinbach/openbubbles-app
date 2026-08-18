@@ -2105,18 +2105,23 @@ pub async fn send(state: &Arc<IMClient>, local: &Arc<mpsc::Sender<PushMessage>>,
     info!("send_finish");
 
     let local = local.clone();
+    let uuid = msg.id.clone();
     if let Some(handle) = result.handle {
-        let uuid = msg.id.clone();
         tokio::spawn(async move {
-            let result = handle.await.unwrap();
+            let maybeerr = match handle.await {
+                Ok(Ok(())) => None,
+                Ok(Err(err)) => Some(format!("{err}")),
+                Err(join) => Some(format!("send task failed: {join}")),
+            };
             info!("Finished handle {}", uuid);
-            let maybeerr = result.err().map(|err| format!("{}", err));
             let _ = local.send(PushMessage::SendConfirm { uuid, error: maybeerr }).await;
         });
-        Ok(true)
     } else {
-        Ok(false)
+        // The APNs job already finished. Still emit SendConfirm so the
+        // staged bubble does not stay in-flight (or look sent) forever.
+        let _ = local.send(PushMessage::SendConfirm { uuid, error: None }).await;
     }
+    Ok(true)
 }
 
 pub async fn get_handles(state: &Arc<IMClient>) -> anyhow::Result<Vec<String>> {

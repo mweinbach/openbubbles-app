@@ -287,7 +287,9 @@ fun buildConversationEntries(
             entries += ConversationEntry.TimeSeparator(message.date)
         }
         previousDate = message.date
-        val showStatus = message.id == lastFromMeId || message.status == MessageStatus.FAILED
+        val showStatus = message.id == lastFromMeId ||
+            message.status == MessageStatus.FAILED ||
+            message.status == MessageStatus.SENDING
         entries += ConversationEntry.Message(message, showStatus)
     }
     entries.reverse()

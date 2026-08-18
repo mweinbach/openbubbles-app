@@ -806,11 +806,12 @@ class MessageIngestor(
                 // incoming content wins; receipts/dates already on the row win.
                 existing.apply {
                     if (existing.stagingGuid == incoming.guid) {
-                        // Staging promotion: real guid replaces the temp one,
-                        // and the send is confirmed (no longer in flight).
+                        // Staging promotion: real guid replaces the temp one.
+                        // Keep sendingServiceId until SendConfirm — the echo
+                        // only means we reflected the outgoing payload, not
+                        // that Apple accepted it.
                         this.stagingGuid = null
                         this.guid = incoming.guid
-                        this.sendingServiceId = null
                     }
                     text = incoming.text ?: text
                     subject = incoming.subject ?: subject
