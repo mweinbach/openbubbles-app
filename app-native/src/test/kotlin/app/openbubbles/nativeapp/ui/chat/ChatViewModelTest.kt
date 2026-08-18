@@ -691,7 +691,7 @@ class ChatViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals(listOf(7L to null), receipts.marked)
+        assertEquals(listOf<Pair<Long, String?>>(7L to null), receipts.marked)
     }
 
     @Test
@@ -727,7 +727,7 @@ class ChatViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals(listOf(7L to null), receipts.marked)
+        assertEquals(listOf<Pair<Long, String?>>(7L to null), receipts.marked)
     }
 
     @Test
