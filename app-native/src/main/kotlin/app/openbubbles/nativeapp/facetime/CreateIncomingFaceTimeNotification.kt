@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -28,7 +27,18 @@ data class FtIncomingCall(
 object CreateIncomingFaceTimeNotification {
     const val tag = "create-incoming-facetime-notification"
 
+    const val CHANNEL_ID = FaceTimeNotifications.CHANNEL_INCOMING
+
     val avatarCache = mutableMapOf<String, Bitmap?>()
+
+    /**
+     * Registers [CHANNEL_ID] before the first ring. Delegates to
+     * [FaceTimeNotifications] so the incoming / missed / in-call channels
+     * stay one owner.
+     */
+    fun ensureChannel(context: Context) {
+        FaceTimeNotifications.ensureIncomingChannel(context)
+    }
 
     fun create(context: Context, call: FtIncomingCall) {
         val channelId: String = FaceTimeNotifications.ensureIncomingChannel(context)
@@ -117,15 +127,12 @@ object CreateIncomingFaceTimeNotification {
             notificationBuilder.setLargeIcon(callerBitmap)
         }
         notificationBuilder.setContentIntent(openSummaryIntent)
+        // Always attach the full-screen intent. On Android 14+ a denied
+        // USE_FULL_SCREEN_INTENT grant still lets the system keep the
+        // heads-up / lock-screen fallback; omitting the intent turns a
+        // ringing call into an ordinary notification.
+        notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
         val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
-        val canFullScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            notificationManager.canUseFullScreenIntent()
-        } else {
-            true
-        }
-        if (canPostFullScreenCallIntent(canFullScreen)) {
-            notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
-        }
         // clear after 30 seconds in case we didn't get an event from the server
         notificationBuilder.setTimeoutAfter(30000)
 

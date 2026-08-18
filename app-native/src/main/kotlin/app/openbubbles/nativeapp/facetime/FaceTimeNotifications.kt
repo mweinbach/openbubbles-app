@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.facetime
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -22,6 +23,7 @@ internal object FaceTimeNotifications {
         ).apply {
             description = "Incoming FaceTime calls"
             enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             setSound(
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
                 AudioAttributes.Builder()
