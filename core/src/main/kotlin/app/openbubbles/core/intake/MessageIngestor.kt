@@ -236,15 +236,23 @@ class MessageIngestor(
     ): Chat? {
         if (inst.verificationFailed) return null
         val sender = inst.sender ?: return null
-        val normalized = MessageMapper.normalizeAddress(sender)
-        val profile = runCatching {
-            profileUpdatePort?.receive(normalized, json, kind)
-        }.getOrNull()
-        if (profile != null) {
-            val handle = handleFor(sender, serviceFor(inst))
-            profile.displayName?.takeIf(String::isNotBlank)?.let { handle.formattedAddress = it }
-            profile.posterPath?.takeIf(String::isNotBlank)?.let { handle.posterPath = it }
-            store.boxFor(Handle::class.java).put(handle)
+        val port = profileUpdatePort
+        if (port != null) {
+            val normalized = MessageMapper.normalizeAddress(sender)
+            // The port does an Apple network round trip (profile fetch +
+            // poster download). Holding the ingest mutex across it would
+            // stall every other incoming message behind one profile, so the
+            // fetch runs off the lock and re-enters only for the handle write.
+            scope.launch {
+                val profile = runCatching { port.receive(normalized, json, kind) }.getOrNull()
+                    ?: return@launch
+                mutex.withLock {
+                    val handle = handleFor(sender, serviceFor(inst))
+                    profile.displayName?.takeIf(String::isNotBlank)?.let { handle.formattedAddress = it }
+                    profile.posterPath?.takeIf(String::isNotBlank)?.let { handle.posterPath = it }
+                    store.boxFor(Handle::class.java).put(handle)
+                }
+            }
         }
         return chatForInst(inst, myHandles, createIfMissing = false)
     }

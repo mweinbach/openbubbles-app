@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -1525,8 +1526,10 @@ class MessageIngestorTest {
         val chat = chatForFixture()
         ingestor.close()
         val received = mutableListOf<ProfileMessageKind>()
+        val profileScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         ingestor = MessageIngestor(
             store,
+            scope = profileScope,
             profileUpdatePort = ProfileUpdatePort { address, json, kind ->
                 assertEquals("friend@icloud.com", address)
                 assertEquals("profile-json", json)
@@ -1548,6 +1551,8 @@ class MessageIngestorTest {
             ),
             myHandles,
         )
+        // The profile fetch is deferred off the ingest mutex; wait for it.
+        profileScope.coroutineContext[kotlinx.coroutines.Job]!!.children.toList().joinAll()
 
         val handle = chatBox().get(chat.id).handles.single()
         assertEquals("Friendly Name", handle.formattedAddress)
@@ -1560,8 +1565,10 @@ class MessageIngestorTest {
         val chat = chatForFixture()
         ingestor.close()
         val received = mutableListOf<ProfileMessageKind>()
+        val profileScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         ingestor = MessageIngestor(
             store,
+            scope = profileScope,
             profileUpdatePort = ProfileUpdatePort { _, _, kind ->
                 received += kind
                 null
@@ -1581,6 +1588,8 @@ class MessageIngestorTest {
             ),
             myHandles,
         )
+        // The port call is deferred off the ingest mutex; wait for it.
+        profileScope.coroutineContext[kotlinx.coroutines.Job]!!.children.toList().joinAll()
 
         assertEquals(listOf(ProfileMessageKind.SharingUpdate), received)
         assertNull(chatBox().get(chat.id).handles.single().formattedAddress)
