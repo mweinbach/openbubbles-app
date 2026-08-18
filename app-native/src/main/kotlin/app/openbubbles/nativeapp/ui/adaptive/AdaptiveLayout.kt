@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.ui.adaptive
 import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.PaneScaffoldDirective
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
+import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 
 /**
@@ -15,9 +16,14 @@ import androidx.window.core.layout.WindowSizeClass
  * transcript. Hinge policy stays the library default ([AvoidSeparating]):
  * panes split around a separating vertical hinge and stay seamless when
  * the fold is flat.
+ *
+ * The 24dp list|detail gutter is zeroed so the panes read as one
+ * connected surface (Nav3 recipe, b/418201867). Tonal layering still
+ * separates list (`surfaceContainerLow`) from conversation (`surface`).
  */
 fun messagingListDetailDirective(info: WindowAdaptiveInfo): PaneScaffoldDirective =
     calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info)
+        .copy(horizontalPartitionSpacerSize = 0.dp)
 
 /**
  * Horizontal pane count this client wants for a messaging window.
@@ -114,6 +120,36 @@ internal fun faceTimeTabletopInsets(
     return FaceTimeTabletopInsets(
         contentHeightPx = hingeTopPx,
         controlsTopMarginPx = hingeBottomPx,
+    )
+}
+
+/**
+ * QR pairing scanner split for tabletop: viewfinder above the horizontal
+ * hinge, close / torch / caption below it. Null means "use the phone
+ * layout" — including the first WindowLayoutInfo frame, which has no
+ * folding features yet.
+ */
+internal data class QrTabletopSplit(
+    val viewfinderHeightPx: Int,
+    val hingeHeightPx: Int,
+)
+
+internal fun qrTabletopSplit(
+    windowHeightPx: Int,
+    hingeTopPx: Int,
+    hingeBottomPx: Int,
+): QrTabletopSplit? {
+    if (
+        windowHeightPx <= 0 ||
+        hingeTopPx <= 0 ||
+        hingeBottomPx >= windowHeightPx ||
+        hingeTopPx >= hingeBottomPx
+    ) {
+        return null
+    }
+    return QrTabletopSplit(
+        viewfinderHeightPx = hingeTopPx,
+        hingeHeightPx = hingeBottomPx - hingeTopPx,
     )
 }
 

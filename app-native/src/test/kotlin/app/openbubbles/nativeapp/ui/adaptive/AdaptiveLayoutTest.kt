@@ -4,6 +4,7 @@ import androidx.compose.material3.adaptive.HingeInfo
 import androidx.compose.material3.adaptive.Posture
 import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -90,6 +91,9 @@ class AdaptiveLayoutTest {
             ),
         )
         assertEquals(3, large.maxHorizontalPartitions)
+        assertEquals(0.dp, compact.horizontalPartitionSpacerSize)
+        assertEquals(0.dp, foldableInner.horizontalPartitionSpacerSize)
+        assertEquals(0.dp, large.horizontalPartitionSpacerSize)
     }
 
     @Test
@@ -194,5 +198,20 @@ class AdaptiveLayoutTest {
         assertTrue(isTabletopFold(horizontalHinge = true, halfOpened = true))
         assertTrue(isBookFold(verticalHinge = true, halfOpened = true))
         assertFalse(isBookFold(verticalHinge = false, halfOpened = true))
+    }
+
+    @Test
+    fun `QR tabletop keeps the viewfinder above the fold and controls below`() {
+        val split = assertNotNull(qrTabletopSplit(1800, 700, 740))
+        assertEquals(700, split.viewfinderHeightPx)
+        assertEquals(40, split.hingeHeightPx)
+        assertTrue(split.viewfinderHeightPx + split.hingeHeightPx < 1800)
+    }
+
+    @Test
+    fun `QR tabletop is ignored on the empty first fold frame`() {
+        assertNull(qrTabletopSplit(1800, 0, 0))
+        assertNull(qrTabletopSplit(0, 700, 740))
+        assertNull(qrTabletopSplit(1800, 900, 800))
     }
 }
