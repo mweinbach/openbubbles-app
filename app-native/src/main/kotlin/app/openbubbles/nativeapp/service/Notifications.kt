@@ -6,12 +6,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.content.LocusIdCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
@@ -90,9 +94,9 @@ object Notifications {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
         val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId)
-        val conversationChatId = relatedChatIds.minOrNull() ?: chatId
-        val conversationId = "chat-$conversationChatId"
-        val notificationId = conversationNotificationId(conversationChatId)
+        val identity = conversationIdentity(chatId, relatedChatIds)
+        val conversationId = identity.conversationId
+        val notificationId = identity.notificationId
         val activeNotifications = nm.activeNotifications
         val duplicate = messageGuid != null && activeNotifications.any {
             it.id == notificationId &&
@@ -190,9 +194,13 @@ object Notifications {
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setColor(ACCENT_COLOR)
-            // The chat's conversation identity (Android Conversations API):
-            // shortcutId == the conversation id, mirrored in the extras.
-            .setShortcutId(conversationId)
+            .attachConversationShortcut(
+                context = context,
+                identity = identity,
+                title = shownTitle,
+                chatGuid = chatGuid,
+                isGroup = isGroup,
+            )
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 publicVersion(context, channelId, contentIntent),
@@ -251,16 +259,20 @@ object Notifications {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
 
+        val relatedChatIds = runCatching { CoreGraph.relatedDirectChatIds(chatId) }
+            .getOrDefault(listOf(chatId))
+        val identity = conversationIdentity(chatId, relatedChatIds)
+        val conversationId = identity.conversationId
         val prefs = NotifPrefs(context)
         val hide = prefs.hidePreviews
         val shownTitle = if (hide) "iMessage" else title
         val shownText = if (hide) "Reply sent" else "You: $replyText"
 
-        val channelId = ensureChannel(nm, chatGuid, title, isGroup)
+        val channelId = ensureChannel(nm, conversationId, title, isGroup)
         val requestCode = if (notificationId != -1) {
             notificationId
         } else {
-            conversationNotificationId(chatId)
+            identity.notificationId
         }
         cancelOtherChatNotifications(nm, chatId, requestCode)
         val contentIntent = PendingIntent.getActivity(
@@ -292,10 +304,11 @@ object Notifications {
                     } else {
                         readHistory(
                             chatId = chatId,
+                            relatedChatIds = relatedChatIds,
                             currentText = replyText,
                             isGroup = isGroup,
                             conversationTitle = title,
-                            conversationKey = chatGuid,
+                            conversationKey = conversationId,
                         )
                     },
                     currentText = shownText,
@@ -309,7 +322,13 @@ object Notifications {
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setColor(ACCENT_COLOR)
-            .setShortcutId(chatGuid)
+            .attachConversationShortcut(
+                context = context,
+                identity = identity,
+                title = shownTitle,
+                chatGuid = chatGuid,
+                isGroup = isGroup,
+            )
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 publicVersion(context, channelId, contentIntent),
@@ -317,8 +336,8 @@ object Notifications {
             .setExtras(Bundle().apply {
                 putString(EXTRA_CHAT_GUID, chatGuid)
                 putLong(EXTRA_CHAT_ID, chatId)
-                putString(EXTRA_CONVERSATION_ID, chatGuid)
-                putString(EXTRA_SEARCH_KEY, chatGuid)
+                putString(EXTRA_CONVERSATION_ID, conversationId)
+                putString(EXTRA_SEARCH_KEY, conversationId)
             })
             .build()
         nm.notify(requestCode, notification)
@@ -334,12 +353,15 @@ object Notifications {
     ) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
-        val conversationId = chatGuid ?: "chat-$chatId"
+        val relatedChatIds = runCatching { CoreGraph.relatedDirectChatIds(chatId) }
+            .getOrDefault(listOf(chatId))
+        val identity = conversationIdentity(chatId, relatedChatIds)
+        val conversationId = identity.conversationId
         val channelId = ensureChannel(nm, conversationId, title, isGroup = false)
         val requestCode = if (notificationId != -1) {
             notificationId
         } else {
-            conversationNotificationId(chatId)
+            identity.notificationId
         }
         cancelOtherChatNotifications(nm, chatId, requestCode)
         val openIntent = Intent(context, NativeMainActivity::class.java).apply {
@@ -739,7 +761,81 @@ object Notifications {
         nm.createNotificationChannel(channel)
         return id
     }
+
+    /**
+     * Publishes a long-lived conversation shortcut and binds it on the
+     * notification. Android 11+ only treats MessagingStyle posts as
+     * conversations when this shortcut exists at notify time.
+     */
+    private fun NotificationCompat.Builder.attachConversationShortcut(
+        context: Context,
+        identity: ConversationIdentity,
+        title: String,
+        chatGuid: String,
+        isGroup: Boolean,
+    ): NotificationCompat.Builder {
+        val spec = conversationShortcutSpec(identity, title, chatGuid)
+        val person = Person.Builder()
+            .setName(spec.shortLabel)
+            .setKey(spec.id)
+            .setImportant(true)
+            .build()
+        val intent = Intent(context, NativeMainActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .putExtra(EXTRA_CHAT_GUID, spec.chatGuid)
+        val shortcut = ShortcutInfoCompat.Builder(context, spec.id)
+            .setShortLabel(spec.shortLabel)
+            .setLongLived(true)
+            .setPerson(person)
+            .setLocusId(LocusIdCompat(spec.locusId))
+            .setIntent(intent)
+            .setCategories(setOf(ShortcutInfo.SHORTCUT_CATEGORY_CONVERSATION))
+            .apply {
+                if (isGroup) {
+                    setLongLabel(spec.shortLabel)
+                }
+            }
+            .build()
+        runCatching { ShortcutManagerCompat.pushDynamicShortcut(context, shortcut) }
+        return setShortcutInfo(shortcut)
+    }
 }
+
+internal data class ConversationIdentity(
+    val conversationChatId: Long,
+    val conversationId: String,
+    val notificationId: Int,
+)
+
+internal data class ConversationShortcutSpec(
+    val id: String,
+    val shortLabel: String,
+    val locusId: String,
+    val chatGuid: String,
+)
+
+internal fun conversationIdentity(
+    chatId: Long,
+    relatedChatIds: Collection<Long> = emptyList(),
+): ConversationIdentity {
+    val conversationChatId = relatedChatIds.minOrNull() ?: chatId
+    return ConversationIdentity(
+        conversationChatId = conversationChatId,
+        conversationId = "chat-$conversationChatId",
+        notificationId = conversationNotificationId(conversationChatId),
+    )
+}
+
+internal fun conversationShortcutSpec(
+    identity: ConversationIdentity,
+    title: String,
+    chatGuid: String,
+): ConversationShortcutSpec = ConversationShortcutSpec(
+    id = identity.conversationId,
+    shortLabel = title.ifBlank { "OpenBubbles" },
+    locusId = identity.conversationId,
+    chatGuid = chatGuid,
+)
 
 internal fun conversationNotificationId(chatId: Long): Int =
     "openbubbles-chat:$chatId".hashCode()

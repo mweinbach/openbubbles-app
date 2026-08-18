@@ -311,6 +311,14 @@ class FaceTimeActivity : Activity() {
 
     fun startService() {
         if (serviceStarted) return
+        val hasCamera = checkSelfPermission(Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val hasMic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (faceTimeForegroundServiceType(hasCamera, hasMic) == 0) {
+            Log.w("FaceTime", "skipping in-call FGS without camera or microphone permission")
+            return
+        }
 
         val intent = Intent(this, FaceTimeInCallService::class.java)
         startForegroundService(intent)

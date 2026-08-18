@@ -1,65 +1,66 @@
 package app.openbubbles.nativeapp.facetime
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import app.openbubbles.nativeapp.R
 
-class FaceTimeInCallService: Service() {
-
-    fun createNotificationChannel() {
-        val importance = NotificationManager.IMPORTANCE_LOW
-        val channel = NotificationChannel(IN_CALL_CHANNEL, "In Call", importance).apply {
-            description = "Shows the state of an in-progress FaceTime call"
-        }
-        // Register the channel with the system
-        val notificationManager: NotificationManager =
-            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannel(channel)
-    }
-
-    val IN_CALL_CHANNEL = "com.bluebubbles.in_call_channel";
-    fun notifyForeground() {
-        createNotificationChannel()
-        val notification: Notification = Notification.Builder(this, IN_CALL_CHANNEL)
-            .setContentTitle("FaceTime call in progress")
-            .setSmallIcon(R.mipmap.ic_stat_icon)
-            .build()
-
-        var type: Int = 0
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            }
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            }
-        }
-
-        // The service-type overload was added in Android 10. Android 8/9 still
-        // require the two-argument call even though they support foreground services.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(3884786, notification, type)
-        } else {
-            startForeground(3884786, notification)
-        }
-    }
+class FaceTimeInCallService : Service() {
 
     override fun onCreate() {
-        notifyForeground()
         super.onCreate()
+        notifyForeground()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_NOT_STICKY
+    }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    private fun notifyForeground() {
+        val channelId = FaceTimeNotifications.ensureInCallChannel(this)
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("FaceTime call in progress")
+            .setSmallIcon(R.mipmap.ic_stat_icon)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSilent(true)
+            .build()
+
+        val type = faceTimeForegroundServiceType(
+            cameraGranted = checkSelfPermission(android.Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED,
+            microphoneGranted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+
+        try {
+            // camera|microphone types exist from Android 11. The three-arg
+            // startForeground is required from Android 10, but passing 0 on
+            // Android 14+ throws MissingForegroundServiceTypeException.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (type == 0) {
+                    Log.w(TAG, "refusing camera|microphone FGS with no media permissions")
+                    stopSelf()
+                    return
+                }
+                startForeground(FOREGROUND_ID, notification, type)
+            } else {
+                startForeground(FOREGROUND_ID, notification)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "failed to start FaceTime foreground service", e)
+            stopSelf()
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        private const val TAG = "FaceTimeInCallService"
+        private const val FOREGROUND_ID = 3884786
     }
 }

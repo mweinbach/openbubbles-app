@@ -119,10 +119,11 @@ dependencies {
     implementation libs.okhttp
     implementation libs.androidx.activity.compose
 
-    // QR pairing scanner (provisioning): CameraX + ML Kit on-device QR decode
+    // QR pairing scanner (provisioning): CameraX + official ML Kit Analyzer
     implementation libs.androidx.camera.camera2
     implementation libs.androidx.camera.lifecycle
     implementation libs.androidx.camera.view
+    implementation libs.androidx.camera.mlkit.vision
     implementation libs.mlkit.barcode.scanning
 
     implementation platform(libs.androidx.compose.bom)
@@ -132,7 +133,6 @@ dependencies {
     // documented setup: the explicit version wins over the BOM's managed one.
     implementation libs.androidx.material3
     implementation libs.androidx.material3.windowsize
-    implementation libs.androidx.material3.adaptive.navigation.suite
     implementation libs.androidx.graphics.shapes
 
     // material3.adaptive is a DIFFERENT version train (1.3.0) from material3.

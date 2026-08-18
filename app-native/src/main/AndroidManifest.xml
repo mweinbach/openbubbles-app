@@ -211,7 +211,8 @@
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:exported="false"
-            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:supportsPictureInPicture="true"
             android:taskAffinity=".FaceTime"
             android:theme="@style/Theme.Call" />

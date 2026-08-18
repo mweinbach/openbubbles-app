@@ -1,26 +1,23 @@
 package app.openbubbles.nativeapp.ui.login
 
 import android.Manifest
-import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.mlkit.vision.MlKitAnalyzer
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,9 +44,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
@@ -58,12 +57,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -72,6 +70,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * first detected QR exactly once — binary payloads (the `OABS…` Mac pairing
  * format) via [onResult]'s bytes, text payloads (relay URL/code, raw hex)
  * via the string; either may be null, never both.
+ *
+ * Uses CameraX [LifecycleCameraController] + [MlKitAnalyzer], the official
+ * CameraX ↔ ML Kit integration, so CameraX owns frame delivery, backpressure,
+ * and analyzer lifecycle instead of a hand-rolled [ImageAnalysis] loop.
  */
 @Composable
 fun QrScannerSheet(
@@ -96,7 +98,6 @@ fun QrScannerSheet(
     }
 
     var torchOn by remember { mutableStateOf(false) }
-    var camera by remember { mutableStateOf<Camera?>(null) }
     val delivered = remember { AtomicBoolean(false) }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val scanner = remember {
@@ -106,6 +107,40 @@ fun QrScannerSheet(
                 .build(),
         )
     }
+    val cameraController = remember {
+        LifecycleCameraController(context).apply {
+            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+        }
+    }
+
+    val deliver: (ByteArray?, String?) -> Unit = { bytes, text ->
+        qrScanPayload(bytes, text)?.let { (payloadBytes, payloadText) ->
+            if (delivered.compareAndSet(false, true)) {
+                runCatching {
+                    context.getSystemService(Vibrator::class.java)?.vibrate(
+                        VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE),
+                    )
+                }
+                onResult(payloadBytes, payloadText)
+            }
+        }
+    }
+
+    DisposableEffect(hasPermission, lifecycleOwner) {
+        if (hasPermission) {
+            cameraController.setImageAnalysisAnalyzer(
+                executor,
+                qrMlKitAnalyzer(scanner, executor, deliver),
+            )
+            cameraController.bindToLifecycle(lifecycleOwner)
+        }
+        onDispose {
+            cameraController.clearImageAnalysisAnalyzer()
+            cameraController.unbind()
+        }
+    }
     DisposableEffect(Unit) {
         onDispose {
             runCatching { executor.shutdown() }
@@ -113,16 +148,9 @@ fun QrScannerSheet(
         }
     }
 
-    val deliver: (ByteArray?, String?) -> Unit = { bytes, text ->
-        if (bytes != null || text != null) {
-            if (delivered.compareAndSet(false, true)) {
-                runCatching {
-                    context.getSystemService(Vibrator::class.java)?.vibrate(
-                        VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE),
-                    )
-                }
-                onResult(bytes, text)
-            }
+    LaunchedEffect(torchOn, hasPermission) {
+        if (hasPermission) {
+            cameraController.enableTorch(torchOn)
         }
     }
 
@@ -144,72 +172,50 @@ fun QrScannerSheet(
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                androidx.compose.foundation.layout.Spacer(Modifier.size(16.dp))
+                Spacer(Modifier.size(16.dp))
                 TextButton(onClick = onClose) { Text("Go back") }
             }
         } else {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
-                    val previewView = PreviewView(ctx)
-                    val providerFuture = ProcessCameraProvider.getInstance(ctx)
-                    providerFuture.addListener({
-                        val provider = providerFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = previewView.surfaceProvider
-                        }
-                        val analysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                            .build()
-                        analysis.setAnalyzer(executor) { proxy ->
-                            processFrame(scanner, proxy, deliver)
-                        }
-                        runCatching {
-                            provider.unbindAll()
-                            camera = provider.bindToLifecycle(
-                                lifecycleOwner,
-                                CameraSelector.DEFAULT_BACK_CAMERA,
-                                preview,
-                                analysis,
-                            )
-                        }
-                    }, ContextCompat.getMainExecutor(ctx))
-                    previewView
+                    PreviewView(ctx).apply {
+                        controller = cameraController
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                    }
                 },
             )
 
             ScanOverlay(
                 torchOn = torchOn,
-                onToggleTorch = {
-                    torchOn = !torchOn
-                    camera?.cameraControl?.enableTorch(torchOn)
-                },
+                onToggleTorch = { torchOn = !torchOn },
                 onClose = onClose,
             )
         }
     }
 }
 
-@OptIn(ExperimentalGetImage::class)
-private fun processFrame(
-    scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
-    proxy: ImageProxy,
+internal fun qrMlKitAnalyzer(
+    scanner: BarcodeScanner,
+    executor: java.util.concurrent.Executor,
     onBarcode: (ByteArray?, String?) -> Unit,
-) {
-    val mediaImage = proxy.image
-    if (mediaImage == null) {
-        proxy.close()
-        return
+): MlKitAnalyzer = MlKitAnalyzer(
+    listOf(scanner),
+    CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED,
+    executor,
+) { result ->
+    val barcodes = result?.getValue(scanner).orEmpty()
+    barcodes.firstOrNull()?.let { code ->
+        onBarcode(code.rawBytes, code.rawValue)
     }
-    val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
-    scanner.process(input)
-        .addOnSuccessListener { barcodes ->
-            barcodes.firstOrNull()?.let { code ->
-                onBarcode(code.rawBytes, code.rawValue)
-            }
-        }
-        .addOnCompleteListener { proxy.close() }
 }
+
+/** First non-empty QR payload. Bytes and text may both be present. */
+internal fun qrScanPayload(
+    rawBytes: ByteArray?,
+    rawValue: String?,
+): Pair<ByteArray?, String?>? =
+    if (rawBytes != null || rawValue != null) rawBytes to rawValue else null
 
 /** Scrim with a rounded-square cutout, corner brackets, torch + close controls. */
 @Composable
@@ -223,11 +229,13 @@ private fun ScanOverlay(
             val side = size.width * 0.72f
             val hole = Rect(
                 Offset((size.width - side) / 2f, (size.height - side) / 2f),
-                androidx.compose.ui.geometry.Size(side, side),
+                Size(side, side),
             )
-            val holePath = Path().apply { addRoundRect(RoundRect(hole, cornerRadius = androidx.compose.ui.geometry.CornerRadius(28f, 28f))) }
+            val holePath = Path().apply {
+                addRoundRect(RoundRect(hole, cornerRadius = CornerRadius(28f, 28f)))
+            }
             val fillPath = Path().apply {
-                addRect(Rect(Offset.Zero, androidx.compose.ui.geometry.Size(size.width, size.height)))
+                addRect(Rect(Offset.Zero, Size(size.width, size.height)))
             }
             drawPath(
                 path = Path.combine(PathOperation.Difference, fillPath, holePath),

@@ -1,12 +1,12 @@
 package app.openbubbles.nativeapp.facetime
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -31,7 +31,7 @@ object CreateIncomingFaceTimeNotification {
     val avatarCache = mutableMapOf<String, Bitmap?>()
 
     fun create(context: Context, call: FtIncomingCall) {
-        val channelId: String = "facetime_incoming"
+        val channelId: String = FaceTimeNotifications.ensureIncomingChannel(context)
         val notificationId: Int = call.notificationId
         val callUuid: String? = call.callUuid
         val title: String = call.title
@@ -117,11 +117,18 @@ object CreateIncomingFaceTimeNotification {
             notificationBuilder.setLargeIcon(callerBitmap)
         }
         notificationBuilder.setContentIntent(openSummaryIntent)
-        notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
+        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
+        val canFullScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            notificationManager.canUseFullScreenIntent()
+        } else {
+            true
+        }
+        if (canPostFullScreenCallIntent(canFullScreen)) {
+            notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
+        }
         // clear after 30 seconds in case we didn't get an event from the server
-        notificationBuilder.setTimeoutAfter(30000);
+        notificationBuilder.setTimeoutAfter(30000)
 
-        val notificationManager = context.getSystemService(NotificationManager::class.java)
         val notification = notificationBuilder.build()
         // loop ringtone
         notification.flags = notification.flags or NotificationCompat.FLAG_INSISTENT
