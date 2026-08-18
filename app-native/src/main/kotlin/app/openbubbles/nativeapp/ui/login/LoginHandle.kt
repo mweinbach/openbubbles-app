@@ -92,12 +92,16 @@ class FakeLoginHandle(
     /** Optional state forced as the next answer for scripted previews/tests. */
     var nextState: LoginUiState? = null
 
+    /** Most recent login arguments, exposed for view-model routing tests. */
+    var lastLogin: Pair<String?, String?>? = null
+
     /** Set once a phone is chosen, so wrong codes stay in the SMS state. */
     private var activePhoneId: UInt? = null
 
     override suspend fun savedUsername(): String? = PREVIEW_USERNAME
 
     override suspend fun login(username: String?, password: String?): LoginUiState {
+        lastLogin = username to password
         failIfRequested()
         nextState?.let { return it }
         activePhoneId = null

@@ -93,6 +93,14 @@ android {
     }
 }
 
+// Recovery-only: `-PopenAbsintheOracleJniDir=/path/to/jniLibs` adds the
+// historical arm64 image to a debug APK for byte-for-byte differential tests.
+// Ordinary debug/release builds do not package it.
+def openAbsintheOracleJniDir = providers.gradleProperty("openAbsintheOracleJniDir").orNull
+if (openAbsintheOracleJniDir) {
+    android.sourceSets.debug.jniLibs.srcDir(file(openAbsintheOracleJniDir))
+}
+
 dependencies {
     implementation project(":db")
     implementation project(":core")

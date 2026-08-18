@@ -107,4 +107,49 @@ class LoginViewModelTest {
         advanceUntilIdle()
         assertIs<LoginScreen.DeviceCode>(model.screen.value)
     }
+
+    @Test
+    fun `typing the saved account reuses its session instead of reprovisioning iCloud`() = runTest {
+        val handle = FakeLoginHandle()
+        val model = model(handle)
+        advanceUntilIdle()
+
+        model.submitCredentials(FakeLoginHandle.PREVIEW_USERNAME.uppercase(), "password")
+        advanceUntilIdle()
+
+        assertEquals(null to null, handle.lastLogin)
+        assertIs<LoginScreen.DeviceCode>(model.screen.value)
+    }
+
+    @Test
+    fun `typing a different account keeps the supplied credentials`() = runTest {
+        val handle = FakeLoginHandle()
+        val model = model(handle)
+        advanceUntilIdle()
+
+        model.submitCredentials("other@icloud.com", "password")
+        advanceUntilIdle()
+
+        assertEquals("other@icloud.com" to "password", handle.lastLogin)
+        assertIs<LoginScreen.DeviceCode>(model.screen.value)
+    }
+
+    @Test
+    fun `saved-session failure permits a typed same-account fallback`() = runTest {
+        val handle = FakeLoginHandle(shouldFail = true)
+        val model = model(handle)
+        advanceUntilIdle()
+
+        model.submitCredentials(FakeLoginHandle.PREVIEW_USERNAME, "new-password")
+        advanceUntilIdle()
+        assertEquals(null to null, handle.lastLogin)
+        assertNotNull(assertIs<LoginScreen.Form>(model.screen.value).error)
+
+        handle.shouldFail = false
+        model.submitCredentials(FakeLoginHandle.PREVIEW_USERNAME, "new-password")
+        advanceUntilIdle()
+
+        assertEquals(FakeLoginHandle.PREVIEW_USERNAME to "new-password", handle.lastLogin)
+        assertIs<LoginScreen.DeviceCode>(model.screen.value)
+    }
 }

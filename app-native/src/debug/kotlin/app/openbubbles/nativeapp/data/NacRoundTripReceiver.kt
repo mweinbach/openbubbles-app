@@ -13,9 +13,15 @@ class NacRoundTripReceiver : BroadcastReceiver() {
         val pending = goAsync()
         Thread({
             val result = runCatching {
-                NativeLibrary.getInstance("rust_lib_bluebubbles")
-                    .getFunction("openbubbles_debug_nac_round_trip")
-                    .invokeInt(emptyArray())
+                val library = NativeLibrary.getInstance("rust_lib_bluebubbles")
+                val savedResult = library
+                    .getFunction("openbubbles_debug_nac_round_trip_saved")
+                    .invokeInt(arrayOf(context.filesDir.absolutePath))
+                if (savedResult == NO_SAVED_HARDWARE) {
+                    library.getFunction("openbubbles_debug_nac_round_trip").invokeInt(emptyArray())
+                } else {
+                    savedResult
+                }
             }.getOrElse { error ->
                 Log.e(TAG, "round trip invocation failed", error)
                 -4
@@ -29,5 +35,6 @@ class NacRoundTripReceiver : BroadcastReceiver() {
     companion object {
         private const val ACTION = "app.openbubbles.DEBUG_NAC_ROUND_TRIP"
         private const val TAG = "NacRoundTrip"
+        private const val NO_SAVED_HARDWARE = -5
     }
 }

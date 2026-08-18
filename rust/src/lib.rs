@@ -135,3 +135,40 @@ pub extern "C" fn openbubbles_debug_nac_round_trip() -> i32 {
         Err(_) => -2,
     }
 }
+
+/// Runs the account-free Apple validation handshake using this installation's
+/// saved hardware identity. The path is supplied by the debug Android receiver
+/// and is never logged; only the resulting envelope length or an error code is
+/// returned to ADB.
+#[cfg(all(target_os = "android", debug_assertions))]
+#[no_mangle]
+pub unsafe extern "C" fn openbubbles_debug_nac_round_trip_saved(
+    path: *const std::ffi::c_char,
+) -> i32 {
+    if path.is_null() {
+        return -5;
+    }
+
+    // SAFETY: JNA supplies a NUL-terminated string which remains valid for the
+    // duration of this call. Copy it before entering the async handshake.
+    let Ok(path) = unsafe { std::ffi::CStr::from_ptr(path) }.to_str() else {
+        return -5;
+    };
+    let Some(hardware) = api::api::read_hardware(path.to_owned()) else {
+        log::error!("debug saved-config NAC round trip found no readable hardware state");
+        return -5;
+    };
+
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        RUNTIME.block_on(hardware.os_config.generate_validation_data())
+    }));
+
+    match run {
+        Ok(Ok(validation)) => i32::try_from(validation.len()).unwrap_or(-3),
+        Ok(Err(error)) => {
+            log::error!("debug saved-config NAC round trip failed: {error:?}");
+            -1
+        }
+        Err(_) => -2,
+    }
+}

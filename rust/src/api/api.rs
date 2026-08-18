@@ -2598,6 +2598,9 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
     let mut account = account.lock().await;
     
     let conf_dir = PathBuf::from_str(&path).unwrap();
+    let saved_username = plist::from_file::<_, GSAConfig>(conf_dir.join("gsa.plist"))
+        .ok()
+        .map(|saved| saved.username);
 
     account.update_postdata("Apple Device", None, &["icloud", "imessage", "facetime"]).await?;
     
@@ -2614,10 +2617,23 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
     } else {
         login_apple_delegates(&*account, None, &*os_config.config(), &[LoginDelegate::IDS, LoginDelegate::MobileMe]).await?
     };
+
+    // Preserve the working saved session until Apple has accepted the new
+    // credentials and both delegates. In particular, a rejected fresh iCloud
+    // activation (ICLOUD_UNSUPPORTED_DEVICE) must leave "Continue as ..."
+    // usable. Only a successful switch to a different account invalidates the
+    // old account's optional iCloud service state.
+    let username = account.username.clone().unwrap();
+    if saved_username
+        .as_deref()
+        .is_some_and(|saved| !saved.eq_ignore_ascii_case(&username))
+    {
+        reset_user(&path);
+    }
     
     
     plist::to_file_xml(conf_dir.join("gsa.plist"), &GSAConfig {
-        username: account.username.clone().unwrap(),
+        username,
         encrypted_password: GSAConfig::encrypt(&account.hashed_password.clone().unwrap())?,
         postdata_done: Some(true),
     }).unwrap();
@@ -2685,8 +2701,6 @@ pub async fn try_auth(path: String, conf: &JoinedOSConfig, conn: &APSConnection,
         AppleAccount::new_with_anisette(get_login_config(&conf_dir, conf, conn).await, anisette.clone())?;
     
     let result = if let Some((username, password)) = creds {
-        reset_user(&path);
-
         let mut password_hasher = sha2::Sha256::new();
         password_hasher.update(&password.as_bytes());
         let hashed_password = password_hasher.finalize();

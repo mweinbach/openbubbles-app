@@ -115,6 +115,9 @@ class LoginViewModel(
     /** Label of the phone the user picked, shown on the SMS-code screen. */
     private var pendingPhoneLabel: String? = null
 
+    /** Allow a typed same-account fallback after saved-session re-auth fails. */
+    private var savedSessionFailed: Boolean = false
+
     /** Last action, for [retry]. */
     private var retryAction: (suspend () -> Unit)? = null
 
@@ -145,8 +148,23 @@ class LoginViewModel(
         runAction {
             val saved = (_screen.value as? LoginScreen.Form)?.savedUsername
             _screen.value = LoginScreen.Form(savedUsername = saved, busy = true, error = null)
-            effectiveUsername = username?.trim()?.takeIf { it.isNotEmpty() } ?: saved
-            follow(handle.login(username, password))
+            val enteredUsername = username?.trim()?.takeIf { it.isNotEmpty() }
+            effectiveUsername = enteredUsername ?: saved
+            // A password login performs a fresh Apple iCloud activation. When
+            // this is the already-saved account, reuse its session instead;
+            // Apple hard-limits fresh activations per emulated Mac identity.
+            val reuseSaved = !savedSessionFailed && saved != null &&
+                enteredUsername.equals(saved, ignoreCase = true)
+            val usingSavedSession = reuseSaved || (username == null && password == null)
+            try {
+                follow(handle.login(
+                    username = if (reuseSaved) null else username,
+                    password = if (reuseSaved) null else password,
+                ))
+            } catch (t: Throwable) {
+                if (usingSavedSession) savedSessionFailed = true
+                throw t
+            }
         }
     }
 
