@@ -849,13 +849,17 @@ fun SettingsScreen(
                     add("albums")
                     add("history")
                     add("limit")
-                    if (manager != null && inClique == false) add("join")
+                    // Join is pointless while the keychain client itself is
+                    // broken (isInClique throws): it fails with "no iCloud
+                    // Keychain on this state". Offer Repair instead.
+                    if (manager != null && inClique == false && cliqueError == null) add("join")
                     if (manager != null && syncing) add("stop")
                     if (manager != null && !syncing && inClique == true) add("sync")
                     if (recoveryCode != null) add("recovery")
-                    // Signed in but iCloud sync unavailable = the keychain
-                    // state on this device is missing or was corrupted.
-                    if (pushState != null && manager == null) add("repair")
+                    // Signed in but the keychain state on this device is
+                    // missing or corrupted: either no sync manager at all, or
+                    // the clique check errors out.
+                    if (pushState != null && (manager == null || cliqueError != null)) add("repair")
                     if (deviceInfo != null) add("device")
                     add("contacts")
                 }
@@ -957,7 +961,11 @@ fun SettingsScreen(
                         }
                         "repair" -> SettingsActionItem(
                             title = "Repair iCloud sync",
-                            supporting = "Reset this device's iCloud state, then sign in again to rebuild it",
+                            supporting = if (cliqueError != null) {
+                                "iCloud Keychain unavailable on this device. Reset its iCloud state and sign in again to rebuild it."
+                            } else {
+                                "Reset this device's iCloud state, then sign in again to rebuild it"
+                            },
                             onClick = { showRepairConfirmation = true },
                             index = index,
                             count = count,
