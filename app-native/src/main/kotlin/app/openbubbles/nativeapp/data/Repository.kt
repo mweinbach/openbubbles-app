@@ -50,12 +50,6 @@ data class ChatListItem(
     val receivedOnHandle: String? = null,
 )
 
-/** Device-local wallpaper overrides the Apple poster only while its file exists. */
-fun ChatListItem.effectiveBackgroundPath(): String? =
-    sequenceOf(customBackgroundPath, transcriptBackgroundPath)
-        .filterNotNull()
-        .firstOrNull { File(it).isFile }
-
 /** Display metadata for an attachment shown in the transcript. */
 data class AttachmentMeta(
     /** Stable attachment GUID (used for the viewer route and file lookup). */

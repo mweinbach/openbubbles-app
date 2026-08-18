@@ -116,7 +116,9 @@ object CoreGraph {
     private val transcriptBackgroundStore: TranscriptBackgroundStore? by lazy {
         val context = AppContext.current ?: return@lazy null
         store ?: return@lazy null
-        TranscriptBackgroundStore(context.applicationContext) { PushStateHolder.state }
+        TranscriptBackgroundStore(context.applicationContext) { PushStateHolder.state }.also { store ->
+            launchBackground { store.migrateLegacyPosters() }
+        }
     }
 
     /**

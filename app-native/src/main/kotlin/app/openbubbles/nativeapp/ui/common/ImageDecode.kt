@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.exifinterface.media.ExifInterface
 import app.openbubbles.nativeapp.data.MemoryCaches
+import app.openbubbles.nativeapp.data.extractWatchImageFromPosterSave
+import app.openbubbles.nativeapp.data.resolveBackgroundImageFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -122,32 +124,95 @@ fun rememberDecodedImage(
             return@produceState
         }
         val decoded = withContext(Dispatchers.IO) {
-            runCatching {
-                if (!file!!.isFile) return@runCatching null
-                val orientation = file.readImageOrientation()
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.absolutePath, bounds)
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
-                    bounds.outHeight / (sample * 2) >= maxDimensionPx
-                ) {
-                    sample *= 2
-                }
-                val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    ?: return@runCatching null
-                val oriented = bitmap.applyImageOrientation(orientation)
-                DecodedImage(
-                    image = oriented.asImageBitmap(),
-                    aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
-                )
-            }.getOrNull()
+            decodeRasterFile(file!!, maxDimensionPx)
         }
         if (decoded != null) ImageDecodeCache.put(key, decoded)
         value = decoded
     }.value
+}
+
+/**
+ * Resolves Flutter-era poster prefixes on a background thread, then decodes
+ * the raster the same way [rememberDecodedImage] does.
+ */
+@Composable
+fun rememberChatBackground(
+    customPath: String?,
+    syncedPath: String?,
+    maxDimensionPx: Int = 1440,
+): DecodedImage? {
+    val cacheKey = remember(customPath, syncedPath, maxDimensionPx) {
+        "bg:${customPath.orEmpty()}:${syncedPath.orEmpty()}:$maxDimensionPx"
+    }
+    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        ImageDecodeCache.get(cacheKey)?.let {
+            value = it
+            return@produceState
+        }
+        val decoded = withContext(Dispatchers.IO) {
+            sequenceOf(customPath, syncedPath)
+                .mapNotNull { resolveBackgroundImageFile(it, ::extractWatchImageFromPosterSave) }
+                .firstNotNullOfOrNull { decodeRasterFile(it, maxDimensionPx) }
+        }
+        if (decoded != null) ImageDecodeCache.put(cacheKey, decoded)
+        value = decoded
+    }.value
+}
+
+private fun decodeRasterFile(file: File, maxDimensionPx: Int): DecodedImage? {
+    if (!file.isFile) return null
+    return decodeFileWithBitmapFactory(file, maxDimensionPx)
+        ?: decodeFileWithImageDecoder(file, maxDimensionPx)
+}
+
+private fun decodeFileWithBitmapFactory(file: File, maxDimensionPx: Int): DecodedImage? =
+    runCatching {
+        val orientation = file.readImageOrientation()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= maxDimensionPx ||
+            bounds.outHeight / (sample * 2) >= maxDimensionPx
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: return@runCatching null
+        val oriented = bitmap.applyImageOrientation(orientation)
+        DecodedImage(
+            image = oriented.asImageBitmap(),
+            aspectRatio = oriented.width.toFloat() / oriented.height.toFloat(),
+        )
+    }.getOrNull()
+
+private fun decodeFileWithImageDecoder(file: File, maxDimensionPx: Int): DecodedImage? {
+    if (Build.VERSION.SDK_INT < 28) return null
+    return runCatching {
+        val source = ImageDecoder.createSource(file)
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val width = info.size.width
+            val height = info.size.height
+            if (width > 0 && height > 0) {
+                var sample = 1
+                while (width / (sample * 2) >= maxDimensionPx ||
+                    height / (sample * 2) >= maxDimensionPx
+                ) {
+                    sample *= 2
+                }
+                decoder.setTargetSize(
+                    (width / sample).coerceAtLeast(1),
+                    (height / sample).coerceAtLeast(1),
+                )
+            }
+        }
+        DecodedImage(
+            image = bitmap.asImageBitmap(),
+            aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+        )
+    }.getOrNull()
 }
 
 /**

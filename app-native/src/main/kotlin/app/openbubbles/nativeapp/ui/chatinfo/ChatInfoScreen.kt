@@ -76,6 +76,7 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
+import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
@@ -539,8 +540,11 @@ private fun BackgroundSection(
     onClear: () -> Unit,
 ) {
     val path = chat?.effectiveBackgroundPath()
-    val file = remember(path) { path?.let(::File)?.takeIf { it.isFile } }
-    val decoded = rememberDecodedImage(file, maxDimensionPx = 256)
+    val decoded = rememberChatBackground(
+        customPath = chat?.customBackgroundPath,
+        syncedPath = chat?.transcriptBackgroundPath,
+        maxDimensionPx = 256,
+    )
     Surface(
         shape = MaterialTheme.shapes.largeIncreased,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -591,7 +595,7 @@ private fun BackgroundSection(
                 }
             }
             TextButton(onClick = onChoose) {
-                Text(if (path == null) "Choose" else "Change")
+                Text(if (path == null && decoded == null) "Choose" else "Change")
             }
         }
     }

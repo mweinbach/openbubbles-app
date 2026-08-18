@@ -136,7 +136,7 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
-import app.openbubbles.nativeapp.data.effectiveBackgroundPath
+import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatConversationTimestamp
@@ -582,8 +582,11 @@ fun ChatScreen(
         if (nearTop) onLoadOlder()
     }
 
-    val backgroundFile = uiState.chat?.effectiveBackgroundPath()?.let(::File)
-    val background = rememberDecodedImage(backgroundFile, maxDimensionPx = 1440)
+    val background = rememberChatBackground(
+        customPath = uiState.chat?.customBackgroundPath,
+        syncedPath = uiState.chat?.transcriptBackgroundPath,
+        maxDimensionPx = 1440,
+    )
     // The scrim keeps bubbles readable over a photo; dark themes need the
     // heavier dim because both the wallpaper and the incoming bubbles are dark.
     val darkTheme = isSystemInDarkTheme()
