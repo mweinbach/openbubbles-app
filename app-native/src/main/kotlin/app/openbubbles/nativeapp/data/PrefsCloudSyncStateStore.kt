@@ -39,6 +39,7 @@ private const val KEY_CHAT_DELETES = "chatDeletionIds"
 private const val KEY_MESSAGE_DELETES = "messageDeletionIds"
 private const val KEY_ATTACHMENT_DELETES = "attachmentDeletionIds"
 private const val KEY_HISTORY_SYNC_COMPLETE = "historySyncComplete"
+private const val KEY_WALLPAPER_BACKFILL = "wallpaperBackfillV1"
 
 object CloudSyncWiring {
 
@@ -265,6 +266,16 @@ private class PrefsCloudSyncStateStore(
 
     override fun savePendingAttachmentDeletes(ids: List<String>) {
         persistDeletes(KEY_ATTACHMENT_DELETES, ids)
+    }
+
+    override fun wallpaperBackfillDone(): Boolean =
+        prefs.getBoolean(KEY_WALLPAPER_BACKFILL, false)
+
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
+    override fun saveWallpaperBackfillDone(done: Boolean) {
+        check(prefs.edit().putBoolean(KEY_WALLPAPER_BACKFILL, done).commit()) {
+            "failed to persist wallpaper backfill flag"
+        }
     }
 
     @SuppressLint("UseKtx") // Incremental editor; commit() boolean is checked.

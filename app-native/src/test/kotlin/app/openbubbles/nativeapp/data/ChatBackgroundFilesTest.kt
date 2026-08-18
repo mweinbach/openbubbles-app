@@ -42,6 +42,35 @@ class ChatBackgroundFilesTest {
     }
 
     @Test
+    fun `photo poster prefers the background layer over overlay and watch-empty`() {
+        val overlay = PosterImageFile("portrait-layer_overlay.HEIC", ByteArray(80) { 1 })
+        val background = PosterImageFile("portrait-layer_background.HEIC", ByteArray(40) { 2 })
+        val foreground = PosterImageFile("portrait-layer_foreground.HEIC", ByteArray(90) { 3 })
+
+        val image = wallpaperBytesFromPosterParts(
+            kind = PosterWallpaperKind.IMAGE,
+            watchImage = ByteArray(0),
+            photoFiles = listOf(overlay, background, foreground),
+        )
+
+        assertTrue(image.contentEquals(background.data))
+        assertTrue(
+            wallpaperBytesFromPosterParts(
+                PosterWallpaperKind.CLEAR,
+                watchImage = byteArrayOf(9),
+                photoFiles = listOf(background),
+            ).isEmpty(),
+        )
+        assertTrue(
+            wallpaperBytesFromPosterParts(
+                PosterWallpaperKind.IMAGE,
+                watchImage = byteArrayOf(7, 7),
+                photoFiles = listOf(background),
+            ).contentEquals(byteArrayOf(7, 7)),
+        )
+    }
+
+    @Test
     fun `missing flutter prefix does not invent a background`() {
         val root = Files.createTempDirectory("ob-flutter-missing").toFile()
         try {

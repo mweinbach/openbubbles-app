@@ -55,14 +55,67 @@ fun ChatListItem.effectiveBackgroundPath(): String? =
 internal fun extractWatchImageFromPosterSave(data: ByteArray): ByteArray? =
     runCatching {
         uniffi.rust_lib_bluebubbles.restoreTranscriptPosterSave(data).use { poster ->
-            when (poster.kind()) {
-                is uniffi.rust_lib_bluebubbles.UPosterKind.TranscriptDynamic,
-                is uniffi.rust_lib_bluebubbles.UPosterKind.TranscriptGradient,
-                -> ByteArray(0)
-                else -> poster.watch().backgroundImage
-            }
+            wallpaperBytesFromParsedPoster(poster)
         }
     }.getOrNull()
+
+internal enum class PosterWallpaperKind { CLEAR, IMAGE }
+
+internal data class PosterImageFile(
+    val filename: String,
+    val data: ByteArray,
+)
+
+/**
+ * Chat wallpaper bytes from a parsed transcript poster.
+ *
+ * Dynamic/gradient posters are Apple's "cleared" encoding. Photo posters
+ * often leave `watch.backgroundImage` empty and put the actual image in
+ * the layer-stack files (`portrait-layer_background.HEIC`, etc.).
+ */
+internal fun wallpaperBytesFromPosterParts(
+    kind: PosterWallpaperKind,
+    watchImage: ByteArray,
+    photoFiles: List<PosterImageFile>,
+): ByteArray {
+    if (kind == PosterWallpaperKind.CLEAR) return ByteArray(0)
+    if (watchImage.isNotEmpty()) return watchImage
+    return wallpaperBytesFromPhotoFiles(photoFiles)
+}
+
+internal fun wallpaperBytesFromPhotoFiles(files: List<PosterImageFile>): ByteArray {
+    if (files.isEmpty()) return ByteArray(0)
+    return files.maxWithOrNull(compareBy({ photoLayerRank(it.filename) }, { it.data.size }))
+        ?.data
+        ?: ByteArray(0)
+}
+
+internal fun wallpaperBytesFromParsedPoster(
+    poster: uniffi.rust_lib_bluebubbles.UTranscriptPoster,
+): ByteArray {
+    val kind = when (poster.kind()) {
+        is uniffi.rust_lib_bluebubbles.UPosterKind.TranscriptDynamic,
+        is uniffi.rust_lib_bluebubbles.UPosterKind.TranscriptGradient,
+        -> PosterWallpaperKind.CLEAR
+        else -> PosterWallpaperKind.IMAGE
+    }
+    return wallpaperBytesFromPosterParts(
+        kind = kind,
+        watchImage = poster.watch().backgroundImage,
+        photoFiles = poster.photoFiles(0u).map { file ->
+            PosterImageFile(filename = file.filename, data = file.data)
+        },
+    )
+}
+
+private fun photoLayerRank(filename: String): Int {
+    val name = filename.lowercase()
+    return when {
+        "overlay" in name || "foreground" in name -> 0
+        "background" in name -> 2
+        else -> 1
+    }
+}
 
 private val DecodableImageExtensions = setOf("png", "jpg", "jpeg", "webp", "heic", "heif")
 

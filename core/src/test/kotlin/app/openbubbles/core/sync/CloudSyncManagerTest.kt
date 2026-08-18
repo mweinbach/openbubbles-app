@@ -128,6 +128,14 @@ private class FakeCloudSyncPort : CloudSyncPort {
     val groupPhotoDownloads = mutableListOf<Pair<String, String>>()
     var groupPhotoBytes: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
     var failGroupPhoto: String? = null
+    var transcriptBackgroundRecords = emptyList<UMessageChange>()
+    var transcriptBackgroundsError: String? = null
+
+    override suspend fun transcriptBackgrounds(): List<UMessageChange> {
+        calls += "transcript-backgrounds"
+        transcriptBackgroundsError?.let { throw IllegalStateException(it) }
+        return transcriptBackgroundRecords
+    }
 
     override suspend fun downloadGroupPhoto(recordId: String, path: String) {
         calls += "group-photo"
@@ -600,6 +608,93 @@ class CloudSyncManagerTest {
             listOf(TranscriptBackgroundUpdate(chat.id, 5, remove = false, mmcsXml = "<plist/>")),
             backgroundUpdates,
         )
+    }
+
+    @Test
+    fun `queried transcript backgrounds apply even after the incremental cursor passed them`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage()
+        runSync()
+
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        port.chatPages += chatPage()
+        port.messagePages += messagePage()
+        port.transcriptBackgroundRecords = listOf(
+            UMessageChange(
+                "rec-background-query",
+                cloudMessage(
+                    "rec-background-query",
+                    guid = "background-query",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 11uL,
+                        chatId = "+15551234567",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 11, remove = false, mmcsXml = "<plist/>")),
+            backgroundUpdates,
+        )
+        assertTrue(port.calls.contains("transcript-backgrounds"))
+        assertTrue(syncStore.wallpaperBackfillDone())
+    }
+
+    @Test
+    fun `empty wallpaper query rewinds the message zone once`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(cursor = byteArrayOf(20))
+        runSync()
+        assertTrue(syncStore.messageCursor()!!.contentEquals(byteArrayOf(20)))
+
+        syncStore.saveWallpaperBackfillDone(false)
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background-rewind",
+                cloudMessage(
+                    "rec-background-rewind",
+                    guid = "background-rewind",
+                    chatId = "iMessage;-;+15551234567",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 4uL,
+                        chatId = null,
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+            cursor = byteArrayOf(21),
+        )
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertEquals(2, port.messageCursorsReceived.size)
+        assertNull(port.messageCursorsReceived[1])
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 4, remove = false, mmcsXml = "<plist/>")),
+            backgroundUpdates,
+        )
+        assertTrue(syncStore.wallpaperBackfillDone())
     }
 
     @Test

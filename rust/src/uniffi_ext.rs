@@ -2626,6 +2626,24 @@ impl NativePushState {
         })
     }
 
+    /// Query CloudKit for type-138 transcript-background records, ignoring
+    /// the incremental change cursor. Incremental sync never re-emits a
+    /// wallpaper it already walked past.
+    pub fn query_transcript_backgrounds(&self) -> Result<Vec<UMessageChange>, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        let items = RUNTIME
+            .block_on(api::query_transcript_backgrounds(&client))
+            .map_err(sync_err)?;
+        Ok(items
+            .into_iter()
+            .map(|(record_id, message)| UMessageChange {
+                blob: message_blob(&message),
+                record_id,
+                message: Some(conv_cloud_message(&message)),
+            })
+            .collect())
+    }
+
     /// Pull one page of attachment metadata. Payload bytes stay remote until
     /// `download_cloud_attachment` is called for a visible attachment.
     pub fn sync_attachments_page(

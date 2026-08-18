@@ -1470,6 +1470,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1658,6 +1660,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passwor
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices(
 ): Short
@@ -2055,6 +2059,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Poin
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2703,6 +2709,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds() != 58396.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices() != 32109.toShort()) {
@@ -6118,6 +6127,13 @@ public interface NativePushStateInterface {
     fun `publishStatus`(`guid`: kotlin.String?)
 
     /**
+     * Query CloudKit for type-138 transcript-background records, ignoring
+     * the incremental change cursor. Incremental sync never re-emits a
+     * wallpaper it already walked past.
+     */
+    fun `queryTranscriptBackgrounds`(): List<UMessageChange>
+
+    /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
      */
     fun `refreshDevices`(): List<UFmDevice>
@@ -7017,6 +7033,24 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
 
+
+
+
+    /**
+     * Query CloudKit for type-138 transcript-background records, ignoring
+     * the incremental change cursor. Incremental sync never re-emits a
+     * wallpaper it already walked past.
+     */
+    @Throws(UException::class)override fun `queryTranscriptBackgrounds`(): List<UMessageChange> {
+            return FfiConverterSequenceTypeUMessageChange.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(
+        it, _status)
+}
+    }
+    )
+    }
 
 
 

@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UAttachmentSyncPage
 import uniffi.rust_lib_bluebubbles.UChatSyncPage
+import uniffi.rust_lib_bluebubbles.UMessageChange
 import uniffi.rust_lib_bluebubbles.UMessageSyncPage
 import uniffi.rust_lib_bluebubbles.USyncState
 
@@ -59,6 +60,13 @@ interface CloudSyncPort {
      * image cannot be retrieved.
      */
     suspend fun downloadGroupPhoto(recordId: String, path: String)
+
+    /**
+     * Query CloudKit for type-138 transcript-background records, ignoring
+     * the incremental message-zone cursor. Default is empty so tests that
+     * only script change-token pages stay unchanged.
+     */
+    suspend fun transcriptBackgrounds(): List<UMessageChange> = emptyList()
 }
 
 /**
@@ -94,4 +102,7 @@ class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
 
     override suspend fun downloadGroupPhoto(recordId: String, path: String) =
         withContext(Dispatchers.IO) { state.downloadGroupPhoto(recordId, path) }
+
+    override suspend fun transcriptBackgrounds(): List<UMessageChange> =
+        withContext(Dispatchers.IO) { state.queryTranscriptBackgrounds() }
 }

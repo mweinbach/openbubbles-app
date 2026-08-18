@@ -39,15 +39,16 @@ internal class TranscriptBackgroundStore(
                 ?: error("push state unavailable for transcript background")
             state.downloadMmcs(mmcsXml, payload.absolutePath, null)
             parsePoster(payload.readBytes()).use { poster ->
-                when (poster.kind()) {
-                    // Apple encodes "wallpaper cleared" as a dynamic or
-                    // gradient poster set (the Dart client deleted the local
-                    // poster for these kinds).
-                    is UPosterKind.TranscriptDynamic,
-                    is UPosterKind.TranscriptGradient,
-                    -> ByteArray(0)
-                    else -> poster.watch().backgroundImage
+                val image = wallpaperBytesFromParsedPoster(poster)
+                if (image.isEmpty() && poster.kind() !is UPosterKind.TranscriptDynamic &&
+                    poster.kind() !is UPosterKind.TranscriptGradient
+                ) {
+                    // A photo/memoji/monogram poster with no watch image and
+                    // no extractable layer is a parse failure, not Apple's
+                    // "cleared" encoding. Throw so history sync can retry.
+                    error("transcript poster has no wallpaper image")
                 }
+                image
             }
         },
     )

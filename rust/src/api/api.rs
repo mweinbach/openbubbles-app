@@ -2688,6 +2688,12 @@ pub async fn sync_messages(
     Ok(cloud_messages_client.sync_messages(continuation_token).await?)
 }
 
+pub async fn query_transcript_backgrounds(
+    cloud_messages_client: &Arc<CloudMessagesClient<DefaultAnisetteProvider>>,
+) -> anyhow::Result<HashMap<String, CloudMessage>> {
+    Ok(cloud_messages_client.query_messages_of_type(138).await?)
+}
+
 pub async fn save_messages(
     cloud_messages_client: &Arc<CloudMessagesClient<DefaultAnisetteProvider>>,
     messages: HashMap<String, CloudMessage>,

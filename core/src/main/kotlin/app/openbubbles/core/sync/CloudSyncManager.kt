@@ -305,11 +305,31 @@ class CloudSyncManager(
                     return@withContext finish(cancelledFlag = true)
                 }
 
-                // 4. Message zone.
+                // 4. Message zone. Incremental FetchRecordChanges never
+                // re-emits a type-138 wallpaper the cursor already passed,
+                // so query those records independently first. If the query
+                // is empty or unavailable and we have not backfilled yet,
+                // rewind the message zone once.
                 update(SyncPhase.MESSAGES)
+                val queriedBackgrounds = try {
+                    port.transcriptBackgrounds()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                if (!queriedBackgrounds.isNullOrEmpty()) {
+                    applyMessagePage(queriedBackgrounds, lookup)
+                }
+                val rewindWallpapers = !syncStore.wallpaperBackfillDone() &&
+                    queriedBackgrounds.isNullOrEmpty()
                 val messagesComplete = syncPages(
                     zone = "Message",
-                    initialCursor = if (mode == SyncMode.INCREMENTAL) syncStore.messageCursor() else null,
+                    initialCursor = if (mode == SyncMode.INCREMENTAL && !rewindWallpapers) {
+                        syncStore.messageCursor()
+                    } else {
+                        null
+                    },
                     fetch = port::messagesPage,
                     nextCursor = { it.nextCursor },
                     more = { it.more },
@@ -327,6 +347,9 @@ class CloudSyncManager(
                 )
                 if (!messagesComplete) {
                     return@withContext finish(cancelledFlag = true)
+                }
+                if (queriedBackgrounds != null || rewindWallpapers || mode == SyncMode.FULL) {
+                    syncStore.saveWallpaperBackfillDone(true)
                 }
 
                 // 5. Attachment metadata zone. Payloads remain in CloudKit

@@ -43,6 +43,16 @@ interface CloudSyncStateStore {
     fun savePendingMessageDeletes(ids: List<String>)
 
     fun savePendingAttachmentDeletes(ids: List<String>)
+
+    /**
+     * True once type-138 wallpapers have been queried or the message
+     * zone has been rewound to recover ones the incremental cursor
+     * already walked past. Tests default to done so scripted pages
+     * keep their stored cursors.
+     */
+    fun wallpaperBackfillDone(): Boolean = true
+
+    fun saveWallpaperBackfillDone(done: Boolean) {}
 }
 
 /** In-memory [CloudSyncStateStore] — tests, or wrap it for real storage. */
@@ -89,5 +99,13 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
 
     override fun savePendingAttachmentDeletes(ids: List<String>) {
         attachmentDeletes = ids.toList()
+    }
+
+    var wallpaperBackfillComplete: Boolean = true
+
+    override fun wallpaperBackfillDone(): Boolean = wallpaperBackfillComplete
+
+    override fun saveWallpaperBackfillDone(done: Boolean) {
+        wallpaperBackfillComplete = done
     }
 }
