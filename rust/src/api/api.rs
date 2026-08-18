@@ -1367,8 +1367,12 @@ pub async fn mark_queue_attempt(id: u64, success: bool) -> anyhow::Result<()> {
         log_lock.finish(id)?;
     } else {
         let count = log_lock.attempt(id)?;
+        // Kotlin retries at 2s/10s/30s; once an entry has failed three times
+        // it is poison (e.g. an undecodable payload) and would otherwise
+        // block every journal entry behind it forever. Drop it instead.
         if count >= 2 {
-            warn!("Dropping queue attempt failed!");
+            warn!("Dropping queue entry {id} after {} failed attempts!", count + 1);
+            log_lock.finish(id)?;
         }
     }
     Ok(())
