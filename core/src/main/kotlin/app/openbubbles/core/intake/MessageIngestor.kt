@@ -59,14 +59,8 @@ data class IncomingProfile(
     val posterPath: String?,
 )
 
-/**
- * Deliberately not a `fun interface`: the member is suspend, and SAM
- * conversion of suspend members produces adapters that miss the
- * Continuation bridge (AbstractMethodError at call time). Implement it
- * with an explicit object.
- */
-interface ProfileUpdatePort {
-    suspend fun receive(senderAddress: String, profileJson: String, kind: ProfileMessageKind): IncomingProfile?
+fun interface ProfileUpdatePort {
+    fun receive(senderAddress: String, profileJson: String, kind: ProfileMessageKind): IncomingProfile?
 }
 
 /**
