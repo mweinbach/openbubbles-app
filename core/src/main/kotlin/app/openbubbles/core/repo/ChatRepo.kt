@@ -24,6 +24,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -135,6 +136,10 @@ class ChatRepo(
         )
             .conflate()
             .map { chats() }
+            // ChatListItem is a pure projection of DB state, so an identical
+            // list is an identical UI frame — drop it instead of recomposing
+            // the whole chat list on every unrelated write during a sync.
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
     fun chatByGuid(guid: String): Chat? =

@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -920,14 +921,17 @@ private fun enrichWithEntityDetails(
         val entities = messageBox.get(items.map { it.id })
         val byId = HashMap<Long, Message>(entities.size)
         entities.forEach { byId[it.id] = it }
-        val replyTargets = entities.asSequence()
+        val replyGuids = entities.asSequence()
             .mapNotNull { it.threadOriginatorGuid }
             .distinct()
-            .associateWith { guid ->
-                messageBox.query()
-                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }
-            }
+            .toList()
+        val replyTargets: Map<String, Message> = if (replyGuids.isEmpty()) {
+            emptyMap()
+        } else {
+            messageBox.query(
+                Message_.guid.oneOf(replyGuids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE),
+            ).build().use { it.find() }.associateBy { it.guid }
+        }
         items.map { item ->
             val entity = byId[item.id] ?: return@map item
             val (edited, unsent) = editedFlags(entity)
@@ -1254,7 +1258,9 @@ internal class CoreMessageListRepository(
                         ?.let { emit(it.items) }
                 }
                 .flowOn(Dispatchers.IO)
+            // Final UI stage: identical content is an identical frame.
             combine(pages, UploadProgressBoard.progress, ::applyUploadProgress)
+                .distinctUntilChanged()
         }
     }
 
@@ -1414,9 +1420,21 @@ internal class CoreMessageListRepository(
 internal fun applyUploadProgress(
     items: List<MessageItem>,
     progress: Map<String, Pair<Long, Long>>,
-): List<MessageItem> = items.map { item ->
-    val current = item.attachmentMeta?.guid?.let(progress::get)
-    if (item.uploadProgress == current) item else item.copy(uploadProgress = current)
+): List<MessageItem> {
+    // MMCS fires a progress tick per chunk; most ticks change nothing in a
+    // visible list. Returning the same instance lets the downstream
+    // distinctUntilChanged drop the frame instead of recomposing it.
+    var changed = false
+    val mapped = items.map { item ->
+        val current = item.attachmentMeta?.guid?.let(progress::get)
+        if (item.uploadProgress == current) {
+            item
+        } else {
+            changed = true
+            item.copy(uploadProgress = current)
+        }
+    }
+    return if (changed) mapped else items
 }
 
 /** ObjectBox-backed attachment lookups for the viewer route. */

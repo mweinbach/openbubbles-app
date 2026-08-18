@@ -57,7 +57,7 @@ class MessageRepo(
         messageQuery(conversationChatIds(chatId)).use { query ->
             // Relation-backed fields are projected while the query's native
             // read transaction is scoped to this worker thread.
-            query.find(offset.toLong(), limit.toLong()).map(::toItem)
+            projectPage(query.find(offset.toLong(), limit.toLong()))
         }
 
     /** Newest-first page strictly older than [beforeId]'s time/id cursor. */
@@ -66,8 +66,21 @@ class MessageRepo(
         val chatIds = conversationChatIds(chatId)
         if (anchor.chat.targetId !in chatIds) return emptyList()
         return messageQuery(chatIds, anchor).use { query ->
-            query.find(0, limit.toLong()).map(::toItem)
+            projectPage(query.find(0, limit.toLong()))
         }
+    }
+
+    /**
+     * Projects a page with one batched reaction query instead of one query
+     * per reacted-to message (the projection re-runs on every DB write a
+     * subscription observes, so the per-row queries compounded fast).
+     */
+    private fun projectPage(page: List<Message>): List<MessageItem> {
+        val reactionTargets = page
+            .filter { it.hasReactions && kindOf(it) == MessageKind.TEXT }
+            .map { it.guid }
+        val reactionsByTarget = activeReactionsByTarget(reactionTargets)
+        return page.map { message -> toItem(message, reactionsByTarget[message.guid].orEmpty()) }
     }
 
     /**
@@ -130,8 +143,7 @@ class MessageRepo(
                 .and(Message_.associatedMessageGuid.isNull())
                 .and(Message_.dateDeleted.isNull()),
         ).orderDesc(Message_.dateCreated).build().use { it.find() }
-        val projected = found.map(::toItem)
-        return if (limit > 0) projected.take(limit) else projected
+        return projectPage(if (limit > 0) found.take(limit) else found)
     }
 
     fun recentlyDeleted(chatId: Long? = null, limit: Int = 0): List<MessageItem> {
@@ -147,8 +159,7 @@ class MessageRepo(
             .orderDesc(Message_.dateDeleted)
             .orderDesc(Message_.dateCreated)
             .build().use { it.find() }
-        val projected = found.map(::toItem)
-        return if (limit > 0) projected.take(limit) else projected
+        return projectPage(if (limit > 0) found.take(limit) else found)
     }
 
     fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) {
@@ -445,13 +456,18 @@ class MessageRepo(
         return MessageStatus.SENT
     }
 
-    internal fun toItem(message: Message): MessageItem {
+    internal fun toItem(message: Message): MessageItem =
+        toItem(
+            message,
+            if (message.hasReactions && kindOf(message) == MessageKind.TEXT) {
+                activeReactionsFor(message.guid)
+            } else {
+                emptyList()
+            },
+        )
+
+    private fun toItem(message: Message, activeReactions: List<Message>): MessageItem {
         val kind = kindOf(message)
-        val activeReactions = if (kind == MessageKind.TEXT && message.hasReactions) {
-            activeReactionsFor(message.guid)
-        } else {
-            emptyList()
-        }
         val activeReaction = activeReactions
             .filterNot { it.associatedMessageType?.removePrefix("-") in STICKER_TYPES }
             .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
@@ -536,6 +552,25 @@ class MessageRepo(
             .isNull(Message_.dateDeleted)
             .order(Message_.dateCreated)
             .build().use { it.find() }
+        return collapseReactions(reactions)
+    }
+
+    /** One `IN` query for every reacted-to message of a page, grouped by target. */
+    private fun activeReactionsByTarget(messageGuids: List<String>): Map<String, List<Message>> {
+        if (messageGuids.isEmpty()) return emptyMap()
+        val rows = messageBox.query(
+            Message_.associatedMessageGuid
+                .oneOf(messageGuids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .and(Message_.dateDeleted.isNull()),
+        )
+            .order(Message_.dateCreated)
+            .build().use { it.find() }
+        // groupBy keeps encounter order, so each group stays dateCreated-ordered.
+        return rows.groupBy { it.associatedMessageGuid!! }
+            .mapValues { (_, group) -> collapseReactions(group) }
+    }
+
+    private fun collapseReactions(reactions: List<Message>): List<Message> {
         val bySender = linkedMapOf<String, Message>()
         val stickers = mutableListOf<Message>()
         reactions.forEach { reaction ->
