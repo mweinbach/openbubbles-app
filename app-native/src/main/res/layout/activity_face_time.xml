@@ -28,6 +28,7 @@
             android:id="@+id/posterView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
             tools:src="@tools:sample/backgrounds/scenic" />
 
         <LinearLayout
@@ -53,7 +54,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="15dp"
                 android:gravity="center"
-                android:text="+188877774444"
+                tools:text="+188877774444"
                 android:textColor="#ffffffff"
                 android:textSize="24sp" />
 
@@ -63,7 +64,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
                 android:gravity="center"
-                android:text="Incoming FaceTime Call"
+                android:text="@string/facetime_incoming_call"
                 android:textColor="#ffffffff" />
 
         </LinearLayout>
@@ -88,8 +89,8 @@
                     android:id="@+id/reject"
                     android:layout_width="70dp"
                     android:layout_height="70dp"
-
                     android:background="@drawable/reject_call_bg"
+                    android:contentDescription="@string/facetime_decline"
                     android:outlineProvider="none"
                     android:padding="20dp"
                     android:scaleType="fitCenter"
@@ -101,7 +102,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:gravity="center"
-                    android:text="Decline"
+                    android:text="@string/facetime_decline"
                     android:textColor="@android:color/white" />
             </LinearLayout>
 
@@ -120,6 +121,7 @@
                     android:layout_width="70dp"
                     android:layout_height="70dp"
                     android:background="@drawable/accept_call_bg"
+                    android:contentDescription="@string/facetime_accept"
                     android:outlineProvider="none"
                     android:padding="20dp"
                     android:scaleType="fitCenter"
@@ -131,7 +133,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:gravity="center"
-                    android:text="Accept"
+                    android:text="@string/facetime_accept"
                     android:textColor="@android:color/white" />
             </LinearLayout>
 

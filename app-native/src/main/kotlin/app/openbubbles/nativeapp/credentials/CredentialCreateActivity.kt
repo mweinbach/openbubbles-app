@@ -139,7 +139,7 @@ class CredentialCreateActivity : FragmentActivity() {
             val rpIdHash = MessageDigest.getInstance("SHA-256").digest(rpId.toByteArray(Charsets.UTF_8))
             val flags = (0x01 or 0x04 or 0x08 or 0x10 or 0x40).toByte() // UP + AT
             val signCount = byteArrayOf(0, 0, 0, 0)
-            val aaguid = ByteArray(16) { 0 }
+            val aaguid = ByteArray(16)
 
             val publicKey = keyPair.public as ECPublicKey
             val coseKey = encodeCosePublicKey(publicKey)

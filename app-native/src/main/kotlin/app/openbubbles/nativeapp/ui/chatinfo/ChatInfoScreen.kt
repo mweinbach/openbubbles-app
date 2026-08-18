@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.core.graphics.scale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -112,6 +113,7 @@ fun ChatInfoScreen(
     chat: ChatListItem?,
     participants: List<ParticipantRow>,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     onRename: suspend (String) -> Unit = {},
     onAddParticipant: suspend (String) -> Unit = {},
     onRemoveParticipant: suspend (String) -> Unit = {},
@@ -130,7 +132,6 @@ fun ChatInfoScreen(
     onOpenAttachment: (String) -> Unit = {},
     /** Local file for an attachment guid; feeds the shared-photo thumbnails. */
     attachmentFile: (String) -> File? = { null },
-    modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -764,7 +765,7 @@ private suspend fun prepareGroupIcon(context: Context, uri: Uri): File = withCon
     val left = (source.width - side) / 2
     val top = (source.height - side) / 2
     val square = Bitmap.createBitmap(source, left, top, side, side)
-    val scaled = Bitmap.createScaledBitmap(square, 570, 570, true)
+    val scaled = square.scale(570, 570)
     val directory = File(context.filesDir, "group_icons").apply { mkdirs() }
     val destination = File(directory, "outgoing-${UUID.randomUUID()}.png")
     FileOutputStream(destination).use { output ->
@@ -782,11 +783,9 @@ private suspend fun prepareChatBackground(context: Context, uri: Uri): File = wi
     val maxSide = maxOf(source.width, source.height)
     val scale = (1600f / maxSide.toFloat()).coerceAtMost(1f)
     val outputBitmap = if (scale < 1f) {
-        Bitmap.createScaledBitmap(
-            source,
+        source.scale(
             (source.width * scale).roundToInt().coerceAtLeast(1),
             (source.height * scale).roundToInt().coerceAtLeast(1),
-            true,
         )
     } else {
         source

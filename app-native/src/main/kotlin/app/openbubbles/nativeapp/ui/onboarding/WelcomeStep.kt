@@ -34,7 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,7 +128,7 @@ private fun BrandBubble(modifier: Modifier = Modifier) {
     val reduceMotion = LocalReduceMotion.current
     val float = rememberInfiniteTransition(label = "brand-float")
     val bob by if (reduceMotion) {
-        remember { mutableStateOf(0f) }
+        remember { mutableFloatStateOf(0f) }
     } else {
         float.animateFloat(
             initialValue = -5f,

@@ -3,8 +3,9 @@ package app.openbubbles.nativeapp.sms
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.content.ContentUris
+import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.Telephony
 import android.util.Log
 import app.openbubbles.core.attachment.AttachmentStore
@@ -179,7 +180,7 @@ class MmsReceiver : BroadcastReceiver() {
     /** Provider addr-table types: FROM=137 (PduHeaders.FROM), TO=151, CC=130. */
     private fun queryMmsAddresses(context: Context, mmsId: Long): List<MmsAddress> = runCatching {
         context.contentResolver.query(
-            Uri.parse("content://mms/$mmsId/addr"),
+            "content://mms/$mmsId/addr".toUri(),
             arrayOf(Telephony.Mms.Addr.ADDRESS, Telephony.Mms.Addr.TYPE),
             null, null, null,
         )?.use { cursor ->
@@ -202,7 +203,7 @@ class MmsReceiver : BroadcastReceiver() {
 
     private fun queryMmsParts(context: Context, mmsId: Long): List<MmsPart> = runCatching {
         context.contentResolver.query(
-            Uri.parse("content://mms/part"),
+            "content://mms/part".toUri(),
             arrayOf(Telephony.Mms.Part._ID, Telephony.Mms.Part.CONTENT_TYPE, Telephony.Mms.Part.NAME, Telephony.Mms.Part.TEXT),
             "${Telephony.Mms.Part.MSG_ID} = ?",
             arrayOf(mmsId.toString()),
@@ -227,7 +228,7 @@ class MmsReceiver : BroadcastReceiver() {
     }.getOrNull() ?: emptyList()
 
     private fun readPartBytes(context: Context, partId: Long): ByteArray? = runCatching {
-        context.contentResolver.openInputStream(Uri.parse("content://mms/part/$partId"))?.use { it.readBytes() }
+        context.contentResolver.openInputStream("content://mms/part/$partId".toUri())?.use { it.readBytes() }
     }.getOrNull()
 
     private fun persistMedia(

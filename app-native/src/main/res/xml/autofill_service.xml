@@ -1,2 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<autofill-service xmlns:android="http://schemas.android.com/apk/res/android" android:supportsInlineSuggestions="true" android:settingsActivity="com.bluebubbles.messaging.services.credentials.CredentialSettingsActivity" />
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:supportsInlineSuggestions="true"
+    android:settingsActivity="com.bluebubbles.messaging.services.credentials.CredentialSettingsActivity"
+    tools:ignore="UnusedAttribute" />

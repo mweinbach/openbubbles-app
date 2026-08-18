@@ -11,12 +11,10 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.annotation.RequiresApi
 import app.openbubbles.nativeapp.R
 
 class FaceTimeInCallService: Service() {
 
-    @RequiresApi(Build.VERSION_CODES.O)
     fun createNotificationChannel() {
         val importance = NotificationManager.IMPORTANCE_LOW
         val channel = NotificationChannel(IN_CALL_CHANNEL, "In Call", importance).apply {
@@ -29,7 +27,6 @@ class FaceTimeInCallService: Service() {
     }
 
     val IN_CALL_CHANNEL = "com.bluebubbles.in_call_channel";
-    @RequiresApi(Build.VERSION_CODES.O)
     fun notifyForeground() {
         createNotificationChannel()
         val notification: Notification = Notification.Builder(this, IN_CALL_CHANNEL)
@@ -57,9 +54,7 @@ class FaceTimeInCallService: Service() {
     }
 
     override fun onCreate() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notifyForeground()
-        }
+        notifyForeground()
         super.onCreate()
     }
 

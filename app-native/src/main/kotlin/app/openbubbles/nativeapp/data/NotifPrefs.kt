@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import androidx.core.content.edit
 
 /**
  * Notification behavior preferences (SharedPreferences-backed), applied by
@@ -22,21 +23,21 @@ class NotifPrefs(context: Context) {
     var hidePreviews: Boolean
         get() = prefs.getBoolean(KEY_HIDE_PREVIEWS, false)
         set(value) {
-            prefs.edit().putBoolean(KEY_HIDE_PREVIEWS, value).apply()
+            prefs.edit { putBoolean(KEY_HIDE_PREVIEWS, value) }
         }
 
     /** Offer the RemoteInput "Reply" action on incoming-message notifications. */
     var replyEnabled: Boolean
         get() = prefs.getBoolean(KEY_REPLY_ENABLED, true)
         set(value) {
-            prefs.edit().putBoolean(KEY_REPLY_ENABLED, value).apply()
+            prefs.edit { putBoolean(KEY_REPLY_ENABLED, value) }
         }
 
     /** Notify for tapbacks and custom emoji/sticker reactions. */
     var notifyReactions: Boolean
         get() = prefs.getBoolean(KEY_NOTIFY_REACTIONS, true)
         set(value) {
-            prefs.edit().putBoolean(KEY_NOTIFY_REACTIONS, value).apply()
+            prefs.edit { putBoolean(KEY_NOTIFY_REACTIONS, value) }
         }
 
     private companion object {

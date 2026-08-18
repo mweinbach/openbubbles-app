@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,7 +32,7 @@ object AppearancePrefs {
     var dynamicColor: Boolean
         get() = prefs?.getBoolean(KEY_DYNAMIC_COLOR, true) ?: true
         set(value) {
-            prefs?.edit()?.putBoolean(KEY_DYNAMIC_COLOR, value)?.apply()
+            prefs?.edit { putBoolean(KEY_DYNAMIC_COLOR, value) }
             _dynamicColor.value = value
         }
 }

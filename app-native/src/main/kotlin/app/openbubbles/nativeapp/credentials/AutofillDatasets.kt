@@ -74,6 +74,8 @@ class AutofillDatasets {
             return CardNetwork.UNKNOWN
         }
 
+        // Replacement Presentations API is 33+ and minSdk is 26.
+        @Suppress("DEPRECATION")
         fun fillFields(context: Context, structure: AutofillStructure, inline: InlineSuggestionsRequest?): Dataset {
             val usernamePresentation = RemoteViews(context.packageName, R.layout.autofill_dataset)
             val card = "${detectNetwork()} •••• ${creditCardNumber.trim().takeLast(4)}"
@@ -264,6 +266,8 @@ class AutofillDatasets {
         val domain: String,
         val otp: String?,
     ) {
+        // Replacement Presentations API is 33+ and minSdk is 26.
+        @Suppress("DEPRECATION")
         fun fillFields(context: Context, structure: AutofillStructure, inline: InlineSuggestionsRequest?): Dataset {
             val usernamePresentation = RemoteViews(context.packageName, R.layout.autofill_dataset)
             usernamePresentation.setTextViewText(R.id.autofill_dataset_title, username)

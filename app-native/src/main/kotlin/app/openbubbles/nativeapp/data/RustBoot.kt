@@ -1,6 +1,8 @@
 package app.openbubbles.nativeapp.data
 
+import android.annotation.SuppressLint
 import android.util.Log
+import androidx.core.content.edit
 import app.openbubbles.nativeapp.service.SimpleFilePackager
 import com.bluebubbles.messaging.services.rustpush.AndroidNativeKeystore
 import java.io.File
@@ -19,12 +21,16 @@ import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
  */
 object RustBoot {
 
+    // java.lang.Object on purpose: the monitor's wait/notifyAll below are
+    // not exposed on kotlin.Any.
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     private val startLock = java.lang.Object()
 
     @Volatile
     private var started = false
 
     private var starting = false
+    @SuppressLint("StaticFieldLeak") // Bound to applicationContext in ensureStarted, never an Activity.
     @Volatile
     private var nativeKeystore: AndroidNativeKeystore? = null
 
@@ -79,7 +85,7 @@ object RustBoot {
         if (prefs.getBoolean(KEY_LEGACY_AUTH_LOGS_REMOVED, false)) return
         val removed = deleteLegacyRustLogs(filesRoot)
         if (legacyRustLogs(filesRoot).isEmpty()) {
-            prefs.edit().putBoolean(KEY_LEGACY_AUTH_LOGS_REMOVED, true).apply()
+            prefs.edit { putBoolean(KEY_LEGACY_AUTH_LOGS_REMOVED, true) }
         }
         if (removed > 0) Log.i(TAG, "removed $removed legacy Rust auth log file(s)")
     }

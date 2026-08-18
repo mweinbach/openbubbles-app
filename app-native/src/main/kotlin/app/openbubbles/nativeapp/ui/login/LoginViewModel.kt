@@ -212,7 +212,6 @@ class LoginViewModel(
     override fun onCleared() {
         handle.close()
         scope.cancel()
-        super.onCleared()
     }
 
     // ------------------------------------------------------------------ internals

@@ -151,7 +151,6 @@ object CoreGraph {
                     if (cloudRecordId != null) {
                         return@AttachmentDownloader runCatching {
                             pushState.downloadCloudAttachment(cloudRecordId, destPath)
-                            Unit
                         }
                     }
                     val xml = attachment.metadata?.get("rustpush") as? String
@@ -168,7 +167,6 @@ object CoreGraph {
                                 }
                             },
                         )
-                        Unit
                     }
                 },
             )
@@ -1264,7 +1262,7 @@ private object CoreSender : Sender {
         val (stage, myHandle) = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val handle = sendingHandle(chat)
-                ?: if (pushState == null) chat.usingHandle else null
+                ?: (if (pushState == null) chat.usingHandle else null)
                 ?: error("no registered sending handle")
             stageOutgoingText(
                 store = store,
@@ -1765,7 +1763,7 @@ internal object CoreAttachmentSender : AttachmentSender {
         val prepared = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val myHandle = sendingHandle(chat)
-                ?: if (pushState == null) chat.usingHandle else null
+                ?: (if (pushState == null) chat.usingHandle else null)
                 ?: error("no registered sending handle")
             val tempGuid = MessageIngestor.tempGuid()
             val root = File(

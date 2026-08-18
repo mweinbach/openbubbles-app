@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.ui.settings
 
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.core.content.edit
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -91,6 +92,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -186,11 +188,11 @@ private fun describeRegstate(state: URegisterState): String = when (state) {
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     onOpenFindMy: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     archivedCount: Int = 0,
     showBackButton: Boolean = true,
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -231,7 +233,7 @@ fun SettingsScreen(
         mutableStateOf(ICloudContactSync.status(context))
     }
 
-    var cliqueRefresh by remember { mutableStateOf(0) }
+    var cliqueRefresh by remember { mutableIntStateOf(0) }
     var inClique by remember(pushState) { mutableStateOf<Boolean?>(null) }
     var cliqueError by remember(pushState) { mutableStateOf<String?>(null) }
     LaunchedEffect(pushState, cliqueRefresh) {
@@ -330,7 +332,7 @@ fun SettingsScreen(
             joiningClique = false
             result.onSuccess {
                 context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                    .edit().putString(KEY_KEYCHAIN_RECOVERY_CODE, recoveryCode).apply()
+                    .edit { putString(KEY_KEYCHAIN_RECOVERY_CODE, recoveryCode) }
                 trustedDevicePasscode = ""
                 showCliqueJoin = false
                 newRecoveryCode = recoveryCode
@@ -369,7 +371,7 @@ fun SettingsScreen(
     var updateBusy by remember { mutableStateOf(false) }
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var updateError by remember { mutableStateOf<String?>(null) }
-    var updateRefresh by remember { mutableStateOf(0) }
+    var updateRefresh by remember { mutableIntStateOf(0) }
     val pendingUpdate = remember(updateRefresh) {
         UpdateCoordinator.pendingUpdate(context)
     }
@@ -416,22 +418,27 @@ fun SettingsScreen(
     }
 
     fun runInstallPending() {
-        when (val installResult = UpdateCoordinator.installNow(context)) {
-            UpdateCoordinator.InstallNowResult.NothingPending -> updateRefresh++
-            UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission -> {
-                updateStatus = "Allow \"Install unknown apps\" for OpenBubbles, then tap Install again"
-                runCatching {
-                    context.startActivity(
-                        app.openbubbles.nativeapp.update.ApkInstaller.unknownSourcesIntent(context)
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
+        // installNow streams the whole APK into the PackageInstaller
+        // session; keep that off the main thread.
+        scope.launch {
+            val installResult = withContext(Dispatchers.IO) { UpdateCoordinator.installNow(context) }
+            when (installResult) {
+                UpdateCoordinator.InstallNowResult.NothingPending -> updateRefresh++
+                UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission -> {
+                    updateStatus = "Allow \"Install unknown apps\" for OpenBubbles, then tap Install again"
+                    runCatching {
+                        context.startActivity(
+                            app.openbubbles.nativeapp.update.ApkInstaller.unknownSourcesIntent(context)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
                 }
+                UpdateCoordinator.InstallNowResult.Installing ->
+                    updateStatus = "Installing… the app will restart when done"
+                is UpdateCoordinator.InstallNowResult.Failed -> updateError = installResult.message
             }
-            UpdateCoordinator.InstallNowResult.Installing ->
-                updateStatus = "Installing… the app will restart when done"
-            is UpdateCoordinator.InstallNowResult.Failed -> updateError = installResult.message
+            updateRefresh++
         }
-        updateRefresh++
     }
 
     var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }

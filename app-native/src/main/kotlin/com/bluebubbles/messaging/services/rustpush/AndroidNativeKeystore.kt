@@ -108,7 +108,9 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             is KeystorePadding.Pkcs1 -> KeyProperties.SIGNATURE_PADDING_RSA_PKCS1
         }
 
+    // Replacement setUserAuthenticationParameters is API 30+; minSdk is 26.
     @SuppressLint("WrongConstant", "InlinedApi")
+    @Suppress("DEPRECATION")
     private fun KeystoreAccessRules.getSpec(alias: String, type: KeyType): KeyGenParameterSpec {
         return KeyGenParameterSpec.Builder(
             alias,
@@ -397,7 +399,9 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
         unlockKeystore(title, context, callback)
     }
 
+    // Replacement setAllowedAuthenticators is API 30+; minSdk is 26.
     @RequiresApi(Build.VERSION_CODES.P)
+    @Suppress("DEPRECATION")
     fun unlockKeystore(
         title: String,
         promptContext: Context,

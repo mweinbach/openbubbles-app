@@ -102,8 +102,8 @@ private fun settingsItemColors(
  */
 @Composable
 internal fun SettingsGroup(
-    title: String? = null,
     modifier: Modifier = Modifier,
+    title: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {

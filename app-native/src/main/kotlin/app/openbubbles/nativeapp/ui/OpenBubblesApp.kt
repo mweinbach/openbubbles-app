@@ -1,6 +1,9 @@
 package app.openbubbles.nativeapp.ui
 
+import android.annotation.SuppressLint
 import android.net.Uri
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -220,6 +223,7 @@ private fun routeToKey(route: String): NavKey? = when {
  */
 @Composable
 fun OpenBubblesApp(
+    modifier: Modifier = Modifier,
     debugLines: List<String> = emptyList(),
     /** Chat guid from a notification tap; resolved and consumed once. */
     startChatGuid: String? = null,
@@ -228,7 +232,6 @@ fun OpenBubblesApp(
     /** Actual route restored after the hidden Compose tree was released. */
     resumeRoute: String? = null,
     onRouteChanged: (String?) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
@@ -378,7 +381,7 @@ fun OpenBubblesApp(
     if (pushState == null && !onboardingComplete && context != null) {
         OnboardingScreen(
             onFinished = {
-                onboardingPrefs?.edit()?.putBoolean("onboarding_complete", true)?.apply()
+                onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
                 onboardingComplete = true
                 NativePushService.reloadAfterLogin(context)
                 requestBatteryExemptionOnce(context)
@@ -918,15 +921,16 @@ private fun DebugStatusFooter(lines: List<String>) {
  * ROMs) will murder a "normal" background service; the exemption is what the
  * Flutter app asked for too (disable_battery_optimization plugin).
  */
+@SuppressLint("BatteryLife") // Persistent APNs push needs the exemption; user-initiated one-time prompt.
 private fun requestBatteryExemptionOnce(context: android.content.Context) {
     val prefs = context.getSharedPreferences("native_setup", android.content.Context.MODE_PRIVATE)
     if (prefs.getBoolean("battery_exemption_asked", false)) return
-    prefs.edit().putBoolean("battery_exemption_asked", true).apply()
+    prefs.edit { putBoolean("battery_exemption_asked", true) }
 
     runCatching {
         val intent = android.content.Intent(
             android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-            android.net.Uri.parse("package:${context.packageName}"),
+            "package:${context.packageName}".toUri(),
         )
         intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)

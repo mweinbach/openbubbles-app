@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.core.graphics.createBitmap
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -159,7 +160,7 @@ class CachedWebview(context: Context, name: String?, desc: String, url: String) 
             }
 
             override fun getDefaultVideoPoster(): Bitmap {
-                return Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565)
+                return createBitmap(1, 1, Bitmap.Config.RGB_565)
             }
         }
 

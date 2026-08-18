@@ -128,7 +128,7 @@ class MessageIngestor(
                     isNewIncomingMessage = chat != null &&
                         notifiableType &&
                         !existedBefore &&
-                        inst?.sender != null &&
+                        inst.sender != null &&
                         inst.sender !in myHandles &&
                         !inst.verificationFailed,
                 )

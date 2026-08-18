@@ -796,7 +796,6 @@ class ChatViewModel(
 
     override fun onCleared() {
         messageRepository.release(chatId)
-        super.onCleared()
     }
 
     companion object {

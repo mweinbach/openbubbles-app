@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import androidx.core.content.edit
 
 /** iMessage interaction preferences retained across process restarts. */
 class MessagingPrefs(context: Context) {
@@ -16,13 +17,13 @@ class MessagingPrefs(context: Context) {
     var defaultSendingHandle: String?
         get() = prefs.getString(KEY_DEFAULT_SENDING_HANDLE, null)
         set(value) {
-            prefs.edit().apply {
+            prefs.edit {
                 if (value.isNullOrBlank()) {
                     remove(KEY_DEFAULT_SENDING_HANDLE)
                 } else {
                     putString(KEY_DEFAULT_SENDING_HANDLE, value)
                 }
-            }.apply()
+            }
         }
 
     /**
@@ -34,7 +35,7 @@ class MessagingPrefs(context: Context) {
     var sendReadReceipts: Boolean
         get() = prefs.getBoolean(KEY_SEND_READ_RECEIPTS, false)
         set(value) {
-            prefs.edit().putBoolean(KEY_SEND_READ_RECEIPTS, value).apply()
+            prefs.edit { putBoolean(KEY_SEND_READ_RECEIPTS, value) }
         }
 
     /**
@@ -46,7 +47,7 @@ class MessagingPrefs(context: Context) {
     var autoDownloadMaxBytes: Long
         get() = prefs.getLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, DEFAULT_AUTO_DOWNLOAD_MAX_BYTES)
         set(value) {
-            prefs.edit().putLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, value).apply()
+            prefs.edit { putLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, value) }
         }
 
     companion object {

@@ -2,8 +2,8 @@ package app.openbubbles.nativeapp.sms
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.MessageRepo
@@ -120,7 +120,7 @@ class MmsManagerSender(private val context: Context) : AttachmentSender {
                 }
                 val statusIntent = Intent(context, SmsSendStatusReceiver::class.java)
                     .setAction(SmsSendStatusReceiver.ACTION_SENT)
-                    .setData(Uri.parse("openbubbles://mms/status/${prepared.tempGuid}"))
+                    .setData("openbubbles://mms/status/${prepared.tempGuid}".toUri())
                     .putExtra(SmsSendStatusReceiver.EXTRA_GUID, prepared.tempGuid)
                     .putExtra(SmsSendStatusReceiver.EXTRA_PART_INDEX, 0)
                     .putExtra(SmsSendStatusReceiver.EXTRA_TRANSPORT, "MMS")
