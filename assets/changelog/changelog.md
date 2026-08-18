@@ -2,6 +2,18 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v3.2.12
+
+### Enhancements
+
+- iCloud Passwords now opens from the locally cached vault immediately while
+  Apple sync continues in the background, instead of waiting for every vault
+  category to download before showing anything.
+- Passwords, passkeys, verification codes, Wi-Fi credentials, and shared
+  groups load only when selected. The new adaptive category cards, rounded
+  search field, counts, and credential list follow the structure of Apple's
+  Passwords app while retaining OpenBubbles' Material theme.
+
 ## v2.3.11
 
 ### Enhancements
