@@ -66,6 +66,102 @@ class ContactSync(private val store: BoxStore) {
     private val contactBox = store.boxFor(ContactV2::class.java)
     private val handleBox = store.boxFor(Handle::class.java)
 
+    // ------------------------------------------------------------------
+    // Projection cache
+    //
+    // The chat list re-projects on every Chat/ContactV2 write; during a
+    // history sync that is hundreds of emissions, and each one used to
+    // rebuild these maps from full contacts + handles table scans. The maps
+    // only depend on the contact and handle tables, so they are memoized and
+    // rebuilt (in one pass) when those tables change: this class's own
+    // mutators mark the cache dirty synchronously, store observers catch
+    // writers outside this class, and a row-count probe catches external
+    // inserts/deletes even before the (asynchronous) observer fires.
+    // ------------------------------------------------------------------
+
+    private val projectionLock = Any()
+
+    @Volatile
+    private var projectionDirty = true
+    private var projectionObserversRegistered = false
+    private var projectedContactCount = -1L
+    private var projectedHandleCount = -1L
+
+    @Volatile
+    private var cachedDisplayByHandleId: Map<Long, HandleDisplayInfo> = emptyMap()
+
+    @Volatile
+    private var cachedContactIdsByHandleId: Map<Long, Long> = emptyMap()
+
+    @Volatile
+    private var cachedDisplayByMatchKey: Map<String, HandleDisplayInfo> = emptyMap()
+
+    /**
+     * Drops the memoized handle/address projections. Automatic for writes
+     * through this class and (asynchronously) for any committed
+     * [ContactV2]/[Handle] write; call it directly after writing those boxes
+     * when the very next read must observe an in-place field update.
+     */
+    fun invalidateProjections() {
+        projectionDirty = true
+    }
+
+    private fun ensureProjectionObservers() {
+        if (projectionObserversRegistered) return
+        synchronized(projectionLock) {
+            if (projectionObserversRegistered) return
+            store.subscribe(ContactV2::class.java).observer { invalidateProjections() }
+            store.subscribe(Handle::class.java).observer { invalidateProjections() }
+            projectionObserversRegistered = true
+        }
+    }
+
+    private fun refreshProjections() {
+        ensureProjectionObservers()
+        val contactCount = contactBox.count()
+        val handleCount = handleBox.count()
+        if (!projectionDirty &&
+            contactCount == projectedContactCount &&
+            handleCount == projectedHandleCount
+        ) {
+            return
+        }
+        synchronized(projectionLock) {
+            if (!projectionDirty &&
+                contactBox.count() == projectedContactCount &&
+                handleBox.count() == projectedHandleCount
+            ) {
+                return
+            }
+            // Clear before reading: a write landing mid-rebuild re-dirties
+            // and the next read rebuilds again instead of serving the torn set.
+            projectionDirty = false
+            store.callInReadTx {
+                val (emailHandles, phoneHandles) = buildHandleIndexes()
+                val byHandleId = HashMap<Long, HandleDisplayInfo>()
+                val contactIds = HashMap<Long, Long>()
+                val byMatchKey = HashMap<String, HandleDisplayInfo>()
+                contactsByPreference().forEach { contact ->
+                    val info = displayInfoOf(contact)
+                    handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
+                        byHandleId[handle.id] = mergeDisplayInfo(byHandleId[handle.id], info)
+                        contactIds.putIfAbsent(handle.id, contact.id)
+                    }
+                    contact.addresses.forEach { address ->
+                        addressMatchKeys(address).forEach { key ->
+                            byMatchKey[key] = mergeDisplayInfo(byMatchKey[key], info)
+                        }
+                    }
+                }
+                projectedContactCount = contactBox.count()
+                projectedHandleCount = handleBox.count()
+                cachedDisplayByHandleId = byHandleId
+                cachedContactIdsByHandleId = contactIds
+                cachedDisplayByMatchKey = byMatchKey
+            }
+        }
+    }
+
     /**
      * Upserts [rawContacts] in one transaction. New rows are created,
      * existing rows (same [RawContact.id]) are updated in place; removal of
@@ -77,7 +173,7 @@ class ContactSync(private val store: BoxStore) {
         val (emailHandles, phoneHandles) = buildHandleIndexes()
 
         rawContacts.map { raw -> upsertOne(raw, emailHandles, phoneHandles) }
-    }
+    }.also { invalidateProjections() }
 
     /**
      * Rebuilds every stored contact relation against the current handle table.
@@ -117,7 +213,7 @@ class ContactSync(private val store: BoxStore) {
             linkedContacts = linkedContacts,
             linkedHandles = linkedHandleIds.size,
         )
-    }
+    }.also { invalidateProjections() }
 
     /**
      * Removes contacts by their platform-stable ids. This is intentionally
@@ -136,7 +232,7 @@ class ContactSync(private val store: BoxStore) {
             contactBox.put(contact)
             contactBox.remove(contact.id)
         }
-    }
+    }.also { invalidateProjections() }
 
     private fun upsertOne(
         raw: RawContact,
@@ -240,50 +336,30 @@ class ContactSync(private val store: BoxStore) {
     }
 
     /**
-     * One read-transaction projection for list rendering. This avoids opening
-     * a lazy backlink transaction per chat row (which is both slower and can
-     * keep ObjectBox transactions alive until finalization under heavy sync).
+     * One-pass projection for list rendering, memoized until the contact or
+     * handle tables change. This avoids opening a lazy backlink transaction
+     * per chat row and avoids re-scanning both tables on every chat-list
+     * emission.
      *
      * iCloud names win. A later native contact can still fill a missing
      * avatar so Android photos are not dropped just because CardDAV had a
      * name and no PHOTO.
      */
-    fun displayInfoByHandleId(): Map<Long, HandleDisplayInfo> = store.callInReadTx {
-        val resolved = HashMap<Long, HandleDisplayInfo>()
-        val (emailHandles, phoneHandles) = buildHandleIndexes()
-        contactsByPreference().forEach { contact ->
-            val info = displayInfoOf(contact)
-            handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
-                resolved[handle.id] = mergeDisplayInfo(resolved[handle.id], info)
-            }
-        }
-        resolved
+    fun displayInfoByHandleId(): Map<Long, HandleDisplayInfo> {
+        refreshProjections()
+        return cachedDisplayByHandleId
     }
 
     /** Address-key projection for chat identifiers and unlinked handles. */
-    fun displayInfoByMatchKey(): Map<String, HandleDisplayInfo> = store.callInReadTx {
-        val resolved = HashMap<String, HandleDisplayInfo>()
-        contactsByPreference().forEach { contact ->
-            val info = displayInfoOf(contact)
-            contact.addresses.forEach { address ->
-                addressMatchKeys(address).forEach { key ->
-                    resolved[key] = mergeDisplayInfo(resolved[key], info)
-                }
-            }
-        }
-        resolved
+    fun displayInfoByMatchKey(): Map<String, HandleDisplayInfo> {
+        refreshProjections()
+        return cachedDisplayByMatchKey
     }
 
     /** Stable contact ids for exact identity grouping across linked handles. */
-    fun contactIdsByHandleId(): Map<Long, Long> = store.callInReadTx {
-        val resolved = HashMap<Long, Long>()
-        val (emailHandles, phoneHandles) = buildHandleIndexes()
-        contactsByPreference().forEach { contact ->
-            handlesFor(contact, emailHandles, phoneHandles).forEach { handle ->
-                resolved.putIfAbsent(handle.id, contact.id)
-            }
-        }
-        resolved
+    fun contactIdsByHandleId(): Map<Long, Long> {
+        refreshProjections()
+        return cachedContactIdsByHandleId
     }
 
     /**
