@@ -1,16 +1,14 @@
-use std::{collections::{BTreeMap, HashMap, VecDeque}, fmt::Debug, fs::{File, OpenOptions}, io::{self, Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock, RwLock, Weak}, time::{Duration, SystemTime}};
+use std::{collections::{BTreeMap, HashMap}, fmt::Debug, fs::{File, OpenOptions}, io::{Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock}, time::{Duration, SystemTime}};
 
-use flexi_logger::{FileSpec, Logger, WriteMode};
 use keystore::software::plist_to_bin;
 use log::{error, info, warn};
-use openssl::{ec::EcKey, pkey::PKey};
-use rustpush::{EntitlementAuthState, GenerateVerificationTokenRequest, MessageInst, PushError, get_gateways_for_mccmnc, passwords::{Passkey, PasskeyCriteria, PasswordCriteria, PasswordManager, PasswordManagerMeta, PasswordManagerMetaChange, PasswordManagerMetaData, PasswordManagerMetaDataCtx, PasswordRawEntry}};
+use openssl::pkey::PKey;
+use rustpush::{GenerateVerificationTokenRequest, MessageInst, get_gateways_for_mccmnc, passwords::{Passkey, PasswordCriteria, PasswordManagerMeta, PasswordRawEntry}};
 use serde::{Deserialize, Serialize};
-use tokio::{runtime::{Handle, Runtime}, sync::Mutex};
+use tokio::sync::Mutex;
 
 use futures::FutureExt;
-use uuid::Uuid;
-use crate::{RUNTIME, api::api::{APSWatcher, PollResult, PushMessage, SharedPushState, approve_circle, decline_facetime, do_first_time_init, get_2fa_code, get_entitlements, recv_wait, register_service, set_status, take_daemon, teardown_2fa}, frb_generated::FLUTTER_RUST_BRIDGE_HANDLER, init_logger};
+use crate::{RUNTIME, api::api::{APSWatcher, PollResult, PushMessage, SharedPushState, approve_circle, decline_facetime, do_first_time_init, recv_wait, register_service, set_status, take_daemon, teardown_2fa}};
 
 #[derive(uniffi::Record)] 
 pub struct FileInfo {
@@ -155,6 +153,7 @@ pub fn get_carrier(handler: Arc<dyn CarrierHandler>, mccmnc: String) {
 
 
 
+#[allow(dead_code)]
 pub fn plist_to_buf<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, plist::Error> {
     let mut buf: Vec<u8> = Vec::new();
     let writer = Cursor::new(&mut buf);
@@ -162,6 +161,7 @@ pub fn plist_to_buf<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, plist::Er
     Ok(buf)
 }
 
+#[allow(dead_code)]
 pub fn plist_to_string<T: serde::Serialize>(value: &T) -> Result<String, plist::Error> {
     plist_to_buf(value).map(|val| String::from_utf8(val).unwrap())
 }
@@ -235,7 +235,7 @@ impl MessageLog {
                     let Some(msg) = messages.get_mut(&id) else { continue };
                     msg.attempts += 1;
                 },
-                MessageJournal::Finish { id, success } => {
+                MessageJournal::Finish { id, success: _ } => {
                     messages.remove(&id);
                     // TODO handle success later
                 },

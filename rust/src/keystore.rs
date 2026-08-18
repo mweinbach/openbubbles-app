@@ -1,13 +1,12 @@
 use std::{collections::BTreeSet, fmt::{Debug, Display}, path::PathBuf, sync::{Arc, RwLock}};
 
 use aes_gcm::{AeadInPlace, Aes256Gcm, KeyInit, Nonce};
-use keystore::{EcCurve, EcKeystoreKey, EncryptMode, KeyType, Keystore, KeystoreAccessRules, KeystoreDeriveKey, KeystoreDigest, KeystoreError, KeystorePadding, backup::{BackupKeystore, BackupKeystoreState}, init_keystore, keystore, software::{SoftwareKeystore, SoftwareKeystoreState}};
+use keystore::{EcCurve, EncryptMode, KeyType, Keystore, KeystoreAccessRules, KeystoreDigest, KeystoreError, KeystorePadding, backup::{BackupKeystore, BackupKeystoreState}, init_keystore, keystore, software::{SoftwareKeystore, SoftwareKeystoreState}};
 use openssl::{bn::BigNumContext, ec::{EcGroup, EcKey, EcPoint, PointConversionForm}, encrypt::Encrypter, hash::MessageDigest, nid::Nid, pkey::{PKey, Public}, rsa::{Padding, Rsa}};
 use rustpush::cloudkit_proto::base64_encode;
-use uniffi::UnexpectedUniFFICallbackError;
 use std::str::FromStr;
-use rasn::{types::{Any, GeneralizedTime, SequenceOf, SetOf}, AsnType, Decode, Encode};
-use log::{debug, error, info, warn};
+use rasn::{types::SetOf, AsnType, Decode, Encode};
+use log::info;
 
 
 #[uniffi::remote(Enum)]
@@ -257,6 +256,7 @@ struct AuthorizationList {
     auth_timeout: Option<u32>,
 }
 
+#[allow(dead_code)]
 enum HardwareAuthenticatorType {
     NONE = 0,
     PASSWORD = 1 << 0,
@@ -265,6 +265,7 @@ enum HardwareAuthenticatorType {
     // ANY = 0xFFFFFFFF,
 }
 
+#[allow(dead_code)]
 enum KeyPurpose {
     /* Usable with 3DES and AES keys. */
     Encrypt = 0,
@@ -295,6 +296,7 @@ enum KeyPurpose {
     AttestKey = 7,
 }
 
+#[allow(dead_code)]
 enum Algorithm {
     /** Asymmetric algorithms. */
     Rsa = 1,
@@ -309,6 +311,7 @@ enum Algorithm {
     Hmac = 128,
 }
 
+#[allow(dead_code)]
 enum BlockMode {
     /*
      * Unauthenticated modes, usable only for encryption/decryption and not generally recommended
@@ -325,6 +328,7 @@ enum BlockMode {
     Gcm = 32,
 }
 
+#[allow(dead_code)]
 enum Digest {
     None = 0,
     Md5 = 1,
@@ -335,6 +339,7 @@ enum Digest {
     Sha512 = 6,
 }
 
+#[allow(dead_code)]
 enum PaddingMode {
     None = 1,
     RsaOaep = 2,
@@ -344,6 +349,7 @@ enum PaddingMode {
     Pkcs7 = 64,
 }
 
+#[allow(dead_code)]
 enum AndroidEcCurve {
     P224 = 0,
     P256 = 1,
@@ -352,6 +358,7 @@ enum AndroidEcCurve {
     Curve25519 = 4,
 }
 
+#[allow(dead_code)]
 enum KeyFormat {
     /** X.509 certificate format, for public key export. */
     X509 = 0,
@@ -404,7 +411,6 @@ impl AuthorizationList {
             block_mode: if rules.block_modes.is_empty() { None } else { Some(rules.block_modes.iter().map(|m| match m {
                 EncryptMode::Gcm => BlockMode::Gcm,
                 EncryptMode::Rsa(_) => BlockMode::Ecb,
-                _ => panic!("Bad block mode!")
             } as u32).collect()) },
             digest: if rules.digests.is_empty() { None } else { 
                 Some(rules.digests.iter().map(|m| Digest::from_keystore(m) as u32).collect())
