@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import androidx.core.content.edit
 import app.openbubbles.core.sync.CloudSyncPort
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
@@ -71,7 +72,7 @@ class HistorySyncPreferences(context: Context) {
             prefs.getString(KEY_HISTORY_SYNC_WINDOW, null),
         )
         set(value) {
-            prefs.edit().putString(KEY_HISTORY_SYNC_WINDOW, value.persistedValue).apply()
+            prefs.edit { putString(KEY_HISTORY_SYNC_WINDOW, value.persistedValue) }
         }
 }
 

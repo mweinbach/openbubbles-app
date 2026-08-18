@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.onboarding
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -80,6 +81,7 @@ private fun Context.hasSmsPermissions(): Boolean =
  * re-requested later (settings or the chat-list sign-in path). "Continue"
  * is always enabled — nothing here blocks sign-in.
  */
+@SuppressLint("InlinedApi") // POST_NOTIFICATIONS is never launched below API 33; the card is pre-granted.
 @Composable
 internal fun PermissionsStep(
     onContinue: () -> Unit,

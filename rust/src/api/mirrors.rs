@@ -502,7 +502,7 @@ pub struct DartNSAttributedString {
 #[frb(external)]
 impl NSAttributedString {
     #[frb(sync)]
-    pub fn decode(val: &StCollapsedValue) -> Self {}
+    pub fn decode(_val: &StCollapsedValue) -> Self {}
     #[frb(sync)]
     pub fn encode(&self) -> StCollapsedValue {}
 }
@@ -542,7 +542,7 @@ impl PasswordManagerMeta {
     #[frb(sync)]
     pub fn get_password_data(&self) -> Result<PasswordManagerMetaData, PushError> { }
     #[frb(sync)]
-    pub fn get_data(data: &PasswordManagerMetaData) -> Result<Vec<u8>, PushError> { }
+    pub fn get_data(_data: &PasswordManagerMetaData) -> Result<Vec<u8>, PushError> { }
 }
 
 #[frb(mirror(PasswordManagerMetaChange), type_64bit_int)]
@@ -632,7 +632,7 @@ pub struct DartNSNumber(pub u32);
 #[frb(external)]
 impl NSNumber {
     #[frb(sync)]
-    pub fn decode(val: &StCollapsedValue) -> Self {}
+    pub fn decode(_val: &StCollapsedValue) -> Self {}
     #[frb(sync)]
     pub fn encode(&self) -> StCollapsedValue {}
 }
@@ -643,7 +643,7 @@ pub struct DartNSString(pub String);
 #[frb(external)]
 impl NSString {
     #[frb(sync)]
-    pub fn decode(val: &StCollapsedValue) -> Self {}
+    pub fn decode(_val: &StCollapsedValue) -> Self {}
     #[frb(sync)]
     pub fn encode(&self) -> StCollapsedValue {}
 }
@@ -926,6 +926,7 @@ impl Attachment {
     pub fn get_size(&self) -> usize { }
 }
 
+#[allow(dead_code)]
 #[frb(mirror(TextFlags))]
 pub struct DartTextFlags {
     bold: bool,
@@ -1341,6 +1342,7 @@ pub enum DartDeleteTarget {
     Messages(Vec<String>)
 }
 
+#[allow(dead_code)]
 #[frb(type_64bit_int, mirror(MoveToRecycleBinMessage))]
 #[derive(Clone)]
 pub struct DartMoveToRecycleBinMessage {

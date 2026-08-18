@@ -6,6 +6,12 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
+[lints.rust]
+# frb_expand is set by the legacy Flutter Rust Bridge macros that still
+# compile in src/api/ and src/frb_generated*.rs; declare it so rustc's
+# unexpected_cfgs lint doesn't flag every FRB attribute expansion.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(frb_expand)"] }
+
 [dependencies]
 flutter_rust_bridge = "=2.3.0"
 rustpush = { path = "../rustpush", features = ["macos-validation-data", "remote-anisette-v3"] }

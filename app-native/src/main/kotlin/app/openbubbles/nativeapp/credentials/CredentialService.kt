@@ -217,7 +217,7 @@ class CredentialService : CredentialProviderService() {
                         val option = passkeyOption ?: return@forEachIndexed
                         if (allowedCredentialIds != null) {
                             val savedId = base64UrlEncode(saved.id)
-                            if (!allowedCredentialIds!!.contains(savedId)) {
+                            if (!allowedCredentialIds.contains(savedId)) {
                                 return@forEachIndexed
                             }
                         }

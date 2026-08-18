@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -98,9 +99,9 @@ fun ContactSheet(
     onMessage: () -> Unit,
     onFaceTime: () -> Unit,
     onOpenAttachment: (String) -> Unit,
+    modifier: Modifier = Modifier,
     posterFile: File? = null,
     attachmentFile: (String) -> File? = { null },
-    modifier: Modifier = Modifier,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier) {
         ContactDetailsCard(
@@ -139,10 +140,10 @@ fun ContactDetailsCard(
     onMessage: () -> Unit,
     onFaceTime: () -> Unit,
     onOpenAttachment: (String) -> Unit,
+    modifier: Modifier = Modifier,
     posterFile: File? = null,
     attachmentFile: (String) -> File? = { null },
     scrollable: Boolean = true,
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -656,7 +657,7 @@ internal fun rememberSharedContent(chatId: Long): List<SharedContentPreview> {
 private fun dialNumber(context: Context, number: String) {
     runCatching {
         context.startActivity(
-            Intent(Intent.ACTION_DIAL, Uri.parse("tel:${displayContactAddress(number)}"))
+            Intent(Intent.ACTION_DIAL, "tel:${displayContactAddress(number)}".toUri())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
@@ -665,10 +666,8 @@ private fun dialNumber(context: Context, number: String) {
 internal fun openLocationInMaps(context: Context, name: String, point: FmPoint) {
     runCatching {
         val label = Uri.encode(name)
-        val uri = Uri.parse(
-            "geo:${point.latitude},${point.longitude}" +
-                "?q=${point.latitude},${point.longitude}($label)",
-        )
+        val uri = ("geo:${point.latitude},${point.longitude}" +
+            "?q=${point.latitude},${point.longitude}($label)").toUri()
         context.startActivity(
             Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )

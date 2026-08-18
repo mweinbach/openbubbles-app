@@ -62,8 +62,8 @@ fun rememberContactAvatarPath(address: String?): String? {
 fun ChatAvatar(
     title: String,
     avatarColor: Long,
-    size: Dp = 48.dp,
     modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
     avatarPath: String? = null,
 ) {
     val decoded = rememberDecodedUriImage(

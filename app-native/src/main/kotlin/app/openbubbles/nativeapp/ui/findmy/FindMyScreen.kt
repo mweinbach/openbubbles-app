@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -75,8 +76,8 @@ fun FindMyScreen(
     uiState: FindMyUiState,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
-    showBackButton: Boolean = true,
     modifier: Modifier = Modifier,
+    showBackButton: Boolean = true,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
@@ -417,10 +418,8 @@ private fun EmptyState(title: String, detail: String) {
 private fun openInMaps(context: Context, name: String, point: FmPoint) {
     runCatching {
         val label = Uri.encode(name)
-        val uri = Uri.parse(
-            "geo:${point.latitude},${point.longitude}" +
-                "?q=${point.latitude},${point.longitude}($label)",
-        )
+        val uri = ("geo:${point.latitude},${point.longitude}" +
+            "?q=${point.latitude},${point.longitude}($label)").toUri()
         context.startActivity(
             Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )

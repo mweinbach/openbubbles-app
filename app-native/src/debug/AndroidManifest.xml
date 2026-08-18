@@ -1,8 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <!-- Debug-only tooling receiver; exported so adb can trigger NAC round-trips. -->
         <receiver
             android:name="app.openbubbles.nativeapp.data.NacRoundTripReceiver"
-            android:exported="true">
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="app.openbubbles.DEBUG_NAC_ROUND_TRIP" />
             </intent-filter>

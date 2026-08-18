@@ -115,6 +115,7 @@ enum class ChatListKind { Inbox, Archive }
 fun ChatListScreen(
     uiState: ChatListUiState,
     onChatClick: (ChatListItem) -> Unit,
+    modifier: Modifier = Modifier,
     onNewChat: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenFindMy: () -> Unit = {},
@@ -142,7 +143,6 @@ fun ChatListScreen(
     selectedChatId: Long? = null,
     /** Pane background — surfaceContainerLow in two-pane for tonal layering. */
     containerColor: Color? = null,
-    modifier: Modifier = Modifier,
     /**
      * Banner slot rendered above the conversation list, inside the Scaffold.
      * Keeping it here makes the banner share the app bar's insets and prevents a
@@ -586,9 +586,9 @@ private fun PinnedChatTile(
     onClick: (ChatListItem) -> Unit,
     onLongClick: (ChatListItem) -> Unit,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     checked: Boolean? = null,
     avatarSize: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
     val avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress)
@@ -653,12 +653,12 @@ private fun PinnedChatTile(
 fun ChatListRow(
     chat: ChatListItem,
     onClick: (ChatListItem) -> Unit,
+    modifier: Modifier = Modifier,
     onLongClick: (ChatListItem) -> Unit = {},
     /** True when this conversation is open in the adjacent detail pane. */
     selected: Boolean = false,
     /** Null when the list is not in selection mode. */
     checked: Boolean? = null,
-    modifier: Modifier = Modifier,
 ) {
     val unread = chat.unread > 0
     val secondaryText = if (selected) {

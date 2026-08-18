@@ -42,12 +42,12 @@ jobs:
               url."ssh://$alias/$repo.git".insteadOf "https://github.com/$repo.git"
           done
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -56,8 +56,10 @@ jobs:
       # cache from org.gradle.caching=true) between runs. cache-read-only
       # must be false: CI also runs for non-default branches, and the action
       # only writes caches from the default branch otherwise.
+      # Pinned to v5 (Node 24) rather than v6: v6 swaps in a new caching
+      # provider; v5 keeps the actions/cache-backed behavior we rely on.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
 
@@ -66,14 +68,21 @@ jobs:
         with:
           targets: aarch64-linux-android, x86_64-linux-android
 
+      # apt instead of arduino/setup-protoc: the action still targets the
+      # deprecated Node 20 runtime (same approach as release-update.yml).
       - name: Install Protobuf compiler
-        uses: arduino/setup-protoc@v3
+        run: |
+          if ! command -v protoc >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y protobuf-compiler
+          fi
+          protoc --version
 
       # The NDK must match ndkVersion in app-native/build.gradle; without a
       # cache AGP re-downloads ~2 GB every run. Absolute path: runner env
       # vars like ANDROID_HOME are not visible in `with:` expressions.
       - name: Cache Android NDK
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/lib/android/sdk/ndk/28.2.13676358
           key: ${{ runner.os }}-ndk-28.2.13676358
@@ -82,7 +91,7 @@ jobs:
       # tests, UniFFI check). restore-keys keep stale-but-useful deps when
       # lockfiles move; Cargo rebuilds only what changed.
       - name: Cache Cargo registry and host builds
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -95,7 +104,7 @@ jobs:
       # The Android cdylib builds (2 ABIs x debug/release) via
       # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
       - name: Cache Android Cargo builds
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build-native/app-native/cargo-android/target
           key: ${{ runner.os }}-cargo-android-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
@@ -135,12 +144,12 @@ jobs:
             :app-native:checkUniffiBindings :app-native:validateDebugScreenshotTest \
             :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: native-alpha-debug-apk
           path: build-native/app-native/outputs/apk/debug/app-native-debug.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: native-alpha-release-aab-debug-signed
           path: build-native/app-native/outputs/bundle/release/app-native-release.aab
@@ -150,7 +159,11 @@ jobs:
     runs-on: windows-latest
     steps:
       # Same deploy-key dance as the android job; bash for the indirect
-      # variable expansion.
+      # variable expansion. Windows needs absolute paths everywhere:
+      # actions/checkout temporarily overrides HOME while it runs git, so
+      # ssh cannot find ~/.ssh/config (Git for Windows resolves ~ from HOME).
+      # Baking absolute paths into IdentityFile and core.sshCommand keeps the
+      # host aliases resolvable during the submodule clone.
       - name: Grant submodule read access (read-only deploy keys)
         shell: bash
         env:
@@ -161,6 +174,10 @@ jobs:
           KEY_SMSMMS: ${{ secrets.SUBMODULE_KEY_SMSMMS }}
         run: |
           mkdir -p ~/.ssh
+          sshhome="$HOME"
+          if command -v cygpath >/dev/null 2>&1; then
+            sshhome="$(cygpath -m "$HOME")"
+          fi
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           cat <<'ALIASES' | while IFS='|' read -r alias keyvar repo; do
           github-rustpush|KEY_RUSTPUSH|mweinbach/rustpush-private
@@ -177,33 +194,67 @@ jobs:
               echo "Host $alias"
               echo "  HostName github.com"
               echo "  User git"
-              echo "  IdentityFile ~/.ssh/id_$alias"
+              echo "  IdentityFile $sshhome/.ssh/id_$alias"
               echo "  IdentitiesOnly yes"
             } >> ~/.ssh/config
             git config --global \
               url."ssh://$alias/$repo.git".insteadOf "https://github.com/$repo.git"
           done
+          git config --global core.sshCommand \
+            "ssh -F $sshhome/.ssh/config -o UserKnownHostsFile=$sshhome/.ssh/known_hosts"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
+      # v5 rather than v6 for the same caching-provider reason as the
+      # android job.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # choco instead of arduino/setup-protoc: the action still targets the
+      # deprecated Node 20 runtime.
       - name: Install Protobuf compiler
-        uses: arduino/setup-protoc@v3
+        shell: bash
+        run: |
+          if ! command -v protoc >/dev/null 2>&1; then
+            choco install protoc -y --no-progress
+          fi
+          protoc --version
+
+      # rustpush include_bytes!()s these at compile time, so the host Rust
+      # build needs the placeholders just like the android job.
+      - name: Set up fake Fairplay keys
+        shell: bash
+        run: |
+          mkdir -p rustpush/certs/fairplay
+          cert_names=(
+            "4056631661436364584235346952193"
+            "4056631661436364584235346952194"
+            "4056631661436364584235346952195"
+            "4056631661436364584235346952196"
+            "4056631661436364584235346952197"
+            "4056631661436364584235346952198"
+            "4056631661436364584235346952199"
+            "4056631661436364584235346952200"
+            "4056631661436364584235346952201"
+            "4056631661436364584235346952208"
+          )
+          for name in "${cert_names[@]}"; do
+              cp rustpush/certs/legacy-fairplay/fairplay.pem rustpush/certs/fairplay/$name.pem
+              cp rustpush/certs/legacy-fairplay/fairplay.crt rustpush/certs/fairplay/$name.crt
+          done
 
       - name: DB model parity (no Android SDK needed)
         run: |
@@ -213,7 +264,7 @@ jobs:
       - name: Package Windows distributable
         run: cd native; ./gradlew.bat :desktopApp:verifyHostRustResource :desktopApp:createDistributable --console=plain
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: native-desktop-windows
           path: build-native/desktopApp/compose/binaries/main/*

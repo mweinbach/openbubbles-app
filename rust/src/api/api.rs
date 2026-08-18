@@ -1,12 +1,14 @@
 
 
-use std::{borrow::{Borrow, BorrowMut}, collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, path::Path, str::FromStr, sync::{Arc, LazyLock, OnceLock, Weak}, time::Duration, u64};
+use std::{collections::HashSet, fs::{self, File}, future::Future, io::{Cursor, Read, Write}, ops::Deref, panic, path::Path, str::FromStr, sync::{Arc, LazyLock, Weak}, time::Duration, u64};
 pub use std::time::SystemTime;
 use anyhow::anyhow;
-use flutter_rust_bridge::{DartFnFuture, IntoDart, JoinHandle, frb};
+use flutter_rust_bridge::{DartFnFuture, JoinHandle, frb};
 #[cfg(not(target_os = "android"))]
 use keystore::software::{SoftwareEncryptor, SoftwareKeystore};
-use keystore::{AesKeystoreKey, EcCurve, EcKeystoreKey, EncryptMode, KeystoreAccessRules, KeystoreDigest, KeystoreEncryptKey, KeystorePadding, RsaKey, init_keystore, keystore};
+use keystore::{AesKeystoreKey, EcCurve, EcKeystoreKey, EncryptMode, KeystoreAccessRules, KeystoreDigest, KeystoreEncryptKey, KeystorePadding, RsaKey, keystore};
+#[cfg(not(target_os = "android"))]
+use keystore::init_keystore;
 pub use rustpush::{default_provider, ArcAnisetteClient, DefaultAnisetteProvider, IDSUserType, LoginClientInfo};
 use log::{debug, error, info, warn};
 use plist::{Data, Dictionary};
@@ -17,7 +19,7 @@ pub use rustpush::DebugMutex as Mutex;
 pub use std::path::PathBuf;
 use prost::Message as prostMessage;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tokio::{runtime::Runtime, select, sync::{broadcast, mpsc, watch, RwLock}};
+use tokio::{select, sync::{broadcast, mpsc, watch}};
 pub use mpsc::Sender;
 pub use rustpush::{APSMessage, CircleClientSession, CircleServerSession, EntitlementAuthState, IDSNGMIdentity, LoginDelegate, MADRID_SERVICE, TokenProvider, authenticate_apple, authenticate_phone, authenticate_smsless, cloud_messages::CloudMessagesClient, cloudkit::{CloudKitClient, CloudKitState}, facetime::{FACETIME_SERVICE, FTClient, FTState, VIDEO_SERVICE}, findmy::{FindMyClient, FindMyState, FindMyStateManager, MULTIPLEX_SERVICE}, keychain::{KeychainClient, KeychainClientState}, login_apple_delegates, name_photo_sharing::ProfilesClient, sharedstreams::{AssetMetadata, FFMpegFilePackager, FileMetadata, FilePackager, PreparedAsset, PreparedFile, SharedStreamClient, SharedStreamsState, SyncController, SyncManager, SyncState}, statuskit::{ChannelInterestToken, StatusKitClient, StatusKitState, StatusKitStatus}};
 use rustpush::{AnisetteProvider, DebugRwLock, cloudkit::contact_info_to_handle, cloudkit_proto::{CuttlefishSerializedKey, base64_encode}, findmy::SharedBeaconClient, keychain::{CloudKey, CurrentBottle, SivKey}, passwords::PasswordState, request_update_account};
@@ -25,13 +27,10 @@ pub use rustpush::findmy::{FindMyFriendsClient, FindMyPhoneClient};
 pub use rustpush::sharedstreams::{SharedAlbum, SyncStatus};
 pub use rustpush::cloudkit_proto::EscrowData;
 pub use rustpush::passwords::PasswordManager;
-use uniffi::HandleAlloc;
 use rand::Rng;
 use uuid::Uuid;
 use rustpush::KeyCache;
 use std::io::Seek;
-use async_recursion::async_recursion;
-use base64::prelude::*;
 pub use rustpush::IdmsAuthListener;
 pub use broadcast::Receiver;
 
@@ -338,7 +337,7 @@ fn migrate(path: String) -> bool {
                 for service in item.values_mut() {
                     if let Some(Value::Dictionary(item)) = service.as_dictionary_mut().unwrap().get_mut("id_keypair") {
                         if let Some(private) = item.get_mut("private") {
-                            if let Value::Data(cert) = private {
+                            if let Value::Data(_cert) = private {
                                 let handle = format!("ids:{user_id}");
                                 *private = Value::String(handle);
                             }
@@ -731,16 +730,18 @@ impl SharedPushState {
         info!("restroing");
         update_ids_auth_lifecycle(&path, |state| *state = IDSAuthLifecycle::default());
         let dir = PathBuf::from_str(&path).unwrap();
-        let keystore = dir.join("keystore.plist");
 
         #[cfg(not(target_os = "android"))]
-        init_keystore(SoftwareKeystore {
-            state: plist::from_file(&keystore).unwrap_or_default(),
-            update_state: Box::new(move |state| {
-                plist::to_file_xml(&keystore, state).unwrap();
-            }),
-            encryptor: SoftwareEncryptor(*b"desktopisinsecureyoushouldn'tber"),
-        });
+        {
+            let keystore = dir.join("keystore.plist");
+            init_keystore(SoftwareKeystore {
+                state: plist::from_file(&keystore).unwrap_or_default(),
+                update_state: Box::new(move |state| {
+                    plist::to_file_xml(&keystore, state).unwrap();
+                }),
+                encryptor: SoftwareEncryptor(*b"desktopisinsecureyoushouldn'tber"),
+            });
+        }
 
         if let Err(err) = panic::catch_unwind(|| {
             migrate(path.clone());
@@ -1200,7 +1201,7 @@ pub async fn config_from_relay(code: String, host: String, token: &Option<String
 
 pub async fn validate_relay(config_ref: &JoinedOSConfig) -> anyhow::Result<Option<String>> {
     let Err(PushError::RelayError(_, message)) = config_ref.generate_validation_data().await else { return Ok(match config_ref {
-        JoinedOSConfig::MacOS(macos) => None,
+        JoinedOSConfig::MacOS(_macos) => None,
         JoinedOSConfig::Relay(relay) => Some(relay.code.clone())
     }) };
     if !message.contains("Subscription not active!") && !message.contains("Ticket not activated!") && !message.contains("Sorry, your hosted device is currently offline!") {
@@ -1208,7 +1209,7 @@ pub async fn validate_relay(config_ref: &JoinedOSConfig) -> anyhow::Result<Optio
         return Ok(None);
     }
     Ok(match config_ref {
-        JoinedOSConfig::MacOS(macos) => None,
+        JoinedOSConfig::MacOS(_macos) => None,
         JoinedOSConfig::Relay(relay) => Some(relay.code.clone())
     })
 }
@@ -2437,11 +2438,11 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
 
     account.update_postdata("Apple Device", None, &["icloud", "imessage", "facetime"]).await?;
     
-    let Some(pet) = account.get_pet() else { return Err(anyhow!("No pet!")) };
+    let Some(_pet) = account.get_pet() else { return Err(anyhow!("No pet!")) };
     let Some(spd) = &account.spd else { return Err(anyhow!("No spd!")) };
 
     debug!("Received Apple account service data");
-    let acname = spd.get("acname").ok_or(anyhow!("No acname!"))?.as_string().unwrap().to_string();
+    let _acname = spd.get("acname").ok_or(anyhow!("No acname!"))?.as_string().unwrap().to_string();
     let dsid = spd.get("DsPrsId").ok_or(anyhow!("No dsid!"))?.as_unsigned_integer().unwrap().to_string();
     let adsid = spd.get("adsid").ok_or(anyhow!("No adsid!"))?.as_string().unwrap();
     
@@ -2544,7 +2545,7 @@ pub async fn try_auth(path: String, conf: &JoinedOSConfig, conn: &APSConnection,
 
 pub async fn try_icloud_login(path: String, conf: &JoinedOSConfig, account: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>) -> anyhow::Result<Option<IDSUser>> {
     let pet = account.lock().await.get_pet();
-    if let Some(pet) = pet {
+    if let Some(_pet) = pet {
         info!("Here4");
         let identity = do_login(path, &account, None, conf).await?;
         info!("Here5");
@@ -2707,7 +2708,7 @@ impl MessageFlags {
     #[frb(sync)]
     pub fn bits(&self) -> i64 { }
     #[frb(sync)]
-    pub fn from_bits_truncate(val: i64) -> Self { }
+    pub fn from_bits_truncate(_val: i64) -> Self { }
 }
 
 pub async fn sync_attachments(
@@ -2856,7 +2857,7 @@ pub async fn circle_setup_clique(client: &Arc<Mutex<Option<CircleClientSession<D
     Ok(false)
 }
 
-pub async fn verify_2fa(path: String, client: &mut CircleClientSession<DefaultAnisetteProvider>, anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, os_config: &JoinedOSConfig, account: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>, watcher: &mut broadcast::Receiver<APSMessage>, idms: &Arc<IdmsAuthListener>, code: String) -> anyhow::Result<(LoginState, Option<IDSUser>)> {
+pub async fn verify_2fa(path: String, client: &mut CircleClientSession<DefaultAnisetteProvider>, _anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, os_config: &JoinedOSConfig, account: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>, watcher: &mut broadcast::Receiver<APSMessage>, idms: &Arc<IdmsAuthListener>, code: String) -> anyhow::Result<(LoginState, Option<IDSUser>)> {
     client.send_code(&code).await?;
 
     // todo add timeout
@@ -2878,7 +2879,7 @@ pub async fn verify_2fa(path: String, client: &mut CircleClientSession<DefaultAn
 
     let mut user = None;
     let pet = account.lock().await.get_pet();
-    if let Some(pet) = pet {
+    if let Some(_pet) = pet {
         let identity = do_login(path, &account, None, os_config).await?;
         user = Some(identity);
 
@@ -2912,12 +2913,12 @@ pub async fn send_2fa_sms(locked: Option<CircleClientSession<DefaultAnisetteProv
     Ok(account.send_sms_2fa_to_devices(phone_id).await?)
 }
 
-pub async fn verify_2fa_sms(path: String, account_mut: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>, anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, config: &JoinedOSConfig, body: &VerifyBody, code: String) -> anyhow::Result<(LoginState, Option<IDSUser>)> {
+pub async fn verify_2fa_sms(path: String, account_mut: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>, _anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, config: &JoinedOSConfig, body: &VerifyBody, code: String) -> anyhow::Result<(LoginState, Option<IDSUser>)> {
     let mut account = account_mut.lock().await;
     let mut login_state = account.verify_sms_2fa(code, body.clone()).await?;
 
     let mut user = None;
-    if let Some(pet) = account.get_pet() {
+    if let Some(_pet) = account.get_pet() {
         drop(account);
         let identity = do_login(path, &account_mut, None, config).await?;
         user = Some(identity);

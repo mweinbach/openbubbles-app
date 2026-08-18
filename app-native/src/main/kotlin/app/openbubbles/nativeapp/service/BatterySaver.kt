@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.service
 
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.edit
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -37,7 +38,7 @@ object BatterySaver {
     /** @return the new enabled state */
     fun setEnabled(context: Context, enabled: Boolean): Boolean {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_ENABLED, enabled).apply()
+            .edit { putBoolean(KEY_ENABLED, enabled) }
         if (enabled) {
             // Stop the live connection; the worker owns wakeups now.
             context.stopService(Intent(context, NativePushService::class.java))

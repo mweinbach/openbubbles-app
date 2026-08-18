@@ -6,9 +6,9 @@ import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.net.toUri
 import java.io.File
 import java.security.MessageDigest
 
@@ -38,7 +38,7 @@ object ApkInstaller {
     fun unknownSourcesIntent(context: Context): Intent =
         Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${context.packageName}"),
+            "package:${context.packageName}".toUri(),
         )
 
     /**

@@ -1,9 +1,10 @@
 package app.openbubbles.nativeapp.ui.login
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
-import android.net.Uri
 import android.webkit.WebView
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -300,7 +302,7 @@ private fun DeviceCodeStep(state: LoginScreen.DeviceCode, events: LoginEvents) {
 
 @Composable
 private fun SmsPhoneChooserStep(state: LoginScreen.SmsPhoneChooser, events: LoginEvents) {
-    var selectedId by rememberSaveable { mutableStateOf(-1) }
+    var selectedId by rememberSaveable { mutableIntStateOf(-1) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -410,6 +412,7 @@ private fun SmsCodeStep(state: LoginScreen.SmsCode, events: LoginEvents) {
     }
 }
 
+@SuppressLint("SetJavaScriptEnabled") // Apple's hosted login extra-step page requires JavaScript.
 @Composable
 private fun ExtraStepScreen(state: LoginScreen.ExtraStep, events: LoginEvents) {
     Column(
@@ -523,7 +526,7 @@ private fun BlockedStep(state: LoginScreen.Blocked) {
             Button(
                 onClick = {
                     try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(state.actionUrl)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, state.actionUrl.toUri()))
                     } catch (_: Exception) {
                         // No handler for the URL; the text still tells the story.
                     }

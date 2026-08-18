@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.facetime
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -65,7 +66,9 @@ class FaceTimeActivity : Activity() {
     }
 
     companion object {
+        @SuppressLint("StaticFieldLeak") // Cleared in onDestroy when this instance is the active call.
         var activeFaceTimeActivity: FaceTimeActivity? = null
+        @SuppressLint("StaticFieldLeak") // Process-wide prerender cache; transferred or dropped when a call starts.
         var cachedWebview: CachedWebview? = null
     }
 
@@ -218,7 +221,11 @@ class FaceTimeActivity : Activity() {
 
         activeFaceTimeActivity = this
 
+        // Deprecated on 35+ where edge-to-edge already renders bars
+        // transparent; still required for the pre-35 devices we support.
+        @Suppress("DEPRECATION")
         window.statusBarColor = Color.TRANSPARENT
+        @Suppress("DEPRECATION")
         window.navigationBarColor = Color.TRANSPARENT
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -229,6 +236,9 @@ class FaceTimeActivity : Activity() {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         } else {
+            // setShowWhenLocked/setTurnScreenOn need API 27; this branch only
+            // runs on API 26 (minSdk), where the flags are the only option.
+            @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                         or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
@@ -302,10 +312,8 @@ class FaceTimeActivity : Activity() {
     fun startService() {
         if (serviceStarted) return
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val intent = Intent(this, FaceTimeInCallService::class.java)
-            startForegroundService(intent)
-        }
+        val intent = Intent(this, FaceTimeInCallService::class.java)
+        startForegroundService(intent)
         serviceStarted = true
     }
 
@@ -387,7 +395,7 @@ class FaceTimeActivity : Activity() {
 
     private fun connecting() {
         binding.acceptButtons.visibility = View.GONE
-        binding.loadingBanner.text = "Connecting..."
+        binding.loadingBanner.text = getString(R.string.facetime_connecting)
         Handler(Looper.getMainLooper()).postDelayed({
             binding.mainFrame.visibility = View.VISIBLE
             binding.splashLayout.visibility = View.GONE

@@ -81,6 +81,16 @@ android {
         // BuildConfig.DEBUG gates the on-screen smoke-test footer.
         buildConfig true
     }
+
+    lint {
+        // CredentialDependency wants credentials-play-services-auth for
+        // Android 13-and-below Credential Manager *clients*. This app only
+        // implements a provider service and deliberately ships without Play
+        // services (self-updates come from GitHub Releases).
+        // OldTargetApi: targetSdk raises are deliberate, hardware-tested
+        // moves (tools/CUTOVER.md), not something lint should nag about.
+        disable 'CredentialDependency', 'OldTargetApi'
+    }
 }
 
 dependencies {

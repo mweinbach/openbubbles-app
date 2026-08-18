@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.data
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import app.openbubbles.core.contacts.RawContact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -624,20 +625,20 @@ object ICloudContactSync {
                     imported += raw.size
                     removed += removedNow
 
-                    prefs.edit()
-                        .putString(ctagKey(result.book.url), result.book.ctag)
-                        .putString(tokenKey(result.book.url), result.token)
-                        .putStringSet(knownKey(result.book.url), knownAfter)
-                        .apply()
+                    prefs.edit {
+                        putString(ctagKey(result.book.url), result.book.ctag)
+                        putString(tokenKey(result.book.url), result.token)
+                        putStringSet(knownKey(result.book.url), knownAfter)
+                    }
                 }
                 val relink = CoreGraph.relinkContacts()
-                prefs.edit()
-                    .putLong("last_success_ms", System.currentTimeMillis())
-                    .putInt("last_imported", imported)
-                    .putInt("last_removed", removed)
-                    .putInt(PHOTO_CACHE_VERSION_KEY, ICLOUD_PHOTO_CACHE_VERSION)
-                    .remove("last_error")
-                    .apply()
+                prefs.edit {
+                    putLong("last_success_ms", System.currentTimeMillis())
+                    putInt("last_imported", imported)
+                    putInt("last_removed", removed)
+                    putInt(PHOTO_CACHE_VERSION_KEY, ICLOUD_PHOTO_CACHE_VERSION)
+                    remove("last_error")
+                }
                 Log.i(
                     "ICloudContactSync",
                     "iCloud Contacts synced: $imported updated, $removed removed; " +
@@ -651,7 +652,7 @@ object ICloudContactSync {
                 )
             }.onFailure { error ->
                 val message = error.message ?: error.javaClass.simpleName
-                prefs.edit().putString("last_error", message).apply()
+                prefs.edit { putString("last_error", message) }
                 Log.w("ICloudContactSync", "iCloud Contacts sync failed: $message")
             }
             status(context)

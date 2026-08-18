@@ -97,6 +97,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -345,6 +346,7 @@ fun ChatScreen(
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     /**
      * False when this conversation renders as the detail pane beside its own
      * list: there is nothing to navigate back to, and Material specifies that a
@@ -371,7 +373,6 @@ fun ChatScreen(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     attachmentFile: (String) -> File? = { null },
-    modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -1142,10 +1143,10 @@ private fun StickerPlacementSheet(
     )
     val scope = rememberCoroutineScope()
     val decoded = rememberDecodedImage(sticker.file, maxDimensionPx = 512)
-    var normalizedX by remember { mutableStateOf(0.72f) }
-    var normalizedY by remember { mutableStateOf(0.18f) }
-    var stickerScale by remember { mutableStateOf(1f) }
-    var rotationDegrees by remember { mutableStateOf(0f) }
+    var normalizedX by remember { mutableFloatStateOf(0.72f) }
+    var normalizedY by remember { mutableFloatStateOf(0.18f) }
+    var stickerScale by remember { mutableFloatStateOf(1f) }
+    var rotationDegrees by remember { mutableFloatStateOf(0f) }
     var previewSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
 
     fun dismissAfter(action: () -> Unit) {

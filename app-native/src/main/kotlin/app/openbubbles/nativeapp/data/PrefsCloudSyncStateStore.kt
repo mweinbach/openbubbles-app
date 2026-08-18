@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Base64
 import app.openbubbles.core.attachment.AttachmentStore
@@ -105,6 +106,7 @@ object CloudSyncWiring {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HISTORY_SYNC_COMPLETE, false)
 
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     fun markHistorySyncComplete(context: Context) {
         check(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -132,6 +134,7 @@ object CloudSyncWiring {
     }
 
     /** Queue a local chat deletion so the next sync flushes it before pulling. */
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     fun queueChatDelete(context: Context, recordId: String) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getStringSet(KEY_CHAT_DELETES, emptySet()).orEmpty().toMutableSet()
@@ -154,6 +157,7 @@ object CloudSyncWiring {
         )
     }
 
+    @SuppressLint("UseKtx") // Incremental editor; commit() boolean is returned to the caller.
     private fun writeSnapshot(
         prefs: android.content.SharedPreferences,
         state: CloudSyncBackupState,
@@ -263,12 +267,14 @@ private class PrefsCloudSyncStateStore(
         persistDeletes(KEY_ATTACHMENT_DELETES, ids)
     }
 
+    @SuppressLint("UseKtx") // Incremental editor; commit() boolean is checked.
     private fun persistCursor(key: String, cursor: ByteArray?) {
         val editor = prefs.edit()
         if (cursor == null) editor.remove(key) else editor.putString(key, encodeCursor(cursor))
         check(editor.commit()) { "failed to persist CloudKit cursor" }
     }
 
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     private fun persistDeletes(key: String, ids: List<String>) {
         check(prefs.edit().putStringSet(key, ids.toSet()).commit()) {
             "failed to persist pending CloudKit deletions"

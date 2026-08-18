@@ -12,7 +12,8 @@ import android.os.Build
  *
  * - `STATUS_PENDING_USER_ACTION`: the system wants explicit confirmation
  *   (always true for the very first self-update). Launch the confirmation
- *   activity it hands us.
+ *   activity it hands us — [UpdateInstallActivity] is still in the
+ *   foreground at this point, so the start is permitted.
  * - `STATUS_SUCCESS`: the new version is already live in place of this
  *   process; clean downloaded artifacts and cancel the prompt notification.
  *   The running process keeps serving until killed; Android restarts us via
@@ -22,35 +23,7 @@ import android.os.Build
  */
 class UpdateInstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        when (intent.action) {
-            // "Update ready" notification tap (or Settings install button
-            // relaying through here). Streaming a multi-hundred-megabyte APK
-            // into the installer session can outlast the ~10s broadcast
-            // window, so hold the receiver open and work off the main thread.
-            UpdateCoordinator.ACTION_INSTALL_NOW -> {
-                val pendingResult = goAsync()
-                executor.execute {
-                    try {
-                        when (UpdateCoordinator.installNow(context)) {
-                            UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission ->
-                                runCatching {
-                                    context.startActivity(
-                                        ApkInstaller.unknownSourcesIntent(context)
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                    )
-                                }
-                            else -> Unit
-                        }
-                    } finally {
-                        pendingResult.finish()
-                    }
-                }
-            }
-            ApkInstaller.ACTION_INSTALL_RESULT -> handleInstallResult(context, intent)
-        }
-    }
-
-    private fun handleInstallResult(context: Context, intent: Intent) {
+        if (intent.action != ApkInstaller.ACTION_INSTALL_RESULT) return
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
@@ -77,9 +50,4 @@ class UpdateInstallReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             getParcelableExtra(Intent.EXTRA_INTENT)
         }
-
-    private companion object {
-        // Serialized: at most one install pipeline should ever be running.
-        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
-    }
 }

@@ -4,9 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
-import android.net.Uri
 import android.os.Build
 import android.util.LruCache
+import androidx.core.net.toUri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -174,7 +174,7 @@ private fun decodeUriImageWithBitmapFactory(
 ): DecodedImage? = runCatching {
     fun openStream() = when {
         uri.startsWith("content://") || uri.startsWith("file://") ->
-            context.contentResolver.openInputStream(Uri.parse(uri))
+            context.contentResolver.openInputStream(uri.toUri())
         else -> File(uri).takeIf { it.isFile }?.inputStream()
     }
 
@@ -209,7 +209,7 @@ private fun decodeUriImageWithImageDecoder(
     return runCatching {
         val source = when {
             uri.startsWith("content://") || uri.startsWith("file://") ->
-                ImageDecoder.createSource(context.contentResolver, Uri.parse(uri))
+                ImageDecoder.createSource(context.contentResolver, uri.toUri())
             else -> {
                 val file = File(uri)
                 if (!file.isFile) return@runCatching null
@@ -241,7 +241,7 @@ internal fun uriImageCacheKey(uri: String?, maxDimensionPx: Int): String? {
     val fileMeta = when {
         value.startsWith("content://") -> ""
         value.startsWith("file://") -> {
-            val path = Uri.parse(value).path ?: return "uri:$value:$maxDimensionPx"
+            val path = value.toUri().path ?: return "uri:$value:$maxDimensionPx"
             File(path).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
         }
         else -> File(value).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()

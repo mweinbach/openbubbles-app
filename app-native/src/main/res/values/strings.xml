@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="facetime_incoming_call">Incoming FaceTime Call</string>
+    <string name="facetime_connecting">Connecting…</string>
+    <string name="facetime_decline">Decline</string>
+    <string name="facetime_accept">Accept</string>
+    <string name="credential_no_email">No Email</string>
+    <string name="credential_no_password">No Password</string>
+</resources>
