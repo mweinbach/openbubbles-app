@@ -131,6 +131,13 @@ class LoginViewModel(
             if (current is LoginScreen.Form && current.savedUsername != saved) {
                 _screen.value = current.copy(savedUsername = saved)
             }
+            // Repair handoff: default to the sessioned re-auth (no typed
+            // password, no reset_user, no fresh iCloud provision). A failure
+            // lands back on the form with the error, where the full
+            // credential flow remains available as the fallback.
+            if (app.openbubbles.nativeapp.data.RepairFlow.consumeSessionRepair() && saved != null) {
+                submitCredentials(null, null)
+            }
         }
     }
 

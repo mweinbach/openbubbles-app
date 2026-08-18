@@ -1700,9 +1700,10 @@ fun SettingsScreen(
             title = { Text("Repair iCloud sync?") },
             text = {
                 Text(
-                    "This resets the iCloud state on this device (keychain, sync, passwords). " +
-                        "Your Apple ID session, iMessage registration, and local messages are kept. " +
-                        "You'll be taken to sign-in to rebuild it; afterwards use Join iCloud Keychain.",
+                    "This resets the iCloud state on this device (keychain, sync, passwords) and " +
+                        "rebuilds it from your existing Apple ID session — no password needed. " +
+                        "iMessage registration and local messages are kept. " +
+                        "Afterwards use Join iCloud Keychain.",
                 )
             },
             confirmButton = {

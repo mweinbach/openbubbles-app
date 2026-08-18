@@ -391,6 +391,10 @@ object CoreGraph {
                 kotlinx.coroutines.delay(1_500)
                 uniffi.rust_lib_bluebubbles.repairIcloudServices(context.filesDir.absolutePath)
             }.map { }
+        }.onSuccess {
+            // The login screen consumes this and auto-runs the sessioned
+            // re-auth instead of asking for a password (see RepairFlow).
+            RepairFlow.requestSessionRepair()
         }.also { Log.i("CoreGraph", "iCloud service repair finished: $it") }
     }
 
