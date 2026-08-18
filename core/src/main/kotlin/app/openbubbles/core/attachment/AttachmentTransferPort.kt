@@ -17,10 +17,15 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+
+/** Concurrent MMCS transfers; each one parks an IO thread in blocking FFI. */
+private const val MAX_CONCURRENT_TRANSFERS = 4
 
 /**
  * Rust transfer seam. A parallel workstream is adding the actual
@@ -95,6 +100,15 @@ class AttachmentManager(
 
     private val inFlightGuard = Mutex()
     private val inFlight = ConcurrentHashMap<String, InFlight>()
+
+    /**
+     * The downloader occupies a thread for the entire network transfer (the
+     * Rust call is blocking), and enqueue sites fan out a chat's whole
+     * backlog at once. Without a cap that saturates the shared
+     * [Dispatchers.IO] pool and every other IO-bound path in the app queues
+     * behind attachment transfers.
+     */
+    private val transferPermits = Semaphore(MAX_CONCURRENT_TRANSFERS)
 
     /**
      * Attachments of a chat that are not on disk yet and carry enough payload
@@ -174,7 +188,7 @@ class AttachmentManager(
      * progress into [InFlight.states], persists `isDownloaded` + real byte
      * length on success, and cleans up on failure.
      */
-    private suspend fun runTransfer(guid: String, entry: InFlight) {
+    private suspend fun runTransfer(guid: String, entry: InFlight) = transferPermits.withPermit {
         try {
             val fresh = attachmentBox.query()
                 .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)

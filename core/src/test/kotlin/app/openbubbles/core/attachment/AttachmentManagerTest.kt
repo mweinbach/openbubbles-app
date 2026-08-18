@@ -290,4 +290,29 @@ class AttachmentManagerTest {
         assertEquals(setOf("q-1", "q-2"), calls)
         assertTrue(manager.pendingFor(chat.id).map { it.guid }.contains("q-3"))
     }
+
+    @Test
+    fun `concurrent transfers are bounded so bulk enqueues cannot saturate the dispatcher`() = runBlocking<Unit> {
+        val chat = seedChat("chat-8", "friend@icloud.com")
+        val attachments = (1..10).map { seedAttachment(chat, "b-$it", "file-$it.png") }
+
+        val active = java.util.concurrent.atomic.AtomicInteger(0)
+        val maxActive = java.util.concurrent.atomic.AtomicInteger(0)
+        val gated = AttachmentDownloader { _, destPath, _ ->
+            val now = active.incrementAndGet()
+            maxActive.updateAndGet { seen -> maxOf(seen, now) }
+            delay(50)
+            File(destPath).writeBytes("payload".toByteArray())
+            active.decrementAndGet()
+            Result.success(Unit)
+        }
+        val bounded = AttachmentManager(store, rootDir, gated, scope)
+
+        withTimeout(10_000) {
+            attachments.map { att -> async { bounded.download(att).toList() } }.forEach { it.await() }
+        }
+
+        assertTrue(maxActive.get() in 1..4, "expected at most 4 concurrent transfers, saw ${maxActive.get()}")
+        attachments.forEach { assertTrue(stored(it.guid!!)!!.isDownloaded, "${it.guid} should be downloaded") }
+    }
 }
