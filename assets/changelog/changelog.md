@@ -4,22 +4,20 @@ Below are the last few OpenBubbles App release changelogs
 
 ## v2.3.5
 
-### Enhancements
-
-- The engine work from 2.3.4 now covers every remaining operation:
-  stickers, message edits and unsends, group renames, participant
-  changes, group photos, profile sharing, and Messages-in-iCloud sync
-  all run fully in the background engine instead of holding an app
-  thread for their network round trips.
-- iCloud history sync pulls its pages more efficiently and no longer
-  ties up a thread for the whole run, so a large first-time import
-  coexists better with live messaging.
-
 ### Fixes
 
-- Incoming shared-profile updates could silently fail to apply a
-  contact's name and photo; the profile pipeline now delivers them
-  reliably.
+- Fixed image and attachment sending, which broke in 2.3.4: the
+  attachment could reach the recipient while the sender's conversation
+  stayed stuck on Sending, and some devices crashed. Attachment
+  transfers are back on the proven engine path.
+- Critical data-protection fix: the engine's keystore, iCloud Keychain,
+  account, and hardware-identity state files were rewritten in place, so
+  a crash mid-write could corrupt them — and a corrupted keystore was
+  silently re-created, permanently losing iCloud Keychain access. All of
+  that state now writes atomically, corrupted files are preserved for
+  recovery instead of overwritten, and a device that lost its keychain
+  this way can recover: the corrupt file no longer blocks re-joining
+  iCloud Keychain after signing in again.
 
 ## v2.3.4
 
