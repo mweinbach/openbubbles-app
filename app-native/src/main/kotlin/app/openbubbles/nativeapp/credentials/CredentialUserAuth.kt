@@ -17,6 +17,16 @@ object CredentialUserAuth {
         onSuccess: () -> Unit,
         onFailure: (String?) -> Unit
     ) {
+        authenticate(activity, TITLE, SUBTITLE, onSuccess, onFailure)
+    }
+
+    fun authenticate(
+        activity: FragmentActivity,
+        title: String = TITLE,
+        subtitle: String = SUBTITLE,
+        onSuccess: () -> Unit,
+        onFailure: (String?) -> Unit,
+    ) {
         val manager = BiometricManager.from(activity)
         val authenticators = when {
             manager.canAuthenticate(defaultAuthenticators) == BiometricManager.BIOMETRIC_SUCCESS ->
@@ -44,8 +54,8 @@ object CredentialUserAuth {
         )
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(TITLE)
-            .setSubtitle(SUBTITLE)
+            .setTitle(title)
+            .setSubtitle(subtitle)
             .setAllowedAuthenticators(authenticators)
             .build()
 

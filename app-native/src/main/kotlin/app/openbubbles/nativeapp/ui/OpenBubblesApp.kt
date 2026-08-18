@@ -1,7 +1,11 @@
 package app.openbubbles.nativeapp.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +76,7 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.credentials.CredentialUserAuth
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.service.Notifications
@@ -91,9 +96,13 @@ import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
+import app.openbubbles.nativeapp.ui.passwords.PasswordsScreen
+import app.openbubbles.nativeapp.ui.passwords.PasswordsViewModel
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
+import app.openbubbles.nativeapp.ui.sharedalbums.SharedAlbumsScreen
+import app.openbubbles.nativeapp.ui.sharedalbums.SharedAlbumsViewModel
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.adaptive.messagingListDetailDirective
 import app.openbubbles.nativeapp.ui.common.LocalAppSharedTransitionScope
@@ -121,6 +130,8 @@ object Routes {
     const val CHATS = "chats"
     const val LOGIN = "login"
     const val SETTINGS = "settings"
+    const val PASSWORDS = "passwords"
+    const val SHARED_ALBUMS = "sharedalbums"
     const val ARCHIVED = "archived"
     const val FIND_MY = "findmy"
     const val SEARCH = "search"
@@ -161,6 +172,12 @@ data class ChatKey(
 data object SettingsKey : NavKey
 
 @Serializable
+data object PasswordsKey : NavKey
+
+@Serializable
+data object SharedAlbumsKey : NavKey
+
+@Serializable
 data object ArchivedChatsKey : NavKey
 
 @Serializable
@@ -193,6 +210,8 @@ private fun NavKey.toRoute(): String = when (this) {
     is ChatsKey -> Routes.CHATS
     is ChatKey -> Routes.chat(chatId)
     is SettingsKey -> Routes.SETTINGS
+    is PasswordsKey -> Routes.PASSWORDS
+    is SharedAlbumsKey -> Routes.SHARED_ALBUMS
     is ArchivedChatsKey -> Routes.ARCHIVED
     is FindMyKey -> Routes.FIND_MY
     is SearchKey -> Routes.SEARCH
@@ -214,6 +233,8 @@ private fun routeParameter(route: String, name: String): String? =
 private fun routeToKey(route: String): NavKey? = when {
     route == Routes.CHATS -> ChatsKey
     route == Routes.SETTINGS -> SettingsKey
+    route == Routes.PASSWORDS -> PasswordsKey
+    route == Routes.SHARED_ALBUMS -> SharedAlbumsKey
     route == Routes.ARCHIVED -> ArchivedChatsKey
     route == Routes.FIND_MY -> FindMyKey
     route == Routes.SEARCH -> SearchKey
@@ -789,8 +810,72 @@ fun OpenBubblesApp(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
                         onOpenArchived = { navigateTo(ArchivedChatsKey) },
+                        onOpenPasswords = { navigateTo(PasswordsKey) },
+                        onOpenSharedAlbums = { navigateTo(SharedAlbumsKey) },
                         archivedCount = listState.archived.size,
                         showBackButton = true,
+                    )
+                }
+
+                entry<PasswordsKey>(metadata = overlayMetadata) {
+                    val viewModel: PasswordsViewModel = viewModel(factory = PasswordsViewModel.factory())
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val context = LocalContext.current
+                    PasswordsScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRefresh = viewModel::refresh,
+                        onOpenICloudSettings = { popBack() },
+                        onCategory = viewModel::setCategory,
+                        onQuery = viewModel::setQuery,
+                        onSelect = viewModel::select,
+                        onReveal = {
+                            val activity = context as? androidx.fragment.app.FragmentActivity
+                            if (activity != null) {
+                                CredentialUserAuth.authenticate(
+                                    activity = activity,
+                                    title = "Reveal iCloud Password",
+                                    subtitle = "Authenticate to reveal or copy this secret",
+                                    onSuccess = viewModel::revealSelected,
+                                    onFailure = {},
+                                )
+                            }
+                        },
+                        onCopy = { value ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("iCloud Password", value))
+                        },
+                        onCreatePassword = viewModel::createPassword,
+                        onCreateGroup = viewModel::createGroup,
+                        onAcceptInvite = viewModel::acceptInvite,
+                    )
+                }
+
+                entry<SharedAlbumsKey>(metadata = overlayMetadata) {
+                    val viewModel: SharedAlbumsViewModel = viewModel(factory = SharedAlbumsViewModel.factory())
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val context = LocalContext.current
+                    SharedAlbumsScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRefresh = { viewModel.refresh(true) },
+                        onSyncNow = viewModel::syncNow,
+                        onSelect = viewModel::select,
+                        onAccept = viewModel::accept,
+                        onAcceptToken = viewModel::acceptToken,
+                        onSetSync = { album, enabled ->
+                            val folder = if (enabled) {
+                                val safeName = album.name.replace(Regex("[^A-Za-z0-9._ -]"), "_")
+                                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                                    ?.resolve("Shared Albums")
+                                    ?.resolve(safeName)
+                                    ?.also { it.mkdirs() }
+                                    ?.absolutePath
+                            } else {
+                                null
+                            }
+                            viewModel.setSync(album, folder)
+                        },
                     )
                 }
 

@@ -1474,6 +1474,34 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1587,6 +1615,12 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativekeystore_decrypt(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_beacon_share(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_password_group_invite(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album_token(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime(
@@ -1596,6 +1630,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participa
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_password(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_password_group(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
 ): Short
@@ -1661,6 +1699,16 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_passwor
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_group_invites(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_groups(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_album_assets(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_albums(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds(
@@ -1674,6 +1722,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_ico
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_reveal_password(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links(
 ): Short
@@ -1701,6 +1751,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_shared_album_sync(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call(
@@ -1716,6 +1768,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_shared_albums(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown(
 ): Short
@@ -1989,6 +2043,12 @@ fun uniffi_rust_lib_bluebubbles_fn_free_nativepushstate(`ptr`: Pointer,uniffi_ou
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_password_group_invite(`ptr`: Pointer,`inviteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album_token(`ptr`: Pointer,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -1999,6 +2059,10 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password(`ptr`: Pointer,`site`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password_group(`ptr`: Pointer,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2063,6 +2127,16 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_inse
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_group_invites(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_groups(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_album_assets(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_albums(`ptr`: Pointer,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2077,6 +2151,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Poi
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_report_spam(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`messages`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_reveal_password(`ptr`: Pointer,`id`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2103,6 +2179,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: 
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_shared_album_sync(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,`folder`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2119,6 +2197,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Po
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_shared_albums(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2607,6 +2687,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_beacon_share() != 24803.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_password_group_invite() != 22449.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album() != 25655.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album_token() != 54148.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in() != 16891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2620,6 +2709,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime() != 58173.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_password() != 13620.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_password_group() != 14937.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
@@ -2718,6 +2813,21 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat() != 52951.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_group_invites() != 35845.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_groups() != 44227.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords() != 28842.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_album_assets() != 19510.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_albums() != 44253.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2737,6 +2847,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam() != 51800.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_reveal_password() != 35683.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 710.toShort()) {
@@ -2778,6 +2891,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile() != 2431.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_shared_album_sync() != 60914.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for() != 30326.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2800,6 +2916,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 46083.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_shared_albums() != 40274.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown() != 6604.toShort()) {
@@ -5947,6 +6066,12 @@ public interface NativePushStateInterface {
      */
     fun `acceptBeaconShare`(`shareId`: kotlin.String)
 
+    fun `acceptPasswordGroupInvite`(`inviteId`: kotlin.String)
+
+    fun `acceptSharedAlbum`(`albumId`: kotlin.String)
+
+    fun `acceptSharedAlbumToken`(`token`: kotlin.String)
+
     /**
      * Approve a knock-to-join request (answer_ft_request).
      */
@@ -5974,6 +6099,10 @@ public interface NativePushStateInterface {
      * Start an outgoing call.
      */
     fun `createFacetime`(`uuid`: kotlin.String, `handle`: kotlin.String, `participants`: List<kotlin.String>)
+
+    fun `createPassword`(`site`: kotlin.String, `username`: kotlin.String, `password`: kotlin.String, `groupId`: kotlin.String?)
+
+    fun `createPasswordGroup`(`name`: kotlin.String): kotlin.String
 
     fun `declineFacetime`(`guid`: kotlin.String)
 
@@ -6140,6 +6269,16 @@ public interface NativePushStateInterface {
      */
     fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
 
+    fun `listPasswordGroupInvites`(): List<UVaultInvite>
+
+    fun `listPasswordGroups`(): List<UVaultGroup>
+
+    fun `listPasswords`(): List<UVaultItem>
+
+    fun `listSharedAlbumAssets`(`albumId`: kotlin.String): List<USharedAlbumAsset>
+
+    fun `listSharedAlbums`(`refresh`: kotlin.Boolean): List<USharedAlbum>
+
     fun `publishStatus`(`guid`: kotlin.String?)
 
     /**
@@ -6171,6 +6310,8 @@ public interface NativePushStateInterface {
     fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
 
     fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
+
+    fun `revealPassword`(`id`: kotlin.String, `kind`: UVaultItemKind): UVaultSecret
 
     /**
      * Dart rotateIncomingLink parity: preserve the current link as old,
@@ -6254,6 +6395,8 @@ public interface NativePushStateInterface {
      */
     fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String
 
+    fun `setSharedAlbumSync`(`albumId`: kotlin.String, `folder`: kotlin.String?)
+
     /**
      * api.rs `get_sms_targets` — SMS relay targets for a handle.
      * `refresh` forces an IDS re-lookup.
@@ -6309,6 +6452,8 @@ public interface NativePushStateInterface {
      * contract as `sync_chats_page`.
      */
     fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
+
+    fun `syncSharedAlbums`()
 
     /**
      * Tear down the push connection and (with `logout`) deregister from
@@ -6472,6 +6617,42 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
+    @Throws(UException::class)override fun `acceptPasswordGroupInvite`(`inviteId`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_password_group_invite(
+        it, FfiConverterString.lower(`inviteId`),_status)
+}
+    }
+
+
+
+
+    @Throws(UException::class)override fun `acceptSharedAlbum`(`albumId`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album(
+        it, FfiConverterString.lower(`albumId`),_status)
+}
+    }
+
+
+
+
+    @Throws(UException::class)override fun `acceptSharedAlbumToken`(`token`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album_token(
+        it, FfiConverterString.lower(`token`),_status)
+}
+    }
+
+
+
+
     /**
      * Approve a knock-to-join request (answer_ft_request).
      */
@@ -6548,6 +6729,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
 
+
+
+
+    @Throws(UException::class)override fun `createPassword`(`site`: kotlin.String, `username`: kotlin.String, `password`: kotlin.String, `groupId`: kotlin.String?)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password(
+        it, FfiConverterString.lower(`site`),FfiConverterString.lower(`username`),FfiConverterString.lower(`password`),FfiConverterOptionalString.lower(`groupId`),_status)
+}
+    }
+
+
+
+
+    @Throws(UException::class)override fun `createPasswordGroup`(`name`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password_group(
+        it, FfiConverterString.lower(`name`),_status)
+}
+    }
+    )
+    }
 
 
     override fun `declineFacetime`(`guid`: kotlin.String)
@@ -7044,6 +7250,71 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
 
 
+
+    @Throws(UException::class)override fun `listPasswordGroupInvites`(): List<UVaultInvite> {
+            return FfiConverterSequenceTypeUVaultInvite.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_group_invites(
+        it, _status)
+}
+    }
+    )
+    }
+
+
+
+    @Throws(UException::class)override fun `listPasswordGroups`(): List<UVaultGroup> {
+            return FfiConverterSequenceTypeUVaultGroup.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_groups(
+        it, _status)
+}
+    }
+    )
+    }
+
+
+
+    @Throws(UException::class)override fun `listPasswords`(): List<UVaultItem> {
+            return FfiConverterSequenceTypeUVaultItem.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(
+        it, _status)
+}
+    }
+    )
+    }
+
+
+
+    @Throws(UException::class)override fun `listSharedAlbumAssets`(`albumId`: kotlin.String): List<USharedAlbumAsset> {
+            return FfiConverterSequenceTypeUSharedAlbumAsset.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_album_assets(
+        it, FfiConverterString.lower(`albumId`),_status)
+}
+    }
+    )
+    }
+
+
+
+    @Throws(UException::class)override fun `listSharedAlbums`(`refresh`: kotlin.Boolean): List<USharedAlbum> {
+            return FfiConverterSequenceTypeUSharedAlbum.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_albums(
+        it, FfiConverterBoolean.lower(`refresh`),_status)
+}
+    }
+    )
+    }
+
+
     override fun `publishStatus`(`guid`: kotlin.String?)
         =
     callWithPointer {
@@ -7148,6 +7419,19 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 }
     }
 
+
+
+
+    @Throws(UException::class)override fun `revealPassword`(`id`: kotlin.String, `kind`: UVaultItemKind): UVaultSecret {
+            return FfiConverterTypeUVaultSecret.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_reveal_password(
+        it, FfiConverterString.lower(`id`),FfiConverterTypeUVaultItemKind.lower(`kind`),_status)
+}
+    }
+    )
+    }
 
 
 
@@ -7373,6 +7657,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
+    @Throws(UException::class)override fun `setSharedAlbumSync`(`albumId`: kotlin.String, `folder`: kotlin.String?)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_shared_album_sync(
+        it, FfiConverterString.lower(`albumId`),FfiConverterOptionalString.lower(`folder`),_status)
+}
+    }
+
+
+
+
     /**
      * api.rs `get_sms_targets` — SMS relay targets for a handle.
      * `refresh` forces an IDS re-lookup.
@@ -7510,6 +7806,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
+
+
+
+    @Throws(UException::class)override fun `syncSharedAlbums`()
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_shared_albums(
+        it, _status)
+}
+    }
+
 
 
 
@@ -13358,6 +13666,98 @@ public object FfiConverterTypeUReportMessage: FfiConverterRustBuffer<UReportMess
 
 
 
+data class USharedAlbum (
+    var `id`: kotlin.String,
+    var `name`: kotlin.String,
+    var `ownerName`: kotlin.String?,
+    var `ownerEmail`: kotlin.String?,
+    var `location`: kotlin.String?,
+    var `assetCount`: kotlin.ULong,
+    var `invitation`: kotlin.Boolean,
+    var `syncing`: kotlin.Boolean,
+    var `syncStatus`: kotlin.String?
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSharedAlbum: FfiConverterRustBuffer<USharedAlbum> {
+    override fun read(buf: ByteBuffer): USharedAlbum {
+        return USharedAlbum(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USharedAlbum) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterOptionalString.allocationSize(value.`ownerName`) +
+            FfiConverterOptionalString.allocationSize(value.`ownerEmail`) +
+            FfiConverterOptionalString.allocationSize(value.`location`) +
+            FfiConverterULong.allocationSize(value.`assetCount`) +
+            FfiConverterBoolean.allocationSize(value.`invitation`) +
+            FfiConverterBoolean.allocationSize(value.`syncing`) +
+            FfiConverterOptionalString.allocationSize(value.`syncStatus`)
+    )
+
+    override fun write(value: USharedAlbum, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterOptionalString.write(value.`ownerName`, buf)
+            FfiConverterOptionalString.write(value.`ownerEmail`, buf)
+            FfiConverterOptionalString.write(value.`location`, buf)
+            FfiConverterULong.write(value.`assetCount`, buf)
+            FfiConverterBoolean.write(value.`invitation`, buf)
+            FfiConverterBoolean.write(value.`syncing`, buf)
+            FfiConverterOptionalString.write(value.`syncStatus`, buf)
+    }
+}
+
+
+
+data class USharedAlbumAsset (
+    var `id`: kotlin.String,
+    var `filename`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSharedAlbumAsset: FfiConverterRustBuffer<USharedAlbumAsset> {
+    override fun read(buf: ByteBuffer): USharedAlbumAsset {
+        return USharedAlbumAsset(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USharedAlbumAsset) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`filename`)
+    )
+
+    override fun write(value: USharedAlbumAsset, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`filename`, buf)
+    }
+}
+
+
+
 /**
  * Mirror of rustpush `PrivateDeviceInfo` — an SMS-capable device on the
  * account (used by relay routing).
@@ -13588,6 +13988,162 @@ public object FfiConverterTypeUTrustedPhone: FfiConverterRustBuffer<UTrustedPhon
             FfiConverterString.write(value.`lastTwoDigits`, buf)
             FfiConverterString.write(value.`pushMode`, buf)
             FfiConverterUInt.write(value.`id`, buf)
+    }
+}
+
+
+
+data class UVaultGroup (
+    var `id`: kotlin.String,
+    var `name`: kotlin.String,
+    var `owner`: kotlin.Boolean,
+    var `memberCount`: kotlin.ULong
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultGroup: FfiConverterRustBuffer<UVaultGroup> {
+    override fun read(buf: ByteBuffer): UVaultGroup {
+        return UVaultGroup(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UVaultGroup) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterBoolean.allocationSize(value.`owner`) +
+            FfiConverterULong.allocationSize(value.`memberCount`)
+    )
+
+    override fun write(value: UVaultGroup, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterBoolean.write(value.`owner`, buf)
+            FfiConverterULong.write(value.`memberCount`, buf)
+    }
+}
+
+
+
+data class UVaultInvite (
+    var `id`: kotlin.String,
+    var `groupName`: kotlin.String,
+    var `inviter`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultInvite: FfiConverterRustBuffer<UVaultInvite> {
+    override fun read(buf: ByteBuffer): UVaultInvite {
+        return UVaultInvite(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UVaultInvite) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`groupName`) +
+            FfiConverterString.allocationSize(value.`inviter`)
+    )
+
+    override fun write(value: UVaultInvite, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`groupName`, buf)
+            FfiConverterString.write(value.`inviter`, buf)
+    }
+}
+
+
+
+data class UVaultItem (
+    var `id`: kotlin.String,
+    var `kind`: UVaultItemKind,
+    var `title`: kotlin.String,
+    var `username`: kotlin.String?,
+    var `groupId`: kotlin.String?,
+    var `modifiedAtMs`: kotlin.ULong
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultItem: FfiConverterRustBuffer<UVaultItem> {
+    override fun read(buf: ByteBuffer): UVaultItem {
+        return UVaultItem(
+            FfiConverterString.read(buf),
+            FfiConverterTypeUVaultItemKind.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UVaultItem) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterTypeUVaultItemKind.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterOptionalString.allocationSize(value.`username`) +
+            FfiConverterOptionalString.allocationSize(value.`groupId`) +
+            FfiConverterULong.allocationSize(value.`modifiedAtMs`)
+    )
+
+    override fun write(value: UVaultItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterTypeUVaultItemKind.write(value.`kind`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterOptionalString.write(value.`username`, buf)
+            FfiConverterOptionalString.write(value.`groupId`, buf)
+            FfiConverterULong.write(value.`modifiedAtMs`, buf)
+    }
+}
+
+
+
+data class UVaultSecret (
+    var `value`: kotlin.String,
+    var `expiresAtS`: kotlin.ULong?
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultSecret: FfiConverterRustBuffer<UVaultSecret> {
+    override fun read(buf: ByteBuffer): UVaultSecret {
+        return UVaultSecret(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UVaultSecret) = (
+            FfiConverterString.allocationSize(value.`value`) +
+            FfiConverterOptionalULong.allocationSize(value.`expiresAtS`)
+    )
+
+    override fun write(value: UVaultSecret, buf: ByteBuffer) {
+            FfiConverterString.write(value.`value`, buf)
+            FfiConverterOptionalULong.write(value.`expiresAtS`, buf)
     }
 }
 
@@ -16307,6 +16863,38 @@ public object FfiConverterTypeUSyncState: FfiConverterRustBuffer<USyncState> {
 
 
 
+enum class UVaultItemKind {
+
+    PASSWORD,
+    PASSKEY,
+    CODE,
+    WIFI;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultItemKind: FfiConverterRustBuffer<UVaultItemKind> {
+    override fun read(buf: ByteBuffer) = try {
+        UVaultItemKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: UVaultItemKind) = 4UL
+
+    override fun write(value: UVaultItemKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
 /**
  * @suppress
  */
@@ -17578,6 +18166,62 @@ public object FfiConverterSequenceTypeUReportMessage: FfiConverterRustBuffer<Lis
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeUSharedAlbum: FfiConverterRustBuffer<List<USharedAlbum>> {
+    override fun read(buf: ByteBuffer): List<USharedAlbum> {
+        val len = buf.getInt()
+        return List<USharedAlbum>(len) {
+            FfiConverterTypeUSharedAlbum.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<USharedAlbum>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUSharedAlbum.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<USharedAlbum>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUSharedAlbum.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUSharedAlbumAsset: FfiConverterRustBuffer<List<USharedAlbumAsset>> {
+    override fun read(buf: ByteBuffer): List<USharedAlbumAsset> {
+        val len = buf.getInt()
+        return List<USharedAlbumAsset>(len) {
+            FfiConverterTypeUSharedAlbumAsset.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<USharedAlbumAsset>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUSharedAlbumAsset.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<USharedAlbumAsset>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUSharedAlbumAsset.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeUSmsTarget: FfiConverterRustBuffer<List<USmsTarget>> {
     override fun read(buf: ByteBuffer): List<USmsTarget> {
         val len = buf.getInt()
@@ -17624,6 +18268,90 @@ public object FfiConverterSequenceTypeUTrustedPhone: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUTrustedPhone.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUVaultGroup: FfiConverterRustBuffer<List<UVaultGroup>> {
+    override fun read(buf: ByteBuffer): List<UVaultGroup> {
+        val len = buf.getInt()
+        return List<UVaultGroup>(len) {
+            FfiConverterTypeUVaultGroup.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UVaultGroup>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUVaultGroup.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UVaultGroup>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUVaultGroup.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUVaultInvite: FfiConverterRustBuffer<List<UVaultInvite>> {
+    override fun read(buf: ByteBuffer): List<UVaultInvite> {
+        val len = buf.getInt()
+        return List<UVaultInvite>(len) {
+            FfiConverterTypeUVaultInvite.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UVaultInvite>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUVaultInvite.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UVaultInvite>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUVaultInvite.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUVaultItem: FfiConverterRustBuffer<List<UVaultItem>> {
+    override fun read(buf: ByteBuffer): List<UVaultItem> {
+        val len = buf.getInt()
+        return List<UVaultItem>(len) {
+            FfiConverterTypeUVaultItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UVaultItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUVaultItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UVaultItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUVaultItem.write(it, buf)
         }
     }
 }

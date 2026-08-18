@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
@@ -205,6 +206,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onOpenFindMy: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
+    onOpenPasswords: () -> Unit = {},
+    onOpenSharedAlbums: () -> Unit = {},
     archivedCount: Int = 0,
     showBackButton: Boolean = true,
     windowAdaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfoV2(),
@@ -841,6 +844,8 @@ fun SettingsScreen(
                 val manager = syncManager
                 val recoveryCode = savedRecoveryCode
                 val icloudRows = buildList {
+                    add("passwords")
+                    add("albums")
                     add("history")
                     add("limit")
                     if (manager != null && inClique == false) add("join")
@@ -852,6 +857,24 @@ fun SettingsScreen(
                 val count = icloudRows.size
                 icloudRows.forEachIndexed { index, row ->
                     when (row) {
+                        "passwords" -> SettingsActionItem(
+                            title = "Passwords",
+                            supporting = "Logins, passkeys, verification codes, Wi-Fi, and shared groups",
+                            onClick = onOpenPasswords,
+                            index = index,
+                            count = count,
+                            multiline = true,
+                            icon = Icons.Filled.Password,
+                        )
+                        "albums" -> SettingsActionItem(
+                            title = "Shared Albums",
+                            supporting = "Invitations, album assets, and iCloud Shared Streams sync",
+                            onClick = onOpenSharedAlbums,
+                            index = index,
+                            count = count,
+                            multiline = true,
+                            icon = Icons.Filled.PhotoAlbum,
+                        )
                         "history" -> SettingsInfoItem(
                             title = "History sync",
                             supporting = historySupporting,

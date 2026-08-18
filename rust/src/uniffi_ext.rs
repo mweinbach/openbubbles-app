@@ -670,6 +670,349 @@ impl NativePushState {
 }
 
 // ---------------------------------------------------------------------------
+// Native Settings: iCloud Passwords and Shared Albums
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum UVaultItemKind {
+    Password,
+    Passkey,
+    Code,
+    Wifi,
+}
+
+#[derive(uniffi::Record)]
+pub struct UVaultItem {
+    pub id: String,
+    pub kind: UVaultItemKind,
+    pub title: String,
+    pub username: Option<String>,
+    pub group_id: Option<String>,
+    pub modified_at_ms: u64,
+}
+
+#[derive(uniffi::Record)]
+pub struct UVaultSecret {
+    pub value: String,
+    pub expires_at_s: Option<u64>,
+}
+
+#[derive(uniffi::Record)]
+pub struct UVaultGroup {
+    pub id: String,
+    pub name: String,
+    pub owner: bool,
+    pub member_count: u64,
+}
+
+#[derive(uniffi::Record)]
+pub struct UVaultInvite {
+    pub id: String,
+    pub group_name: String,
+    pub inviter: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct USharedAlbum {
+    pub id: String,
+    pub name: String,
+    pub owner_name: Option<String>,
+    pub owner_email: Option<String>,
+    pub location: Option<String>,
+    pub asset_count: u64,
+    pub invitation: bool,
+    pub syncing: bool,
+    pub sync_status: Option<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct USharedAlbumAsset {
+    pub id: String,
+    pub filename: String,
+}
+
+fn native_password_manager(
+    state: &SharedPushState,
+) -> Result<Arc<rustpush::passwords::PasswordManager<DefaultAnisetteProvider>>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|services| services.passwords.clone())
+        .ok_or_else(|| UError::NotReady { reason: "iCloud Passwords unavailable".to_string() })
+}
+
+fn native_shared_albums(
+    state: &SharedPushState,
+) -> Result<rustpush::sharedstreams::SyncManager<DefaultAnisetteProvider, api::MyFilePackager>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|services| services.sharedstreams.clone())
+        .ok_or_else(|| UError::NotReady { reason: "iCloud Shared Albums unavailable".to_string() })
+}
+
+#[uniffi::export]
+impl NativePushState {
+    pub fn list_passwords(&self) -> Result<Vec<UVaultItem>, UError> {
+        let manager = native_password_manager(self.shared())?;
+        let mut items = Vec::new();
+        for (id, (group_id, password)) in RUNTIME.block_on(api::get_passwords(&manager)) {
+            items.push(UVaultItem {
+                id,
+                kind: UVaultItemKind::Password,
+                title: password.srvr,
+                username: Some(password.acct),
+                group_id,
+                modified_at_ms: password.mdat,
+            });
+        }
+        for (id, (group_id, metadata)) in RUNTIME.block_on(api::get_passwords_meta(&manager)) {
+            let Ok(data) = metadata.get_password_data() else { continue };
+            let Some(totp) = data.totp else { continue };
+            items.push(UVaultItem {
+                id,
+                kind: UVaultItemKind::Code,
+                title: totp.issuer.unwrap_or_else(|| metadata.srvr.clone()),
+                username: totp.account_name.or(Some(metadata.acct)),
+                group_id,
+                modified_at_ms: metadata.mdat,
+            });
+        }
+        for (id, (group_id, passkey)) in RUNTIME.block_on(api::get_passkeys(&manager)) {
+            items.push(UVaultItem {
+                id,
+                kind: UVaultItemKind::Passkey,
+                title: passkey.labl,
+                username: None,
+                group_id,
+                modified_at_ms: passkey.mdat,
+            });
+        }
+        for (id, (group_id, wifi)) in RUNTIME.block_on(api::get_wifi_passwords(&manager)) {
+            items.push(UVaultItem {
+                id,
+                kind: UVaultItemKind::Wifi,
+                title: wifi.acct,
+                username: None,
+                group_id,
+                modified_at_ms: wifi.mdat,
+            });
+        }
+        items.sort_by_key(|item| item.title.to_lowercase());
+        Ok(items)
+    }
+
+    pub fn reveal_password(&self, id: String, kind: UVaultItemKind) -> Result<UVaultSecret, UError> {
+        let manager = native_password_manager(self.shared())?;
+        match kind {
+            UVaultItemKind::Password => {
+                let entries = RUNTIME.block_on(api::get_passwords(&manager));
+                let (_, entry) = entries.get(&id).ok_or_else(|| UError::InvalidArgument {
+                    reason: "password no longer exists".to_string(),
+                })?;
+                Ok(UVaultSecret {
+                    value: String::from_utf8_lossy(&entry.data).into_owned(),
+                    expires_at_s: None,
+                })
+            }
+            UVaultItemKind::Wifi => {
+                let entries = RUNTIME.block_on(api::get_wifi_passwords(&manager));
+                let (_, entry) = entries.get(&id).ok_or_else(|| UError::InvalidArgument {
+                    reason: "Wi-Fi password no longer exists".to_string(),
+                })?;
+                Ok(UVaultSecret {
+                    value: String::from_utf8_lossy(&entry.data).into_owned(),
+                    expires_at_s: None,
+                })
+            }
+            UVaultItemKind::Code => {
+                let entries = RUNTIME.block_on(api::get_passwords_meta(&manager));
+                let (_, entry) = entries.get(&id).ok_or_else(|| UError::InvalidArgument {
+                    reason: "verification code no longer exists".to_string(),
+                })?;
+                let data = entry.get_password_data().map_err(|error| UError::Failed {
+                    reason: format!("failed to decode verification code: {error}"),
+                })?;
+                let totp = data.totp.ok_or_else(|| UError::InvalidArgument {
+                    reason: "credential has no verification code".to_string(),
+                })?;
+                let (value, expires_at_s) = totp.generate_otp().map_err(|error| UError::Failed {
+                    reason: format!("failed to generate verification code: {error}"),
+                })?;
+                Ok(UVaultSecret {
+                    value: format!("{:0width$}", value, width = totp.digits as usize),
+                    expires_at_s: Some(expires_at_s),
+                })
+            }
+            UVaultItemKind::Passkey => Err(UError::InvalidArgument {
+                reason: "passkey private keys cannot be revealed".to_string(),
+            }),
+        }
+    }
+
+    pub fn create_password(
+        &self,
+        site: String,
+        username: String,
+        password: String,
+        group_id: Option<String>,
+    ) -> Result<(), UError> {
+        if site.trim().is_empty() || username.trim().is_empty() || password.is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "site, username, and password are required".to_string(),
+            });
+        }
+        let manager = native_password_manager(self.shared())?;
+        let criteria = rustpush::passwords::PasswordCriteria { site, account: username };
+        RUNTIME.block_on(async {
+            manager
+                .modify_password_entry::<rustpush::passwords::PasswordRawEntry>(
+                    &criteria,
+                    |entry| entry.data = password.as_bytes().to_vec(),
+                    group_id.clone(),
+                )
+                .await?;
+            manager
+                .modify_password_entry::<rustpush::passwords::PasswordManagerMeta>(
+                    &criteria,
+                    |entry| {
+                        if let Ok(mut data) = entry.get_password_data() {
+                            data.set_last_used(std::time::SystemTime::now());
+                            data.change_password(password.clone());
+                            if let Ok(encoded) = rustpush::passwords::PasswordManagerMeta::get_data(&data) {
+                                entry.data = encoded;
+                            }
+                        }
+                    },
+                    group_id,
+                )
+                .await
+        }).map_err(|error| UError::Failed { reason: format!("failed to save password: {error}") })
+    }
+
+    pub fn list_password_groups(&self) -> Result<Vec<UVaultGroup>, UError> {
+        let manager = native_password_manager(self.shared())?;
+        let (_, groups, _) = RUNTIME.block_on(api::get_groups(&manager)).map_err(|error| UError::Failed {
+            reason: format!("failed to list password groups: {error}"),
+        })?;
+        let mut result = groups.into_iter().map(|(id, group)| UVaultGroup {
+            id,
+            name: group.display_name,
+            owner: group.is_owner,
+            member_count: group.members.len() as u64,
+        }).collect::<Vec<_>>();
+        result.sort_by_key(|group| group.name.to_lowercase());
+        Ok(result)
+    }
+
+    pub fn list_password_group_invites(&self) -> Result<Vec<UVaultInvite>, UError> {
+        let manager = native_password_manager(self.shared())?;
+        let (_, _, invites) = RUNTIME.block_on(api::get_groups(&manager)).map_err(|error| UError::Failed {
+            reason: format!("failed to list password group invitations: {error}"),
+        })?;
+        Ok(invites.into_iter().map(|(id, invite)| UVaultInvite {
+            id,
+            group_name: invite.group_name,
+            inviter: invite.invitee_handle,
+        }).collect())
+    }
+
+    pub fn create_password_group(&self, name: String) -> Result<String, UError> {
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(api::create_group(&manager, name)).map_err(|error| UError::Failed {
+            reason: format!("failed to create password group: {error}"),
+        })
+    }
+
+    pub fn accept_password_group_invite(&self, invite_id: String) -> Result<(), UError> {
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(api::accept_invite(&manager, invite_id)).map_err(|error| UError::Failed {
+            reason: format!("failed to accept password group invitation: {error}"),
+        })
+    }
+
+    pub fn list_shared_albums(&self, refresh: bool) -> Result<Vec<USharedAlbum>, UError> {
+        let manager = native_shared_albums(self.shared())?;
+        let ((albums, syncing), (statuses, failure)) = RUNTIME.block_on(async {
+            Ok::<_, anyhow::Error>((
+                api::get_albums(&manager, refresh).await?,
+                api::get_syncstatus(&manager).await?,
+            ))
+        }).map_err(|error| UError::Failed { reason: format!("failed to list Shared Albums: {error}") })?;
+        let syncing = syncing.into_iter().collect::<std::collections::HashSet<_>>();
+        let failure = failure.map(|(reason, _)| reason);
+        let mut result = albums.into_iter().map(|album| {
+            let sync_status = statuses.get(&album.albumguid).map(|status| match status {
+                api::SyncStatus::Synced => "Synced".to_string(),
+                api::SyncStatus::Syncing => "Syncing".to_string(),
+                api::SyncStatus::Downloading { progress, total } => format!("Downloading {progress} of {total}"),
+                api::SyncStatus::Uploading { progress, total } => format!("Uploading {progress} of {total}"),
+            }).or_else(|| failure.clone());
+            USharedAlbum {
+                id: album.albumguid.clone(),
+                name: album.name.unwrap_or_else(|| "Shared Album".to_string()),
+                owner_name: album.fullname,
+                owner_email: album.email,
+                location: album.albumlocation,
+                asset_count: album.assets.len() as u64,
+                invitation: album.sharingtype == "pending",
+                syncing: syncing.contains(&album.albumguid),
+                sync_status,
+            }
+        }).collect::<Vec<_>>();
+        result.sort_by_key(|album| album.name.to_lowercase());
+        Ok(result)
+    }
+
+    pub fn accept_shared_album(&self, album_id: String) -> Result<(), UError> {
+        let manager = native_shared_albums(self.shared())?;
+        RUNTIME.block_on(api::subscribe(&manager, album_id)).map(|_| ()).map_err(|error| UError::Failed {
+            reason: format!("failed to accept Shared Album: {error}"),
+        })
+    }
+
+    pub fn accept_shared_album_token(&self, token: String) -> Result<(), UError> {
+        let manager = native_shared_albums(self.shared())?;
+        RUNTIME.block_on(api::subscribe_token(&manager, token)).map(|_| ()).map_err(|error| UError::Failed {
+            reason: format!("failed to accept Shared Album invitation: {error}"),
+        })
+    }
+
+    pub fn set_shared_album_sync(&self, album_id: String, folder: Option<String>) -> Result<(), UError> {
+        let manager = native_shared_albums(self.shared())?;
+        match folder {
+            Some(folder) if !folder.trim().is_empty() => {
+                RUNTIME.block_on(api::add_album(&manager, album_id, folder)).map(|_| ()).map_err(|error| {
+                    UError::Failed { reason: format!("failed to enable Shared Album sync: {error}") }
+                })
+            }
+            _ => RUNTIME.block_on(api::remove_album(&manager, album_id)).map(|_| ()).map_err(|error| {
+                UError::Failed { reason: format!("failed to disable Shared Album sync: {error}") }
+            }),
+        }
+    }
+
+    pub fn sync_shared_albums(&self) -> Result<(), UError> {
+        let manager = native_shared_albums(self.shared())?;
+        RUNTIME.block_on(api::sync_now(&manager)).map_err(|error| UError::Failed {
+            reason: format!("failed to sync Shared Albums: {error}"),
+        })
+    }
+
+    pub fn list_shared_album_assets(&self, album_id: String) -> Result<Vec<USharedAlbumAsset>, UError> {
+        let manager = native_shared_albums(self.shared())?;
+        RUNTIME.block_on(async {
+            let ids = manager.client.get_album_summary(&album_id).await?;
+            let assets = manager.client.get_assets(&album_id, &ids).await?;
+            Ok::<_, anyhow::Error>(assets.into_iter().map(|asset| USharedAlbumAsset {
+                id: asset.assetguid,
+                filename: asset.filename,
+            }).collect())
+        }).map_err(|error| UError::Failed { reason: format!("failed to list Shared Album assets: {error}") })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Batch 2: login / 2FA / phone-auth / registration surface
 // ---------------------------------------------------------------------------
 //
