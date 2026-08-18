@@ -146,7 +146,6 @@ import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.formatRelativePast
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -565,8 +564,7 @@ fun SettingsScreen(
     val backupStage by backupStageFlow.collectAsStateWithLifecycle()
     var backupError by remember { mutableStateOf<String?>(null) }
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
-    var restarting by remember { mutableStateOf(false) }
-    val backupBusy = backupStage != null || restarting
+    val backupBusy = backupStage != null
 
     fun backupFileName(): String = "openbubbles-backup-" +
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".zip"
@@ -596,29 +594,16 @@ fun SettingsScreen(
 
     fun runRestore(uri: Uri) {
         backupError = null
-        backupStageFlow.value = "Restoring…"
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    CoreGraph.restoreFrom(input)
-                } ?: Result.failure(IllegalStateException("cannot open backup file"))
-            }
-            backupStageFlow.value = null
-            if (result.isSuccess || CoreGraph.restoreRequiresRestart()) {
-                // CoreGraph's lazy singletons (and the open store) cannot be
-                // rebuilt in place, so the process restarts to load the
-                // restored data. A failure after pre-swap shutdown also needs
-                // a restart because the live store is already closed.
-                result.exceptionOrNull()?.let {
-                    backupError = it.message ?: "restore failed after shutdown"
-                }
-                restarting = true
-                delay(2_500)
-                Runtime.getRuntime().exit(0)
-            } else {
-                backupError = result.exceptionOrNull()?.message ?: "restore failed"
-            }
-        }
+        // Runs on CoreGraph's process scope: once the restore passes its
+        // swap boundary the root UI swaps in the shutdown overlay (dismissing
+        // this screen), which would cancel a composition-scoped coroutine
+        // mid-swap. Post-swap outcome + restart are handled there.
+        CoreGraph.runRestore(
+            context = context,
+            uri = uri,
+            onStage = { stage -> backupStageFlow.value = stage },
+            onError = { message -> backupError = message },
+        )
     }
 
     // Compact: collapsing headline. Medium+ (foldable inner, tablet): the
@@ -1242,7 +1227,6 @@ fun SettingsScreen(
                     add("export")
                     add("restore")
                     if (backupStageText != null) add("working")
-                    if (restarting) add("restarting")
                     if (backupErrorText != null) add("error")
                 }
                 val storageCount = storageRows.size
@@ -1276,7 +1260,7 @@ fun SettingsScreen(
                             index = storageIndex,
                             count = storageCount,
                             enabled = !backupBusy,
-                            busy = backupBusy && backupStageText != null && !restarting,
+                            busy = backupBusy && backupStageText != null,
                             icon = Icons.Filled.Upload,
                         )
                         "restore" -> SettingsActionItem(
@@ -1302,13 +1286,6 @@ fun SettingsScreen(
                             index = storageIndex,
                             count = storageCount,
                             icon = Icons.Filled.HourglassTop,
-                        )
-                        "restarting" -> SettingsInfoItem(
-                            title = "Restore complete",
-                            supporting = "Restarting to load the restored data…",
-                            index = storageIndex,
-                            count = storageCount,
-                            icon = Icons.Filled.RestartAlt,
                         )
                         else -> SettingsInfoItem(
                             title = "Backup error",

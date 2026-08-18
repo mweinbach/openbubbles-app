@@ -1052,7 +1052,16 @@ fun OpenBubblesApp(
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.captionBar),
     ) {
-        appContent()
+        // A restore's point of no return flips this BEFORE it mutates any
+        // other UI-observed state, so the same recomposition pass that sees
+        // the push-state shutdown disposes the nav entries instead of
+        // re-running their synchronous store queries against a closed store.
+        val restoreShutdown by CoreGraph.restoreShutdownStarted.collectAsStateWithLifecycle()
+        if (restoreShutdown) {
+            RestoreShutdownOverlay()
+        } else {
+            appContent()
+        }
     }
 }
 

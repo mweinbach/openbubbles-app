@@ -39,6 +39,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +83,21 @@ object CoreGraph {
 
     @Volatile
     private var restoreRestartRequired = false
+
+    /**
+     * True from the moment a restore reaches its point of no return — live
+     * services stop and the ObjectBox store closes — until the process
+     * exits. Flipped BEFORE any other shutdown state mutates so the root UI
+     * (which collects it) swaps nav content for a blocking overlay in the
+     * same recomposition pass that observes those shutdown writes; nav
+     * entries then never re-run queries against the closed store.
+     */
+    private val _restoreShutdownStarted = MutableStateFlow(false)
+    val restoreShutdownStarted: StateFlow<Boolean> = _restoreShutdownStarted.asStateFlow()
+
+    /** Outcome text the shutdown overlay shows before the process exits. */
+    private val _restoreShutdownNotice = MutableStateFlow<String?>(null)
+    val restoreShutdownNotice: StateFlow<String?> = _restoreShutdownNotice.asStateFlow()
 
     val store: BoxStore? by lazy {
         runCatching {
@@ -551,8 +567,8 @@ object CoreGraph {
      *
      * RESTART REQUIRED: this process keeps the old (open) store handles, and
      * CoreGraph's lazy singletons cannot be rebuilt in place — callers must
-     * restart the process after a successful restore (the settings screen
-     * does `Runtime.getRuntime().exit(0)` after surfacing the result).
+     * restart the process after a successful restore ([runRestore] does
+     * `Runtime.getRuntime().exit(0)` after surfacing the result).
      */
     fun restoreFrom(stream: java.io.InputStream): Result<BackupManager.BackupInfo> {
         restoreRestartRequired = false
@@ -561,6 +577,12 @@ object CoreGraph {
         val ctx = AppContext.current
             ?: return Result.failure(IllegalStateException("no app context"))
         return manager.restore(stream, File(ctx.dataDir, "app_flutter")) {
+            // Flip the UI gate FIRST: the calls below write UI-observed state
+            // (PushStateHolder.clear) whose recomposition previously queried
+            // the store mid-shutdown and crashed ("Store is closed"). With
+            // the gate up, that same recomposition disposes the nav entries
+            // instead of re-running their queries.
+            _restoreShutdownStarted.value = true
             restoreRestartRequired = true
             ctx.stopService(
                 android.content.Intent(
@@ -578,6 +600,57 @@ object CoreGraph {
     }
 
     fun restoreRequiresRestart(): Boolean = restoreRestartRequired
+
+    /**
+     * Runs the full restore + restart flow on CoreGraph's process scope —
+     * deliberately NOT the caller's composition scope: once the swap boundary
+     * flips [restoreShutdownStarted] the root UI disposes the settings
+     * screen, which would cancel a composition-scoped coroutine mid-swap and
+     * strand the process with a closed store and no exit.
+     *
+     * [onStage]/[onError] update the settings UI while it is still composed
+     * (staging, validation, pre-swap failures). Post-swap outcomes surface in
+     * [restoreShutdownNotice] because the settings screen is gone by then.
+     */
+    fun runRestore(
+        context: Context,
+        uri: android.net.Uri,
+        onStage: (String?) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        scope.launch {
+            onStage("Restoring…")
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        restoreFrom(input)
+                    } ?: Result.failure(IllegalStateException("cannot open backup file"))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // SAF can throw (provider died, permission revoked) where
+                    // it used to return null; surface as a normal failure.
+                    Result.failure(e)
+                }
+            }
+            if (result.isSuccess || restoreRequiresRestart()) {
+                // CoreGraph's lazy singletons (and the open store) cannot be
+                // rebuilt in place, so the process restarts to load the
+                // restored data. A failure after the pre-swap shutdown also
+                // needs a restart because the live store is already closed.
+                _restoreShutdownNotice.value = result.fold(
+                    onSuccess = { "Restore complete — restarting…" },
+                    onFailure = { it.message ?: "restore failed after shutdown — restarting" },
+                )
+                onStage(null)
+                delay(2_500)
+                Runtime.getRuntime().exit(0)
+            } else {
+                onStage(null)
+                onError(result.exceptionOrNull()?.message ?: "restore failed")
+            }
+        }
+    }
 }
 
 /**
@@ -1059,7 +1132,17 @@ private class CoreChatListRepository(
         CoreGraph.store?.let { MessageRepo(it, repo).clearTranscript(id) }
     }
 
-    override fun recentlyDeleted(): List<ChatListItem> = repo.recentlyDeleted().map(::coreChatToUi)
+    override fun recentlyDeleted(): List<ChatListItem> {
+        // Read synchronously in composition (settings row count). During a
+        // restore's shutdown window the store is closed; an empty list keeps
+        // any stray recomposition that slips past the shutdown overlay from
+        // crashing the process. runCatching also covers the microscopic
+        // check-then-act race with store.close() itself.
+        val st = CoreGraph.store ?: return emptyList()
+        if (st.isClosed) return emptyList()
+        return runCatching { repo.recentlyDeleted().map(::coreChatToUi) }
+            .getOrElse { emptyList() }
+    }
 
     override fun restoreDeleted(id: Long) = repo.restoreDeleted(id)
 
