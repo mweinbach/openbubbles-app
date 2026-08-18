@@ -21,8 +21,8 @@ use prost::Message as prostMessage;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{select, sync::{broadcast, mpsc, watch}};
 pub use mpsc::Sender;
-pub use rustpush::{APSMessage, CircleClientSession, CircleServerSession, EntitlementAuthState, IDSNGMIdentity, LoginDelegate, MADRID_SERVICE, TokenProvider, authenticate_apple, authenticate_phone, authenticate_smsless, cloud_messages::CloudMessagesClient, cloudkit::{CloudKitClient, CloudKitState}, facetime::{FACETIME_SERVICE, FTClient, FTState, VIDEO_SERVICE}, findmy::{FindMyClient, FindMyState, FindMyStateManager, MULTIPLEX_SERVICE}, keychain::{KeychainClient, KeychainClientState}, login_apple_delegates, name_photo_sharing::ProfilesClient, sharedstreams::{AssetMetadata, FFMpegFilePackager, FileMetadata, FilePackager, PreparedAsset, PreparedFile, SharedStreamClient, SharedStreamsState, SyncController, SyncManager, SyncState}, statuskit::{ChannelInterestToken, StatusKitClient, StatusKitState, StatusKitStatus}};
-use rustpush::{AnisetteProvider, DebugRwLock, cloudkit::contact_info_to_handle, cloudkit_proto::{CuttlefishSerializedKey, base64_encode}, findmy::SharedBeaconClient, keychain::{CloudKey, CurrentBottle, SivKey}, passwords::PasswordState, request_update_account, SendJob, SendResult};
+pub use rustpush::{APSMessage, CircleClientSession, CircleServerSession, EntitlementAuthState, IDSNGMIdentity, LoginDelegate, MADRID_SERVICE, TokenProvider, authenticate_apple, authenticate_phone, authenticate_smsless, cloud_messages::CloudMessagesClient, cloudkit::{CloudKitClient, CloudKitState}, facetime::{FACETIME_SERVICE, FTClient, FTState, VIDEO_SERVICE}, findmy::{FindMyClient, FindMyState, FindMyStateManager, MULTIPLEX_SERVICE}, keychain::{KeychainClient, KeychainClientState, KeychainUserIdentity}, login_apple_delegates, name_photo_sharing::ProfilesClient, sharedstreams::{AssetMetadata, FFMpegFilePackager, FileMetadata, FilePackager, PreparedAsset, PreparedFile, SharedStreamClient, SharedStreamsState, SyncController, SyncManager, SyncState}, statuskit::{ChannelInterestToken, StatusKitClient, StatusKitState, StatusKitStatus}};
+use rustpush::{AnisetteProvider, DebugRwLock, cloudkit::contact_info_to_handle, cloudkit_proto::{CuttlefishSerializedKey, SignedInfo, base64_encode}, findmy::SharedBeaconClient, keychain::{CloudKey, CurrentBottle, SivKey}, passwords::PasswordState, request_update_account, SendJob, SendResult};
 pub use rustpush::findmy::{FindMyFriendsClient, FindMyPhoneClient};
 pub use rustpush::sharedstreams::{SharedAlbum, SyncStatus};
 pub use rustpush::cloudkit_proto::EscrowData;
@@ -981,11 +981,23 @@ pub async fn make_statuskit(path: String, provider: &Arc<TokenProvider<DefaultAn
 }
 
 #[frb(sync)]
+/// Sidecar copy of the keychain peer identity, persisted outside
+/// `keychain.plist` so a repair/rebuild of the service state keeps
+/// presenting the SAME keychain "device". Rejoining with a fresh identity
+/// registers a brand-new peer in the user's circle every time; ghost peers
+/// accumulate and crowd out real devices.
+#[derive(Serialize, Deserialize)]
+struct SavedKeychainIdentity {
+    dsid: String,
+    identity: KeychainUserIdentity<EcKeystoreKey>,
+}
+
 pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisetteProvider>>, anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, config: &JoinedOSConfig, token_provider: &Arc<TokenProvider<DefaultAnisetteProvider>>) -> Option<Arc<KeychainClient<DefaultAnisetteProvider>>> {
     let dir = PathBuf::from_str(&path).unwrap();
     let cloudkit_path = dir.join("keychain.plist");
+    let identity_path = dir.join("keychain_identity.plist");
 
-    let state: KeychainClientState = match plist::from_file(&cloudkit_path) {
+    let mut state: KeychainClientState = match plist::from_file(&cloudkit_path) {
         Ok(state) => state,
         Err(error) => {
             if cloudkit_path.exists() {
@@ -999,12 +1011,53 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
         }
     };
 
+    // Re-adopt the persisted peer identity when the main state lost it
+    // (repair, sign-in rebuild after corruption). With the same identity in
+    // place, sync_trust re-derives circle membership without a join — no
+    // new keychain "device" appears. If the peer was evicted server-side,
+    // sync_trust resets cleanly and the normal join flow takes over.
+    if state.user_identity.is_none() {
+        match plist::from_file::<_, SavedKeychainIdentity>(&identity_path) {
+            Ok(saved) if saved.dsid == state.dsid => {
+                // The identity's private keys live in the device keystore;
+                // only re-adopt when they still sign (a reinstall or a
+                // keystore reset leaves the sidecar without usable keys —
+                // adopting it then would wedge the join flow).
+                match saved.identity.sign_payload(SignedInfo::default(), "OpenBubbles.IdentityProbe") {
+                    Ok(_) => {
+                        info!("re-adopting persisted keychain identity {}", saved.identity.identifier);
+                        state.user_identity = Some(saved.identity);
+                        if let Err(error) = atomic_write_plist(&cloudkit_path, &state) {
+                            log::error!("failed to persist re-adopted keychain identity: {error}");
+                        }
+                    }
+                    Err(error) => {
+                        warn!("persisted keychain identity is unusable (keystore keys missing?): {error}");
+                    }
+                }
+            }
+            Ok(_) => warn!("persisted keychain identity belongs to a different account; ignoring"),
+            Err(_) => {}
+        }
+    }
+
     Some(Arc::new(KeychainClient {
         anisette: anisette.clone(),
         token_provider: token_provider.clone(),
         state: DebugRwLock::new(state),
         config: config.config(),
         update_state: Box::new(move |update| {
+            // Mirror the peer identity into the sidecar so it survives a
+            // wipe of the main state file (see SavedKeychainIdentity).
+            if let Some(identity) = &update.user_identity {
+                let saved = SavedKeychainIdentity {
+                    dsid: update.dsid.clone(),
+                    identity: identity.clone(),
+                };
+                if let Err(error) = atomic_write_plist(&identity_path, &saved) {
+                    log::error!("failed to save keychain identity sidecar: {error}");
+                }
+            }
             // Atomic: this fires on every trust sync; a crash mid-write used
             // to truncate keychain.plist and permanently lose the keychain.
             if let Err(error) = atomic_write_plist(&cloudkit_path, update) {
