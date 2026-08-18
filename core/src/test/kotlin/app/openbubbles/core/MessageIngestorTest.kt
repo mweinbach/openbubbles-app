@@ -454,6 +454,37 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `app balloon ingest persists bundle and payload`() = runBlocking<Unit> {
+        val appJson = """{"appName":"Polls","bundleId":"com.apple.messages.Polls","url":"data:,e30="}"""
+        val inst = UMessageInst(
+            id = "msg-poll",
+            sender = friend,
+            conversation = conversation(me, friend),
+            message = UMessage.Normal(
+                parts = listOf(UIndexedPart(UPart.Object("Polls"), 0uL, null)),
+                effect = null,
+                replyGuid = null,
+                replyPart = null,
+                subject = null,
+                voice = false,
+                isSms = false,
+                appJson = appJson,
+                linkJson = null,
+            ),
+            sentTimestamp = 1_700_000_000_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(inst), myHandles)
+
+        val row = assertNotNull(messageByGuid("msg-poll"))
+        assertTrue(row.hasApplePayloadData)
+        assertEquals("com.apple.messages.Polls", row.balloonBundleId)
+        assertEquals(appJson, row.dbPayloadData)
+    }
+
+    @Test
     fun `attachment part yields attachment row and hasAttachments flag`() = runBlocking<Unit> {
         val inst = UMessageInst(
             id = "msg-att",

@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import app.openbubbles.nativeapp.data.AttachmentMeta
+import app.openbubbles.nativeapp.ui.chat.interactive.InteractiveBalloon
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
@@ -335,12 +336,13 @@ fun MessageBubble(
         listOfNotNull(message.attachmentMeta)
     }
     val richLink = message.richLink
+    val interactivePayload = message.interactivePayload
     val displayText = if (richLink != null) {
         displayTextForRichLink(message.text, richLink.url)
     } else {
         message.text
     }
-    val showTextBubble = displayText.isNotBlank()
+    val showTextBubble = displayText.isNotBlank() && interactivePayload == null
     val invisibleInk = isInvisibleInk(message.expressiveSendStyleId)
     val embedRichLink = richLink != null && showTextBubble && !invisibleInk
     // Attachment-only messages take the grouping shape directly; stacked
@@ -426,6 +428,12 @@ fun MessageBubble(
                     onOpen = onOpenReplyThread,
                 )
             }
+            interactivePayload?.let { payload ->
+                InteractiveBalloon(
+                    payload = payload,
+                    onLongPress = onLongPressPart?.let { callback -> { callback(textPart) } },
+                )
+            }
             attachments.forEachIndexed { index, attachment ->
                 Box {
                     AttachmentContent(
@@ -436,7 +444,12 @@ fun MessageBubble(
                         shape = attachmentShape,
                         fromMe = message.isFromMe,
                         smsChat = smsChat,
-                        modifier = if (onLongPressPart != null) {
+                        onLongPress = if (attachment.livePhotoMotionGuid != null) {
+                            onLongPressPart?.let { callback -> { callback(attachment.partIndex) } }
+                        } else {
+                            null
+                        },
+                        modifier = if (attachment.livePhotoMotionGuid == null && onLongPressPart != null) {
                             Modifier.combinedClickable(
                                 // Audio plays inline; the viewer stays for
                                 // everything else.

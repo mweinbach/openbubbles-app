@@ -1,9 +1,12 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
+import android.widget.VideoView
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +33,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +48,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
@@ -54,6 +60,7 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
+import kotlinx.coroutines.delay
 
 /** Widest an image bubble may be (photos dominate the bubble column). */
 private val ImageBubbleMaxWidth = 260.dp
@@ -82,6 +89,7 @@ fun AttachmentContent(
     /** Bubble identity, used by the audio player's color roles. */
     fromMe: Boolean = false,
     smsChat: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
 ) {
     val effectiveShape = shape ?: AttachmentShape
     when (AttachmentMedia.kind(attachment.mime, attachment.uti, attachment.name)) {
@@ -94,14 +102,26 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
-        AttachmentMediaKind.IMAGE -> ImageAttachmentBubble(
-            attachment = attachment,
-            attachmentFile = attachmentFile,
-            onOpenAttachment = onOpenAttachment,
-            onDownloadAttachment = onDownloadAttachment,
-            modifier = modifier,
-            shape = effectiveShape,
-        )
+        AttachmentMediaKind.IMAGE -> if (attachment.livePhotoMotionGuid != null) {
+            LivePhotoAttachmentBubble(
+                attachment = attachment,
+                attachmentFile = attachmentFile,
+                onOpenAttachment = onOpenAttachment,
+                onDownloadAttachment = onDownloadAttachment,
+                onLongPress = onLongPress,
+                modifier = modifier,
+                shape = effectiveShape,
+            )
+        } else {
+            ImageAttachmentBubble(
+                attachment = attachment,
+                attachmentFile = attachmentFile,
+                onOpenAttachment = onOpenAttachment,
+                onDownloadAttachment = onDownloadAttachment,
+                modifier = modifier,
+                shape = effectiveShape,
+            )
+        }
         AttachmentMediaKind.VIDEO -> VideoAttachmentBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
@@ -136,6 +156,123 @@ fun AttachmentContent(
                 modifier = modifier,
                 shape = effectiveShape,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LivePhotoAttachmentBubble(
+    attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onLongPress: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
+) {
+    val stillFile = remember(attachment.guid, attachment.downloaded) { attachmentFile(attachment.guid) }
+    val motionGuid = attachment.livePhotoMotionGuid
+    val motionFile = remember(motionGuid, attachment.downloaded) { motionGuid?.let(attachmentFile) }
+    val decoded = rememberDecodedImage(file = stillFile, maxDimensionPx = 512)
+    val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
+    var playing by remember(attachment.guid) { mutableStateOf(false) }
+    var videoView by remember(attachment.guid) { mutableStateOf<VideoView?>(null) }
+
+    LaunchedEffect(playing, motionFile?.absolutePath) {
+        if (!playing || motionFile == null) return@LaunchedEffect
+        delay(3_000)
+        videoView?.pause()
+        videoView?.seekTo(0)
+        playing = false
+    }
+    DisposableEffect(attachment.guid) {
+        onDispose {
+            videoView?.stopPlayback()
+            videoView = null
+        }
+    }
+
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+            .widthIn(max = ImageBubbleMaxWidth)
+            .heightIn(max = ImageBubbleMaxHeight)
+            .aspectRatio(aspect)
+            .combinedClickable(
+                enabled = stillFile != null,
+                onClick = {
+                    if (motionFile != null) playing = true else onOpenAttachment(attachment.guid)
+                },
+                onLongClick = {
+                    if (motionFile != null) playing = true
+                    onLongPress?.invoke()
+                },
+            ),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            val image = decoded?.image
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = attachment.name ?: "Live Photo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().sharedAttachment(attachment.guid),
+                )
+            } else {
+                AttachmentPlaceholder(
+                    attachment = attachment,
+                    onDownloadAttachment = onDownloadAttachment,
+                    icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                    showDownload = stillFile == null,
+                )
+            }
+            if (playing && motionFile != null) {
+                AndroidView(
+                    factory = { context ->
+                        VideoView(context).apply {
+                            setVideoPath(motionFile.absolutePath)
+                            setOnPreparedListener { player ->
+                                player.setVolume(0f, 0f)
+                                player.isLooping = true
+                                start()
+                            }
+                            videoView = this
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = Color.Black.copy(alpha = 0.62f),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clickable {
+                        if (motionFile == null) onDownloadAttachment(attachment)
+                        else onOpenAttachment(attachment.guid)
+                    },
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Text(
+                        text = "LIVE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(start = 3.dp),
+                    )
+                }
+            }
         }
     }
 }

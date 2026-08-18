@@ -93,10 +93,9 @@ object MessageMapper {
                     bodyRunCount += 1
                 }
                 is UPart.Attachment -> {
-                    if (part.iris) continue // live-photo companion, folded into the primary
                     if (part.mime == "application/smil") continue // MMS layout, no display value
                     attachments += Attachment().apply {
-                        guid = "${msgId}_$fieldIdx"
+                        guid = if (part.iris) "${msgId}_${fieldIdx}_iris" else "${msgId}_$fieldIdx"
                         uti = part.uti
                         mimeType = part.mime
                         this.isOutgoing = isOutgoing
@@ -109,8 +108,9 @@ object MessageMapper {
                             // The old attributed-body decoder used the run's
                             // ordinal for attachment reply targeting, which
                             // can differ from the transfer GUID suffix.
-                            "messagePart" to bodyRunCount,
+                            "messagePart" to if (part.iris) part.part.toLong() else bodyRunCount,
                         ).apply {
+                            if (part.iris) put("livePhotoIris", true)
                             if (part.xml.isNotEmpty()) put("rustpush", part.xml)
                             if (part.xml.isNotEmpty()) {
                                 indexed.extJson?.let { extension ->
@@ -128,12 +128,15 @@ object MessageMapper {
                             }
                         }
                     }
-                    text.append(' ')
-                    bodyRunCount += 1
+                    if (!part.iris) {
+                        text.append(' ')
+                        bodyRunCount += 1
+                    }
                 }
                 is UPart.Object -> Unit // handled via appJson payload, not body text
             }
         }
+        pairLivePhotoAttachments(attachments)
         return text.toString() to attachments
     }
 
@@ -222,7 +225,8 @@ object MessageMapper {
             hasApplePayloadData = appBalloon
             if (appBalloon) {
                 dbPayloadData = normal.appJson
-                balloonBundleId = extractJsonString(normal.appJson, "bundle_id")
+                balloonBundleId = extractJsonString(normal.appJson, "bundleId")
+                    ?: extractJsonString(normal.appJson, "bundle_id")
             }
             if (normal.linkJson != null) {
                 dbMetadata = normal.linkJson
@@ -231,6 +235,55 @@ object MessageMapper {
             verificationFailed = inst.verificationFailed
         }
         return Mapped(message, attachments)
+    }
+
+    internal fun pairLivePhotoAttachments(attachments: List<Attachment>) {
+        val unpairedMotion = attachments.filter { attachment ->
+            attachment.metadata?.get("livePhotoIris") == true || isMovAttachment(attachment)
+        }.toMutableList()
+        attachments.asSequence()
+            .filterNot { it in unpairedMotion }
+            .filter(::isStillLivePhotoCandidate)
+            .forEach { still ->
+                val motion = unpairedMotion.firstOrNull { candidate ->
+                    sameLivePhotoStem(still.transferName, candidate.transferName) ||
+                        messagePart(still) == messagePart(candidate)
+                } ?: return@forEach
+                still.hasLivePhoto = true
+                still.metadata = linkedMapOf<String, Any>().apply {
+                    still.metadata?.let(::putAll)
+                    motion.guid?.let { put("livePhotoMotionGuid", it) }
+                }
+                motion.metadata = linkedMapOf<String, Any>().apply {
+                    motion.metadata?.let(::putAll)
+                    put("livePhotoMotion", true)
+                    still.guid?.let { put("livePhotoStillGuid", it) }
+                }
+                unpairedMotion.remove(motion)
+            }
+    }
+
+    private fun messagePart(attachment: Attachment): Long? =
+        (attachment.metadata?.get("messagePart") as? Number)?.toLong()
+
+    private fun isStillLivePhotoCandidate(attachment: Attachment): Boolean {
+        val mime = attachment.mimeType.orEmpty().lowercase()
+        val uti = attachment.uti.orEmpty().lowercase()
+        val name = attachment.transferName.orEmpty().lowercase()
+        return mime.startsWith("image/") || "image" in uti || name.endsWith(".heic") || name.endsWith(".heif")
+    }
+
+    private fun isMovAttachment(attachment: Attachment): Boolean {
+        val mime = attachment.mimeType.orEmpty().lowercase()
+        val uti = attachment.uti.orEmpty().lowercase()
+        val name = attachment.transferName.orEmpty().lowercase()
+        return mime == "video/quicktime" || "quicktime" in uti || name.endsWith(".mov")
+    }
+
+    private fun sameLivePhotoStem(first: String?, second: String?): Boolean {
+        val firstStem = first?.substringBeforeLast('.')?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+        val secondStem = second?.substringBeforeLast('.')?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+        return firstStem == secondStem
     }
 
     /**

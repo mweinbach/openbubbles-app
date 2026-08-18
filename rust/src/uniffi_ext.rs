@@ -276,7 +276,7 @@ fn conv_message(m: &Message) -> UMessage {
             subject: n.subject.clone(),
             voice: n.voice,
             is_sms: matches!(n.service, MessageType::SMS { .. }),
-            app_json: n.app.as_ref().map(j),
+            app_json: n.app.as_ref().map(app_json),
             link_json: n.link_meta.as_ref().map(j),
         },
         Message::React(r) => UMessage::React {
@@ -348,6 +348,33 @@ fn conv_message(m: &Message) -> UMessage {
             }
         },
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UAppJson<'a> {
+    app_name: &'a str,
+    app_id: Option<u64>,
+    bundle_id: &'a str,
+    url: Option<&'a str>,
+    session: Option<&'a str>,
+    ld_text: Option<&'a str>,
+    is_live: bool,
+    layout: Option<&'a rustpush::BalloonLayout>,
+}
+
+fn app_json(app: &rustpush::ExtensionApp) -> String {
+    let balloon = app.balloon.as_ref();
+    j(&UAppJson {
+        app_name: &app.name,
+        app_id: app.app_id,
+        bundle_id: &app.bundle_id,
+        url: balloon.map(|value| value.url.as_str()),
+        session: balloon.and_then(|value| value.session.as_deref()),
+        ld_text: balloon.and_then(|value| value.ld_text.as_deref()),
+        is_live: balloon.is_some_and(|value| value.is_live),
+        layout: balloon.and_then(|value| value.layout.as_ref()),
+    })
 }
 
 fn conv_inst(i: &MessageInst) -> UMessageInst {

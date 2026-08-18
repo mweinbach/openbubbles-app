@@ -2,6 +2,7 @@ package app.openbubbles.core.repo
 
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageItem
+import app.openbubbles.core.model.InteractivePayloadParser
 import app.openbubbles.core.model.MessageKind
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.model.MessageStatus
@@ -381,6 +382,16 @@ class MessageRepo(
             expressiveSendStyleId = message.expressiveSendStyleId,
             richLinkMetadataJson = message.dbMetadata.takeIf {
                 message.balloonBundleId == "com.apple.messages.URLBalloonProvider"
+            },
+            interactivePayload = if (message.balloonBundleId == "com.apple.messages.URLBalloonProvider") {
+                null
+            } else {
+                InteractivePayloadParser.parse(
+                    bundleId = message.balloonBundleId,
+                    payloadJson = message.dbPayloadData,
+                    summaryInfoJson = message.dbMessageSummaryInfo,
+                    fallbackText = message.text,
+                )
             },
             stickers = activeReactions.flatMap(::stickerPlacements),
             chatId = message.chat.targetId,

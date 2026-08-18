@@ -448,7 +448,22 @@ object CoreGraph {
                     .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                     .build().use { it.findFirst() }
             }.getOrNull() ?: return@launch
-            runCatching { manager.download(attachment).collect { /* terminal is enough here */ } }
+            val box = st.boxFor(Attachment::class.java)
+            val pairGuids = listOfNotNull(
+                attachment.guid,
+                attachment.metadata?.get("livePhotoMotionGuid") as? String,
+                attachment.metadata?.get("livePhotoStillGuid") as? String,
+            ).distinct()
+            pairGuids.forEach { pairGuid ->
+                val pair = if (pairGuid == attachment.guid) {
+                    attachment
+                } else {
+                    box.query()
+                        .equal(Attachment_.guid, pairGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                        .build().use { it.findFirst() }
+                } ?: return@forEach
+                runCatching { manager.download(pair).collect { /* terminal is enough here */ } }
+            }
         }
     }
 
@@ -718,6 +733,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     replyToPartLocator = item.threadOriginatorLocator,
     replyPartLocators = item.replyPartLocators,
     richLink = parseRichLinkPreview(item.richLinkMetadataJson, item.text),
+    interactivePayload = item.interactivePayload,
     stickers = item.stickers.map { sticker ->
         StickerPlacement(
             reactionGuid = sticker.reactionGuid,
@@ -750,7 +766,37 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
         ?: attachment.guid?.substringAfterLast('_')?.toLongOrNull()
         ?: 0L,
     uti = attachment.uti,
+    livePhotoMotionGuid = attachment.metadata?.get("livePhotoMotionGuid") as? String,
+    isLivePhotoMotion = attachment.metadata?.get("livePhotoMotion") == true,
 )
+
+internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<AttachmentMeta> {
+    val metas = attachments.map(::attachmentToMeta)
+    val hiddenMotionGuids = metas.filter(AttachmentMeta::isLivePhotoMotion).mapTo(mutableSetOf(), AttachmentMeta::guid)
+    val inferredMotionByStill = metas.asSequence()
+        .filter { it.isImage && it.livePhotoMotionGuid == null && isHeicName(it.name) }
+        .mapNotNull { still ->
+            val stem = livePhotoStem(still.name) ?: return@mapNotNull null
+            val motion = metas.firstOrNull { candidate ->
+                candidate.guid != still.guid && candidate.isVideo && livePhotoStem(candidate.name) == stem
+            } ?: return@mapNotNull null
+            hiddenMotionGuids += motion.guid
+            still.guid to motion.guid
+        }
+        .toMap()
+    return metas.mapNotNull { meta ->
+        if (meta.guid in hiddenMotionGuids) null
+        else inferredMotionByStill[meta.guid]?.let { meta.copy(livePhotoMotionGuid = it) } ?: meta
+    }
+}
+
+private fun isHeicName(name: String?): Boolean {
+    val lower = name.orEmpty().lowercase()
+    return lower.endsWith(".heic") || lower.endsWith(".heif")
+}
+
+private fun livePhotoStem(name: String?): String? =
+    name?.substringBeforeLast('.')?.lowercase()?.takeIf { it.isNotBlank() }
 
 /** Non-empty retracted-part array inside a dbMessageSummaryInfo JSON blob. */
 private val RETRACTED_PARTS = Regex(
@@ -796,7 +842,7 @@ private fun enrichWithEntityDetails(
             val entity = byId[item.id] ?: return@map item
             val (edited, unsent) = editedFlags(entity)
             val attachments = runCatching {
-                entity.dbAttachments.map(::attachmentToMeta)
+                visibleAttachmentMetas(entity.dbAttachments)
             }.getOrDefault(emptyList())
             val firstAttachment = attachments.firstOrNull()
             item.copy(

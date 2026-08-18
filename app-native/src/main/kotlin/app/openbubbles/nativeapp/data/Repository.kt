@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.model.InteractivePayload
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +65,10 @@ data class AttachmentMeta(
     /** iMessage part index this attachment occupies. */
     val partIndex: Long = 0L,
     val uti: String? = null,
+    /** Paired MOV attachment for an Apple Live Photo. */
+    val livePhotoMotionGuid: String? = null,
+    /** Internal sidecar rows are downloaded but never rendered independently. */
+    val isLivePhotoMotion: Boolean = false,
 ) {
     val isVideo: Boolean
         get() = !isImage && AttachmentMedia.isVideo(mime, uti, name)
@@ -151,6 +156,8 @@ data class MessageItem(
     val replyPreviewText: String? = null,
     /** Rich web preview supplied by Apple, or a URL-only fallback for plain links. */
     val richLink: RichLinkPreview? = null,
+    /** Structured iMessage app-balloon content. */
+    val interactivePayload: InteractivePayload? = null,
     /** Positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
     /** Protocol chat that carried this message inside a grouped contact thread. */

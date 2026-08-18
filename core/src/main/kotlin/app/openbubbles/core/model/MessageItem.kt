@@ -98,6 +98,8 @@ data class MessageItem(
     val expressiveSendStyleId: String?,
     /** Serialized Apple LinkPresentation metadata for rich URL previews. */
     val richLinkMetadataJson: String? = null,
+    /** Parsed iMessage app-balloon content, including calm unsupported fallback. */
+    val interactivePayload: InteractivePayload? = null,
     /** Active positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
     /** Protocol chat that carried this message inside a grouped contact thread. */

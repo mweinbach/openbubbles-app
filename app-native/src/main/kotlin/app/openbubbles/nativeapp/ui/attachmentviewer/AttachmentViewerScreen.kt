@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.AttachmentProvider
+import app.openbubbles.nativeapp.data.resolveLivePhotoPair
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
@@ -91,6 +93,9 @@ fun AttachmentViewerScreen(
     val pdfPages = rememberPdfPageCount(file.takeIf { mediaKind == AttachmentMediaKind.PDF })
     val zoomable = mediaKind == AttachmentMediaKind.IMAGE && file != null
     val playbackMime = meta?.playbackMime ?: meta?.mime
+    val livePhotoPair = remember(meta, guid) {
+        meta?.takeIf { it.livePhotoMotionGuid != null }?.let { resolveLivePhotoPair(it, provider) }
+    }
 
     // No BackHandler here: NavDisplay's own back handling covers the pop, and
     // an inner handler would swallow the predictive-back preview gesture.
@@ -127,6 +132,9 @@ fun AttachmentViewerScreen(
         val content: @Composable () -> Unit = when {
             meta == null -> { { ViewerMessage("Attachment not found") } }
             file == null -> { { ViewerMessage("${meta.name ?: "Attachment"} — not downloaded yet") } }
+            livePhotoPair != null -> {
+                { LivePhotoViewer(pair = livePhotoPair) }
+            }
             mediaKind == AttachmentMediaKind.IMAGE || meta.isImage -> {
                 {
                     val decoded = rememberDecodedImage(file = file, maxDimensionPx = 2048)
@@ -204,6 +212,17 @@ fun AttachmentViewerScreen(
                     }
                 }
             },
+            onSaveLivePhoto = livePhotoPair?.let { pair ->
+                {
+                    val saved = saveLivePhoto(context, pair)
+                    val message = when (saved) {
+                        2 -> "Saved Live Photo"
+                        1 -> "Saved still photo"
+                        else -> "Unable to save Live Photo"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            },
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }
@@ -216,6 +235,7 @@ private fun ViewerChrome(
     subtitle: String,
     onBack: () -> Unit,
     onShare: (() -> Unit)?,
+    onSaveLivePhoto: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
@@ -264,6 +284,15 @@ private fun ViewerChrome(
                     Icon(
                         imageVector = Icons.Filled.Share,
                         contentDescription = "Share attachment",
+                        tint = Color.White,
+                    )
+                }
+            }
+            if (onSaveLivePhoto != null) {
+                IconButton(onClick = onSaveLivePhoto) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "Save Live Photo",
                         tint = Color.White,
                     )
                 }
