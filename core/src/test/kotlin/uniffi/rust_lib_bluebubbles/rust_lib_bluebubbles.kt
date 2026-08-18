@@ -2060,8 +2060,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2072,28 +2072,28 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password_group(
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(`ptr`: Pointer,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(`ptr`: Pointer,`profileJson`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_ft_sessions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_auth_code(`ptr`: Pointer,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2132,8 +2132,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_passkey_inser
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_keychain_password_insert(`ptr`: Pointer,`site`: RustBuffer.ByValue,`user`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`callback`: Pointer,`group`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_group_invites(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_groups(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2146,16 +2146,16 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_albums(`pt
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_report_spam(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`messages`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_reveal_password(`ptr`: Pointer,`id`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2168,24 +2168,24 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_parts(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`parts`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`messageGuid`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`msgWidth`: Double,`normalizedX`: Double,`normalizedY`: Double,`rotation`: Double,`scale`: Double,`effectType`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`msgWidth`: Double,`normalizedX`: Double,`normalizedY`: Double,`rotation`: Double,`scale`: Double,`effectType`: Long,`progress`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_typing(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`typing`: Byte,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`groupVersion`: Long,`progress`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(`ptr`: Pointer,`name`: RustBuffer.ByValue,`first`: RustBuffer.ByValue,`last`: RustBuffer.ByValue,`image`: RustBuffer.ByValue,`poster`: RustBuffer.ByValue,`existingJson`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_shared_album_sync(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,`folder`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
@@ -2196,22 +2196,22 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Poin
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_stop_loop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_shared_albums(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown(`ptr`: Pointer,`logout`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_teardown_2fa(`ptr`: Pointer,`action`: RustBuffer.ByValue,`txnid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_update_beacon_name(`ptr`: Pointer,`naming`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_attachment(`ptr`: Pointer,`filePath`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
@@ -2709,7 +2709,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime() != 29235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants() != 36972.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants() != 14492.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state() != 28004.toShort()) {
@@ -2727,16 +2727,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote() != 30801.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote() != 10450.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share() != 9292.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote() != 16821.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote() != 8756.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote() != 56044.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote() != 39838.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth() != 60368.toShort()) {
@@ -2745,19 +2745,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment() != 11940.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 9054.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 61402.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo() != 57272.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo() != 1527.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 33762.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 40142.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 1213.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_fetch_profile() != 48307.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_fetch_profile() != 57489.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_ft_sessions() != 13636.toShort()) {
@@ -2817,7 +2817,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_keychain_password_insert() != 58841.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat() != 52951.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_leave_chat() != 20139.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_group_invites() != 35845.toShort()) {
@@ -2838,7 +2838,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds() != 58396.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds() != 63641.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices() != 32109.toShort()) {
@@ -2847,10 +2847,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_following() != 57034.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon() != 56013.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon() != 63447.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 37145.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 18530.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam() != 51800.toShort()) {
@@ -2871,7 +2871,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_parts() != 14435.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 55432.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 41675.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction() != 29690.toShort()) {
@@ -2883,7 +2883,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms() != 26102.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sticker() != 23749.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sticker() != 58128.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_text() != 19513.toShort()) {
@@ -2892,10 +2892,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_typing() != 10764.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon() != 2313.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_group_icon() != 49031.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile() != 2431.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile() != 1018.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_shared_album_sync() != 60914.toShort()) {
@@ -2913,16 +2913,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_stop_loop() != 11143.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page() != 17111.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments_page() != 26314.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page() != 48692.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page() != 10595.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history() != 36224.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history() != 45719.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 46083.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 33695.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_shared_albums() != 40274.toShort()) {
@@ -2934,7 +2934,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_teardown_2fa() != 59540.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message() != 47632.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_unsend_message() != 40864.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_update_beacon_name() != 13718.toShort()) {
@@ -6135,7 +6135,7 @@ public interface NativePushStateInterface {
      * participant including `sender`, formatted+prefixed
      * (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
      */
-    fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst
+    suspend fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst
 
     /**
      * Whether CloudKit message-history sync can run on this state.
@@ -6156,7 +6156,7 @@ public interface NativePushStateInterface {
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
-    fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
+    suspend fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
 
     /**
      * Delete a shared item.
@@ -6168,12 +6168,12 @@ public interface NativePushStateInterface {
      * otherwise the pull resurrects rows the user removed. Flushes the
      * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
      */
-    fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
+    suspend fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
 
     /**
      * Push local message deletions to iCloud (`delete_messages`).
      */
-    fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
+    suspend fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
 
     fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
 
@@ -6188,13 +6188,13 @@ public interface NativePushStateInterface {
     /**
      * Download one Messages-in-iCloud attachment asset directly to `path`.
      */
-    fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
+    suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
 
     /**
      * Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
      * from the chat zone directly to `path`.
      */
-    fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String)
+    suspend fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String)
 
     /**
      * Download a bare MMCS file (e.g. a group icon from
@@ -6210,14 +6210,14 @@ public interface NativePushStateInterface {
      * attachment via their `xml`). No progress callback: nothing is
      * transferred.
      */
-    fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
+    suspend fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst
 
     /**
      * api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
      * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
      * sender's shared name + avatar + poster.
      */
-    fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord
+    suspend fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord
 
     /**
      * Active + known FaceTime sessions (caller resolution for the UI).
@@ -6314,7 +6314,7 @@ public interface NativePushStateInterface {
      * (Dart `leaveChat`). The removal matches the sender with or without
      * its `tel:`/`mailto:` prefix.
      */
-    fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
+    suspend fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
 
     fun `listPasswordGroupInvites`(): List<UVaultInvite>
 
@@ -6333,7 +6333,7 @@ public interface NativePushStateInterface {
      * the incremental change cursor. Incremental sync never re-emits a
      * wallpaper it already walked past.
      */
-    fun `queryTranscriptBackgrounds`(): List<UMessageChange>
+    suspend fun `queryTranscriptBackgrounds`(): List<UMessageChange>
 
     /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
@@ -6349,12 +6349,12 @@ public interface NativePushStateInterface {
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
      */
-    fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
+    suspend fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
 
     /**
      * Rename a group chat (Dart `renameChat`).
      */
-    fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
+    suspend fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
 
     fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
 
@@ -6391,7 +6391,7 @@ public interface NativePushStateInterface {
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
      */
-    fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst
+    suspend fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst
 
     /**
      * Send (or remove, with `enable: false`) a tapback.
@@ -6416,7 +6416,7 @@ public interface NativePushStateInterface {
      * part. Coordinates are normalized to the target bubble (0..1), rotation
      * is in radians, and scale is relative to the sticker's natural size.
      */
-    fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst
+    suspend fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst
 
     /**
      * Send a plain (optionally formatted-later) text message. Returns the
@@ -6431,7 +6431,7 @@ public interface NativePushStateInterface {
      * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
      * message. The file should be a 570x570 PNG.
      */
-    fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
+    suspend fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst
 
     /**
      * api.rs `set_profile` — publish this account's shared name/image/
@@ -6440,7 +6440,7 @@ public interface NativePushStateInterface {
      * Returns the new `ShareProfileMessage` JSON: persist it, and send it
      * to contacts with `send_profile`.
      */
-    fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String
+    suspend fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String
 
     fun `setSharedAlbumSync`(`albumId`: kotlin.String, `folder`: kotlin.String?)
 
@@ -6471,34 +6471,34 @@ public interface NativePushStateInterface {
      * Pull one page of attachment metadata. Payload bytes stay remote until
      * `download_cloud_attachment` is called for a visible attachment.
      */
-    fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage
+    suspend fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage
 
     /**
      * Pull one page of chat changes (`sync_chats`). Pass the previous
      * page's `next_cursor` (none for the first page); persist the returned
      * cursor after applying the records. `more == false` ends the zone.
      */
-    fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage
+    suspend fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage
 
     /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
      * `mode` picks the start cursors — `Full` ignores the passed cursors,
-     * `Incremental` resumes from them. Runs entirely on the calling thread
-     * (`RUNTIME.block_on` per page); cooperative cancellation is checked
-     * between pages via `keep_going`. Returns the summary and the cursors
-     * reached — persist them either way, treating an EMPTY cursor as
-     * "zone never pulled a page" (i.e. keep the previously stored one).
-     * Per-record failures are the callback's concern — the Rust loop only
-     * aborts on transport errors.
+     * `Incremental` resumes from them. Runs on the engine's blocking pool
+     * (the Kotlin caller suspends for the duration); cooperative
+     * cancellation is checked between pages via `keep_going`. Returns the
+     * summary and the cursors reached — persist them either way, treating
+     * an EMPTY cursor as "zone never pulled a page" (i.e. keep the
+     * previously stored one). Per-record failures are the callback's
+     * concern — the Rust loop only aborts on transport errors.
      */
-    fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome
+    suspend fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome
 
     /**
      * Pull one page of message changes (`sync_messages`). Same cursor
      * contract as `sync_chats_page`.
      */
-    fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
+    suspend fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
 
     fun `syncSharedAlbums`()
 
@@ -6518,7 +6518,7 @@ public interface NativePushStateInterface {
      * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
      * the part index to retract.
      */
-    fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst
+    suspend fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst
 
     /**
      * Rename / re-emoji an item (`update_beacon_name`).
@@ -6736,17 +6736,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * participant including `sender`, formatted+prefixed
      * (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
      */
-    @Throws(UException::class)override fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`newParticipants`),FfiConverterULong.lower(`groupVersion`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `changeParticipants`(`conversation`: UConversation, `sender`: kotlin.String, `newParticipants`: List<kotlin.String>, `groupVersion`: kotlin.ULong) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`newParticipants`),FfiConverterULong.lower(`groupVersion`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -6818,16 +6826,26 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
-    @Throws(UException::class)override fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>)
-        =
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(
-        it, FfiConverterSequenceString.lower(`recordIds`),_status)
-}
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `deleteAttachmentsRemote`(`recordIds`: List<kotlin.String>) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(
+                thisPtr,
+                FfiConverterSequenceString.lower(`recordIds`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
     }
-
-
 
 
     /**
@@ -6850,31 +6868,51 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * otherwise the pull resurrects rows the user removed. Flushes the
      * caller's pending-delete queues like Dart's `chatDeletionIds-1`.
      */
-    @Throws(UException::class)override fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>)
-        =
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(
-        it, FfiConverterSequenceString.lower(`recordIds`),_status)
-}
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `deleteChatsRemote`(`recordIds`: List<kotlin.String>) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(
+                thisPtr,
+                FfiConverterSequenceString.lower(`recordIds`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
     }
-
-
 
 
     /**
      * Push local message deletions to iCloud (`delete_messages`).
      */
-    @Throws(UException::class)override fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
-        =
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(
-        it, FfiConverterSequenceString.lower(`recordIds`),_status)
-}
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(
+                thisPtr,
+                FfiConverterSequenceString.lower(`recordIds`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
     }
-
-
 
     override fun `doSpecialAppleAuth`(`clientDataHash`: kotlin.String, `callback`: SpecialAppleAuthCallback)
         =
@@ -6919,32 +6957,52 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     /**
      * Download one Messages-in-iCloud attachment asset directly to `path`.
      */
-    @Throws(UException::class)override fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
-        =
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
-        it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
-}
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
+                thisPtr,
+                FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
     }
-
-
 
 
     /**
      * Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
      * from the chat zone directly to `path`.
      */
-    @Throws(UException::class)override fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String)
-        =
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(
-        it, FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),_status)
-}
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `downloadGroupPhoto`(`recordId`: kotlin.String, `path`: kotlin.String) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(
+                thisPtr,
+                FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
     }
-
-
 
 
     /**
@@ -6981,17 +7039,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * attachment via their `xml`). No progress callback: nothing is
      * transferred.
      */
-    @Throws(UException::class)override fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),FfiConverterSequenceTypeUIndexedPart.lower(`newParts`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `editMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong, `newParts`: List<UIndexedPart>) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),FfiConverterSequenceTypeUIndexedPart.lower(`newParts`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -6999,17 +7065,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
      * sender's shared name + avatar + poster.
      */
-    @Throws(UException::class)override fun `fetchProfile`(`profileJson`: kotlin.String): UNicknameRecord {
-            return FfiConverterTypeUNicknameRecord.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(
-        it, FfiConverterString.lower(`profileJson`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `fetchProfile`(`profileJson`: kotlin.String) : UNicknameRecord {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_fetch_profile(
+                thisPtr,
+                FfiConverterString.lower(`profileJson`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUNicknameRecord.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7305,17 +7379,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * (Dart `leaveChat`). The removal matches the sender with or without
      * its `tel:`/`mailto:` prefix.
      */
-    @Throws(UException::class)override fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `leaveChat`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_leave_chat(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     @Throws(UException::class)override fun `listPasswordGroupInvites`(): List<UVaultInvite> {
@@ -7399,17 +7481,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * the incremental change cursor. Incremental sync never re-emits a
      * wallpaper it already walked past.
      */
-    @Throws(UException::class)override fun `queryTranscriptBackgrounds`(): List<UMessageChange> {
-            return FfiConverterSequenceTypeUMessageChange.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(
-        it, _status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `queryTranscriptBackgrounds`() : List<UMessageChange> {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeUMessageChange.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7448,33 +7538,49 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * Remove the group photo (Dart `deleteChatIcon`): IconChange with no
      * attached file.
      */
-    @Throws(UException::class)override fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterULong.lower(`groupVersion`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
      * Rename a group chat (Dart `renameChat`).
      */
-    @Throws(UException::class)override fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`newName`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`newName`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     @Throws(UException::class)override fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
@@ -7600,17 +7706,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
      */
-    @Throws(UException::class)override fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`profileJson`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `sendProfile`(`conversation`: UConversation, `sender`: kotlin.String, `profileJson`: kotlin.String) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`profileJson`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7686,17 +7800,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * part. Coordinates are normalized to the target bubble (0..1), rotation
      * is in radians, and scale is relative to the sticker's natural size.
      */
-    @Throws(UException::class)override fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterOptionalULong.lower(`toPart`),FfiConverterString.lower(`toText`),FfiConverterString.lower(`filePath`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterDouble.lower(`msgWidth`),FfiConverterDouble.lower(`normalizedX`),FfiConverterDouble.lower(`normalizedY`),FfiConverterDouble.lower(`rotation`),FfiConverterDouble.lower(`scale`),FfiConverterLong.lower(`effectType`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `sendSticker`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `toText`: kotlin.String, `filePath`: kotlin.String, `mime`: kotlin.String, `uti`: kotlin.String, `name`: kotlin.String?, `msgWidth`: kotlin.Double, `normalizedX`: kotlin.Double, `normalizedY`: kotlin.Double, `rotation`: kotlin.Double, `scale`: kotlin.Double, `effectType`: kotlin.Long, `progress`: UProgressCallback?) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sticker(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterOptionalULong.lower(`toPart`),FfiConverterString.lower(`toText`),FfiConverterString.lower(`filePath`),FfiConverterString.lower(`mime`),FfiConverterString.lower(`uti`),FfiConverterOptionalString.lower(`name`),FfiConverterDouble.lower(`msgWidth`),FfiConverterDouble.lower(`normalizedX`),FfiConverterDouble.lower(`normalizedY`),FfiConverterDouble.lower(`rotation`),FfiConverterDouble.lower(`scale`),FfiConverterLong.lower(`effectType`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7751,17 +7873,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
      * message. The file should be a 570x570 PNG.
      */
-    @Throws(UException::class)override fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterULong.lower(`groupVersion`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `setGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `filePath`: kotlin.String, `groupVersion`: kotlin.ULong, `progress`: UProgressCallback?) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_group_icon(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`filePath`),FfiConverterULong.lower(`groupVersion`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7771,17 +7901,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * Returns the new `ShareProfileMessage` JSON: persist it, and send it
      * to contacts with `send_profile`.
      */
-    @Throws(UException::class)override fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?): kotlin.String {
-            return FfiConverterString.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(
-        it, FfiConverterString.lower(`name`),FfiConverterString.lower(`first`),FfiConverterString.lower(`last`),FfiConverterOptionalByteArray.lower(`image`),FfiConverterOptionalTypeUPosterRecord.lower(`poster`),FfiConverterOptionalString.lower(`existingJson`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `setProfile`(`name`: kotlin.String, `first`: kotlin.String, `last`: kotlin.String, `image`: kotlin.ByteArray?, `poster`: UPosterRecord?, `existingJson`: kotlin.String?) : kotlin.String {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_profile(
+                thisPtr,
+                FfiConverterString.lower(`name`),FfiConverterString.lower(`first`),FfiConverterString.lower(`last`),FfiConverterOptionalByteArray.lower(`image`),FfiConverterOptionalTypeUPosterRecord.lower(`poster`),FfiConverterOptionalString.lower(`existingJson`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterString.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     @Throws(UException::class)override fun `setSharedAlbumSync`(`albumId`: kotlin.String, `folder`: kotlin.String?)
@@ -7863,17 +8001,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * Pull one page of attachment metadata. Payload bytes stay remote until
      * `download_cloud_attachment` is called for a visible attachment.
      */
-    @Throws(UException::class)override fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?): UAttachmentSyncPage {
-            return FfiConverterTypeUAttachmentSyncPage.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(
-        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncAttachmentsPage`(`cursor`: kotlin.ByteArray?) : UAttachmentSyncPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`cursor`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUAttachmentSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
@@ -7881,59 +8027,83 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * page's `next_cursor` (none for the first page); persist the returned
      * cursor after applying the records. `more == false` ends the zone.
      */
-    @Throws(UException::class)override fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage {
-            return FfiConverterTypeUChatSyncPage.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(
-        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncChatsPage`(`cursor`: kotlin.ByteArray?) : UChatSyncPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`cursor`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUChatSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
      * `mode` picks the start cursors — `Full` ignores the passed cursors,
-     * `Incremental` resumes from them. Runs entirely on the calling thread
-     * (`RUNTIME.block_on` per page); cooperative cancellation is checked
-     * between pages via `keep_going`. Returns the summary and the cursors
-     * reached — persist them either way, treating an EMPTY cursor as
-     * "zone never pulled a page" (i.e. keep the previously stored one).
-     * Per-record failures are the callback's concern — the Rust loop only
-     * aborts on transport errors.
+     * `Incremental` resumes from them. Runs on the engine's blocking pool
+     * (the Kotlin caller suspends for the duration); cooperative
+     * cancellation is checked between pages via `keep_going`. Returns the
+     * summary and the cursors reached — persist them either way, treating
+     * an EMPTY cursor as "zone never pulled a page" (i.e. keep the
+     * previously stored one). Per-record failures are the callback's
+     * concern — the Rust loop only aborts on transport errors.
      */
-    @Throws(UException::class)override fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback): USyncOutcome {
-            return FfiConverterTypeUSyncOutcome.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(
-        it, FfiConverterOptionalByteArray.lower(`chatCursor`),FfiConverterOptionalByteArray.lower(`messageCursor`),FfiConverterTypeUSyncMode.lower(`mode`),FfiConverterTypeUSyncPageCallback.lower(`onPage`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncHistory`(`chatCursor`: kotlin.ByteArray?, `messageCursor`: kotlin.ByteArray?, `mode`: USyncMode, `onPage`: USyncPageCallback) : USyncOutcome {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`chatCursor`),FfiConverterOptionalByteArray.lower(`messageCursor`),FfiConverterTypeUSyncMode.lower(`mode`),FfiConverterTypeUSyncPageCallback.lower(`onPage`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUSyncOutcome.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**
      * Pull one page of message changes (`sync_messages`). Same cursor
      * contract as `sync_chats_page`.
      */
-    @Throws(UException::class)override fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage {
-            return FfiConverterTypeUMessageSyncPage.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(
-        it, FfiConverterOptionalByteArray.lower(`cursor`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?) : UMessageSyncPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`cursor`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     @Throws(UException::class)override fun `syncSharedAlbums`()
@@ -7983,17 +8153,25 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      * (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
      * the part index to retract.
      */
-    @Throws(UException::class)override fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong): UMessageInst {
-            return FfiConverterTypeUMessageInst.lift(
-    callWithPointer {
-    uniffiRustCallWithError(UException) { _status ->
-    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(
-        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),_status)
-}
-    }
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `unsendMessage`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `editPart`: kotlin.ULong) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_unsend_message(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`toUuid`),FfiConverterULong.lower(`editPart`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
     )
     }
-
 
 
     /**

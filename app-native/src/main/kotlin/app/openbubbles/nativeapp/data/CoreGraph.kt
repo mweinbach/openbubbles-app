@@ -705,7 +705,7 @@ object PushStateHolder {
 }
 
 private object NativeProfileUpdatePort : ProfileUpdatePort {
-    override fun receive(
+    override suspend fun receive(
         senderAddress: String,
         profileJson: String,
         kind: ProfileMessageKind,
@@ -1672,7 +1672,7 @@ private suspend fun maybeShareProfile(
     val address = MessageMapper.normalizeAddress(chat.handles.single().address)
     if (prefs.wasSharedWith(address)) return
     val json = prefs.shareProfileJson ?: return
-    runInterruptible(Dispatchers.IO) { state.sendProfile(conversation, sender, json) }
+    state.sendProfile(conversation, sender, json)
     prefs.markSharedWith(address)
 }
 
@@ -1848,23 +1848,19 @@ private object CoreMessageActions : MessageActions {
     override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {
         require(newText.isNotBlank()) { "message cannot be empty" }
         val (state, conversation, sender, ingestor) = actionContext(chatId)
-        val inst = runInterruptible(Dispatchers.IO) {
-            state.editMessage(
-                conversation,
-                sender,
-                messageGuid,
-                0uL,
-                listOf(UIndexedPart(UPart.Text(newText, ""), null, null)),
-            )
-        }
+        val inst = state.editMessage(
+            conversation,
+            sender,
+            messageGuid,
+            0uL,
+            listOf(UIndexedPart(UPart.Text(newText, ""), null, null)),
+        )
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
     override suspend fun unsend(chatId: Long, messageGuid: String) {
         val (state, conversation, sender, ingestor) = actionContext(chatId)
-        val inst = runInterruptible(Dispatchers.IO) {
-            state.unsendMessage(conversation, sender, messageGuid, 0uL)
-        }
+        val inst = state.unsendMessage(conversation, sender, messageGuid, 0uL)
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
@@ -2011,9 +2007,7 @@ private object CoreChatInfoActions : ChatInfoActions {
     override suspend fun rename(chatId: Long, name: String) {
         require(name.isNotBlank()) { "conversation name cannot be empty" }
         val context = context(chatId)
-        val inst = runInterruptible(Dispatchers.IO) {
-            context.state.renameChat(context.conversation, context.sender, name.trim())
-        }
+        val inst = context.state.renameChat(context.conversation, context.sender, name.trim())
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
@@ -2039,15 +2033,13 @@ private object CoreChatInfoActions : ChatInfoActions {
         require(file.isFile) { "group photo is unavailable" }
         val context = context(chatId)
         val version = nextGroupVersion(context.chat)
-        val inst = runInterruptible(Dispatchers.IO) {
-            context.state.setGroupIcon(
-                context.conversation,
-                context.sender,
-                file.absolutePath,
-                version,
-                null,
-            )
-        }
+        val inst = context.state.setGroupIcon(
+            context.conversation,
+            context.sender,
+            file.absolutePath,
+            version,
+            null,
+        )
         context.chat.customAvatarPath = file.absolutePath
         context.chat.photoAttachmentGuid = inst.id
         context.chat.groupVersion = version.toLong()
@@ -2058,9 +2050,7 @@ private object CoreChatInfoActions : ChatInfoActions {
     override suspend fun removeGroupIcon(chatId: Long) {
         val context = context(chatId)
         val version = nextGroupVersion(context.chat)
-        val inst = runInterruptible(Dispatchers.IO) {
-            context.state.removeGroupIcon(context.conversation, context.sender, version)
-        }
+        val inst = context.state.removeGroupIcon(context.conversation, context.sender, version)
         context.chat.customAvatarPath?.let { runCatching { File(it).delete() } }
         context.chat.customAvatarPath = null
         context.chat.photoAttachmentGuid = null
@@ -2071,13 +2061,11 @@ private object CoreChatInfoActions : ChatInfoActions {
 
     override suspend fun leave(chatId: Long) {
         val context = context(chatId)
-        val inst = runInterruptible(Dispatchers.IO) {
-            context.state.leaveChat(
-                context.conversation,
-                context.sender,
-                nextGroupVersion(context.chat),
-            )
-        }
+        val inst = context.state.leaveChat(
+            context.conversation,
+            context.sender,
+            nextGroupVersion(context.chat),
+        )
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
@@ -2119,14 +2107,12 @@ private object CoreChatInfoActions : ChatInfoActions {
 
     private suspend fun changeParticipants(context: GroupActionContext, participants: List<String>) {
         val version = nextGroupVersion(context.chat)
-        val inst = runInterruptible(Dispatchers.IO) {
-            context.state.changeParticipants(
-                context.conversation,
-                context.sender,
-                participants,
-                version,
-            )
-        }
+        val inst = context.state.changeParticipants(
+            context.conversation,
+            context.sender,
+            participants,
+            version,
+        )
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
     }
 
@@ -2418,26 +2404,24 @@ private object CoreStickerSender : StickerSender {
         val conversation = sendConversation(store, chat, sender)
         val displayName = sticker.name ?: "sticker.png"
 
-        val inst = runInterruptible(Dispatchers.IO) {
-            state.sendSticker(
-                conversation,
-                sender,
-                targetGuid,
-                targetPart.toULong(),
-                targetText,
-                sticker.file.absolutePath,
-                sticker.mime,
-                sticker.uti,
-                displayName,
-                transform.messageWidth,
-                transform.normalizedX,
-                transform.normalizedY,
-                transform.rotation,
-                transform.scale,
-                transform.effectType,
-                null,
-            )
-        }
+        val inst = state.sendSticker(
+            conversation,
+            sender,
+            targetGuid,
+            targetPart.toULong(),
+            targetText,
+            sticker.file.absolutePath,
+            sticker.mime,
+            sticker.uti,
+            displayName,
+            transform.messageWidth,
+            transform.normalizedX,
+            transform.normalizedY,
+            transform.rotation,
+            transform.scale,
+            transform.effectType,
+            null,
+        )
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
 
         // The uploaded sticker is already local. Put a copy in the canonical

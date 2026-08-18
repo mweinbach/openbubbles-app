@@ -1530,11 +1530,17 @@ class MessageIngestorTest {
         ingestor = MessageIngestor(
             store,
             scope = profileScope,
-            profileUpdatePort = ProfileUpdatePort { address, json, kind ->
-                assertEquals("friend@icloud.com", address)
-                assertEquals("profile-json", json)
-                received += kind
-                IncomingProfile("Friendly Name", "/tmp/friendly-poster.img")
+            profileUpdatePort = object : ProfileUpdatePort {
+                override suspend fun receive(
+                    senderAddress: String,
+                    profileJson: String,
+                    kind: ProfileMessageKind,
+                ): IncomingProfile {
+                    assertEquals("friend@icloud.com", senderAddress)
+                    assertEquals("profile-json", profileJson)
+                    received += kind
+                    return IncomingProfile("Friendly Name", "/tmp/friendly-poster.img")
+                }
             },
         )
         ingestor.ingest(
@@ -1569,9 +1575,15 @@ class MessageIngestorTest {
         ingestor = MessageIngestor(
             store,
             scope = profileScope,
-            profileUpdatePort = ProfileUpdatePort { _, _, kind ->
-                received += kind
-                null
+            profileUpdatePort = object : ProfileUpdatePort {
+                override suspend fun receive(
+                    senderAddress: String,
+                    profileJson: String,
+                    kind: ProfileMessageKind,
+                ): IncomingProfile? {
+                    received += kind
+                    return null
+                }
             },
         )
         ingestor.ingest(

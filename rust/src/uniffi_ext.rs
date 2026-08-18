@@ -483,6 +483,18 @@ fn send_inst(state: &SharedPushState, inst: MessageInst) -> Result<UMessageInst,
     RUNTIME.block_on(send_inst_on(state, inst))
 }
 
+/// Stamp a new envelope for `msg` and send it — the body every simple
+/// async send export drives through [drive_ffi].
+async fn send_msg_on(
+    state: Arc<SharedPushState>,
+    conversation: UConversation,
+    sender: String,
+    msg: Message,
+) -> Result<UMessageInst, UError> {
+    let inst = api::new_msg(back_conversation(conversation), sender, msg).await;
+    send_inst_on(&state, inst).await
+}
+
 /// Runs an async export's work without occupying a runtime worker: the
 /// future is driven to completion from a blocking-pool thread — the same
 /// execution profile the sync exports have (a parked thread polling via
@@ -628,7 +640,7 @@ impl NativePushState {
     /// Upload an image and attach it as a positional sticker to one message
     /// part. Coordinates are normalized to the target bubble (0..1), rotation
     /// is in radians, and scale is relative to the sticker's natural size.
-    pub fn send_sticker(
+    pub async fn send_sticker(
         &self,
         conversation: UConversation,
         sender: String,
@@ -663,51 +675,54 @@ impl NativePushState {
             });
         }
 
-        let source = std::fs::read(&file_path).map_err(|e| UError::InvalidArgument {
-            reason: format!("cannot read sticker: {e}"),
-        })?;
-        let hash = format!("{:x}", Sha256::digest(&source));
-        let attachment = upload_attachment_inner(
-            &self.shared().conn,
-            file_path,
-            mime,
-            uti,
-            name,
-            progress,
-        )?;
-        let extension = PartExtension::sticker(
-            msg_width,
-            rotation,
-            scale,
-            normalized_x,
-            normalized_y,
-            hash,
-            effect_type,
-            uuid::Uuid::new_v4().to_string(),
-        );
-        let react = ReactMessage {
-            to_uuid,
-            to_part,
-            reaction: ReactMessageType::React {
-                reaction: Reaction::Sticker {
-                    spec: None,
-                    body: MessageParts(vec![IndexedMessagePart {
-                        part: MessagePart::Attachment(attachment),
-                        idx: Some(0),
-                        ext: Some(extension),
-                    }]),
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let source = std::fs::read(&file_path).map_err(|e| UError::InvalidArgument {
+                reason: format!("cannot read sticker: {e}"),
+            })?;
+            let hash = format!("{:x}", Sha256::digest(&source));
+            let attachment = upload_attachment_task(
+                state.conn.clone(),
+                file_path,
+                mime,
+                uti,
+                name,
+                progress,
+            ).await?;
+            let extension = PartExtension::sticker(
+                msg_width,
+                rotation,
+                scale,
+                normalized_x,
+                normalized_y,
+                hash,
+                effect_type,
+                uuid::Uuid::new_v4().to_string(),
+            );
+            let react = ReactMessage {
+                to_uuid,
+                to_part,
+                reaction: ReactMessageType::React {
+                    reaction: Reaction::Sticker {
+                        spec: None,
+                        body: MessageParts(vec![IndexedMessagePart {
+                            part: MessagePart::Attachment(attachment),
+                            idx: Some(0),
+                            ext: Some(extension),
+                        }]),
+                    },
+                    enable: true,
                 },
-                enable: true,
-            },
-            to_text,
-            embedded_profile: None,
-        };
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::React(react),
-        ));
-        send_inst(self.shared(), inst)
+                to_text,
+                embedded_profile: None,
+            };
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::React(react),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 }
 
@@ -2023,18 +2038,6 @@ async fn upload_attachment_task(
         .map_err(|e| UError::Failed { reason: format!("attachment upload failed: {e}") })
 }
 
-/// Sync shim for the exports that have not moved to async yet (stickers).
-fn upload_attachment_inner(
-    conn: &rustpush::APSConnection,
-    file_path: String,
-    mime: String,
-    uti: String,
-    name: Option<String>,
-    progress: Option<Arc<dyn UProgressCallback>>,
-) -> Result<Attachment, UError> {
-    RUNTIME.block_on(upload_attachment_task(conn.clone(), file_path, mime, uti, name, progress))
-}
-
 /// UPart -> MessagePart (needed for edit-message parts coming from Kotlin).
 fn back_part(p: UPart) -> Result<MessagePart, UError> {
     match p {
@@ -2325,7 +2328,7 @@ impl NativePushState {
     /// optional formatting; attachment parts reference an already-uploaded
     /// attachment via their `xml`). No progress callback: nothing is
     /// transferred.
-    pub fn edit_message(
+    pub async fn edit_message(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2338,14 +2341,13 @@ impl NativePushState {
             edit_part,
             new_parts: back_parts(new_parts)?,
         });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 
     /// Unsend (remove for everyone) a previously-sent message part
     /// (Dart `unsend`). `to_uuid` is the original message GUID, `edit_part`
     /// the part index to retract.
-    pub fn unsend_message(
+    pub async fn unsend_message(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2353,27 +2355,25 @@ impl NativePushState {
         edit_part: u64,
     ) -> Result<UMessageInst, UError> {
         let msg = Message::Unsend(UnsendMessage { tuuid: to_uuid, edit_part });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 
     /// Rename a group chat (Dart `renameChat`).
-    pub fn rename_chat(
+    pub async fn rename_chat(
         &self,
         conversation: UConversation,
         sender: String,
         new_name: String,
     ) -> Result<UMessageInst, UError> {
         let msg = Message::RenameMessage(RenameMessage { new_name });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 
     /// Set the full participant list of a group (add/remove inferred by
     /// comparison, exactly like rustpush/Dart `chatParticipant`). Pass every
     /// participant including `sender`, formatted+prefixed
     /// (`tel:+1...` / `mailto:...`). Bump `group_version` by one.
-    pub fn change_participants(
+    pub async fn change_participants(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2384,14 +2384,13 @@ impl NativePushState {
             new_participants,
             group_version,
         });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 
     /// Leave a group chat: sends ChangeParticipants with `sender` removed
     /// (Dart `leaveChat`). The removal matches the sender with or without
     /// its `tel:`/`mailto:` prefix.
-    pub fn leave_chat(
+    pub async fn leave_chat(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2416,14 +2415,13 @@ impl NativePushState {
             new_participants,
             group_version,
         });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 
     /// Set the group photo: uploads the local image to MMCS (Dart
     /// `setChatIcon`, api.rs `upload_mmcs`) and sends the IconChange
     /// message. The file should be a 570x570 PNG.
-    pub fn set_group_icon(
+    pub async fn set_group_icon(
         &self,
         conversation: UConversation,
         sender: String,
@@ -2431,33 +2429,35 @@ impl NativePushState {
         group_version: u64,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<UMessageInst, UError> {
-        let path = Path::new(&file_path);
-        let mut file = std::fs::File::open(path)
-            .map_err(|e| UError::InvalidArgument { reason: format!("cannot open {}: {e}", path.display()) })?;
-        let prepared = RUNTIME
-            .block_on(MMCSFile::prepare_put(&mut file))
-            .map_err(|e| UError::Failed { reason: format!("failed to prepare group icon: {e}") })?;
-        file.rewind()
-            .map_err(|e| UError::Failed { reason: format!("failed to rewind {}: {e}", path.display()) })?;
-        let mmcs = RUNTIME
-            .block_on(MMCSFile::new(&self.shared().conn, &prepared, file, progress_cb(progress)))
-            .map_err(|e| UError::Failed { reason: format!("group icon upload failed: {e}") })?;
-        let msg = Message::IconChange(IconChangeMessage { file: Some(mmcs), group_version });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let path = Path::new(&file_path);
+            let mut file = std::fs::File::open(path)
+                .map_err(|e| UError::InvalidArgument { reason: format!("cannot open {}: {e}", path.display()) })?;
+            let prepared = MMCSFile::prepare_put(&mut file)
+                .await
+                .map_err(|e| UError::Failed { reason: format!("failed to prepare group icon: {e}") })?;
+            file.rewind()
+                .map_err(|e| UError::Failed { reason: format!("failed to rewind {}: {e}", path.display()) })?;
+            let mmcs = MMCSFile::new(&state.conn, &prepared, file, progress_cb(progress))
+                .await
+                .map_err(|e| UError::Failed { reason: format!("group icon upload failed: {e}") })?;
+            let msg = Message::IconChange(IconChangeMessage { file: Some(mmcs), group_version });
+            let inst = api::new_msg(back_conversation(conversation), sender, msg).await;
+            send_inst_on(&state, inst).await
+        }).await
     }
 
     /// Remove the group photo (Dart `deleteChatIcon`): IconChange with no
     /// attached file.
-    pub fn remove_group_icon(
+    pub async fn remove_group_icon(
         &self,
         conversation: UConversation,
         sender: String,
         group_version: u64,
     ) -> Result<UMessageInst, UError> {
         let msg = Message::IconChange(IconChangeMessage { file: None, group_version });
-        let inst = RUNTIME.block_on(api::new_msg(back_conversation(conversation), sender, msg));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, msg)).await
     }
 }
 
@@ -2982,7 +2982,7 @@ fn sync_err(e: impl std::fmt::Display) -> UError {
     UError::Failed { reason: format!("cloudkit sync failed: {e}") }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
     /// Whether CloudKit message-history sync can run on this state.
     pub fn cloud_sync_state(&self) -> USyncState {
@@ -3049,159 +3049,170 @@ impl NativePushState {
     /// Pull one page of chat changes (`sync_chats`). Pass the previous
     /// page's `next_cursor` (none for the first page); persist the returned
     /// cursor after applying the records. `more == false` ends the zone.
-    pub fn sync_chats_page(&self, cursor: Option<Vec<u8>>) -> Result<UChatSyncPage, UError> {
+    pub async fn sync_chats_page(&self, cursor: Option<Vec<u8>>) -> Result<UChatSyncPage, UError> {
         let client = cloud_messages_client(self.shared())?;
-        let (next, items, status) =
-            RUNTIME.block_on(api::sync_chats(&client, cursor)).map_err(sync_err)?;
-        Ok(UChatSyncPage {
-            records: items
-                .into_iter()
-                .map(|(record_id, chat)| UChatChange {
-                    blob: chat.as_ref().map(chat_blob).unwrap_or_default(),
-                    record_id,
-                    chat: chat.as_ref().map(conv_chat),
-                })
-                .collect(),
-            next_cursor: next,
-            more: status != 3,
-            status,
-        })
+        drive_ffi(async move {
+            let (next, items, status) =
+                api::sync_chats(&client, cursor).await.map_err(sync_err)?;
+            Ok(UChatSyncPage {
+                records: items
+                    .into_iter()
+                    .map(|(record_id, chat)| UChatChange {
+                        blob: chat.as_ref().map(chat_blob).unwrap_or_default(),
+                        record_id,
+                        chat: chat.as_ref().map(conv_chat),
+                    })
+                    .collect(),
+                next_cursor: next,
+                more: status != 3,
+                status,
+            })
+        }).await
     }
 
     /// Pull one page of message changes (`sync_messages`). Same cursor
     /// contract as `sync_chats_page`.
-    pub fn sync_messages_page(&self, cursor: Option<Vec<u8>>) -> Result<UMessageSyncPage, UError> {
+    pub async fn sync_messages_page(&self, cursor: Option<Vec<u8>>) -> Result<UMessageSyncPage, UError> {
         let client = cloud_messages_client(self.shared())?;
-        let (next, items, status) =
-            RUNTIME.block_on(api::sync_messages(&client, cursor)).map_err(sync_err)?;
-        Ok(UMessageSyncPage {
-            records: items
-                .into_iter()
-                .map(|(record_id, message)| UMessageChange {
-                    blob: message.as_ref().map(message_blob).unwrap_or_default(),
-                    record_id,
-                    message: message.as_ref().map(conv_cloud_message),
-                })
-                .collect(),
-            next_cursor: next,
-            more: status != 3,
-            status,
-        })
+        drive_ffi(async move {
+            let (next, items, status) =
+                api::sync_messages(&client, cursor).await.map_err(sync_err)?;
+            Ok(UMessageSyncPage {
+                records: items
+                    .into_iter()
+                    .map(|(record_id, message)| UMessageChange {
+                        blob: message.as_ref().map(message_blob).unwrap_or_default(),
+                        record_id,
+                        message: message.as_ref().map(conv_cloud_message),
+                    })
+                    .collect(),
+                next_cursor: next,
+                more: status != 3,
+                status,
+            })
+        }).await
     }
 
     /// Query CloudKit for type-138 transcript-background records, ignoring
     /// the incremental change cursor. Incremental sync never re-emits a
     /// wallpaper it already walked past.
-    pub fn query_transcript_backgrounds(&self) -> Result<Vec<UMessageChange>, UError> {
+    pub async fn query_transcript_backgrounds(&self) -> Result<Vec<UMessageChange>, UError> {
         let client = cloud_messages_client(self.shared())?;
-        let items = RUNTIME
-            .block_on(api::query_transcript_backgrounds(&client))
-            .map_err(sync_err)?;
-        Ok(items
-            .into_iter()
-            .map(|(record_id, message)| UMessageChange {
-                blob: message_blob(&message),
-                record_id,
-                message: Some(conv_cloud_message(&message)),
-            })
-            .collect())
+        drive_ffi(async move {
+            let items = api::query_transcript_backgrounds(&client)
+                .await
+                .map_err(sync_err)?;
+            Ok(items
+                .into_iter()
+                .map(|(record_id, message)| UMessageChange {
+                    blob: message_blob(&message),
+                    record_id,
+                    message: Some(conv_cloud_message(&message)),
+                })
+                .collect())
+        }).await
     }
 
     /// Pull one page of attachment metadata. Payload bytes stay remote until
     /// `download_cloud_attachment` is called for a visible attachment.
-    pub fn sync_attachments_page(
+    pub async fn sync_attachments_page(
         &self,
         cursor: Option<Vec<u8>>,
     ) -> Result<UAttachmentSyncPage, UError> {
         let client = cloud_messages_client(self.shared())?;
-        let (next, items, status) =
-            RUNTIME.block_on(api::sync_attachments(&client, cursor)).map_err(sync_err)?;
-        Ok(UAttachmentSyncPage {
-            records: items
-                .into_iter()
-                .map(|(record_id, attachment)| UAttachmentChange {
-                    record_id,
-                    attachment: attachment.as_ref().map(conv_cloud_attachment),
-                })
-                .collect(),
-            next_cursor: next,
-            more: status != 3,
-            status,
-        })
+        drive_ffi(async move {
+            let (next, items, status) =
+                api::sync_attachments(&client, cursor).await.map_err(sync_err)?;
+            Ok(UAttachmentSyncPage {
+                records: items
+                    .into_iter()
+                    .map(|(record_id, attachment)| UAttachmentChange {
+                        record_id,
+                        attachment: attachment.as_ref().map(conv_cloud_attachment),
+                    })
+                    .collect(),
+                next_cursor: next,
+                more: status != 3,
+                status,
+            })
+        }).await
     }
 
     /// Download one Messages-in-iCloud attachment asset directly to `path`.
-    pub fn download_cloud_attachment(
+    pub async fn download_cloud_attachment(
         &self,
         record_id: String,
         path: String,
     ) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
-        RUNTIME
-            .block_on(api::download_cloud_attachments(
-                &client,
-                vec![(path, record_id)],
-            ))
-            .map_err(sync_err)
+        drive_ffi(async move {
+            api::download_cloud_attachments(&client, vec![(path, record_id)])
+                .await
+                .map_err(sync_err)
+        }).await
     }
 
     /// Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
     /// from the chat zone directly to `path`.
-    pub fn download_group_photo(
+    pub async fn download_group_photo(
         &self,
         record_id: String,
         path: String,
     ) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
-        RUNTIME
-            .block_on(api::download_cloud_group_photos(
-                &client,
-                vec![(path, record_id)],
-            ))
-            .map_err(sync_err)
+        drive_ffi(async move {
+            api::download_cloud_group_photos(&client, vec![(path, record_id)])
+                .await
+                .map_err(sync_err)
+        }).await
     }
 
     /// Push local deletions to iCloud BEFORE pulling (`delete_chats`);
     /// otherwise the pull resurrects rows the user removed. Flushes the
     /// caller's pending-delete queues like Dart's `chatDeletionIds-1`.
-    pub fn delete_chats_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+    pub async fn delete_chats_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
-        RUNTIME.block_on(api::delete_chats(&client, &record_ids)).map_err(sync_err)
+        drive_ffi(async move {
+            api::delete_chats(&client, &record_ids).await.map_err(sync_err)
+        }).await
     }
 
     /// Push local message deletions to iCloud (`delete_messages`).
-    pub fn delete_messages_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+    pub async fn delete_messages_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
-        RUNTIME.block_on(api::delete_messages(&client, &record_ids)).map_err(sync_err)
+        drive_ffi(async move {
+            api::delete_messages(&client, &record_ids).await.map_err(sync_err)
+        }).await
     }
 
     /// Push local attachment deletions to iCloud (`delete_attachments`).
-    pub fn delete_attachments_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
+    pub async fn delete_attachments_remote(&self, record_ids: Vec<String>) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
-        RUNTIME
-            .block_on(api::delete_attachments(&client, &record_ids))
-            .map_err(sync_err)
+        drive_ffi(async move {
+            api::delete_attachments(&client, &record_ids).await.map_err(sync_err)
+        }).await
     }
 
     /// Coarse driver: pull both zones (chats, then messages) to completion,
     /// streaming every page's records + running counts through `on_page`.
     /// `mode` picks the start cursors — `Full` ignores the passed cursors,
-    /// `Incremental` resumes from them. Runs entirely on the calling thread
-    /// (`RUNTIME.block_on` per page); cooperative cancellation is checked
-    /// between pages via `keep_going`. Returns the summary and the cursors
-    /// reached — persist them either way, treating an EMPTY cursor as
-    /// "zone never pulled a page" (i.e. keep the previously stored one).
-    /// Per-record failures are the callback's concern — the Rust loop only
-    /// aborts on transport errors.
-    pub fn sync_history(
+    /// `Incremental` resumes from them. Runs on the engine's blocking pool
+    /// (the Kotlin caller suspends for the duration); cooperative
+    /// cancellation is checked between pages via `keep_going`. Returns the
+    /// summary and the cursors reached — persist them either way, treating
+    /// an EMPTY cursor as "zone never pulled a page" (i.e. keep the
+    /// previously stored one). Per-record failures are the callback's
+    /// concern — the Rust loop only aborts on transport errors.
+    pub async fn sync_history(
         &self,
         chat_cursor: Option<Vec<u8>>,
         message_cursor: Option<Vec<u8>>,
         mode: USyncMode,
         on_page: Arc<dyn USyncPageCallback>,
     ) -> Result<USyncOutcome, UError> {
-        let started = std::time::Instant::now();
         let client = cloud_messages_client(self.shared())?;
+        drive_ffi(async move {
+        let started = std::time::Instant::now();
         let mut summary = USyncSummary {
             chats_done: 0,
             chat_tombstones: 0,
@@ -3218,7 +3229,7 @@ impl NativePushState {
                 break 'chats;
             }
             let (next, items, status) =
-                RUNTIME.block_on(api::sync_chats(&client, chat_cursor.clone())).map_err(sync_err)?;
+                api::sync_chats(&client, chat_cursor.clone()).await.map_err(sync_err)?;
             chat_cursor = Some(next);
             let mut records = Vec::with_capacity(items.len());
             for (record_id, chat) in items {
@@ -3250,9 +3261,8 @@ impl NativePushState {
                     summary.cancelled = true;
                     break 'messages;
                 }
-                let (next, items, status) = RUNTIME
-                    .block_on(api::sync_messages(&client, message_cursor.clone()))
-                    .map_err(sync_err)?;
+                let (next, items, status) =
+                    api::sync_messages(&client, message_cursor.clone()).await.map_err(sync_err)?;
                 message_cursor = Some(next);
                 let mut records = Vec::with_capacity(items.len());
                 for (record_id, message) in items {
@@ -3284,6 +3294,7 @@ impl NativePushState {
             chat_cursor: chat_cursor.unwrap_or_default(),
             message_cursor: message_cursor.unwrap_or_default(),
         })
+        }).await
     }
 }
 
@@ -4307,32 +4318,35 @@ fn decode_share_profile(profile_json: &str) -> Result<Option<ShareProfileMessage
         })
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
     /// api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
     /// from `UMessage.ShareProfile` / `UpdateProfile` payloads) to the
     /// sender's shared name + avatar + poster.
-    pub fn fetch_profile(&self, profile_json: String) -> Result<UNicknameRecord, UError> {
-        let services = self.shared().icloud_services.as_ref().ok_or_else(|| {
-            UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
-        })?;
-        let message = decode_share_profile(&profile_json)?.ok_or_else(|| UError::InvalidArgument {
-            reason: "profile update did not include a profile".to_string(),
-        })?;
-        let record = RUNTIME
-            .block_on(api::fetch_profile(&services.profiles_client, &message))
-            .map_err(|e| UError::Failed { reason: format!("fetch profile failed: {e}") })?;
-        Ok(UNicknameRecord {
-            name: record.name.name,
-            first: record.name.first,
-            last: record.name.last,
-            image: record.image,
-            poster: record.poster.map(|p| UPosterRecord {
-                low_res_poster: p.low_res_poster,
-                package: p.package,
-                meta: p.meta,
-            }),
-        })
+    pub async fn fetch_profile(&self, profile_json: String) -> Result<UNicknameRecord, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let services = state.icloud_services.as_ref().ok_or_else(|| {
+                UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
+            })?;
+            let message = decode_share_profile(&profile_json)?.ok_or_else(|| UError::InvalidArgument {
+                reason: "profile update did not include a profile".to_string(),
+            })?;
+            let record = api::fetch_profile(&services.profiles_client, &message)
+                .await
+                .map_err(|e| UError::Failed { reason: format!("fetch profile failed: {e}") })?;
+            Ok(UNicknameRecord {
+                name: record.name.name,
+                first: record.name.first,
+                last: record.name.last,
+                image: record.image,
+                poster: record.poster.map(|p| UPosterRecord {
+                    low_res_poster: p.low_res_poster,
+                    package: p.package,
+                    meta: p.meta,
+                }),
+            })
+        }).await
     }
 
     /// api.rs `set_profile` — publish this account's shared name/image/
@@ -4340,7 +4354,7 @@ impl NativePushState {
     /// (kept across runs, like Dart's `shareProfileMessage` setting).
     /// Returns the new `ShareProfileMessage` JSON: persist it, and send it
     /// to contacts with `send_profile`.
-    pub fn set_profile(
+    pub async fn set_profile(
         &self,
         name: String,
         first: String,
@@ -4349,29 +4363,32 @@ impl NativePushState {
         poster: Option<UPosterRecord>,
         existing_json: Option<String>,
     ) -> Result<String, UError> {
-        let services = self.shared().icloud_services.as_ref().ok_or_else(|| {
-            UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
-        })?;
-        let existing = match existing_json {
-            Some(json) => Some(serde_json::from_str::<ShareProfileMessage>(&json)
-                .map_err(|e| UError::InvalidArgument { reason: format!("invalid existing profile json: {e}") })?),
-            None => None,
-        };
-        let record = IMessageNicknameRecord {
-            name: IMessageNameRecord { name, first, last },
-            image,
-            poster: poster.map(back_poster_record),
-        };
-        let message = RUNTIME
-            .block_on(api::set_profile(&services.profiles_client, record, existing))
-            .map_err(|e| UError::Failed { reason: format!("set profile failed: {e}") })?;
-        serde_json::to_string(&message)
-            .map_err(|e| UError::Failed { reason: format!("failed to serialize profile message: {e}") })
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let services = state.icloud_services.as_ref().ok_or_else(|| {
+                UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
+            })?;
+            let existing = match existing_json {
+                Some(json) => Some(serde_json::from_str::<ShareProfileMessage>(&json)
+                    .map_err(|e| UError::InvalidArgument { reason: format!("invalid existing profile json: {e}") })?),
+                None => None,
+            };
+            let record = IMessageNicknameRecord {
+                name: IMessageNameRecord { name, first, last },
+                image,
+                poster: poster.map(back_poster_record),
+            };
+            let message = api::set_profile(&services.profiles_client, record, existing)
+                .await
+                .map_err(|e| UError::Failed { reason: format!("set profile failed: {e}") })?;
+            serde_json::to_string(&message)
+                .map_err(|e| UError::Failed { reason: format!("failed to serialize profile message: {e}") })
+        }).await
     }
 
     /// Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
     /// conversation — the "share name and photo" message.
-    pub fn send_profile(
+    pub async fn send_profile(
         &self,
         conversation: UConversation,
         sender: String,
@@ -4379,12 +4396,7 @@ impl NativePushState {
     ) -> Result<UMessageInst, UError> {
         let message: ShareProfileMessage = serde_json::from_str(&profile_json)
             .map_err(|e| UError::InvalidArgument { reason: format!("invalid profile message json: {e}") })?;
-        let inst = RUNTIME.block_on(api::new_msg(
-            back_conversation(conversation),
-            sender,
-            Message::ShareProfile(message),
-        ));
-        send_inst(self.shared(), inst)
+        drive_ffi(send_msg_on(self.shared_arc(), conversation, sender, Message::ShareProfile(message))).await
     }
 
     pub fn report_spam(
