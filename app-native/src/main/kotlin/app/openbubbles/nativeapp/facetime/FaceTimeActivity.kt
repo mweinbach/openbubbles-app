@@ -206,8 +206,7 @@ class FaceTimeActivity : Activity() {
         }
 
         if (mirrorReady) {
-            binding.mainFrame.visibility = View.VISIBLE
-            binding.splashLayout.visibility = View.GONE
+            showInCallSurface()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window.setBackgroundBlurRadius(0)
             }
@@ -324,9 +323,9 @@ class FaceTimeActivity : Activity() {
     }
 
     /**
-     * Incoming splash is the surface we own: poster/identity above a
-     * tabletop hinge, accept/decline below. In-call UI lives in the
-     * FaceTime WebView and stays full-bleed.
+     * Incoming splash: poster/identity above a tabletop hinge, accept/decline
+     * below. In-call: letterbox the WebView above that hinge so call chrome
+     * does not sit on the crease.
      */
     private fun observeFoldingFeatures() {
         binding.root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -368,6 +367,7 @@ class FaceTimeActivity : Activity() {
             null
         }
         applyTabletopSplit(split)
+        applyInCallLetterbox(split)
     }
 
     private fun applyTabletopSplit(split: FaceTimeTabletopInsets?) {
@@ -390,6 +390,27 @@ class FaceTimeActivity : Activity() {
         }
         binding.callDescription.layoutParams = description
         binding.acceptButtons.layoutParams = buttons
+    }
+
+    private fun applyInCallLetterbox(split: FaceTimeTabletopInsets?) {
+        val params = binding.mainFrame.layoutParams as FrameLayout.LayoutParams
+        val inCall = binding.splashLayout.visibility != View.VISIBLE
+        if (split != null && inCall) {
+            params.height = split.contentHeightPx
+            params.topMargin = 0
+            params.gravity = Gravity.TOP
+        } else {
+            params.height = FrameLayout.LayoutParams.MATCH_PARENT
+            params.topMargin = 0
+            params.gravity = Gravity.NO_GRAVITY
+        }
+        binding.mainFrame.layoutParams = params
+    }
+
+    private fun showInCallSurface() {
+        binding.mainFrame.visibility = View.VISIBLE
+        binding.splashLayout.visibility = View.GONE
+        applyIncomingCallFold(lastFoldFeature)
     }
 
     var serviceStarted: Boolean = false
@@ -491,8 +512,7 @@ class FaceTimeActivity : Activity() {
         binding.acceptButtons.visibility = View.GONE
         binding.loadingBanner.text = getString(R.string.facetime_connecting)
         Handler(Looper.getMainLooper()).postDelayed({
-            binding.mainFrame.visibility = View.VISIBLE
-            binding.splashLayout.visibility = View.GONE
+            showInCallSurface()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window.setBackgroundBlurRadius(0)
             }
@@ -524,8 +544,7 @@ class FaceTimeActivity : Activity() {
         cached.mirrorReadyCall = {
             mirrorReady = true
             if (answered) {
-                binding.mainFrame.visibility = View.VISIBLE
-                binding.splashLayout.visibility = View.GONE
+                showInCallSurface()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     window.setBackgroundBlurRadius(0)
                 }

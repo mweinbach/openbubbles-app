@@ -15,15 +15,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.separatingHorizontalHingeBounds
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
@@ -53,9 +58,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import app.openbubbles.nativeapp.ui.adaptive.qrTabletopSplit
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -177,21 +184,62 @@ fun QrScannerSheet(
                 TextButton(onClick = onClose) { Text("Go back") }
             }
         } else {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PreviewView(ctx).apply {
-                        controller = cameraController
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
+            val posture = currentWindowAdaptiveInfoV2().windowPosture
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val density = LocalDensity.current
+                val windowHeightPx = with(density) { maxHeight.roundToPx() }
+                val hinge = posture.separatingHorizontalHingeBounds.firstOrNull()
+                val split = if (posture.isTabletop && hinge != null) {
+                    qrTabletopSplit(
+                        windowHeightPx = windowHeightPx,
+                        hingeTopPx = hinge.top.toInt(),
+                        hingeBottomPx = hinge.bottom.toInt(),
+                    )
+                } else {
+                    null
+                }
+                val preview: @Composable (Modifier) -> Unit = { previewModifier ->
+                    AndroidView(
+                        modifier = previewModifier,
+                        factory = { ctx ->
+                            PreviewView(ctx).apply {
+                                controller = cameraController
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                            }
+                        },
+                    )
+                }
+                if (split == null) {
+                    preview(Modifier.fillMaxSize())
+                    ScanOverlay(
+                        torchOn = torchOn,
+                        onToggleTorch = { torchOn = !torchOn },
+                        onClose = onClose,
+                    )
+                } else {
+                    Column(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(with(density) { split.viewfinderHeightPx.toDp() }),
+                        ) {
+                            preview(Modifier.fillMaxSize())
+                            ScanFinder()
+                        }
+                        Spacer(
+                            Modifier.height(with(density) { split.hingeHeightPx.toDp() }),
+                        )
+                        ScanControls(
+                            torchOn = torchOn,
+                            onToggleTorch = { torchOn = !torchOn },
+                            onClose = onClose,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
                     }
-                },
-            )
-
-            ScanOverlay(
-                torchOn = torchOn,
-                onToggleTorch = { torchOn = !torchOn },
-                onClose = onClose,
-            )
+                }
+            }
         }
     }
 }
@@ -226,29 +274,7 @@ private fun ScanOverlay(
     onClose: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
-        Canvas(Modifier.fillMaxSize()) {
-            val side = size.width * 0.72f
-            val hole = Rect(
-                Offset((size.width - side) / 2f, (size.height - side) / 2f),
-                Size(side, side),
-            )
-            val holePath = Path().apply {
-                addRoundRect(RoundRect(hole, cornerRadius = CornerRadius(28f, 28f)))
-            }
-            val fillPath = Path().apply {
-                addRect(Rect(Offset.Zero, Size(size.width, size.height)))
-            }
-            drawPath(
-                path = Path.combine(PathOperation.Difference, fillPath, holePath),
-                color = Color.Black.copy(alpha = 0.62f),
-            )
-        }
-        CornerFrame(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.72f)
-                .aspectRatio(1f),
-        )
+        ScanFinder()
         Text(
             text = "Scan the pairing code on your Mac",
             color = Color.White,
@@ -286,6 +312,85 @@ private fun ScanOverlay(
                 if (torchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
                 contentDescription = "Toggle torch",
             )
+        }
+    }
+}
+
+/** Viewfinder scrim + corner brackets. Lives above a tabletop hinge. */
+@Composable
+private fun ScanFinder(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val side = size.width * 0.72f
+            val hole = Rect(
+                Offset((size.width - side) / 2f, (size.height - side) / 2f),
+                Size(side, side),
+            )
+            val holePath = Path().apply {
+                addRoundRect(RoundRect(hole, cornerRadius = CornerRadius(28f, 28f)))
+            }
+            val fillPath = Path().apply {
+                addRect(Rect(Offset.Zero, Size(size.width, size.height)))
+            }
+            drawPath(
+                path = Path.combine(PathOperation.Difference, fillPath, holePath),
+                color = Color.Black.copy(alpha = 0.62f),
+            )
+        }
+        CornerFrame(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.72f)
+                .aspectRatio(1f),
+        )
+    }
+}
+
+/** Close, torch, and caption — below a tabletop hinge. */
+@Composable
+private fun ScanControls(
+    torchOn: Boolean,
+    onToggleTorch: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    ) {
+        Text(
+            text = "Scan the pairing code on your Mac",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onClose,
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color.Black.copy(alpha = 0.55f),
+                    contentColor = Color.White,
+                ),
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "Close scanner")
+            }
+            IconButton(
+                onClick = onToggleTorch,
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color.Black.copy(alpha = 0.55f),
+                    contentColor = Color.White,
+                ),
+            ) {
+                Icon(
+                    if (torchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                    contentDescription = "Toggle torch",
+                )
+            }
         }
     }
 }

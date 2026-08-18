@@ -4,11 +4,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChatBubble
@@ -28,41 +28,44 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.ExpandedDockedSearchBar
+import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.RichLinkPreview
@@ -91,151 +94,194 @@ fun SearchScreen(
     onOpenContact: (RawContact) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Medium+ list-detail: dock the expanded results to the collapsed bar
+     * in the detail pane. Compact windows use the full-screen expanded bar.
+     */
+    docked: Boolean = false,
 ) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    val searchBarState = rememberSearchBarState(
+        initialValue = if (docked) SearchBarValue.Collapsed else SearchBarValue.Expanded,
+    )
+    val textFieldState = rememberTextFieldState(initialText = uiState.query)
+    val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val uriHandler = LocalUriHandler.current
     val highlight = uiState.query.trim()
 
-    Scaffold(
-        modifier = modifier,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    FilledTonalIconButton(
-                        onClick = onBack,
-                        shapes = IconButtonDefaults.shapes(),
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }
+            .distinctUntilChanged()
+            .collect(onQueryChange)
+    }
+    LaunchedEffect(docked) {
+        if (docked) searchBarState.animateToExpanded()
+    }
+    // Collapse (system back on the expanded bar, or the leading icon) leaves
+    // the destination. Do not fire on the docked first frame, which starts
+    // collapsed so the bar can measure before the popup anchors to it.
+    var hasExpanded by remember { mutableStateOf(!docked) }
+    LaunchedEffect(searchBarState.currentValue) {
+        when (searchBarState.currentValue) {
+            SearchBarValue.Expanded -> hasExpanded = true
+            SearchBarValue.Collapsed -> if (hasExpanded) onBack()
+        }
+    }
+
+    val inputField =
+        @Composable {
+            SearchBarDefaults.InputField(
+                textFieldState = textFieldState,
+                searchBarState = searchBarState,
+                onSearch = { keyboard?.hide() },
+                placeholder = {
+                    Text(
+                        modifier = Modifier.clearAndSetSemantics {},
+                        text = "Chats, people, messages, links",
+                    )
+                },
+                leadingIcon = {
+                    IconButton(
+                        onClick = { scope.launch { searchBarState.animateToCollapsed() } },
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                title = {
-                    TextField(
-                        value = uiState.query,
-                        onValueChange = onQueryChange,
-                        placeholder = { Text("Chats, people, messages, links") },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge,
-                        trailingIcon = if (uiState.query.isNotEmpty()) {
-                            {
-                                IconButton(onClick = { onQueryChange("") }) {
-                                    Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                                }
-                            }
-                        } else {
-                            null
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Search,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onSearch = { keyboard?.hide() },
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                    )
+                trailingIcon = if (textFieldState.text.isNotEmpty()) {
+                    {
+                        IconButton(onClick = { textFieldState.clearText() }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                } else {
+                    null
                 },
             )
-        },
-    ) { padding ->
-        when {
-            uiState.query.isBlank() -> SearchPlaceholder(
-                icon = Icons.Filled.Search,
-                title = "Search everything",
-                body = "Find chats, people, messages, and links across your conversations.",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .navigationBarsPadding(),
+        }
+    val results: @Composable ColumnScope.() -> Unit = {
+        SearchResults(
+            uiState = uiState,
+            highlight = highlight,
+            uriHandlerOpen = { url -> runCatching { uriHandler.openUri(url) } },
+            onOpenChat = onOpenChat,
+            onOpenContact = onOpenContact,
+        )
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        SearchBar(
+            state = searchBarState,
+            inputField = inputField,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        if (docked) {
+            ExpandedDockedSearchBar(
+                state = searchBarState,
+                inputField = inputField,
+                content = results,
             )
-            !uiState.hasResults -> SearchPlaceholder(
-                icon = Icons.Filled.SearchOff,
-                title = "No results",
-                body = "Nothing matches “${uiState.query.trim()}”",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .navigationBarsPadding(),
+        } else {
+            ExpandedFullScreenSearchBar(
+                state = searchBarState,
+                inputField = inputField,
+                content = results,
             )
-            else -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .navigationBarsPadding(),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (uiState.chats.isNotEmpty()) {
-                    item(key = "header-chats") { SearchSectionHeader("Chats") }
-                    itemsIndexed(
-                        uiState.chats,
-                        key = { _, chat -> "chat-${chat.id}" },
-                    ) { index, chat ->
-                        ChatResultRow(
-                            chat = chat,
-                            highlight = highlight,
-                            shape = segmentedRowShape(index, uiState.chats.size),
-                            onClick = { onOpenChat(chat.id) },
-                        )
-                    }
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(
+    uiState: SearchUiState,
+    highlight: String,
+    uriHandlerOpen: (String) -> Unit,
+    onOpenChat: (Long) -> Unit,
+    onOpenContact: (RawContact) -> Unit,
+) {
+    when {
+        uiState.query.isBlank() -> SearchPlaceholder(
+            icon = Icons.Filled.Search,
+            title = "Search everything",
+            body = "Find chats, people, messages, and links across your conversations.",
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
+        !uiState.hasResults -> SearchPlaceholder(
+            icon = Icons.Filled.SearchOff,
+            title = "No results",
+            body = "Nothing matches “${uiState.query.trim()}”",
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
+        else -> LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (uiState.chats.isNotEmpty()) {
+                item(key = "header-chats") { SearchSectionHeader("Chats") }
+                itemsIndexed(
+                    uiState.chats,
+                    key = { _, chat -> "chat-${chat.id}" },
+                ) { index, chat ->
+                    ChatResultRow(
+                        chat = chat,
+                        highlight = highlight,
+                        shape = segmentedRowShape(index, uiState.chats.size),
+                        onClick = { onOpenChat(chat.id) },
+                    )
                 }
-                if (uiState.people.isNotEmpty()) {
-                    item(key = "header-people") { SearchSectionHeader("People") }
-                    itemsIndexed(
-                        uiState.people,
-                        key = { _, contact -> "person-${contact.id}" },
-                    ) { index, contact ->
-                        PersonResultRow(
-                            contact = contact,
-                            highlight = highlight,
-                            shape = segmentedRowShape(index, uiState.people.size),
-                            onClick = { onOpenContact(contact) },
-                        )
-                    }
+            }
+            if (uiState.people.isNotEmpty()) {
+                item(key = "header-people") { SearchSectionHeader("People") }
+                itemsIndexed(
+                    uiState.people,
+                    key = { _, contact -> "person-${contact.id}" },
+                ) { index, contact ->
+                    PersonResultRow(
+                        contact = contact,
+                        highlight = highlight,
+                        shape = segmentedRowShape(index, uiState.people.size),
+                        onClick = { onOpenContact(contact) },
+                    )
                 }
-                if (uiState.messages.isNotEmpty()) {
-                    item(key = "header-messages") { SearchSectionHeader("Messages") }
-                    itemsIndexed(
-                        uiState.messages,
-                        key = { _, row -> "message-${row.guid}" },
-                    ) { index, row ->
-                        MessageResultRow(
-                            row = row,
-                            highlight = highlight,
-                            shape = segmentedRowShape(index, uiState.messages.size),
-                            onClick = { onOpenChat(row.chatId) },
-                        )
-                    }
+            }
+            if (uiState.messages.isNotEmpty()) {
+                item(key = "header-messages") { SearchSectionHeader("Messages") }
+                itemsIndexed(
+                    uiState.messages,
+                    key = { _, row -> "message-${row.guid}" },
+                ) { index, row ->
+                    MessageResultRow(
+                        row = row,
+                        highlight = highlight,
+                        shape = segmentedRowShape(index, uiState.messages.size),
+                        onClick = { onOpenChat(row.chatId) },
+                    )
                 }
-                if (uiState.links.isNotEmpty()) {
-                    item(key = "header-links") { SearchSectionHeader("Links") }
-                    itemsIndexed(
-                        uiState.links,
-                        key = { _, row -> "link-${row.guid}" },
-                    ) { index, row ->
-                        LinkResultRow(
-                            row = row,
-                            highlight = highlight,
-                            shape = segmentedRowShape(index, uiState.links.size),
-                            onClick = {
-                                row.link?.url?.let { url ->
-                                    runCatching { uriHandler.openUri(url) }
-                                }
-                            },
-                        )
-                    }
+            }
+            if (uiState.links.isNotEmpty()) {
+                item(key = "header-links") { SearchSectionHeader("Links") }
+                itemsIndexed(
+                    uiState.links,
+                    key = { _, row -> "link-${row.guid}" },
+                ) { index, row ->
+                    LinkResultRow(
+                        row = row,
+                        highlight = highlight,
+                        shape = segmentedRowShape(index, uiState.links.size),
+                        onClick = {
+                            row.link?.url?.let(uriHandlerOpen)
+                        },
+                    )
                 }
             }
         }
