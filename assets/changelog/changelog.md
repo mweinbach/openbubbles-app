@@ -2,6 +2,16 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.2.3
+
+### Fixes
+
+- Clearing a large backlog of waiting messages no longer rewrites the
+  whole delivery journal between every message. The journal now compacts
+  itself only once its dead records outnumber the live ones (and once
+  more when the queue empties), so a backlog drains in seconds instead of
+  roughly one message per second.
+
 ## v2.2.2
 
 ### Fixes
