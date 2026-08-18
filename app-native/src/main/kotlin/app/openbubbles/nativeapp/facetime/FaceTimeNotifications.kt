@@ -4,8 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 
 /** Shared FaceTime notification channel ids and creation. */
 internal object FaceTimeNotifications {
@@ -78,3 +82,29 @@ internal fun faceTimeForegroundServiceType(
     if (microphoneGranted) type = type or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
     return type
 }
+
+/**
+ * Incoming FaceTime always attaches a full-screen intent. The Android 14+
+ * grant is only used to decide whether Settings should send the user to
+ * the system full-screen-intent screen.
+ */
+internal fun shouldOfferFullScreenCallSettings(
+    canUseFullScreenIntent: Boolean,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): Boolean = sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !canUseFullScreenIntent
+
+internal fun shouldOfferFullScreenCallSettings(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
+    val granted = runCatching {
+        context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent()
+    }.getOrNull() ?: return false
+    return shouldOfferFullScreenCallSettings(
+        canUseFullScreenIntent = granted,
+        sdkInt = Build.VERSION.SDK_INT,
+    )
+}
+
+internal fun fullScreenCallSettingsIntent(packageName: String): Intent =
+    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).setData(
+        Uri.fromParts("package", packageName, null),
+    )

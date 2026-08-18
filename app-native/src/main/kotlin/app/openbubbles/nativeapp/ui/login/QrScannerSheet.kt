@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import app.openbubbles.nativeapp.ui.adaptive.qrTabletopSplit
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -146,9 +147,7 @@ fun QrScannerSheet(
                 executor,
                 qrMlKitAnalyzer(scanner, executor, deliver),
             )
-            cameraAvailable = runCatching {
-                cameraController.bindToLifecycle(lifecycleOwner)
-            }.isSuccess
+            cameraAvailable = bindQrCameraToLifecycle(cameraController, lifecycleOwner)
         }
         onDispose {
             cameraController.clearImageAnalysisAnalyzer()
@@ -264,6 +263,27 @@ fun QrScannerSheet(
             }
         }
     }
+}
+
+internal fun qrCameraSelectors(): List<CameraSelector> = listOf(
+    CameraSelector.DEFAULT_BACK_CAMERA,
+    CameraSelector.DEFAULT_FRONT_CAMERA,
+    CameraSelector.Builder().build(),
+)
+
+internal fun bindQrCameraToLifecycle(
+    controller: LifecycleCameraController,
+    lifecycleOwner: LifecycleOwner,
+    selectors: List<CameraSelector> = qrCameraSelectors(),
+): Boolean {
+    for (selector in selectors) {
+        controller.cameraSelector = selector
+        if (runCatching { controller.bindToLifecycle(lifecycleOwner) }.isSuccess) {
+            return true
+        }
+        runCatching { controller.unbind() }
+    }
+    return false
 }
 
 internal fun qrMlKitAnalyzer(

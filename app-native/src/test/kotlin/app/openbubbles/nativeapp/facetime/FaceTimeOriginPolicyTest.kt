@@ -44,4 +44,11 @@ class FaceTimeOriginPolicyTest {
         assertEquals("com.bluebubbles.in_call_channel", FaceTimeNotifications.CHANNEL_IN_CALL)
         assertEquals(FaceTimeNotifications.CHANNEL_INCOMING, CreateIncomingFaceTimeNotification.CHANNEL_ID)
     }
+
+    @Test
+    fun `full-screen call settings are offered only when Android 14 denied the grant`() {
+        assertFalse(shouldOfferFullScreenCallSettings(canUseFullScreenIntent = false, sdkInt = 33))
+        assertFalse(shouldOfferFullScreenCallSettings(canUseFullScreenIntent = true, sdkInt = 34))
+        assertTrue(shouldOfferFullScreenCallSettings(canUseFullScreenIntent = false, sdkInt = 34))
+    }
 }

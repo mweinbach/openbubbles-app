@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -129,6 +130,8 @@ import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
+import app.openbubbles.nativeapp.facetime.fullScreenCallSettingsIntent
+import app.openbubbles.nativeapp.facetime.shouldOfferFullScreenCallSettings
 import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
@@ -447,6 +450,9 @@ fun SettingsScreen(
     }
 
     var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }
+    var offerFullScreenCalls by remember {
+        mutableStateOf(shouldOfferFullScreenCallSettings(context))
+    }
     val smsRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -457,6 +463,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isDefaultSmsApp = SmsRole.isHeld(context)
+                offerFullScreenCalls = shouldOfferFullScreenCallSettings(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -835,6 +842,7 @@ fun SettingsScreen(
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
                 var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
+                val notifCount = if (offerFullScreenCalls) 4 else 3
                 SettingsToggleItem(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
@@ -844,7 +852,7 @@ fun SettingsScreen(
                         notifPrefs.hidePreviews = enabled
                     },
                     index = 0,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.Filled.VisibilityOff,
                 )
                 SettingsToggleItem(
@@ -856,7 +864,7 @@ fun SettingsScreen(
                         notifPrefs.replyEnabled = enabled
                     },
                     index = 1,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.AutoMirrored.Filled.Reply,
                 )
                 SettingsToggleItem(
@@ -868,9 +876,27 @@ fun SettingsScreen(
                         notifPrefs.notifyReactions = enabled
                     },
                     index = 2,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.Filled.EmojiEmotions,
                 )
+                if (offerFullScreenCalls) {
+                    SettingsActionItem(
+                        title = "Full-screen FaceTime alerts",
+                        supporting = "Android is blocking incoming calls from taking over the lock screen. Tap to allow them.",
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    fullScreenCallSettingsIntent(context.packageName),
+                                )
+                            }
+                        },
+                        index = 3,
+                        count = notifCount,
+                        multiline = true,
+                        icon = Icons.Filled.Videocam,
+                        iconTone = SettingsRowTone.Error,
+                    )
+                }
             }
 
             if (filter == null || filter == SettingsSection.Messaging) {

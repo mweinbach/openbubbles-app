@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.login
 
+import androidx.camera.core.CameraSelector
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -26,5 +27,14 @@ class QrScanPayloadTest {
 
         assertEquals(null, payload?.first)
         assertEquals("https://relay.example/pair", payload?.second)
+    }
+
+    @Test
+    fun `QR camera tries the back lens then the front lens then any camera`() {
+        val selectors = qrCameraSelectors()
+
+        assertEquals(3, selectors.size)
+        assertEquals(CameraSelector.DEFAULT_BACK_CAMERA, selectors[0])
+        assertEquals(CameraSelector.DEFAULT_FRONT_CAMERA, selectors[1])
     }
 }
