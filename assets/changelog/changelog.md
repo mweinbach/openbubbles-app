@@ -2,6 +2,18 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.10
+
+### Fixes
+
+- Repair iCloud sync now rebuilds from your existing Apple ID session
+  automatically - no password re-entry. Typing credentials forces a full
+  iCloud re-provision, and Apple hard-limits how many of those one
+  device identity gets; repeated repairs could hit "Cannot create
+  another iCloud account with this device". The sessioned path avoids
+  that entirely, and password sign-in remains available only as the
+  fallback when the session attempt fails.
+
 ## v2.3.9
 
 ### Fixes
