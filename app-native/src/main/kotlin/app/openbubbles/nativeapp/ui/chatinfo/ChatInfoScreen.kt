@@ -123,6 +123,7 @@ fun ChatInfoScreen(
     onSetBackground: suspend (File) -> Unit = {},
     onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
+    onReportJunk: suspend () -> Unit = {},
     /**
      * False only when this screen is a visible third pane (~1200dp). On
      * phones and two-pane layouts it replaces the conversation, so back
@@ -141,6 +142,7 @@ fun ChatInfoScreen(
     var renameDialog by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var confirmReportJunk by remember { mutableStateOf(false) }
     var renameText by remember(chat?.title) { mutableStateOf(chat?.title.orEmpty()) }
     var participantText by remember { mutableStateOf("") }
     var openContact by remember { mutableStateOf<ParticipantRow?>(null) }
@@ -286,6 +288,14 @@ fun ChatInfoScreen(
                     onChoose = { pickBackground.launch("image/*") },
                     onClear = { launchAction(onClearBackground) },
                 )
+                if (!chat.isSms) {
+                    TextButton(
+                        onClick = { confirmReportJunk = true },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    ) {
+                        Text("Report Junk", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         } else {
             Column(
@@ -446,6 +456,24 @@ fun ChatInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmLeave = false }) { Text("Cancel") }
+            },
+        )
+    }
+    if (confirmReportJunk) {
+        AlertDialog(
+            onDismissRequest = { confirmReportJunk = false },
+            title = { Text("Report Junk?") },
+            text = { Text("The last five incoming messages will be reported to Apple. This sender will be blocked and the conversation archived.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmReportJunk = false
+                        launchAction(onReportJunk, onBack)
+                    },
+                ) { Text("Report", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReportJunk = false }) { Text("Cancel") }
             },
         )
     }

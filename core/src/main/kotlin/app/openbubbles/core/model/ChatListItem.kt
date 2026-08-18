@@ -29,6 +29,8 @@ data class ChatListItem(
     val pinned: Boolean,
     /** True when notifications are fully muted for this chat. */
     val muted: Boolean,
+    /** True when the other participant currently shares a silenced Focus state. */
+    val notifsSilenced: Boolean,
     /** True when the chat is in the archived section. */
     val archived: Boolean,
     /** True for SMS-relay chats (RP SMS). */

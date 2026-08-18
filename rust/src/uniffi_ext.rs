@@ -51,7 +51,7 @@ use rustpush::{
     ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage, LinkMeta,
     IndexedMessagePart, Message, MessageInst, MessagePart, MessageParts, MessageType,
     MoveToRecycleBinMessage, NormalMessage, OperatedChat, PartExtension, PermanentDeleteMessage,
-    ReactMessage, ReactMessageType, Reaction, RenameMessage, SetTranscriptBackgroundMessage,
+    ReactMessage, ReactMessageType, Reaction, RenameMessage, ReportMessage, SetTranscriptBackgroundMessage,
     ShareProfileMessage, UnsendMessage, UpdateExtensionMessage, UpdateProfileMessage,
     UpdateProfileSharingMessage,
 };
@@ -3833,6 +3833,17 @@ pub struct UNicknameRecord {
     pub poster: Option<UPosterRecord>,
 }
 
+fn decode_share_profile(profile_json: &str) -> Result<Option<ShareProfileMessage>, UError> {
+    if let Ok(message) = serde_json::from_str::<ShareProfileMessage>(profile_json) {
+        return Ok(Some(message));
+    }
+    serde_json::from_str::<UpdateProfileMessage>(profile_json)
+        .map(|message| message.profile)
+        .map_err(|e| UError::InvalidArgument {
+            reason: format!("invalid profile message json: {e}"),
+        })
+}
+
 #[uniffi::export]
 impl NativePushState {
     /// api.rs `fetch_profile` — resolve a `ShareProfileMessage` (the JSON
@@ -3842,8 +3853,9 @@ impl NativePushState {
         let services = self.shared().icloud_services.as_ref().ok_or_else(|| {
             UError::NotReady { reason: "profiles unavailable: no iCloud account".to_string() }
         })?;
-        let message: ShareProfileMessage = serde_json::from_str(&profile_json)
-            .map_err(|e| UError::InvalidArgument { reason: format!("invalid profile message json: {e}") })?;
+        let message = decode_share_profile(&profile_json)?.ok_or_else(|| UError::InvalidArgument {
+            reason: "profile update did not include a profile".to_string(),
+        })?;
         let record = RUNTIME
             .block_on(api::fetch_profile(&services.profiles_client, &message))
             .map_err(|e| UError::Failed { reason: format!("fetch profile failed: {e}") })?;
@@ -3911,6 +3923,37 @@ impl NativePushState {
         ));
         send_inst(self.shared(), inst)
     }
+
+    pub fn report_spam(
+        &self,
+        handle: String,
+        messages: Vec<UReportMessage>,
+    ) -> Result<(), UError> {
+        let reports = messages
+            .into_iter()
+            .map(|message| {
+                Ok(ReportMessage {
+                    guid: message.guid,
+                    sender: message.sender,
+                    conversation_size: message.conversation_size,
+                    parts: back_parts(message.parts)?,
+                    time_of_message: message.time_of_message,
+                })
+            })
+            .collect::<Result<Vec<_>, UError>>()?;
+        RUNTIME
+            .block_on(api::report_messages(&self.shared().client, handle, reports))
+            .map_err(|e| UError::Failed { reason: format!("report spam failed: {e}") })
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct UReportMessage {
+    pub guid: String,
+    pub sender: String,
+    pub conversation_size: u32,
+    pub parts: Vec<UIndexedPart>,
+    pub time_of_message: f64,
 }
 
 // ---------------------------------------------------------------------------

@@ -1472,6 +1472,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1670,6 +1672,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_followin
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links(
 ): Short
@@ -2069,6 +2073,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_report_spam(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`messages`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2724,6 +2730,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 37145.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam() != 51800.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 710.toShort()) {
@@ -6154,6 +6163,8 @@ public interface NativePushStateInterface {
      */
     fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
 
+    fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
+
     /**
      * Dart rotateIncomingLink parity: preserve the current link as old,
      * promote nextincomingcall to current, then mint a fresh next link.
@@ -7116,6 +7127,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
     )
     }
+
+
+
+    @Throws(UException::class)override fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_report_spam(
+        it, FfiConverterString.lower(`handle`),FfiConverterSequenceTypeUReportMessage.lower(`messages`),_status)
+}
+    }
+
 
 
 
@@ -13269,6 +13292,50 @@ public object FfiConverterTypeUQueuedJournal: FfiConverterRustBuffer<UQueuedJour
 
 
 
+data class UReportMessage (
+    var `guid`: kotlin.String,
+    var `sender`: kotlin.String,
+    var `conversationSize`: kotlin.UInt,
+    var `parts`: List<UIndexedPart>,
+    var `timeOfMessage`: kotlin.Double
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUReportMessage: FfiConverterRustBuffer<UReportMessage> {
+    override fun read(buf: ByteBuffer): UReportMessage {
+        return UReportMessage(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypeUIndexedPart.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UReportMessage) = (
+            FfiConverterString.allocationSize(value.`guid`) +
+            FfiConverterString.allocationSize(value.`sender`) +
+            FfiConverterUInt.allocationSize(value.`conversationSize`) +
+            FfiConverterSequenceTypeUIndexedPart.allocationSize(value.`parts`) +
+            FfiConverterDouble.allocationSize(value.`timeOfMessage`)
+    )
+
+    override fun write(value: UReportMessage, buf: ByteBuffer) {
+            FfiConverterString.write(value.`guid`, buf)
+            FfiConverterString.write(value.`sender`, buf)
+            FfiConverterUInt.write(value.`conversationSize`, buf)
+            FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
+            FfiConverterDouble.write(value.`timeOfMessage`, buf)
+    }
+}
+
+
+
 /**
  * Mirror of rustpush `PrivateDeviceInfo` — an SMS-capable device on the
  * account (used by relay routing).
@@ -17451,6 +17518,34 @@ public object FfiConverterSequenceTypeUPosterFile: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUPosterFile.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUReportMessage: FfiConverterRustBuffer<List<UReportMessage>> {
+    override fun read(buf: ByteBuffer): List<UReportMessage> {
+        val len = buf.getInt()
+        return List<UReportMessage>(len) {
+            FfiConverterTypeUReportMessage.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UReportMessage>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUReportMessage.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UReportMessage>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUReportMessage.write(it, buf)
         }
     }
 }

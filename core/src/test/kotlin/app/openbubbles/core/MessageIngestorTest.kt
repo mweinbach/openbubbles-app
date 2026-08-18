@@ -1,6 +1,9 @@
 package app.openbubbles.core
 
 import app.openbubbles.core.intake.MessageIngestor
+import app.openbubbles.core.intake.IncomingProfile
+import app.openbubbles.core.intake.ProfileMessageKind
+import app.openbubbles.core.intake.ProfileUpdatePort
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
@@ -1484,6 +1487,72 @@ class MessageIngestorTest {
             myHandles,
         )
         assertFalse(chatBox().get(chat.id).notifsSilenced)
+    }
+
+    @Test
+    fun `shared profile updates sender display name and poster through port`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        ingestor.close()
+        val received = mutableListOf<ProfileMessageKind>()
+        ingestor = MessageIngestor(
+            store,
+            profileUpdatePort = ProfileUpdatePort { address, json, kind ->
+                assertEquals("friend@icloud.com", address)
+                assertEquals("profile-json", json)
+                received += kind
+                IncomingProfile("Friendly Name", "/tmp/friendly-poster.img")
+            },
+        )
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "profile-1",
+                    sender = friend,
+                    conversation = conversation(me, friend),
+                    message = UMessage.ShareProfile("profile-json"),
+                    sentTimestamp = 1_700_000_000_000uL,
+                    sendDelivered = false,
+                    verificationFailed = false,
+                ),
+            ),
+            myHandles,
+        )
+
+        val handle = chatBox().get(chat.id).handles.single()
+        assertEquals("Friendly Name", handle.formattedAddress)
+        assertEquals("/tmp/friendly-poster.img", handle.posterPath)
+        assertEquals(listOf(ProfileMessageKind.Share), received)
+    }
+
+    @Test
+    fun `profile sharing update is forwarded without mutating handle`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        ingestor.close()
+        val received = mutableListOf<ProfileMessageKind>()
+        ingestor = MessageIngestor(
+            store,
+            profileUpdatePort = ProfileUpdatePort { _, _, kind ->
+                received += kind
+                null
+            },
+        )
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "sharing-1",
+                    sender = friend,
+                    conversation = conversation(me, friend),
+                    message = UMessage.UpdateProfileSharing("sharing-json"),
+                    sentTimestamp = 1_700_000_000_000uL,
+                    sendDelivered = false,
+                    verificationFailed = false,
+                ),
+            ),
+            myHandles,
+        )
+
+        assertEquals(listOf(ProfileMessageKind.SharingUpdate), received)
+        assertNull(chatBox().get(chat.id).handles.single().formattedAddress)
     }
 
     @Test

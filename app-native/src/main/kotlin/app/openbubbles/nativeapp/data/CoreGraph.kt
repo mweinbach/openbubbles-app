@@ -9,7 +9,10 @@ import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.backup.BackupManager
 import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
+import app.openbubbles.core.intake.IncomingProfile
 import app.openbubbles.core.intake.MessageIngestor
+import app.openbubbles.core.intake.ProfileMessageKind
+import app.openbubbles.core.intake.ProfileUpdatePort
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
@@ -58,6 +61,8 @@ import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UPushMessage
+import uniffi.rust_lib_bluebubbles.UReportMessage
+import uniffi.rust_lib_bluebubbles.parseCallPoster
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -104,6 +109,7 @@ object CoreGraph {
             scope,
             root?.let { AttachmentStore(st, it) },
             transcriptBackgroundHandler = transcriptBackgroundStore,
+            profileUpdatePort = NativeProfileUpdatePort,
         )
     }
 
@@ -606,6 +612,38 @@ object PushStateHolder {
     }
 }
 
+private object NativeProfileUpdatePort : ProfileUpdatePort {
+    override fun receive(
+        senderAddress: String,
+        profileJson: String,
+        kind: ProfileMessageKind,
+    ): IncomingProfile? {
+        if (kind == ProfileMessageKind.SharingUpdate) return null
+        val record = PushStateHolder.state?.fetchProfile(profileJson) ?: return null
+        val image = record.poster?.let { poster ->
+            runCatching { parseCallPoster(poster).lowResImage() }.getOrNull()
+        }?.takeIf(ByteArray::isNotEmpty) ?: record.image?.takeIf(ByteArray::isNotEmpty)
+        val posterPath = image?.let { bytes ->
+            val context = AppContext.current ?: return@let null
+            val directory = File(context.filesDir, "shared_profiles").apply { mkdirs() }
+            val destination = File(directory, "${senderAddress.hashCode().toUInt()}.img")
+            val temporary = File(directory, "${destination.name}.tmp")
+            temporary.writeBytes(bytes)
+            if (!temporary.renameTo(destination)) {
+                destination.writeBytes(bytes)
+                temporary.delete()
+            }
+            destination.absolutePath
+        }
+        return IncomingProfile(
+            displayName = record.name.ifBlank {
+                listOf(record.first, record.last).filter(String::isNotBlank).joinToString(" ")
+            }.ifBlank { null },
+            posterPath = posterPath,
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Adapters: core DTOs -> UI contracts
 // ---------------------------------------------------------------------------
@@ -622,6 +660,7 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     avatarColor = app.openbubbles.nativeapp.ui.common.avatarColorFor(item.avatarAddress ?: item.guid),
     isSms = item.isSms,
     muted = item.muted,
+    notifsSilenced = item.notifsSilenced,
     archived = item.archived,
     avatarAddress = item.avatarAddress,
     avatarPath = item.avatarPath,
@@ -666,6 +705,8 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     },
     isFromMe = item.isFromMe,
     date = item.date?.time ?: 0L,
+    dateDelivered = item.dateDelivered?.time,
+    dateRead = item.dateRead?.time,
     status = MessageStatus.valueOf(item.status.name),
     isGroupEvent = item.kind == app.openbubbles.core.model.MessageKind.GROUP_EVENT,
     reactionEmoji = item.reactionEmoji
@@ -1294,6 +1335,7 @@ private object CoreSender : Sender {
                 try {
                     val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
                     val conversation = sendConversation(store, chat, myHandle)
+                    maybeShareProfile(pushState, chat, conversation, myHandle)
                     val inst = runInterruptible(Dispatchers.IO) {
                         pushState.sendText(
                             conversation,
@@ -1319,6 +1361,23 @@ private object CoreSender : Sender {
         }
         return accepted
     }
+}
+
+private suspend fun maybeShareProfile(
+    state: NativePushState,
+    chat: Chat,
+    conversation: UConversation,
+    sender: String,
+) {
+    if (chat.isRpSms == true || chat.handles.size != 1) return
+    val context = AppContext.current ?: return
+    val prefs = ProfilePrefs(context)
+    if (!prefs.nameAndPhotoSharing || !prefs.shareAutomatically) return
+    val address = MessageMapper.normalizeAddress(chat.handles.single().address)
+    if (prefs.wasSharedWith(address)) return
+    val json = prefs.shareProfileJson ?: return
+    runInterruptible(Dispatchers.IO) { state.sendProfile(conversation, sender, json) }
+    prefs.markSharedWith(address)
 }
 
 /** Local unread-state update plus the legacy iMessage read-receipt routing. */
@@ -1664,6 +1723,42 @@ private object CoreChatInfoActions : ChatInfoActions {
             )
         }
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    override suspend fun reportJunk(chatId: Long) {
+        val store = CoreGraph.store ?: error("store unavailable")
+        val state = PushStateHolder.state ?: error("not connected to Apple push")
+        val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
+        check(chat.isRpSms != true && chat.handles.size == 1) {
+            "Report Junk is only available for direct iMessage chats"
+        }
+        val ownHandle = sendingHandle(chat) ?: error("no registered sending handle")
+        val reports = store.boxFor(Message::class.java).query()
+            .equal(Message_.chatId, chatId)
+            .isNull(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .build().use { it.find(0, 5) }
+            .filterNot { it.isFromMe }
+            .mapNotNull { message ->
+                val sender = message.handleRelation.target?.address ?: return@mapNotNull null
+                UReportMessage(
+                    guid = message.guid,
+                    sender = MessageMapper.toRustHandle(sender),
+                    conversationSize = chat.handles.size.toUInt(),
+                    parts = listOf(UIndexedPart(UPart.Text(message.text.orEmpty(), ""), null, null)),
+                    timeOfMessage = (message.dateCreated?.time ?: 0L) / 1_000.0,
+                )
+            }
+        runInterruptible(Dispatchers.IO) { state.reportSpam(ownHandle, reports) }
+        store.runInTx {
+            chat.handles.forEach { handle ->
+                handle.blocked = true
+                store.boxFor(Handle::class.java).put(handle)
+            }
+            chat.isArchived = true
+            chat.hasUnreadMessage = false
+            store.boxFor(Chat::class.java).put(chat)
+        }
     }
 
     private suspend fun changeParticipants(context: GroupActionContext, participants: List<String>) {

@@ -63,6 +63,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
@@ -132,6 +133,7 @@ import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
@@ -380,6 +382,9 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val showDeliveryTimestamps = remember(context) {
+        MessagingPrefs(context).showDeliveryTimestamps
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
@@ -836,6 +841,7 @@ fun ChatScreen(
                                 is ConversationEntry.Message -> MessageBubble(
                                     message = entry.message,
                                     showStatus = entry.showStatus,
+                                    showDeliveryTimestamp = showDeliveryTimestamps,
                                     tightTop = entry.tightTop,
                                     tightBottom = entry.tightBottom,
                                     showSenderName = entry.showSenderName,
@@ -1288,6 +1294,14 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
+            if (chat.notifsSilenced) {
+                Icon(
+                    imageVector = Icons.Filled.Bedtime,
+                    contentDescription = "Focus status is silenced",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             Icon(
                 imageVector = Icons.Filled.ExpandMore,
                 contentDescription = "Conversation details",

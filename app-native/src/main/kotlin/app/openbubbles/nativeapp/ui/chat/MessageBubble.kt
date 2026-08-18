@@ -82,6 +82,8 @@ import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -288,6 +290,7 @@ private fun RichLinkCard(
 fun MessageBubble(
     message: MessageItem,
     showStatus: Boolean,
+    showDeliveryTimestamp: Boolean = false,
     modifier: Modifier = Modifier,
     tightTop: Boolean = false,
     tightBottom: Boolean = false,
@@ -562,6 +565,16 @@ fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
+            if (showDeliveryTimestamp && message.isFromMe) {
+                deliveryTimestamp(message)?.let { timestamp ->
+                    Text(
+                        text = "${timestamp.label} ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp.epochMs))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
+            }
             if (showStatus && message.isFromMe) {
                 MessageStatusRow(status = message.status)
             }
@@ -578,6 +591,14 @@ fun MessageBubble(
         }
         }
     }
+}
+
+internal data class DeliveryTimestamp(val label: String, val epochMs: Long)
+
+internal fun deliveryTimestamp(message: MessageItem): DeliveryTimestamp? = when {
+    message.dateRead != null -> DeliveryTimestamp("Read", message.dateRead)
+    message.dateDelivered != null -> DeliveryTimestamp("Delivered", message.dateDelivered)
+    else -> null
 }
 
 /**

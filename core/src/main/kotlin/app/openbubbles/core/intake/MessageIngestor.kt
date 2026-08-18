@@ -48,6 +48,21 @@ data class TypingIndicator(
     val expiresAtMs: Long,
 )
 
+enum class ProfileMessageKind {
+    Share,
+    Update,
+    SharingUpdate,
+}
+
+data class IncomingProfile(
+    val displayName: String?,
+    val posterPath: String?,
+)
+
+fun interface ProfileUpdatePort {
+    fun receive(senderAddress: String, profileJson: String, kind: ProfileMessageKind): IncomingProfile?
+}
+
 /**
  * Kotlin port of the Flutter app's rustpush message-intake layer:
  * `RustPushBackend.handleMsgInner` (variant dispatch),
@@ -71,6 +86,7 @@ class MessageIngestor(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val attachmentStore: AttachmentStore? = null,
     private val transcriptBackgroundHandler: TranscriptBackgroundHandler? = null,
+    private val profileUpdatePort: ProfileUpdatePort? = null,
 ) {
     /**
      * Persistence result used by notification consumers. [isNewIncomingMessage]
@@ -201,11 +217,36 @@ class MessageIngestor(
             is UMessage.RecoverChat -> return handleRecoverChat(inst, msg, myHandles)
             is UMessage.PermanentDelete -> return handlePermanentDelete(inst, msg, myHandles)
             is UMessage.SetTranscriptBackground -> return ingestTranscriptBackground(inst, msg, myHandles)
-            // MessageReadOnDevice / EnableSmsActivation / profile & extension
-            // updates / deletions ride on later batches.
+            is UMessage.ShareProfile -> return ingestProfile(inst, msg.json, ProfileMessageKind.Share, myHandles)
+            is UMessage.UpdateProfile -> return ingestProfile(inst, msg.json, ProfileMessageKind.Update, myHandles)
+            is UMessage.UpdateProfileSharing ->
+                return ingestProfile(inst, msg.json, ProfileMessageKind.SharingUpdate, myHandles)
+            // MessageReadOnDevice / EnableSmsActivation / extension updates
+            // ride on later batches.
             else -> Unit
         }
         return null
+    }
+
+    private fun ingestProfile(
+        inst: UMessageInst,
+        json: String,
+        kind: ProfileMessageKind,
+        myHandles: Set<String>,
+    ): Chat? {
+        if (inst.verificationFailed) return null
+        val sender = inst.sender ?: return null
+        val normalized = MessageMapper.normalizeAddress(sender)
+        val profile = runCatching {
+            profileUpdatePort?.receive(normalized, json, kind)
+        }.getOrNull()
+        if (profile != null) {
+            val handle = handleFor(sender, serviceFor(inst))
+            profile.displayName?.takeIf(String::isNotBlank)?.let { handle.formattedAddress = it }
+            profile.posterPath?.takeIf(String::isNotBlank)?.let { handle.posterPath = it }
+            store.boxFor(Handle::class.java).put(handle)
+        }
+        return chatForInst(inst, myHandles, createIfMissing = false)
     }
 
     private fun ingestNormal(inst: UMessageInst, msg: UMessage.Normal, myHandles: Set<String>): Chat? {

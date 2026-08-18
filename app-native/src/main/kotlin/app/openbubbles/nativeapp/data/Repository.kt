@@ -32,6 +32,7 @@ data class ChatListItem(
     /** True when this conversation uses the local SIM SMS path. */
     val isSms: Boolean = false,
     val muted: Boolean = false,
+    val notifsSilenced: Boolean = false,
     val archived: Boolean = false,
     /** Locally cached custom group photo. */
     val avatarPath: String? = null,
@@ -109,6 +110,8 @@ data class MessageItem(
     val text: String,
     val isFromMe: Boolean,
     val date: Long,
+    val dateDelivered: Long? = null,
+    val dateRead: Long? = null,
     val status: MessageStatus,
     val isGroupEvent: Boolean,
     val reactionEmoji: String?,
@@ -407,6 +410,7 @@ interface ChatInfoActions {
     suspend fun setGroupIcon(chatId: Long, file: File)
     suspend fun removeGroupIcon(chatId: Long)
     suspend fun leave(chatId: Long)
+    suspend fun reportJunk(chatId: Long)
 }
 
 /** Local per-chat background controls. Apple-synced backgrounds arrive through push intake. */

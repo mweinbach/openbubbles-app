@@ -1,8 +1,10 @@
 package app.openbubbles.nativeapp.ui.settings
 
 import android.content.res.Configuration
+import android.content.Intent
 import android.net.Uri
 import androidx.core.content.edit
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -127,8 +129,10 @@ import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.NotifPrefs
+import app.openbubbles.nativeapp.data.ProfilePrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
+import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
 import app.openbubbles.nativeapp.facetime.fullScreenCallSettingsIntent
 import app.openbubbles.nativeapp.facetime.shouldOfferFullScreenCallSettings
@@ -148,6 +152,7 @@ import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UViableBottle
 import java.security.SecureRandom
+import java.io.File
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -161,6 +166,7 @@ private data class ConnectionInfo(
 
 private const val NATIVE_SETUP_PREFS = "native_setup"
 private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
+private const val SHARED_FOCUS_GUID = "0f58d6c8-0d40-4b40-9d48-e4ac18e38155"
 
 private enum class SettingsSection(
     val title: String,
@@ -174,6 +180,7 @@ private enum class SettingsSection(
     Power("Power", "Battery saver", Icons.Filled.PowerSettingsNew),
     Appearance("Appearance", "Theme and color", Icons.Filled.Palette),
     Storage("Storage & backup", "Attachments and local backup", Icons.Filled.Storage),
+    Diagnostics("Diagnostics", "Logs, troubleshoot, iMessage stats", Icons.Filled.ManageHistory),
     About("About", "App version", Icons.Filled.Info),
 }
 
@@ -211,6 +218,7 @@ fun SettingsScreen(
     var signingOut by remember { mutableStateOf(false) }
     var signOutError by remember { mutableStateOf<String?>(null) }
     val messagingPrefs = remember(context) { MessagingPrefs(context) }
+    val profilePrefs = remember(context) { ProfilePrefs(context) }
     val historySyncPreferences = remember(context) { HistorySyncPreferences(context) }
     var defaultSendingHandle by remember {
         mutableStateOf(messagingPrefs.defaultSendingHandle)
@@ -222,6 +230,75 @@ fun SettingsScreen(
         mutableStateOf(AutoDownloadLimit.fromPersistedValue(messagingPrefs.autoDownloadMaxBytes))
     }
     var showAutoDownloadDialog by remember { mutableStateOf(false) }
+    var showProfileDialog by rememberSaveable { mutableStateOf(false) }
+    var firstName by remember { mutableStateOf(profilePrefs.firstName) }
+    var lastName by remember { mutableStateOf(profilePrefs.lastName) }
+    var displayName by remember { mutableStateOf(profilePrefs.displayName) }
+    var avatarPath by remember { mutableStateOf(profilePrefs.avatarPath) }
+    var nameAndPhotoSharing by remember { mutableStateOf(profilePrefs.nameAndPhotoSharing) }
+    var shareAutomatically by remember { mutableStateOf(profilePrefs.shareAutomatically) }
+    var profileSaving by remember { mutableStateOf(false) }
+    var profileError by remember { mutableStateOf<String?>(null) }
+    var logRevision by remember { mutableIntStateOf(0) }
+    var logCount by remember { mutableIntStateOf(0) }
+    var logBytes by remember { mutableStateOf(0L) }
+    val profilePhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            avatarPath = withContext(Dispatchers.IO) {
+                val destination = File(context.filesDir, "profile/avatar.img")
+                destination.parentFile?.mkdirs()
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destination.outputStream().use(input::copyTo)
+                } ?: error("Could not read profile photo")
+                destination.absolutePath
+            }
+        }
+    }
+
+    fun saveProfile() {
+        if (profileSaving) return
+        profileSaving = true
+        profileError = null
+        scope.launch {
+            runCatching {
+                profilePrefs.firstName = firstName.trim()
+                profilePrefs.lastName = lastName.trim()
+                profilePrefs.displayName = displayName.trim()
+                profilePrefs.avatarPath = avatarPath
+                if (nameAndPhotoSharing) {
+                    val state = pushState ?: error("Connect to iMessage before publishing your profile")
+                    val image = withContext(Dispatchers.IO) {
+                        avatarPath?.let(::File)?.takeIf(File::isFile)?.readBytes()
+                    }
+                    val resolvedDisplayName = displayName.trim().ifBlank {
+                        listOf(firstName.trim(), lastName.trim()).filter(String::isNotBlank).joinToString(" ")
+                    }
+                    val json = withContext(Dispatchers.IO) {
+                        state.setProfile(
+                            resolvedDisplayName,
+                            firstName.trim(),
+                            lastName.trim(),
+                            image,
+                            null,
+                            profilePrefs.shareProfileJson,
+                        )
+                    }
+                    profilePrefs.shareProfileJson = json
+                    profilePrefs.clearSharedContacts()
+                }
+            }.onSuccess {
+                showProfileDialog = false
+            }.onFailure { profileError = it.message ?: "Could not update profile" }
+            profileSaving = false
+        }
+    }
+
+    LaunchedEffect(logRevision) {
+        val files = withContext(Dispatchers.IO) { diagnosticLogFiles(context) }
+        logCount = files.size
+        logBytes = files.sumOf(File::length)
+    }
     val availableSendingHandles = remember(registeredHandles) {
         registeredHandles.sortedWith(
             compareBy<String>(
@@ -691,6 +768,46 @@ fun SettingsScreen(
                 }
             }
 
+            if (filter == null || filter == SettingsSection.Account) SettingsGroup(
+                title = if (showTitles) "Name and photo" else null,
+            ) {
+                SettingsActionItem(
+                    title = "My profile",
+                    supporting = displayName.ifBlank {
+                        listOf(firstName, lastName).filter(String::isNotBlank).joinToString(" ")
+                    }.ifBlank { "Set your shared name and photo" },
+                    onClick = { showProfileDialog = true },
+                    index = 0,
+                    count = 3,
+                    icon = Icons.Filled.AccountCircle,
+                )
+                SettingsToggleItem(
+                    title = "Name and Photo Sharing",
+                    supporting = "Allow iMessage contacts to receive your saved profile",
+                    checked = nameAndPhotoSharing,
+                    onCheckedChange = { enabled ->
+                        nameAndPhotoSharing = enabled
+                        profilePrefs.nameAndPhotoSharing = enabled
+                        if (enabled && profilePrefs.shareProfileJson == null) showProfileDialog = true
+                    },
+                    index = 1,
+                    count = 3,
+                    icon = Icons.Filled.Contacts,
+                )
+                SettingsToggleItem(
+                    title = "Share Automatically",
+                    supporting = "Send your profile once when you first message a direct contact",
+                    checked = shareAutomatically,
+                    onCheckedChange = { enabled ->
+                        shareAutomatically = enabled
+                        profilePrefs.shareAutomatically = enabled
+                    },
+                    index = 2,
+                    count = 3,
+                    icon = Icons.AutoMirrored.Filled.Send,
+                )
+            }
+
             if (filter == null || filter == SettingsSection.ICloud) SettingsGroup(
                 title = if (showTitles) "iCloud" else null,
             ) {
@@ -906,12 +1023,18 @@ fun SettingsScreen(
                 var sendReadReceipts by remember {
                     mutableStateOf(messagingPrefs.sendReadReceipts)
                 }
+                var showDeliveryTimestamps by remember {
+                    mutableStateOf(messagingPrefs.showDeliveryTimestamps)
+                }
+                var shareFocusStatus by remember {
+                    mutableStateOf(messagingPrefs.shareFocusStatus)
+                }
                 SettingsActionItem(
                     title = "Default sending address",
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 5,
+                    count = 7,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
                     icon = Icons.AutoMirrored.Filled.Send,
                 )
@@ -924,15 +1047,49 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 5,
+                    count = 7,
                     icon = Icons.Filled.DoneAll,
+                )
+                SettingsToggleItem(
+                    title = "Delivery timestamps",
+                    supporting = "Show delivered and read times below outgoing messages",
+                    checked = showDeliveryTimestamps,
+                    onCheckedChange = { enabled ->
+                        showDeliveryTimestamps = enabled
+                        messagingPrefs.showDeliveryTimestamps = enabled
+                    },
+                    index = 2,
+                    count = 7,
+                    icon = Icons.Filled.ManageHistory,
+                )
+                SettingsToggleItem(
+                    title = "Share Focus",
+                    supporting = "Publish a silenced Focus status to iMessage contacts",
+                    checked = shareFocusStatus,
+                    onCheckedChange = { enabled ->
+                        shareFocusStatus = enabled
+                        messagingPrefs.shareFocusStatus = enabled
+                        scope.launch(Dispatchers.IO) {
+                            runCatching {
+                                pushState?.publishStatus(if (enabled) SHARED_FOCUS_GUID else null)
+                            }.onFailure {
+                                withContext(Dispatchers.Main) {
+                                    shareFocusStatus = !enabled
+                                    messagingPrefs.shareFocusStatus = !enabled
+                                }
+                            }
+                        }
+                    },
+                    index = 3,
+                    count = 7,
+                    icon = Icons.Filled.Notifications,
                 )
                 SettingsActionItem(
                     title = "Auto-download media",
                     supporting = autoDownloadLimit.title,
                     onClick = { showAutoDownloadDialog = true },
-                    index = 2,
-                    count = 5,
+                    index = 4,
+                    count = 7,
                     icon = Icons.Filled.DownloadForOffline,
                 )
                 SettingsActionItem(
@@ -943,8 +1100,8 @@ fun SettingsScreen(
                         "$archivedCount archived"
                     },
                     onClick = onOpenArchived,
-                    index = 3,
-                    count = 5,
+                    index = 5,
+                    count = 7,
                     icon = Icons.Filled.Archive,
                 )
                 // One row for the SMS role: the chip tone says whether it is
@@ -959,8 +1116,8 @@ fun SettingsScreen(
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 4,
-                    count = 5,
+                    index = 6,
+                    count = 7,
                     multiline = true,
                     icon = Icons.Filled.Sms,
                     iconTone = if (isDefaultSmsApp) {
@@ -1116,6 +1273,95 @@ fun SettingsScreen(
             }
 
             }
+            if (filter == null || filter == SettingsSection.Diagnostics) {
+                SettingsGroup(title = if (showTitles) "Logging" else null) {
+                    SettingsInfoItem(
+                        title = "Stored logs",
+                        supporting = "$logCount file(s) · ${formatBytes(logBytes).ifBlank { "Empty" }}",
+                        index = 0,
+                        count = 3,
+                        icon = Icons.Filled.Folder,
+                    )
+                    SettingsActionItem(
+                        title = "Share recent logs",
+                        supporting = "Combine current app and Rust logs into a text export",
+                        onClick = { if (shareDiagnosticLogs(context)) logRevision++ },
+                        index = 1,
+                        count = 3,
+                        enabled = logCount > 0,
+                        icon = Icons.Filled.Upload,
+                    )
+                    SettingsActionItem(
+                        title = "Clear logs",
+                        supporting = "Delete locally stored diagnostic logs",
+                        onClick = {
+                            diagnosticLogFiles(context).forEach(File::delete)
+                            logRevision++
+                        },
+                        index = 2,
+                        count = 3,
+                        enabled = logCount > 0,
+                        destructive = true,
+                        icon = Icons.Filled.DeleteSweep,
+                    )
+                }
+                SettingsGroup(title = if (showTitles) "Troubleshoot" else null) {
+                    SettingsActionItem(
+                        title = "Restart push service",
+                        supporting = "Reload the persisted Apple push connection",
+                        onClick = { NativePushService.reloadAfterLogin(context) },
+                        index = 0,
+                        count = 2,
+                        icon = Icons.Filled.RestartAlt,
+                    )
+                    SettingsActionItem(
+                        title = "Reset CloudKit sync",
+                        supporting = "Clear saved cursors and start a fresh Messages in iCloud pass",
+                        onClick = {
+                            scope.launch(Dispatchers.IO) { CloudSyncWiring.resetHistorySync(context) }
+                        },
+                        index = 1,
+                        count = 2,
+                        enabled = pushState != null,
+                        destructive = true,
+                        icon = Icons.Filled.CloudSync,
+                    )
+                }
+                SettingsGroup(title = if (showTitles) "iMessage stats" else null) {
+                    val stats = listOf(
+                        "Registration" to (connection?.regstate?.let(::describeRegstate) ?: "Not connected"),
+                        "Registered handles" to registeredHandles.size.toString(),
+                        "Secure iCloud clique" to when (inClique) {
+                            true -> "Member"
+                            false -> "Not joined"
+                            null -> "Unknown"
+                        },
+                        "Last CloudKit sync" to when {
+                            syncing -> "Running"
+                            syncSummary?.error != null -> "Failed: ${syncSummary!!.error}"
+                            syncSummary != null -> "${syncSummary!!.totalChats} chats · ${syncSummary!!.totalMessages} messages · ${syncSummary!!.totalAttachments} attachments"
+                            else -> "No completed sync this session"
+                        },
+                        "Attachment cache" to (cacheBytes?.let(::formatBytes) ?: "Calculating…"),
+                    )
+                    stats.forEachIndexed { index, (title, supporting) ->
+                        SettingsInfoItem(
+                            title = title,
+                            supporting = supporting,
+                            index = index,
+                            count = stats.size,
+                            multiline = true,
+                            icon = when (index) {
+                                0 -> Icons.Filled.CheckCircle
+                                1 -> Icons.Filled.AlternateEmail
+                                2 -> Icons.Filled.Key
+                                3 -> Icons.Filled.CloudSync
+                                else -> Icons.Filled.Storage
+                            },
+                        )
+                    }
+                }
+            }
             if (filter == null || filter == SettingsSection.About) {
                 SettingsGroup(title = if (showTitles) "About" else null) {
                     SettingsInfoItem(
@@ -1245,6 +1491,52 @@ fun SettingsScreen(
                 updateRefresh++
             },
             onDismiss = { showUpdateSheet = false },
+        )
+    }
+
+    if (showProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!profileSaving) showProfileDialog = false },
+            title = { Text("Name and Photo Sharing") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = firstName,
+                        onValueChange = { firstName = it },
+                        label = { Text("First name") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = lastName,
+                        onValueChange = { lastName = it },
+                        label = { Text("Last name") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        label = { Text("Display name") },
+                        singleLine = true,
+                    )
+                    TextButton(onClick = { profilePhotoPicker.launch("image/*") }) {
+                        Text(if (avatarPath == null) "Choose photo" else "Change photo")
+                    }
+                    profileError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = ::saveProfile,
+                    enabled = !profileSaving && (displayName.isNotBlank() || firstName.isNotBlank() || lastName.isNotBlank()),
+                ) { Text(if (profileSaving) "Saving…" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProfileDialog = false }, enabled = !profileSaving) {
+                    Text("Cancel")
+                }
+            },
         )
     }
 
@@ -1644,6 +1936,34 @@ fun SettingsScreen(
 }
 
 private fun sendingHandleLabel(handle: String): String = handle.substringAfter(':', handle)
+
+private fun diagnosticLogFiles(context: android.content.Context): List<File> =
+    File(context.filesDir, "logs").listFiles()
+        ?.filter { it.isFile }
+        ?.sortedByDescending(File::lastModified)
+        .orEmpty()
+
+private fun shareDiagnosticLogs(context: android.content.Context): Boolean = runCatching {
+    val files = diagnosticLogFiles(context).take(8)
+    if (files.isEmpty()) return@runCatching false
+    val directory = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+    val export = File(directory, "openbubbles-logs.txt")
+    export.bufferedWriter().use { writer ->
+        files.forEach { file ->
+            writer.appendLine("===== ${file.name} =====")
+            file.bufferedReader().useLines { lines -> lines.take(2_000).forEach(writer::appendLine) }
+            writer.appendLine()
+        }
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", export)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share OpenBubbles logs"))
+    true
+}.getOrDefault(false)
 
 private fun sendingHandleType(handle: String): String = when {
     handle.startsWith("tel:") -> "Phone number"

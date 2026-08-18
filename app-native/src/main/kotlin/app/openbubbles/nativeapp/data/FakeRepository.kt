@@ -532,6 +532,7 @@ object FakeChatInfoActions : ChatInfoActions {
     override suspend fun setGroupIcon(chatId: Long, file: File) = Unit
     override suspend fun removeGroupIcon(chatId: Long) = Unit
     override suspend fun leave(chatId: Long) = Unit
+    override suspend fun reportJunk(chatId: Long) = Unit
 }
 
 /** Composition root. Real core-backed bindings; fakes only as fallback. */

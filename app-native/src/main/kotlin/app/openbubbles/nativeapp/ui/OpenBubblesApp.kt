@@ -697,6 +697,7 @@ fun OpenBubblesApp(
                         onSetBackground = { file -> AppGraph.chatBackgroundActions.setLocalBackground(chatId, file) },
                         onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
                         onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
+                        onReportJunk = { AppGraph.chatInfoActions.reportJunk(chatId) },
                         onOpenChat = { targetId ->
                             popBack()
                             openChat(targetId)

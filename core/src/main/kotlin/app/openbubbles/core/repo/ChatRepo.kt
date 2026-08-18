@@ -313,6 +313,7 @@ class ChatRepo(
             unreadCount = unreadCount(chat),
             pinned = chat.isPinned,
             muted = ChatMute.shouldMute(chat),
+            notifsSilenced = chat.notifsSilenced,
             archived = chat.isArchived,
             isSms = chat.isRpSms == true,
             participantCount = others.size,

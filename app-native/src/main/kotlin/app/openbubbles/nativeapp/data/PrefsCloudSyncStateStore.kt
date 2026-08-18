@@ -98,6 +98,15 @@ object CloudSyncWiring {
         managerRef.get()?.cancel()
     }
 
+    fun resetHistorySync(context: Context): Boolean {
+        cancelHistorySync()
+        val cleared = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val state = PushStateHolder.state ?: return cleared
+        onStateInstalled(context.applicationContext, state, autoSync = false)
+        return cleared && startHistorySync(context.applicationContext, SyncMode.FULL)
+    }
+
     /**
      * A poll may alert only after one complete CloudKit pass. Without this
      * durable gate, a fresh install interprets every historical unread chat

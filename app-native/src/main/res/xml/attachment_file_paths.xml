@@ -5,4 +5,7 @@
     <files-path
         name="attachments"
         path="../app_flutter/attachments/" />
+    <cache-path
+        name="diagnostics"
+        path="diagnostics/" />
 </paths>
