@@ -233,6 +233,29 @@ jobs:
           fi
           protoc --version
 
+      # rustpush include_bytes!()s these at compile time, so the host Rust
+      # build needs the placeholders just like the android job.
+      - name: Set up fake Fairplay keys
+        shell: bash
+        run: |
+          mkdir -p rustpush/certs/fairplay
+          cert_names=(
+            "4056631661436364584235346952193"
+            "4056631661436364584235346952194"
+            "4056631661436364584235346952195"
+            "4056631661436364584235346952196"
+            "4056631661436364584235346952197"
+            "4056631661436364584235346952198"
+            "4056631661436364584235346952199"
+            "4056631661436364584235346952200"
+            "4056631661436364584235346952201"
+            "4056631661436364584235346952208"
+          )
+          for name in "${cert_names[@]}"; do
+              cp rustpush/certs/legacy-fairplay/fairplay.pem rustpush/certs/fairplay/$name.pem
+              cp rustpush/certs/legacy-fairplay/fairplay.crt rustpush/certs/fairplay/$name.crt
+          done
+
       - name: DB model parity (no Android SDK needed)
         run: |
           cd native
