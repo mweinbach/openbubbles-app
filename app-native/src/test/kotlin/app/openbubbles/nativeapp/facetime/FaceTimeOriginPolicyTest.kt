@@ -38,16 +38,10 @@ class FaceTimeOriginPolicyTest {
     }
 
     @Test
-    fun `full-screen incoming call intent requires the Android 14 grant`() {
-        assertTrue(canPostFullScreenCallIntent(canUseFullScreenIntent = false, sdkInt = 33))
-        assertFalse(canPostFullScreenCallIntent(canUseFullScreenIntent = false, sdkInt = 34))
-        assertTrue(canPostFullScreenCallIntent(canUseFullScreenIntent = true, sdkInt = 34))
-    }
-
-    @Test
     fun `FaceTime channel ids stay stable for incoming missed and in-call`() {
         assertEquals("facetime_incoming", FaceTimeNotifications.CHANNEL_INCOMING)
         assertEquals("facetime_missed", FaceTimeNotifications.CHANNEL_MISSED)
         assertEquals("com.bluebubbles.in_call_channel", FaceTimeNotifications.CHANNEL_IN_CALL)
+        assertEquals(FaceTimeNotifications.CHANNEL_INCOMING, CreateIncomingFaceTimeNotification.CHANNEL_ID)
     }
 }

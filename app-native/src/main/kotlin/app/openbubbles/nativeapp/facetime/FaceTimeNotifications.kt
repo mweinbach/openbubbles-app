@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.RingtoneManager
-import android.os.Build
 
 /** Shared FaceTime notification channel ids and creation. */
 internal object FaceTimeNotifications {
@@ -79,9 +78,3 @@ internal fun faceTimeForegroundServiceType(
     if (microphoneGranted) type = type or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
     return type
 }
-
-/** Full-screen incoming-call intents need the runtime grant on Android 14+. */
-internal fun canPostFullScreenCallIntent(
-    canUseFullScreenIntent: Boolean,
-    sdkInt: Int = Build.VERSION.SDK_INT,
-): Boolean = sdkInt < Build.VERSION_CODES.UPSIDE_DOWN_CAKE || canUseFullScreenIntent

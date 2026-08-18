@@ -178,7 +178,7 @@ object Notifications {
                             currentMessageGuid = messageGuid,
                             isGroup = isGroup,
                             conversationTitle = title,
-                            conversationKey = conversationId,
+                            chatGuid = chatGuid,
                         )
                     },
                     currentText = shownText,
@@ -308,7 +308,7 @@ object Notifications {
                             currentText = replyText,
                             isGroup = isGroup,
                             conversationTitle = title,
-                            conversationKey = conversationId,
+                            chatGuid = chatGuid,
                         )
                     },
                     currentText = shownText,
@@ -558,7 +558,7 @@ object Notifications {
         currentMessageGuid: String? = null,
         isGroup: Boolean,
         conversationTitle: String,
-        conversationKey: String,
+        chatGuid: String,
     ): List<HistoryEntry> {
         if (chatId <= 0L) return emptyList()
         val store = CoreGraph.store ?: return emptyList()
@@ -596,7 +596,7 @@ object Notifications {
                         row = row,
                         isGroup = isGroup,
                         conversationTitle = conversationTitle,
-                        conversationKey = conversationKey,
+                        chatGuid = chatGuid,
                         contactNameFor = ::contactNameFor,
                     )
                 }
@@ -608,7 +608,7 @@ object Notifications {
         row: app.openbubbles.db.Message,
         isGroup: Boolean,
         conversationTitle: String,
-        conversationKey: String,
+        chatGuid: String,
         contactNameFor: (String) -> String?,
     ): HistoryEntry? {
         // Skip group events (name/photo changes etc.) and empty rows.
@@ -638,11 +638,11 @@ object Notifications {
                 contactNameFor = contactNameFor,
             )
             val person = Person.Builder().setName(name)
-            if (isGroup) {
-                address?.takeIf { it.isNotBlank() }?.let(person::setKey)
-            } else {
-                person.setKey(conversationKey)
-            }
+            messagingHistoryPersonKey(
+                isGroup = isGroup,
+                handleAddress = address,
+                chatGuid = chatGuid,
+            )?.let(person::setKey)
             person.build()
         }
         return HistoryEntry(text = text, timestampMs = timestamp, senderPerson = sender)
@@ -827,6 +827,17 @@ internal fun conversationIdentity(
         conversationId = "chat-$conversationChatId",
         notificationId = conversationNotificationId(conversationChatId),
     )
+}
+
+/** Direct-chat history people use [chatGuid] so they match the shortcut Person. */
+internal fun messagingHistoryPersonKey(
+    isGroup: Boolean,
+    handleAddress: String?,
+    chatGuid: String,
+): String? = if (isGroup) {
+    handleAddress?.takeIf { it.isNotBlank() }
+} else {
+    chatGuid
 }
 
 internal fun conversationShortcutSpec(

@@ -104,8 +104,10 @@ fun QrScannerSheet(
     }
 
     var torchOn by remember { mutableStateOf(false) }
+    var cameraAvailable by remember { mutableStateOf(true) }
     val delivered = remember { AtomicBoolean(false) }
     val executor = remember { Executors.newSingleThreadExecutor() }
+    val mainExecutor = remember { ContextCompat.getMainExecutor(context) }
     val scanner = remember {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
@@ -126,12 +128,14 @@ fun QrScannerSheet(
     val deliver: (ByteArray?, String?) -> Unit = { bytes, text ->
         qrScanPayload(bytes, text)?.let { (payloadBytes, payloadText) ->
             if (delivered.compareAndSet(false, true)) {
-                runCatching {
-                    context.getSystemService(Vibrator::class.java)?.vibrate(
-                        VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE),
-                    )
+                mainExecutor.execute {
+                    runCatching {
+                        context.getSystemService(Vibrator::class.java)?.vibrate(
+                            VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE),
+                        )
+                    }
+                    onResult(payloadBytes, payloadText)
                 }
-                onResult(payloadBytes, payloadText)
             }
         }
     }
@@ -142,7 +146,9 @@ fun QrScannerSheet(
                 executor,
                 qrMlKitAnalyzer(scanner, executor, deliver),
             )
-            cameraController.bindToLifecycle(lifecycleOwner)
+            cameraAvailable = runCatching {
+                cameraController.bindToLifecycle(lifecycleOwner)
+            }.isSuccess
         }
         onDispose {
             cameraController.clearImageAnalysisAnalyzer()
@@ -156,9 +162,9 @@ fun QrScannerSheet(
         }
     }
 
-    LaunchedEffect(torchOn, hasPermission) {
-        if (hasPermission) {
-            cameraController.enableTorch(torchOn)
+    LaunchedEffect(torchOn, hasPermission, cameraAvailable) {
+        if (hasPermission && cameraAvailable) {
+            runCatching { cameraController.enableTorch(torchOn) }
         }
     }
 
@@ -177,6 +183,22 @@ fun QrScannerSheet(
             ) {
                 Text(
                     text = "Camera access is needed to scan the pairing code from your Mac.",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.size(16.dp))
+                TextButton(onClick = onClose) { Text("Go back") }
+            }
+        } else if (!cameraAvailable) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "The camera could not be started. Close this screen and try again, or enter the pairing code another way.",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge,
                 )

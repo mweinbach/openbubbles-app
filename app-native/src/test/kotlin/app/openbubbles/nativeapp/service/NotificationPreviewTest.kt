@@ -137,6 +137,37 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `direct history person key matches the shortcut chat guid`() {
+        assertEquals(
+            "any;+15551234567",
+            messagingHistoryPersonKey(
+                isGroup = false,
+                handleAddress = "+15551234567",
+                chatGuid = "any;+15551234567",
+            ),
+        )
+    }
+
+    @Test
+    fun `group history person key uses the handle address`() {
+        assertEquals(
+            "mailto:alice@icloud.com",
+            messagingHistoryPersonKey(
+                isGroup = true,
+                handleAddress = "mailto:alice@icloud.com",
+                chatGuid = "chat-guid",
+            ),
+        )
+        assertNull(
+            messagingHistoryPersonKey(
+                isGroup = true,
+                handleAddress = "  ",
+                chatGuid = "chat-guid",
+            ),
+        )
+    }
+
+    @Test
     fun `conversation shortcut spec keeps locus and shortcut ids aligned`() {
         val identity = conversationIdentity(4L, listOf(4L))
         val spec = conversationShortcutSpec(identity, title = "Alice", chatGuid = "chat-guid")
