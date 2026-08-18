@@ -73,24 +73,15 @@ store-ready packaging.
 The native rewrite targets the self-hosted flow: scan or paste an `OABS` Mac
 hardware payload once, then generate Apple validation data locally on the
 Android device. It does not depend on the OpenBubbles hosted hardware relay.
-The arm64 APK packages a compatibility library pinned to a recorded SHA-256.
-The Rust OpenAbsinthe layer checks its expected context layout and exported
-anchor before calling the version-specific native routines. The debug device
-gate completes Apple's account-free validation exchange and requires a
-517-byte envelope.
-
-For local ABI investigation, a debug build can override the pinned library:
-
-```bash
-cd native
-OPENBUBBLES_OFFICIAL_RUST_LIB=/path/to/librust_lib_bluebubbles.so \
-  ./gradlew :app-native:assembleDebug
-```
-
-The override is accepted only when it matches the compatibility contract used
-by the Rust validation backend. A debug-only broadcast performs the complete
-Apple certificate, key-establishment, and signing round trip without account
-credentials.
+The APK contains no project-owned precompiled compatibility library. Gradle
+builds `librust_lib_bluebubbles.so` directly from `rust/` with Cargo and the
+pinned Android NDK for arm64 and x86_64. OpenAbsinthe's constructor, key
+establishment, and signing path execute recovered source on every platform;
+the signing circuit is a generated architecture-neutral program interpreted
+by Rust and never loads the historical engine at runtime. See
+[`rustpush/open-absinthe/RECOVERY.md`](rustpush/open-absinthe/RECOVERY.md) for
+the recovery evidence and the boundary between offline differential checks and
+device acceptance.
 
 ## Releases and self-updates
 

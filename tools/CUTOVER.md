@@ -16,10 +16,10 @@ already-completed mechanical cutover.
 - [x] Android lint and release-variant AAB compilation run in native CI.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.
-- [x] OpenAbsinthe rejects missing or incompatible native backends explicitly.
-- [x] Production native builds package the version-pinned on-device engine.
-- [x] Account-free device smoke test completes Apple validation and returns a
-      517-byte envelope without using the hosted relay.
+- [x] OpenAbsinthe constructor, key establishment, and signing use the recovered
+      source path without loading a compatibility backend.
+- [x] Production native builds compile the Rust engine with Cargo and package no
+      project-owned precompiled Android library.
 - [x] SIM-chat attachments route through Android carrier MMS rather than MMCS.
 - [x] The manifest qualifies for Android's default-SMS role and Settings exposes
       the role needed for carrier MMS download/ingest.
@@ -33,6 +33,8 @@ already-completed mechanical cutover.
 
 ## Android device acceptance
 
+- [ ] The combined source-only OpenAbsinthe path completes account-free Apple
+      validation and returns a 517-byte envelope on a 16 KB device build.
 - [ ] Fresh self-hosted provisioning succeeds using an `OABS` Mac QR/payload.
 - [ ] Apple ID password login succeeds on the release candidate.
 - [ ] Trusted-device 2FA succeeds and registration writes usable account state.
