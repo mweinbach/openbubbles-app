@@ -390,6 +390,44 @@ class ChatViewModel(
         composerRevision++
     }
 
+    fun setBookmarked(messages: Collection<MessageItem>, bookmarked: Boolean) {
+        if (messages.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { messageActions.setBookmarked(messages.map { it.id }, bookmarked) }
+                .onFailure { actionError.value = it.message ?: "Could not update bookmark" }
+        }
+    }
+
+    fun deleteLocal(messages: Collection<MessageItem>) {
+        if (messages.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { messageActions.deleteLocal(messages.map { it.id }) }
+                .onFailure { actionError.value = it.message ?: "Could not delete message" }
+        }
+    }
+
+    fun cancelOutgoing(message: MessageItem) {
+        viewModelScope.launch {
+            runCatching { messageActions.cancelOutgoing(message.id) }
+                .onFailure { actionError.value = it.message ?: "Could not cancel send" }
+        }
+    }
+
+    fun markForwarded(messages: Collection<MessageItem>) {
+        if (messages.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { messageActions.markForwarded(messages.map { it.id }) }
+                .onFailure { actionError.value = it.message ?: "Could not prepare forward" }
+        }
+    }
+
+    fun blockSender() {
+        viewModelScope.launch {
+            runCatching { messageActions.blockSender(preferredChatId(), archive = true) }
+                .onFailure { actionError.value = it.message ?: "Could not block sender" }
+        }
+    }
+
     fun sendMessage() {
         val text = input.value.trim()
         val subjectValue = subject.value.trim().takeIf { it.isNotEmpty() }

@@ -19,6 +19,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MessageRepoPagingTest {
@@ -121,6 +122,29 @@ class MessageRepoPagingTest {
         assertEquals("two files", staged.text)
         assertTrue(staged.hasAttachments)
         assertEquals(2, staged.attachmentCount)
+    }
+
+    @Test
+    fun `bookmark and deleted restore update message projections`() {
+        val messageBox = store.boxFor(Message::class.java)
+        val message = messageBox.all.first()
+
+        repo.setBookmarked(listOf(message.id), true)
+        assertTrue(repo.bookmarked(chat.id).single { it.id == message.id }.isBookmarked)
+
+        messageBox.put(messageBox.get(message.id).apply { dateDeleted = Date(500L) })
+        assertEquals(message.id, repo.recentlyDeleted(chat.id).single().id)
+
+        repo.restoreDeleted(listOf(message.id))
+        assertNull(messageBox.get(message.id).dateDeleted)
+    }
+
+    @Test
+    fun `clear transcript deletes all local messages`() {
+        repo.clearTranscript(chat.id)
+
+        assertEquals(0L, store.boxFor(Message::class.java).count())
+        assertNull(store.boxFor(Chat::class.java).get(chat.id).dbLatestMessage.target)
     }
 
     private fun seed(target: Chat, count: Int) {

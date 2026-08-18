@@ -14,6 +14,8 @@ import org.junit.Test
 import java.io.File
 import java.util.Date
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ChatRepoContactTest {
 
@@ -438,6 +440,46 @@ class ChatRepoContactTest {
             listOf("friend@icloud.com"),
             ChatRepo(store).participantAddresses(chat.id),
         )
+    }
+
+    @Test
+    fun `chat options persist locks and block with archive`() {
+        val handle = handle("friend@icloud.com")
+        val chat = chat("chat-options", handle, "hello", 100L)
+        val repo = ChatRepo(store)
+
+        repo.setLockChatName(chat.id, true)
+        repo.setLockChatIcon(chat.id, true)
+        repo.setBlocked(chat.id, blocked = true, archive = true)
+
+        val stored = store.boxFor(Chat::class.java).get(chat.id)
+        assertTrue(stored.lockChatName)
+        assertTrue(stored.lockChatIcon)
+        assertTrue(stored.isArchived)
+        assertEquals("mute", stored.muteType)
+        assertTrue(store.boxFor(Handle::class.java).get(handle.id).blocked == true)
+        assertTrue(repo.isBlocked(chat.id))
+    }
+
+    @Test
+    fun `restoring a deleted chat restores its messages`() {
+        val handle = handle("friend@icloud.com")
+        val chat = chat("chat-deleted", handle, "hello", 100L)
+        val deletedAt = Date(500L)
+        val chatBox = store.boxFor(Chat::class.java)
+        val messageBox = store.boxFor(Message::class.java)
+        chatBox.put(chatBox.get(chat.id).apply { dateDeleted = deletedAt })
+        val message = messageBox.all.single()
+        messageBox.put(message.apply { dateDeleted = deletedAt })
+
+        val repo = ChatRepo(store)
+        assertEquals(chat.id, repo.recentlyDeleted().single().id)
+
+        repo.restoreDeleted(chat.id)
+
+        assertNull(chatBox.get(chat.id).dateDeleted)
+        assertNull(messageBox.get(message.id).dateDeleted)
+        assertTrue(repo.recentlyDeleted().isEmpty())
     }
 
     private fun handle(address: String): Handle = Handle().apply {

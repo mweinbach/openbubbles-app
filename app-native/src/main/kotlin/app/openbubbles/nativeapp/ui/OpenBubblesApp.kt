@@ -81,7 +81,9 @@ import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
+import app.openbubbles.nativeapp.ui.chat.BookmarkedMessagesScreen
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
+import app.openbubbles.nativeapp.ui.chat.RecentlyDeletedScreen
 import app.openbubbles.nativeapp.ui.chat.prepareOutgoingAttachment
 import app.openbubbles.nativeapp.ui.chat.ChatViewModel
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
@@ -137,6 +139,8 @@ object Routes {
     const val SEARCH = "search"
     const val NEW_CHAT = "newchat"
     const val SHARE = "share"
+    const val RECENTLY_DELETED = "recently-deleted"
+    fun bookmarks(chatId: Long): String = "bookmarks/$chatId"
     fun chat(chatId: Long): String = "chat/$chatId"
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
     fun newChat(recipients: List<String>, body: String?, useSms: Boolean): String = buildString {
@@ -181,6 +185,12 @@ data object SharedAlbumsKey : NavKey
 data object ArchivedChatsKey : NavKey
 
 @Serializable
+data object RecentlyDeletedKey : NavKey
+
+@Serializable
+data class BookmarksKey(val chatId: Long) : NavKey
+
+@Serializable
 data object FindMyKey : NavKey
 
 @Serializable
@@ -213,6 +223,8 @@ private fun NavKey.toRoute(): String = when (this) {
     is PasswordsKey -> Routes.PASSWORDS
     is SharedAlbumsKey -> Routes.SHARED_ALBUMS
     is ArchivedChatsKey -> Routes.ARCHIVED
+    is RecentlyDeletedKey -> Routes.RECENTLY_DELETED
+    is BookmarksKey -> Routes.bookmarks(chatId)
     is FindMyKey -> Routes.FIND_MY
     is SearchKey -> Routes.SEARCH
     is NewChatKey -> Routes.newChat(recipients, body, useSms)
@@ -236,6 +248,8 @@ private fun routeToKey(route: String): NavKey? = when {
     route == Routes.PASSWORDS -> PasswordsKey
     route == Routes.SHARED_ALBUMS -> SharedAlbumsKey
     route == Routes.ARCHIVED -> ArchivedChatsKey
+    route == Routes.RECENTLY_DELETED -> RecentlyDeletedKey
+    route.startsWith("bookmarks/") -> route.removePrefix("bookmarks/").toLongOrNull()?.let(::BookmarksKey)
     route == Routes.FIND_MY -> FindMyKey
     route == Routes.SEARCH -> SearchKey
     route.substringBefore('?') == Routes.NEW_CHAT -> NewChatKey(
@@ -330,10 +344,14 @@ fun OpenBubblesApp(
         // it so the detail pane never renders orphaned beside nothing.
         backStack.removeAll {
             it is SettingsKey || it is FindMyKey || it is NewChatKey ||
-                it is LoginKey || it is ArchivedChatsKey || it is SearchKey
+                it is LoginKey || it is ArchivedChatsKey || it is RecentlyDeletedKey ||
+                it is SearchKey || it is BookmarksKey
         }
         while (backStack.size > 1 &&
-            (backStack.last() is ChatKey || backStack.last() is ChatInfoKey || backStack.last() is AttachmentKey)
+            (
+                backStack.last() is ChatKey || backStack.last() is ChatInfoKey ||
+                    backStack.last() is AttachmentKey || backStack.last() is BookmarksKey
+                )
         ) {
             backStack.removeAt(backStack.lastIndex)
         }
@@ -756,6 +774,7 @@ fun OpenBubblesApp(
                         onClearBackground = { AppGraph.chatBackgroundActions.clearLocalBackground(chatId) },
                         onLeaveChat = { AppGraph.chatInfoActions.leave(chatId) },
                         onReportJunk = { AppGraph.chatInfoActions.reportJunk(chatId) },
+                        onOpenBookmarks = { navigateTo(BookmarksKey(chatId)) },
                         onOpenChat = { targetId ->
                             popBack()
                             openChat(targetId)
@@ -810,9 +829,11 @@ fun OpenBubblesApp(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
                         onOpenArchived = { navigateTo(ArchivedChatsKey) },
+                        onOpenRecentlyDeleted = { navigateTo(RecentlyDeletedKey) },
                         onOpenPasswords = { navigateTo(PasswordsKey) },
                         onOpenSharedAlbums = { navigateTo(SharedAlbumsKey) },
                         archivedCount = listState.archived.size,
+                        recentlyDeletedCount = AppGraph.chats.recentlyDeleted().size,
                         showBackButton = true,
                     )
                 }
@@ -894,6 +915,36 @@ fun OpenBubblesApp(
                         onDelete = { ids ->
                             viewModel.delete(ids)
                             if (selectedChatId != null && selectedChatId in ids) navigateHome()
+                        },
+                    )
+                }
+
+                entry<RecentlyDeletedKey>(metadata = overlayMetadata) {
+                    val chats = remember { AppGraph.chats.recentlyDeleted() }
+                    val messages = remember { AppGraph.messages.recentlyDeleted() }
+                    RecentlyDeletedScreen(
+                        chats = chats,
+                        messages = messages,
+                        onBack = { popBack() },
+                        onRestoreChat = { chat -> AppGraph.chats.restoreDeleted(chat.id) },
+                        onDeleteChat = { chat -> AppGraph.chats.permanentlyDelete(chat.id) },
+                        onRestoreMessage = { message ->
+                            AppGraph.messages.restoreDeleted(listOf(message.id))
+                        },
+                        onDeleteMessage = { message ->
+                            AppGraph.messages.deleteLocal(listOf(message.id))
+                        },
+                    )
+                }
+
+                entry<BookmarksKey>(metadata = overlayMetadata) { key ->
+                    val messages = remember(key.chatId) { AppGraph.messages.bookmarked(key.chatId) }
+                    BookmarkedMessagesScreen(
+                        messages = messages,
+                        onBack = { popBack() },
+                        onOpenChat = { openChat(key.chatId) },
+                        onUnbookmark = { message ->
+                            AppGraph.messages.setBookmarked(listOf(message.id), false)
                         },
                     )
                 }

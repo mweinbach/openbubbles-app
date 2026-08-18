@@ -125,6 +125,7 @@ fun ChatInfoScreen(
     onClearBackground: suspend () -> Unit = {},
     onLeaveChat: suspend () -> Unit = {},
     onReportJunk: suspend () -> Unit = {},
+    onOpenBookmarks: () -> Unit = {},
     /**
      * False only when this screen is a visible third pane (~1200dp). On
      * phones and two-pane layouts it replaces the conversation, so back
@@ -289,7 +290,7 @@ fun ChatInfoScreen(
                     onChoose = { pickBackground.launch("image/*") },
                     onClear = { launchAction(onClearBackground) },
                 )
-                ChatLocalOptions(chat)
+                ChatLocalOptions(chat, onOpenBookmarks = onOpenBookmarks)
                 if (!chat.isSms) {
                     TextButton(
                         onClick = { confirmReportJunk = true },
@@ -340,7 +341,7 @@ fun ChatInfoScreen(
                     onChoose = { pickBackground.launch("image/*") },
                     onClear = { launchAction(onClearBackground) },
                 )
-                chat?.let { ChatLocalOptions(it) }
+                chat?.let { ChatLocalOptions(it, onOpenBookmarks = onOpenBookmarks) }
                 if (participants.isNotEmpty()) {
                     Text(
                         text = "PARTICIPANTS",
@@ -895,7 +896,10 @@ private fun ChatInfoScreenPreview() {
 }
 
 @Composable
-private fun ChatLocalOptions(chat: ChatListItem) {
+private fun ChatLocalOptions(
+    chat: ChatListItem,
+    onOpenBookmarks: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     Column(
         modifier = Modifier
@@ -935,6 +939,9 @@ private fun ChatLocalOptions(chat: ChatListItem) {
                     "Send read receipts in this chat"
                 },
             )
+        }
+        TextButton(onClick = onOpenBookmarks) {
+            Text("Bookmarks")
         }
         TextButton(
             onClick = { scope.launch { AppGraph.chats.clearTranscript(chat.id) } },

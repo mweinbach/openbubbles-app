@@ -206,9 +206,11 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onOpenFindMy: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
+    onOpenRecentlyDeleted: () -> Unit = {},
     onOpenPasswords: () -> Unit = {},
     onOpenSharedAlbums: () -> Unit = {},
     archivedCount: Int = 0,
+    recentlyDeletedCount: Int = 0,
     showBackButton: Boolean = true,
     windowAdaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfoV2(),
 ) {
@@ -1060,7 +1062,7 @@ fun SettingsScreen(
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 8,
+                    count = 9,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
                     icon = Icons.AutoMirrored.Filled.Send,
                 )
@@ -1073,7 +1075,7 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.DoneAll,
                 )
                 SettingsToggleItem(
@@ -1085,7 +1087,7 @@ fun SettingsScreen(
                         messagingPrefs.showDeliveryTimestamps = enabled
                     },
                     index = 2,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.ManageHistory,
                 )
                 SettingsToggleItem(
@@ -1107,7 +1109,7 @@ fun SettingsScreen(
                         }
                     },
                     index = 3,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.Notifications,
                 )
                 SettingsToggleItem(
@@ -1119,7 +1121,7 @@ fun SettingsScreen(
                         messagingPrefs.sendSubjectLines = enabled
                     },
                     index = 4,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.AlternateEmail,
                 )
                 SettingsActionItem(
@@ -1127,7 +1129,7 @@ fun SettingsScreen(
                     supporting = autoDownloadLimit.title,
                     onClick = { showAutoDownloadDialog = true },
                     index = 5,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.DownloadForOffline,
                 )
                 SettingsActionItem(
@@ -1139,8 +1141,20 @@ fun SettingsScreen(
                     },
                     onClick = onOpenArchived,
                     index = 6,
-                    count = 8,
+                    count = 9,
                     icon = Icons.Filled.Archive,
+                )
+                SettingsActionItem(
+                    title = "Recently Deleted",
+                    supporting = if (recentlyDeletedCount == 0) {
+                        "None"
+                    } else {
+                        "$recentlyDeletedCount recoverable"
+                    },
+                    onClick = onOpenRecentlyDeleted,
+                    index = 7,
+                    count = 9,
+                    icon = Icons.Filled.Restore,
                 )
                 // One row for the SMS role: the chip tone says whether it is
                 // active, the tap opens the system role picker either way.
@@ -1154,8 +1168,8 @@ fun SettingsScreen(
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 7,
-                    count = 8,
+                    index = 8,
+                    count = 9,
                     multiline = true,
                     icon = Icons.Filled.Sms,
                     iconTone = if (isDefaultSmsApp) {
