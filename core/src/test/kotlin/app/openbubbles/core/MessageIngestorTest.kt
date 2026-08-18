@@ -580,6 +580,32 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `delivered receipt for an incoming guid does not stamp that bubble`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("incoming-del-1", friend, "hello")), myHandles)
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "incoming-del-1",
+                    sender = friend,
+                    conversation = conversation(me, friend),
+                    message = UMessage.Delivered,
+                    sentTimestamp = 1_700_000_100_000uL,
+                    sendDelivered = false,
+                    verificationFailed = false,
+                )
+            ),
+            myHandles,
+        )
+
+        val row = messageByGuid("incoming-del-1")
+        assertNotNull(row)
+        assertFalse(row.isFromMe)
+        assertNull(row.dateDelivered)
+        assertNull(row.dateRead)
+        assertNull(row.errorMessage)
+    }
+
+    @Test
     fun `send confirm clears sendingServiceId`() = runBlocking<Unit> {
         val chat = chatForFixture()
         runBlocking {
@@ -653,6 +679,21 @@ class MessageIngestorTest {
         assertEquals(1L, failed.error)
         assertEquals("Not connected to Apple push", failed.errorMessage)
         assertEquals(app.openbubbles.core.model.MessageStatus.FAILED, messageRepo.statusOf(failed))
+    }
+
+    @Test
+    fun `failOutgoing ignores an incoming guid`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("incoming-fail-1", friend, "hello")), myHandles)
+
+        val failed = messageRepo.failOutgoing("incoming-fail-1", "Not connected to Apple push")
+
+        assertNull(failed)
+        val row = messageByGuid("incoming-fail-1")
+        assertNotNull(row)
+        assertFalse(row.isFromMe)
+        assertNull(row.errorMessage)
+        assertNull(row.error)
+        assertEquals(app.openbubbles.core.model.MessageStatus.SENT, messageRepo.statusOf(row))
     }
 
     @Test
