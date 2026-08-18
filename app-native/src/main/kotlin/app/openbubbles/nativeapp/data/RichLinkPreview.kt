@@ -67,6 +67,31 @@ private fun WireLinkMeta.attachmentBytes(attachment: WireAttachment?): ByteArray
     return ByteArray(bytes.size) { bytes[it].toByte() }
 }
 
+/**
+ * Body text shown beside a rich-link card. Strips the preview URL so the
+ * bubble does not repeat the same link the card already presents.
+ */
+internal fun displayTextForRichLink(messageText: String, previewUrl: String): String {
+    val target = previewUrl.normalizeHttpUrl()?.trimEnd('/')
+        ?: previewUrl.trim().trimEnd('/')
+    if (target.isEmpty()) return messageText.trim()
+    val matches = HttpUrlPattern.findAll(messageText).toList()
+    if (matches.isEmpty()) return messageText.trim()
+    val builder = StringBuilder(messageText)
+    matches.asReversed().forEach { match ->
+        val cleaned = match.value.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}')
+        val normalized = cleaned.normalizeHttpUrl()?.trimEnd('/') ?: return@forEach
+        if (normalized.equals(target, ignoreCase = true)) {
+            builder.delete(match.range.first, match.range.last + 1)
+        }
+    }
+    return builder.toString()
+        .replace(Regex("[ \\t]+"), " ")
+        .replace(Regex(" *\\n+ *"), "\n")
+        .trim()
+        .trimEnd(',', ';', ':')
+}
+
 private fun firstHttpUrl(text: String): String? =
     HttpUrlPattern.find(text)?.value
         ?.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}')

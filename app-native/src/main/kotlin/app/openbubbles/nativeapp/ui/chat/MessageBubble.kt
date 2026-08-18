@@ -72,6 +72,7 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.StickerPlacement
+import app.openbubbles.nativeapp.data.displayTextForRichLink
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -124,8 +125,6 @@ private fun bubbleShape(tightTop: Boolean, tightBottom: Boolean): RoundedCornerS
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
 
-private fun normalizedPreviewUrl(value: String): String = value.trim().trimEnd('/')
-
 /**
  * Bubble container/content pair. Outgoing iMessage uses the theme primary;
  * outgoing SMS uses the fixed green service identity (the green-bubble
@@ -177,6 +176,7 @@ private fun StickerOverlay(
 private fun RichLinkCard(
     preview: RichLinkPreview,
     modifier: Modifier = Modifier,
+    embedded: Boolean = false,
     onLongPress: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -189,10 +189,14 @@ private fun RichLinkCard(
         }
     }
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = if (embedded) RoundedCornerShape(0.dp) else RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = if (embedded) {
+            null
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
         modifier = modifier.then(
             if (onLongPress != null) {
                 Modifier.combinedClickable(
@@ -328,9 +332,14 @@ fun MessageBubble(
         listOfNotNull(message.attachmentMeta)
     }
     val richLink = message.richLink
-    val showTextBubble = message.text.isNotBlank() && (
-        richLink == null || normalizedPreviewUrl(message.text) != normalizedPreviewUrl(richLink.url)
-    )
+    val displayText = if (richLink != null) {
+        displayTextForRichLink(message.text, richLink.url)
+    } else {
+        message.text
+    }
+    val showTextBubble = displayText.isNotBlank()
+    val invisibleInk = isInvisibleInk(message.expressiveSendStyleId)
+    val embedRichLink = richLink != null && showTextBubble && !invisibleInk
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
@@ -451,15 +460,19 @@ fun MessageBubble(
             message.uploadProgress?.let { progress ->
                 UploadProgressRow(done = progress.first, total = progress.second)
             }
-            richLink?.let { preview ->
+            if (embedRichLink) {
                 Box {
-                    RichLinkCard(
-                        preview = preview,
+                    CombinedTextAndLinkBubble(
+                        text = displayText,
+                        preview = checkNotNull(richLink),
+                        shape = shape,
+                        isFromMe = message.isFromMe,
+                        smsChat = smsChat,
                         onLongPress = onLongPressPart?.let { callback ->
                             { callback(textPart) }
                         },
                     )
-                    if (attachments.isEmpty() && !showTextBubble) {
+                    if (attachments.isEmpty()) {
                         message.reactionEmoji?.let { emoji ->
                             ReactionChip(
                                 emoji = emoji,
@@ -471,49 +484,72 @@ fun MessageBubble(
                         }
                     }
                 }
-            }
-            if (showTextBubble) {
-                Box {
-                    if (isInvisibleInk(message.expressiveSendStyleId)) {
-                        InvisibleInkBubble(
-                            message = message,
-                            shape = shape,
-                            smsChat = smsChat,
+            } else {
+                richLink?.let { preview ->
+                    Box {
+                        RichLinkCard(
+                            preview = preview,
                             onLongPress = onLongPressPart?.let { callback ->
                                 { callback(textPart) }
                             },
                         )
-                    } else {
-                        val (bubbleColor, bubbleContent) = bubbleColors(message.isFromMe, smsChat)
-                        Surface(
-                            shape = shape,
-                            color = bubbleColor,
-                            contentColor = bubbleContent,
-                            modifier = if (onLongPressPart != null) {
-                                Modifier.combinedClickable(
-                                    onClick = {},
-                                    onLongClick = { onLongPressPart(textPart) },
+                        if (attachments.isEmpty() && !showTextBubble) {
+                            message.reactionEmoji?.let { emoji ->
+                                ReactionChip(
+                                    emoji = emoji,
+                                    isFromMe = message.isFromMe,
+                                    modifier = Modifier.align(
+                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                    ),
                                 )
-                            } else {
-                                Modifier
-                            },
-                        ) {
-                            Text(
-                                text = message.text,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            )
+                            }
                         }
                     }
-                    if (attachments.isEmpty()) {
-                        message.reactionEmoji?.let { emoji ->
-                            ReactionChip(
-                                emoji = emoji,
-                                isFromMe = message.isFromMe,
-                                modifier = Modifier.align(
-                                    if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
-                                ),
+                }
+                if (showTextBubble) {
+                    Box {
+                        if (invisibleInk) {
+                            InvisibleInkBubble(
+                                message = message,
+                                text = displayText,
+                                shape = shape,
+                                smsChat = smsChat,
+                                onLongPress = onLongPressPart?.let { callback ->
+                                    { callback(textPart) }
+                                },
                             )
+                        } else {
+                            val (bubbleColor, bubbleContent) = bubbleColors(message.isFromMe, smsChat)
+                            Surface(
+                                shape = shape,
+                                color = bubbleColor,
+                                contentColor = bubbleContent,
+                                modifier = if (onLongPressPart != null) {
+                                    Modifier.combinedClickable(
+                                        onClick = {},
+                                        onLongClick = { onLongPressPart(textPart) },
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            ) {
+                                Text(
+                                    text = displayText,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                )
+                            }
+                        }
+                        if (attachments.isEmpty()) {
+                            message.reactionEmoji?.let { emoji ->
+                                ReactionChip(
+                                    emoji = emoji,
+                                    isFromMe = message.isFromMe,
+                                    modifier = Modifier.align(
+                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -550,8 +586,51 @@ fun MessageBubble(
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun CombinedTextAndLinkBubble(
+    text: String,
+    preview: RichLinkPreview,
+    shape: RoundedCornerShape,
+    isFromMe: Boolean,
+    smsChat: Boolean,
+    modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null,
+) {
+    val (bubbleColor, bubbleContent) = bubbleColors(isFromMe, smsChat)
+    Surface(
+        shape = shape,
+        color = bubbleColor,
+        contentColor = bubbleContent,
+        modifier = modifier.then(
+            if (onLongPress != null) {
+                Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = onLongPress,
+                )
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        Column {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+            RichLinkCard(
+                preview = preview,
+                embedded = true,
+                onLongPress = onLongPress,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun InvisibleInkBubble(
     message: MessageItem,
+    text: String,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
     smsChat: Boolean = false,
@@ -581,7 +660,7 @@ private fun InvisibleInkBubble(
         ),
     ) {
         Text(
-            text = message.text,
+            text = text,
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier
                 .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -943,6 +1022,41 @@ private fun MessageAttachmentPreview() {
                     ),
                 ),
                 showStatus = false,
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun MessageRichLinkPreview() {
+    val preview = RichLinkPreview(
+        url = "https://www.nps.gov/yose/index.htm",
+        displayHost = "nps.gov",
+        title = "Yosemite National Park",
+        summary = "Plan the route, check conditions, and get ready for Saturday's hike.",
+        imageBytes = null,
+        imageMime = null,
+        iconBytes = null,
+        iconMime = null,
+    )
+    OpenBubblesTheme {
+        Column {
+            MessageBubble(
+                message = previewMessage(
+                    "Check the trail conditions https://www.nps.gov/yose/index.htm",
+                    isFromMe = false,
+                ).copy(richLink = preview),
+                showStatus = false,
+            )
+            MessageBubble(
+                message = previewMessage(
+                    "https://www.nps.gov/yose/index.htm",
+                    isFromMe = true,
+                    status = MessageStatus.DELIVERED,
+                ).copy(richLink = preview),
+                showStatus = true,
             )
         }
     }
