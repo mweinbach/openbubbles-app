@@ -502,6 +502,30 @@ impl NativePushState {
         send_inst(self.shared(), inst)
     }
 
+    pub fn send_parts(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        parts: Vec<UIndexedPart>,
+        reply_guid: Option<String>,
+        reply_part: Option<String>,
+        effect: Option<String>,
+        subject: Option<String>,
+    ) -> Result<UMessageInst, UError> {
+        let mut normal = NormalMessage::new(String::new(), MessageType::IMessage);
+        normal.parts = back_parts(parts)?;
+        normal.reply_guid = reply_guid;
+        normal.reply_part = reply_part;
+        normal.effect = effect;
+        normal.subject = subject;
+        let inst = RUNTIME.block_on(api::new_msg(
+            back_conversation(conversation),
+            sender,
+            Message::Message(normal),
+        ));
+        send_inst(self.shared(), inst)
+    }
+
     pub fn send_typing(&self, conversation: UConversation, sender: String, typing: bool) -> Result<(), UError> {
         let inst = RUNTIME.block_on(api::new_msg(
             back_conversation(conversation),

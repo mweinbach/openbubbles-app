@@ -8,4 +8,7 @@
     <cache-path
         name="diagnostics"
         path="diagnostics/" />
+    <cache-path
+        name="captures"
+        path="captures/" />
 </paths>

@@ -1029,12 +1029,15 @@ fun SettingsScreen(
                 var shareFocusStatus by remember {
                     mutableStateOf(messagingPrefs.shareFocusStatus)
                 }
+                var sendSubjectLines by remember {
+                    mutableStateOf(messagingPrefs.sendSubjectLines)
+                }
                 SettingsActionItem(
                     title = "Default sending address",
                     supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
                     onClick = { showDefaultSendingHandleDialog = true },
                     index = 0,
-                    count = 7,
+                    count = 8,
                     enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
                     icon = Icons.AutoMirrored.Filled.Send,
                 )
@@ -1047,7 +1050,7 @@ fun SettingsScreen(
                         messagingPrefs.sendReadReceipts = enabled
                     },
                     index = 1,
-                    count = 7,
+                    count = 8,
                     icon = Icons.Filled.DoneAll,
                 )
                 SettingsToggleItem(
@@ -1059,7 +1062,7 @@ fun SettingsScreen(
                         messagingPrefs.showDeliveryTimestamps = enabled
                     },
                     index = 2,
-                    count = 7,
+                    count = 8,
                     icon = Icons.Filled.ManageHistory,
                 )
                 SettingsToggleItem(
@@ -1081,15 +1084,27 @@ fun SettingsScreen(
                         }
                     },
                     index = 3,
-                    count = 7,
+                    count = 8,
                     icon = Icons.Filled.Notifications,
+                )
+                SettingsToggleItem(
+                    title = "Show subject field",
+                    supporting = "Add an optional subject line above the message composer",
+                    checked = sendSubjectLines,
+                    onCheckedChange = { enabled ->
+                        sendSubjectLines = enabled
+                        messagingPrefs.sendSubjectLines = enabled
+                    },
+                    index = 4,
+                    count = 8,
+                    icon = Icons.Filled.AlternateEmail,
                 )
                 SettingsActionItem(
                     title = "Auto-download media",
                     supporting = autoDownloadLimit.title,
                     onClick = { showAutoDownloadDialog = true },
-                    index = 4,
-                    count = 7,
+                    index = 5,
+                    count = 8,
                     icon = Icons.Filled.DownloadForOffline,
                 )
                 SettingsActionItem(
@@ -1100,8 +1115,8 @@ fun SettingsScreen(
                         "$archivedCount archived"
                     },
                     onClick = onOpenArchived,
-                    index = 5,
-                    count = 7,
+                    index = 6,
+                    count = 8,
                     icon = Icons.Filled.Archive,
                 )
                 // One row for the SMS role: the chip tone says whether it is
@@ -1116,8 +1131,8 @@ fun SettingsScreen(
                     onClick = {
                         SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
                     },
-                    index = 6,
-                    count = 7,
+                    index = 7,
+                    count = 8,
                     multiline = true,
                     icon = Icons.Filled.Sms,
                     iconTone = if (isDefaultSmsApp) {

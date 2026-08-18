@@ -1681,6 +1681,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_parts(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
@@ -2080,6 +2082,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePaths`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mimes`: RustBuffer.ByValue,`utis`: RustBuffer.ByValue,`names`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_parts(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`parts`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`profileJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -2742,6 +2746,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments() != 59501.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_parts() != 35839.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile() != 55432.toShort()) {
@@ -6190,6 +6197,8 @@ public interface NativePushStateInterface {
      */
     fun `sendAttachments`(`conversation`: UConversation, `sender`: kotlin.String, `filePaths`: List<kotlin.String>, `text`: kotlin.String?, `mimes`: List<kotlin.String>, `utis`: List<kotlin.String>, `names`: List<kotlin.String?>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
 
+    fun `sendParts`(`conversation`: UConversation, `sender`: kotlin.String, `parts`: List<UIndexedPart>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
+
     /**
      * Send a `ShareProfileMessage` (the JSON from `set_profile`) into a
      * conversation — the "share name and photo" message.
@@ -7192,6 +7201,19 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(
         it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`filePaths`),FfiConverterOptionalString.lower(`text`),FfiConverterSequenceString.lower(`mimes`),FfiConverterSequenceString.lower(`utis`),FfiConverterSequenceOptionalString.lower(`names`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterBoolean.lower(`voice`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),_status)
+}
+    }
+    )
+    }
+
+
+
+    @Throws(UException::class)override fun `sendParts`(`conversation`: UConversation, `sender`: kotlin.String, `parts`: List<UIndexedPart>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst {
+            return FfiConverterTypeUMessageInst.lift(
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_parts(
+        it, FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceTypeUIndexedPart.lower(`parts`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),_status)
 }
     }
     )

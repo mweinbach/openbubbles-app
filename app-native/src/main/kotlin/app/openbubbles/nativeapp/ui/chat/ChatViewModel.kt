@@ -15,6 +15,7 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingMention
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
 import app.openbubbles.nativeapp.data.SmsSender
@@ -45,6 +46,8 @@ data class ChatUiState(
     /** Ascending by time (oldest first); the screen reverses for layout. */
     val messages: List<MessageItem> = emptyList(),
     val input: String = "",
+    val subject: String = "",
+    val mentions: List<OutgoingMention> = emptyList(),
     /** Attachments staged on the draft; sent with the next sendMessage. */
     val pendingAttachments: List<OutgoingAttachment> = emptyList(),
     val loadingOlder: Boolean = false,
@@ -180,6 +183,8 @@ class ChatViewModel(
     }
 
     private val input = MutableStateFlow(initialInput.orEmpty())
+    private val subject = MutableStateFlow("")
+    private val mentions = MutableStateFlow<List<OutgoingMention>>(emptyList())
     private val pendingAttachments = MutableStateFlow<List<OutgoingAttachment>>(emptyList())
     private val loadingOlder = MutableStateFlow(false)
     private val replyingTo = MutableStateFlow<ReplyTarget?>(null)
@@ -333,6 +338,10 @@ class ChatViewModel(
             state.copy(faceTimeLaunch = launch)
         }.combine(pendingAttachments) { state, attachments ->
             state.copy(pendingAttachments = attachments)
+        }.combine(subject) { state, value ->
+            state.copy(subject = value)
+        }.combine(mentions) { state, value ->
+            state.copy(mentions = value)
         }.combine(textSendInProgress) { state, sending ->
             state.copy(textSendInProgress = sending)
         }.combine(attachmentSendInProgress) { state, sending ->
@@ -348,10 +357,43 @@ class ChatViewModel(
     fun onInputChange(value: String) {
         if (input.value != value) composerRevision++
         input.value = value
+        mentions.value = mentions.value.filter { mention ->
+            val expectedText = buildString {
+                append('@')
+                append(mention.displayText.removePrefix("@"))
+            }
+            mention.end <= value.length &&
+                value.substring(mention.start, mention.end) == expectedText
+        }
+    }
+
+    fun onSubjectChange(value: String) {
+        if (subject.value != value) composerRevision++
+        subject.value = value.take(1_000)
+    }
+
+    fun insertMention(start: Int, end: Int, handle: String, displayText: String) {
+        val current = input.value
+        if (start !in 0..current.length || end !in start..current.length) return
+        val label = displayText.removePrefix("@").ifBlank { handle }
+        val replacement = "@$label"
+        val updated = current.replaceRange(start, end, "$replacement ")
+        val delta = updated.length - current.length
+        mentions.value = mentions.value.mapNotNull { mention ->
+            when {
+                mention.end <= start -> mention
+                mention.start >= end -> mention.copy(start = mention.start + delta, end = mention.end + delta)
+                else -> null
+            }
+        } + OutgoingMention(start, start + replacement.length, handle, label)
+        input.value = updated
+        composerRevision++
     }
 
     fun sendMessage() {
         val text = input.value.trim()
+        val subjectValue = subject.value.trim().takeIf { it.isNotEmpty() }
+        val mentionValues = mentions.value
         val attachments = pendingAttachments.value
         if (attachments.isNotEmpty()) {
             sendDraftAttachments(text, attachments)
@@ -372,15 +414,17 @@ class ChatViewModel(
                 val chatItem = chat.value ?: chat.filterNotNull().first()
                 val targetChatId = chatItem.preferredChatId
                 when {
-                    chatItem.isSms -> smsSender.send(targetChatId, text)
+                    chatItem.isSms -> smsSender.send(targetChatId, text, subjectValue)
                     reply != null -> sender.sendReply(
                         sourceChatId(reply.message),
                         text,
                         reply.rootGuid,
                         reply.partLocator,
+                        subjectValue,
+                        mentionValues,
                     )
-                    effectId == null -> sender.send(targetChatId, text)
-                    else -> sender.sendWithEffect(targetChatId, text, effectId)
+                    effectId == null -> sender.send(targetChatId, text, subjectValue, mentionValues)
+                    else -> sender.sendWithEffect(targetChatId, text, effectId, subjectValue, mentionValues)
                 }
             }.onSuccess { accepted ->
                 if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
@@ -450,9 +494,9 @@ class ChatViewModel(
                 val chatItem = chat.value ?: chat.filterNotNull().first()
                 val targetChatId = chatItem.preferredChatId
                 if (chatItem.isSms) {
-                    smsAttachmentSender.send(targetChatId, attachments, value)
+                    smsAttachmentSender.send(targetChatId, attachments, value, subject.value.trim().takeIf { it.isNotEmpty() })
                 } else {
-                    attachmentSender.send(targetChatId, attachments, value)
+                    attachmentSender.send(targetChatId, attachments, value, subject.value.trim().takeIf { it.isNotEmpty() })
                 }
             }.onSuccess { accepted ->
                 if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
@@ -475,6 +519,8 @@ class ChatViewModel(
     private fun settleComposerAfterSend(expectedRevision: Long? = null) {
         if (expectedRevision != null && composerRevision != expectedRevision) return
         input.value = ""
+        subject.value = ""
+        mentions.value = emptyList()
         editingMessage.value = null
         val open = replyThread.value
         val root = open?.messages?.firstOrNull { it.guid == open.rootGuid }

@@ -21,6 +21,8 @@ internal suspend fun stageOutgoingText(
     effectId: String? = null,
     replyGuid: String? = null,
     replyPartLocator: String? = null,
+    subject: String? = null,
+    attributedBody: String? = null,
 ): OutgoingTextStage = OutgoingTextStage(
     tempGuid = tempGuid,
     message = MessageRepo(store).stageOutgoingMessage(
@@ -31,6 +33,8 @@ internal suspend fun stageOutgoingText(
         expressiveSendStyleId = effectId,
         threadOriginatorGuid = replyGuid,
         threadOriginatorPart = replyPartLocator,
+        subject = subject,
+        attributedBody = attributedBody,
     ),
 )
 

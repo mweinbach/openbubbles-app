@@ -718,6 +718,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
         app.openbubbles.core.model.MessageKind.GROUP_EVENT -> item.groupEventText ?: item.text
         else -> item.text
     },
+    subject = item.subject,
     isFromMe = item.isFromMe,
     date = item.date?.time ?: 0L,
     dateDelivered = item.dateDelivered?.time,
@@ -1326,11 +1327,40 @@ private object CoreSender : Sender {
     override suspend fun send(chatId: Long, text: String): OutgoingTextSend =
         sendWithEffect(chatId, text, null)
 
+    override suspend fun send(
+        chatId: Long,
+        text: String,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = sendInternal(
+        chatId = chatId,
+        text = text,
+        effectId = null,
+        replyGuid = null,
+        subject = subject,
+        mentions = mentions,
+    )
+
     override suspend fun sendWithEffect(
         chatId: Long,
         text: String,
         effectId: String?,
     ): OutgoingTextSend = sendInternal(chatId, text, effectId, null)
+
+    override suspend fun sendWithEffect(
+        chatId: Long,
+        text: String,
+        effectId: String?,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = sendInternal(
+        chatId = chatId,
+        text = text,
+        effectId = effectId,
+        replyGuid = null,
+        subject = subject,
+        mentions = mentions,
+    )
 
     override suspend fun sendReply(
         chatId: Long,
@@ -1339,12 +1369,31 @@ private object CoreSender : Sender {
         replyPartLocator: String,
     ): OutgoingTextSend = sendInternal(chatId, text, null, replyGuid, replyPartLocator)
 
+    override suspend fun sendReply(
+        chatId: Long,
+        text: String,
+        replyGuid: String,
+        replyPartLocator: String,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = sendInternal(
+        chatId = chatId,
+        text = text,
+        effectId = null,
+        replyGuid = replyGuid,
+        replyPartLocator = replyPartLocator,
+        subject = subject,
+        mentions = mentions,
+    )
+
     private suspend fun sendInternal(
         chatId: Long,
         text: String,
         effectId: String?,
         replyGuid: String?,
         replyPartLocator: String? = null,
+        subject: String? = null,
+        mentions: List<OutgoingMention> = emptyList(),
     ): OutgoingTextSend {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
@@ -1363,6 +1412,8 @@ private object CoreSender : Sender {
                 effectId = effectId,
                 replyGuid = replyGuid,
                 replyPartLocator = replyPartLocator,
+                subject = subject,
+                attributedBody = outgoingAttributedBody(text, mentions),
             ) to handle
         }
         val tempGuid = stage.tempGuid
@@ -1383,13 +1434,27 @@ private object CoreSender : Sender {
                     val conversation = sendConversation(store, chat, myHandle)
                     maybeShareProfile(pushState, chat, conversation, myHandle)
                     val inst = runInterruptible(Dispatchers.IO) {
-                        pushState.sendText(
-                            conversation,
-                            myHandle,
-                            text,
-                            // replyGuid, replyPart, effect, subject
-                            replyGuid, replyPartLocator, effectId, null,
-                        )
+                        if (mentions.isEmpty()) {
+                            pushState.sendText(
+                                conversation,
+                                myHandle,
+                                text,
+                                replyGuid,
+                                replyPartLocator,
+                                effectId,
+                                subject,
+                            )
+                        } else {
+                            pushState.sendParts(
+                                conversation,
+                                myHandle,
+                                outgoingMessageParts(text, mentions),
+                                replyGuid,
+                                replyPartLocator,
+                                effectId,
+                                subject,
+                            )
+                        }
                     }
                     failureLookupGuid = inst.id
                     // Promote the staged row to the Rust staging guid so the echo and
@@ -1425,6 +1490,41 @@ private suspend fun maybeShareProfile(
     runInterruptible(Dispatchers.IO) { state.sendProfile(conversation, sender, json) }
     prefs.markSharedWith(address)
 }
+
+internal fun outgoingMessageParts(
+    text: String,
+    mentions: List<OutgoingMention>,
+): List<UIndexedPart> {
+    val valid = mentions
+        .filter { it.start >= 0 && it.end <= text.length && it.start < it.end }
+        .sortedBy { it.start }
+        .fold(mutableListOf<OutgoingMention>()) { accepted, mention ->
+            if (accepted.lastOrNull()?.end?.let { it > mention.start } != true) accepted += mention
+            accepted
+        }
+    if (valid.isEmpty()) return listOf(UIndexedPart(UPart.Text(text, ""), 0uL, null))
+    val parts = mutableListOf<UIndexedPart>()
+    var cursor = 0
+    valid.forEach { mention ->
+        if (mention.start > cursor) {
+            parts += UIndexedPart(UPart.Text(text.substring(cursor, mention.start), ""), 0uL, null)
+        }
+        parts += UIndexedPart(
+            UPart.Mention(mention.handle, mention.displayText.removePrefix("@")),
+            0uL,
+            null,
+        )
+        cursor = mention.end
+    }
+    if (cursor < text.length) parts += UIndexedPart(UPart.Text(text.substring(cursor), ""), 0uL, null)
+    return parts
+}
+
+internal fun outgoingAttributedBody(text: String, mentions: List<OutgoingMention>): String? =
+    outgoingMessageParts(text, mentions)
+        .takeIf { mentions.isNotEmpty() }
+        ?.let(app.openbubbles.core.model.MessageMapper::encodeReplyPartLocators)
+
 
 /** Local unread-state update plus the legacy iMessage read-receipt routing. */
 private object CoreReadReceiptSender : ReadReceiptSender {
@@ -1918,6 +2018,15 @@ internal object CoreAttachmentSender : AttachmentSender {
         attachments: List<OutgoingAttachment>,
         caption: String?,
     ): OutgoingAttachmentSend {
+        return send(chatId, attachments, caption, null)
+    }
+
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+        subject: String?,
+    ): OutgoingAttachmentSend {
         require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
@@ -1963,6 +2072,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                                 totalBytes = payloads[index].length(),
                             )
                         },
+                        subject = subject,
                     )
                 PreparedAttachmentSend(
                     messageId = message.id,
@@ -2008,7 +2118,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                         attachments.map { it.mime },
                         attachments.map { it.uti },
                         attachments.map { it.name },
-                        null, null, null, null, false,
+                        null, null, null, subject, false,
                         object : uniffi.rust_lib_bluebubbles.UProgressCallback {
                             override fun onProgress(done: ULong, total: ULong) {
                                 val doneLong = done.toLong()

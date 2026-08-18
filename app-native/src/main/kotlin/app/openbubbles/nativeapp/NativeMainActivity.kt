@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,12 +27,33 @@ import uniffi.rust_lib_bluebubbles.isLocked
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import kotlinx.serialization.Serializable
 
 data class SmsComposeRequest(
     val recipients: List<String>,
     val body: String?,
     val useSms: Boolean = true,
 )
+
+@Serializable
+data class IncomingShareRequest(
+    val text: String? = null,
+    val streams: List<String> = emptyList(),
+    val mimeType: String? = null,
+)
+
+internal fun parseIncomingShareRequest(
+    action: String?,
+    mimeType: String?,
+    extraText: String?,
+    streams: List<String>,
+): IncomingShareRequest? {
+    if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
+    val text = extraText?.take(20_000)?.takeIf { it.isNotBlank() }
+    val safeStreams = streams.filter { it.startsWith("content://") || it.startsWith("file://") }.take(32)
+    return IncomingShareRequest(text, safeStreams, mimeType?.take(200))
+        .takeIf { it.text != null || it.streams.isNotEmpty() }
+}
 
 internal fun parseSmsComposeRequest(
     action: String?,
@@ -78,6 +100,7 @@ class NativeMainActivity : ComponentActivity() {
     private var debugLines: List<String> = emptyList()
     private var resumeRoute: String? = null
     private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
+    private var pendingShareRequest: IncomingShareRequest? by mutableStateOf(null)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
 
@@ -124,12 +147,24 @@ class NativeMainActivity : ComponentActivity() {
 
         debugLines = listOf(Hello.greeting(), rustStatus)
         resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
+        pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
+            IncomingShareRequest(
+                text = savedInstanceState.getString(STATE_SHARE_TEXT),
+                streams = streams,
+                mimeType = savedInstanceState.getString(STATE_SHARE_MIME),
+            )
+        } ?: pendingShareRequest
         renderUi()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         resumeRoute?.let { outState.putString(STATE_RESUME_ROUTE, it) }
+        pendingShareRequest?.let { request ->
+            outState.putString(STATE_SHARE_TEXT, request.text)
+            outState.putStringArrayList(STATE_SHARE_STREAMS, ArrayList(request.streams))
+            outState.putString(STATE_SHARE_MIME, request.mimeType)
+        }
     }
 
     private fun renderUi() {
@@ -140,6 +175,8 @@ class NativeMainActivity : ComponentActivity() {
                     startChatGuid = pendingChatGuid,
                     startComposeRequest = pendingComposeRequest,
                     onComposeRequestConsumed = { pendingComposeRequest = null },
+                    startShareRequest = pendingShareRequest,
+                    onShareRequestConsumed = { pendingShareRequest = null },
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
                 )
@@ -204,6 +241,20 @@ class NativeMainActivity : ComponentActivity() {
             dataString = intent?.dataString,
             extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
         )
+        @Suppress("DEPRECATION")
+        val streams = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString())
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                .orEmpty().map(Uri::toString)
+            else -> emptyList()
+        }
+        pendingShareRequest = parseIncomingShareRequest(
+            action = intent?.action,
+            mimeType = intent?.type,
+            extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+            streams = streams,
+        )
+        if (pendingShareRequest != null) pendingComposeRequest = null
         // Cancel the notification immediately; the conversation's live
         // repository owns its initial 30-row load after navigation.
         pendingChatGuid?.let { guid ->
@@ -229,6 +280,9 @@ class NativeMainActivity : ComponentActivity() {
 
         /** Survives fold / unfold activity recreation so the open chat is restored. */
         internal const val STATE_RESUME_ROUTE = "resume_route"
+        private const val STATE_SHARE_TEXT = "share_text"
+        private const val STATE_SHARE_STREAMS = "share_streams"
+        private const val STATE_SHARE_MIME = "share_mime"
 
         /**
          * Chat guid requested by a notification tap, consumed once by

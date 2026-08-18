@@ -50,6 +50,12 @@ class MessagingPrefs(context: Context) {
             prefs.edit { putBoolean(KEY_SHARE_FOCUS_STATUS, value) }
         }
 
+    var sendSubjectLines: Boolean
+        get() = prefs.getBoolean(KEY_SEND_SUBJECT_LINES, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_SEND_SUBJECT_LINES, value) }
+        }
+
     /**
      * Largest incoming image/video/audio payload (bytes) that downloads
      * automatically: 0 disables auto-download, [AUTO_DOWNLOAD_UNLIMITED]
@@ -74,6 +80,7 @@ class MessagingPrefs(context: Context) {
         private const val KEY_SEND_READ_RECEIPTS = "send_read_receipts"
         private const val KEY_SHOW_DELIVERY_TIMESTAMPS = "show_delivery_timestamps"
         private const val KEY_SHARE_FOCUS_STATUS = "share_focus_status"
+        private const val KEY_SEND_SUBJECT_LINES = "send_subject_lines"
         private const val KEY_AUTO_DOWNLOAD_MAX_BYTES = "auto_download_max_bytes"
     }
 }

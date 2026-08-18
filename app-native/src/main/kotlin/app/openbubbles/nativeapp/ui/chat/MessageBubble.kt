@@ -342,12 +342,13 @@ fun MessageBubble(
     } else {
         message.text
     }
-    val showTextBubble = displayText.isNotBlank() && interactivePayload == null
+    val showTextBubble =
+        (displayText.isNotBlank() || !message.subject.isNullOrBlank()) && interactivePayload == null
     val invisibleInk = isInvisibleInk(message.expressiveSendStyleId)
     val embedRichLink = richLink != null && showTextBubble && !invisibleInk
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
-    val attachmentShape = if (attachments.size == 1 && message.text.isBlank()) shape else null
+    val attachmentShape = if (attachments.size == 1 && message.text.isBlank() && message.subject.isNullOrBlank()) shape else null
     val attachmentParts = attachments.mapTo(hashSetOf()) { it.partIndex }
     val textPart = message.replyPartLocators.keys.firstOrNull { it !in attachmentParts } ?: 0L
     val defaultReplyPart = when {
@@ -549,11 +550,12 @@ fun MessageBubble(
                                     Modifier
                                 },
                             ) {
-                                Text(
-                                    text = displayText,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                )
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                    MessageSubject(message.subject)
+                                    if (displayText.isNotBlank()) {
+                                        Text(text = displayText, style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                }
                             }
                         }
                         if (attachments.isEmpty()) {
@@ -612,6 +614,16 @@ internal fun deliveryTimestamp(message: MessageItem): DeliveryTimestamp? = when 
     message.dateRead != null -> DeliveryTimestamp("Read", message.dateRead)
     message.dateDelivered != null -> DeliveryTimestamp("Delivered", message.dateDelivered)
     else -> null
+}
+
+@Composable
+private fun MessageSubject(subject: String?) {
+    val value = subject?.trim().takeIf { !it.isNullOrEmpty() } ?: return
+    Text(
+        text = value,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(bottom = 3.dp),
+    )
 }
 
 /**

@@ -204,6 +204,8 @@ class MessageRepo(
         expressiveSendStyleId: String? = null,
         threadOriginatorGuid: String? = null,
         threadOriginatorPart: String? = null,
+        subject: String? = null,
+        attributedBody: String? = null,
     ): Message = withContext(Dispatchers.IO) {
         val chat = chatBox.query()
             .equal(Chat_.guid, chatGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -221,6 +223,8 @@ class MessageRepo(
                 this.expressiveSendStyleId = expressiveSendStyleId
                 this.threadOriginatorGuid = threadOriginatorGuid
                 this.threadOriginatorPart = threadOriginatorPart
+                this.subject = subject
+                dbAttributedBody = attributedBody
             }
             HandleResolver.resolve(store, sender, "iMessage").let {
                 message.handleRelation.target = it
@@ -256,6 +260,7 @@ class MessageRepo(
         stagingGuid: String,
         attachments: List<OutgoingAttachmentStage>,
         sendingServiceId: String? = DEFAULT_SENDING_SERVICE_ID,
+        subject: String? = null,
     ): Message = withContext(Dispatchers.IO) {
         require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
         val chat = chatBox.query()
@@ -272,6 +277,7 @@ class MessageRepo(
                 isFromMe = true
                 dateCreated = Date()
                 this.sendingServiceId = sendingServiceId
+                this.subject = subject
                 hasAttachments = true
             }
             HandleResolver.resolve(store, sender, "iMessage").let {
@@ -360,6 +366,7 @@ class MessageRepo(
             id = message.id,
             guid = message.guid,
             text = message.text ?: "",
+            subject = message.subject,
             isFromMe = message.isFromMe,
             senderAddress = message.handleRelation.target?.address,
             date = message.dateCreated,

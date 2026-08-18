@@ -66,6 +66,7 @@ import androidx.navigation3.ui.NavDisplay
 import app.openbubbles.nativeapp.BuildConfig
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.SmsComposeRequest
+import app.openbubbles.nativeapp.IncomingShareRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
@@ -76,6 +77,7 @@ import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentViewerScreen
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
+import app.openbubbles.nativeapp.ui.chat.prepareOutgoingAttachment
 import app.openbubbles.nativeapp.ui.chat.ChatViewModel
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.rememberParticipantRows
@@ -90,6 +92,7 @@ import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.search.SearchScreen
+import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
 import app.openbubbles.nativeapp.ui.adaptive.messagingListDetailDirective
@@ -122,6 +125,7 @@ object Routes {
     const val FIND_MY = "findmy"
     const val SEARCH = "search"
     const val NEW_CHAT = "newchat"
+    const val SHARE = "share"
     fun chat(chatId: Long): String = "chat/$chatId"
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
     fun newChat(recipients: List<String>, body: String?, useSms: Boolean): String = buildString {
@@ -147,7 +151,11 @@ object Routes {
 data object ChatsKey : NavKey
 
 @Serializable
-data class ChatKey(val chatId: Long, val initialDraft: String? = null) : NavKey
+data class ChatKey(
+    val chatId: Long,
+    val initialDraft: String? = null,
+    val sharedUris: List<String> = emptyList(),
+) : NavKey
 
 @Serializable
 data object SettingsKey : NavKey
@@ -163,7 +171,11 @@ data class NewChatKey(
     val recipients: List<String> = emptyList(),
     val body: String? = null,
     val useSms: Boolean = false,
+    val sharedUris: List<String> = emptyList(),
 ) : NavKey
+
+@Serializable
+data class ShareTargetPickerKey(val request: IncomingShareRequest) : NavKey
 
 @Serializable
 data class ChatInfoKey(val chatId: Long) : NavKey
@@ -185,6 +197,7 @@ private fun NavKey.toRoute(): String = when (this) {
     is FindMyKey -> Routes.FIND_MY
     is SearchKey -> Routes.SEARCH
     is NewChatKey -> Routes.newChat(recipients, body, useSms)
+    is ShareTargetPickerKey -> Routes.SHARE
     is ChatInfoKey -> Routes.chatInfo(chatId)
     is AttachmentKey -> Routes.attachment(guid, chatId)
     is LoginKey -> Routes.LOGIN
@@ -238,6 +251,8 @@ fun OpenBubblesApp(
     startChatGuid: String? = null,
     startComposeRequest: SmsComposeRequest? = null,
     onComposeRequestConsumed: () -> Unit = {},
+    startShareRequest: IncomingShareRequest? = null,
+    onShareRequestConsumed: () -> Unit = {},
     /** Actual route restored after the hidden Compose tree was released. */
     resumeRoute: String? = null,
     onRouteChanged: (String?) -> Unit = {},
@@ -358,7 +373,7 @@ fun OpenBubblesApp(
     }
 
     LaunchedEffect(resumeRoute, startChatGuid, startComposeRequest) {
-        if (startChatGuid == null && startComposeRequest == null) restoreResumeRoute()
+        if (startChatGuid == null && startComposeRequest == null && startShareRequest == null) restoreResumeRoute()
     }
 
     LaunchedEffect(current) {
@@ -388,6 +403,18 @@ fun OpenBubblesApp(
         navigateHome()
         navigateTo(NewChatKey(request.recipients, request.body, request.useSms))
         onComposeRequestConsumed()
+    }
+
+    LaunchedEffect(startShareRequest) {
+        val request = startShareRequest ?: return@LaunchedEffect
+        navigateHome()
+        val resumedChat = resumeRoute?.let(::routeToKey) as? ChatKey
+        if (resumedChat != null && request.streams.isNotEmpty()) {
+            navigateTo(resumedChat.copy(initialDraft = request.text, sharedUris = request.streams))
+            onShareRequestConsumed()
+        } else {
+            navigateTo(ShareTargetPickerKey(request))
+        }
     }
 
     // First-run gate: full-screen onboarding until sign-in completes once.
@@ -612,9 +639,19 @@ fun OpenBubblesApp(
                         ),
                     )
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    LaunchedEffect(key.sharedUris) {
+                        if (key.sharedUris.isNotEmpty()) {
+                            val staged = key.sharedUris.mapNotNull { raw ->
+                                prepareOutgoingAttachment(conversationContext, Uri.parse(raw))
+                            }
+                            viewModel.stageAttachments(staged)
+                        }
+                    }
                     ChatScreen(
                         uiState = state,
                         onInputChange = viewModel::onInputChange,
+                        onSubjectChange = viewModel::onSubjectChange,
+                        onInsertMention = viewModel::insertMention,
                         onSend = viewModel::sendMessage,
                         onLoadOlder = viewModel::loadOlder,
                         onStageAttachments = viewModel::stageAttachments,
@@ -716,9 +753,31 @@ fun OpenBubblesApp(
                         onChatOpened = { chatId ->
                             // Drop the creator, then open the new conversation.
                             popBack()
-                            navigateTo(ChatKey(chatId, key.body))
+                            navigateTo(ChatKey(chatId, key.body, key.sharedUris))
                         },
                         onBack = { popBack() },
+                    )
+                }
+
+                entry<ShareTargetPickerKey>(metadata = overlayMetadata) { key ->
+                    val pickerModel: ChatListViewModel =
+                        viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
+                    val pickerState by pickerModel.uiState.collectAsStateWithLifecycle()
+                    ShareTargetPickerScreen(
+                        uiState = pickerState,
+                        onChatClick = { chat ->
+                            popBack()
+                            navigateTo(ChatKey(chat.id, key.request.text, key.request.streams))
+                            onShareRequestConsumed()
+                        },
+                        onNewChat = {
+                            navigateTo(NewChatKey(body = key.request.text, sharedUris = key.request.streams))
+                            onShareRequestConsumed()
+                        },
+                        onBack = {
+                            popBack()
+                            onShareRequestConsumed()
+                        },
                     )
                 }
 

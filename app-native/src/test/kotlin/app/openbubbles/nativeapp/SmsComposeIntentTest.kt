@@ -8,6 +8,26 @@ import kotlin.test.assertNull
 class SmsComposeIntentTest {
 
     @Test
+    fun sendMultipleParsesTextAndStreamsForChatPicker() {
+        val request = parseIncomingShareRequest(
+            action = Intent.ACTION_SEND_MULTIPLE,
+            mimeType = "image/*",
+            extraText = "Trip photos",
+            streams = listOf("content://photos/1", "content://photos/2"),
+        )
+
+        assertEquals("Trip photos", request?.text)
+        assertEquals(listOf("content://photos/1", "content://photos/2"), request?.streams)
+        assertEquals("image/*", request?.mimeType)
+    }
+
+    @Test
+    fun sendRejectsEmptyOrUnsafePayload() {
+        assertNull(parseIncomingShareRequest(Intent.ACTION_SEND, "*/*", null, emptyList()))
+        assertNull(parseIncomingShareRequest(Intent.ACTION_SEND, "*/*", null, listOf("https://example.com/file")))
+    }
+
+    @Test
     fun `SENDTO parser accepts SMS recipients and body`() {
         val request = parseSmsComposeRequest(
             action = Intent.ACTION_SENDTO,

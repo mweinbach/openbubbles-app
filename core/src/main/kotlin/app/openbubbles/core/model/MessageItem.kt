@@ -102,6 +102,8 @@ data class MessageItem(
     val interactivePayload: InteractivePayload? = null,
     /** Active positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
+    /** Optional iMessage subject line. */
+    val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
 )

@@ -160,6 +160,8 @@ data class MessageItem(
     val interactivePayload: InteractivePayload? = null,
     /** Positional stickers layered over this message. */
     val stickers: List<StickerPlacement> = emptyList(),
+    /** Optional iMessage subject line. */
+    val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
 )
@@ -218,9 +220,23 @@ data class OutgoingAttachmentSend(
     val messageId: Long,
 )
 
+data class OutgoingMention(
+    val start: Int,
+    val end: Int,
+    val handle: String,
+    val displayText: String,
+)
+
 interface Sender {
     /** Returns after the outgoing row is staged locally; transport continues asynchronously. */
     suspend fun send(chatId: Long, text: String): OutgoingTextSend
+
+    suspend fun send(
+        chatId: Long,
+        text: String,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = send(chatId, text)
 
     /** Sends a text reply rooted at [replyGuid]. */
     suspend fun sendReply(
@@ -229,6 +245,15 @@ interface Sender {
         replyGuid: String,
         replyPartLocator: String,
     ): OutgoingTextSend = send(chatId, text)
+
+    suspend fun sendReply(
+        chatId: Long,
+        text: String,
+        replyGuid: String,
+        replyPartLocator: String,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = sendReply(chatId, text, replyGuid, replyPartLocator)
 
     /**
      * Sends a text with an iMessage expressive-send effect id (e.g.
@@ -239,6 +264,14 @@ interface Sender {
      */
     suspend fun sendWithEffect(chatId: Long, text: String, effectId: String?): OutgoingTextSend =
         send(chatId, text)
+
+    suspend fun sendWithEffect(
+        chatId: Long,
+        text: String,
+        effectId: String?,
+        subject: String?,
+        mentions: List<OutgoingMention>,
+    ): OutgoingTextSend = sendWithEffect(chatId, text, effectId)
 }
 
 data class StickerTransform(
@@ -312,6 +345,8 @@ interface MessageActions {
 interface SmsSender {
     /** Returns after the outgoing row is staged locally; modem dispatch continues asynchronously. */
     suspend fun send(chatId: Long, text: String): OutgoingTextSend
+
+    suspend fun send(chatId: Long, text: String, subject: String?): OutgoingTextSend = send(chatId, text)
 }
 
 /** A picked outgoing attachment, ready to stage and upload. */
@@ -341,6 +376,13 @@ interface AttachmentSender {
         attachments: List<OutgoingAttachment>,
         caption: String?,
     ): OutgoingAttachmentSend
+
+    suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+        subject: String?,
+    ): OutgoingAttachmentSend = send(chatId, attachments, caption)
 }
 
 /** One live "X is typing…" entry; entries expire automatically upstream. */

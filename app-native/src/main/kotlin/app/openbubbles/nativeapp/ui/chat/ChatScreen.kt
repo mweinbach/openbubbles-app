@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.content.res.Configuration
+import androidx.core.content.FileProvider
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -68,6 +69,8 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VideoCall
@@ -131,6 +134,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AttachmentMeta
+import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
@@ -138,6 +142,12 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.data.MessagingPrefs
+import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
+import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
+import app.openbubbles.nativeapp.ui.chat.composer.MentionCandidate
+import app.openbubbles.nativeapp.ui.chat.composer.SubjectField
+import app.openbubbles.nativeapp.ui.chat.composer.currentLocationMessage
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
@@ -348,6 +358,8 @@ fun buildConversationEntries(
 fun ChatScreen(
     uiState: ChatUiState,
     onInputChange: (String) -> Unit,
+    onSubjectChange: (String) -> Unit = {},
+    onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
@@ -409,6 +421,25 @@ fun ChatScreen(
     val isTyping = uiState.typingSenders.isNotEmpty()
     val itemSpecs = rememberItemAnimationSpecs()
     val smsChat = uiState.chat?.isSms == true
+    val showSubjectLine = remember(context) { MessagingPrefs(context).sendSubjectLines }
+    val mentionCandidates by produceState<List<MentionCandidate>>(
+        initialValue = emptyList(),
+        uiState.chat?.id,
+        uiState.chat?.isGroup,
+        smsChat,
+    ) {
+        val chat = uiState.chat
+        if (chat == null || !chat.isGroup || smsChat) {
+            value = emptyList()
+        } else {
+            value = withContext(Dispatchers.IO) {
+                AppGraph.chatInfo.participantAddresses(chat.preferredChatId).map { address ->
+                    val resolved = UiContacts.contactNames?.invoke(address)?.first
+                    MentionCandidate(resolved?.substringBefore(' ')?.ifBlank { address } ?: address, address)
+                }
+            }
+        }
+    }
     val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
@@ -490,6 +521,40 @@ fun ChatScreen(
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> stageAttachments(listOfNotNull(uri)) }
+    var captureFile by remember { mutableStateOf<File?>(null) }
+    var captureVideo by remember { mutableStateOf(false) }
+    var reviewCapture by remember { mutableStateOf<File?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) reviewCapture = captureFile else captureFile?.delete()
+    }
+    val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
+        if (ok) reviewCapture = captureFile else captureFile?.delete()
+    }
+    fun startCapture(video: Boolean) {
+        val file = File(context.cacheDir, "captures/${System.currentTimeMillis()}.${if (video) "mp4" else "jpg"}")
+        file.parentFile?.mkdirs()
+        captureFile = file
+        captureVideo = video
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        if (video) takeVideo.launch(uri) else takePhoto.launch(uri)
+    }
+    val requestCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCapture(captureVideo) else scope.launch { snackbarHostState.showSnackbar("Camera access was denied") }
+    }
+    fun requestCapture(video: Boolean) {
+        captureVideo = video
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCapture(video)
+        else requestCameraPermission.launch(Manifest.permission.CAMERA)
+    }
+    val requestLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            scope.launch { snackbarHostState.showSnackbar("Location access was denied") }
+        } else {
+            val message = currentLocationMessage(context)
+            if (message == null) scope.launch { snackbarHostState.showSnackbar("Current location is unavailable") }
+            else onInputChange(listOf(uiState.input.trimEnd(), message).filter(String::isNotBlank).joinToString("\n"))
+        }
+    }
     val pickSticker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -701,6 +766,13 @@ fun ChatScreen(
                 MessageInputBar(
                     value = uiState.input,
                     onValueChange = onInputChange,
+                    subject = uiState.subject,
+                    onSubjectChange = onSubjectChange,
+                    showSubjectLine = showSubjectLine,
+                    mentionCandidates = mentionCandidates,
+                    onMentionSelected = { start, end, candidate ->
+                        onInsertMention(start, end, candidate.handle, candidate.displayName)
+                    },
                     onSend = {
                         val session = audioRecording
                         if (session != null) {
@@ -726,6 +798,15 @@ fun ChatScreen(
                         )
                     },
                     onPickFile = { pickFile.launch("*/*") },
+                    onCameraPhoto = { requestCapture(false) },
+                    onCameraVideo = { requestCapture(true) },
+                    onShareLocation = {
+                        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            val message = currentLocationMessage(context)
+                            if (message == null) scope.launch { snackbarHostState.showSnackbar("Current location is unavailable") }
+                            else onInputChange(listOf(uiState.input.trimEnd(), message).filter(String::isNotBlank).joinToString("\n"))
+                        } else requestLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    },
                     onRecordAudio = {
                         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
                             PackageManager.PERMISSION_GRANTED
@@ -1015,6 +1096,28 @@ fun ChatScreen(
             dismissButton = {
                 TextButton(onClick = { confirmUnsend = null }) { Text("Cancel") }
             },
+        )
+    }
+    reviewCapture?.let { file ->
+        CaptureReview(
+            file = file,
+            video = captureVideo,
+            onRetake = { reviewCapture = null; requestCapture(captureVideo) },
+            onUse = {
+                onStageAttachments(
+                    listOf(
+                        OutgoingAttachment(
+                            file = file,
+                            mime = if (captureVideo) "video/mp4" else "image/jpeg",
+                            uti = if (captureVideo) "public.mpeg-4-movie" else "public.jpeg",
+                            name = file.name,
+                            sizeBytes = file.length(),
+                        ),
+                    ),
+                )
+                reviewCapture = null
+            },
+            onDismiss = { file.delete(); reviewCapture = null },
         )
     }
 }
@@ -1546,10 +1649,18 @@ private fun MessageInputBarPreview() {
 private fun MessageInputBar(
     value: String,
     onValueChange: (String) -> Unit,
+    subject: String = "",
+    onSubjectChange: (String) -> Unit = {},
+    showSubjectLine: Boolean = false,
+    mentionCandidates: List<MentionCandidate> = emptyList(),
+    onMentionSelected: (Int, Int, MentionCandidate) -> Unit = { _, _, _ -> },
     onSend: () -> Unit,
     onPickMedia: () -> Unit,
     onPickFile: () -> Unit,
     onRecordAudio: () -> Unit,
+    onCameraPhoto: () -> Unit = {},
+    onCameraVideo: () -> Unit = {},
+    onShareLocation: () -> Unit = {},
     modifier: Modifier = Modifier,
     recording: RecordingUiState? = null,
     onCancelRecording: () -> Unit = {},
@@ -1621,6 +1732,7 @@ private fun MessageInputBar(
             .navigationBarsPadding()
             .imePadding(),
     ) {
+        if (showSubjectLine) SubjectField(subject, onSubjectChange)
         AnimatedVisibility(
             visible = composerActionLabel != null,
             enter = expandVertically(defaultSpatialSpec()) +
@@ -1761,41 +1873,19 @@ private fun MessageInputBar(
                                 onPickMedia = onPickMedia,
                                 onPickFile = onPickFile,
                                 onRecordAudio = onRecordAudio,
+                                onCameraPhoto = onCameraPhoto,
+                                onCameraVideo = onCameraVideo,
+                                onShareLocation = onShareLocation,
                             )
-                            BasicTextField(
+                            ComposerTextField(
                                 value = value,
                                 onValueChange = onValueChange,
+                                candidates = mentionCandidates,
+                                onMentionSelected = onMentionSelected,
+                                placeholder = inputPlaceholder,
+                                focusRequester = inputFocus,
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp)
-                                    .focusRequester(inputFocus)
-                                    .semantics { contentDescription = "Message input" },
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                // Grows to three lines, then scrolls.
-                                maxLines = 3,
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Sentences,
-                                ),
-                                decorationBox = { innerTextField ->
-                                    // 12dp + 24sp line + 12dp matches the 48dp
-                                    // attach button, so a single-line draft sits
-                                    // dead-center in the capsule.
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                    ) {
-                                        if (value.isEmpty()) {
-                                            Text(
-                                                text = inputPlaceholder,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                },
+                                    .weight(1f),
                             )
                         }
                     }
@@ -1846,6 +1936,9 @@ private fun AttachMenuButton(
     onPickMedia: () -> Unit,
     onPickFile: () -> Unit,
     onRecordAudio: () -> Unit,
+    onCameraPhoto: () -> Unit,
+    onCameraVideo: () -> Unit,
+    onShareLocation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -1864,6 +1957,16 @@ private fun AttachMenuButton(
                 onClickLabel = "Attach",
             ) { menuOpen = true },
         ) {
+            DropdownMenuItem(
+                text = { Text("Take photo") },
+                leadingIcon = { Icon(Icons.Filled.CameraAlt, contentDescription = null) },
+                onClick = { menuOpen = false; onCameraPhoto() },
+            )
+            DropdownMenuItem(
+                text = { Text("Record video") },
+                leadingIcon = { Icon(Icons.Filled.VideoCall, contentDescription = null) },
+                onClick = { menuOpen = false; onCameraVideo() },
+            )
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Filled.Add,
@@ -1903,6 +2006,11 @@ private fun AttachMenuButton(
                     menuOpen = false
                     onRecordAudio()
                 },
+            )
+            DropdownMenuItem(
+                text = { Text("Current location") },
+                leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null) },
+                onClick = { menuOpen = false; onShareLocation() },
             )
         }
     }
