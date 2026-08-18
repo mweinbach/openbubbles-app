@@ -1,5 +1,7 @@
 package app.openbubbles.nativeapp.service
 
+import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.core.model.MessageMapper
 import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UMessageInst
@@ -97,7 +99,7 @@ internal fun reactionNotificationText(
 private fun attachmentSummary(attachments: List<UPart.Attachment>): String {
     val counts = linkedMapOf<String, Int>()
     attachments.forEach { attachment ->
-        val label = attachmentLabel(attachment.mime)
+        val label = attachmentLabel(attachment.mime, attachment.uti, attachment.name)
         counts[label] = (counts[label] ?: 0) + 1
     }
     val summaries = counts.map { (label, count) ->
@@ -106,17 +108,26 @@ private fun attachmentSummary(attachments: List<UPart.Attachment>): String {
     return summaries.joinToString(if (summaries.size == 2) " & " else ", ")
 }
 
-private fun attachmentLabel(mime: String): String = when {
-    mime.contains("vcard", ignoreCase = true) -> "Contact card"
-    mime.contains("location", ignoreCase = true) -> "Location"
-    mime.contains("contact", ignoreCase = true) -> "Contact"
-    mime.contains("video", ignoreCase = true) -> "Video"
-    mime.contains("audio", ignoreCase = true) -> "Audio message"
-    mime.contains("image/gif", ignoreCase = true) -> "GIF"
-    mime.contains("image", ignoreCase = true) -> "Photo"
-    mime.contains("application/pdf", ignoreCase = true) -> "PDF"
-    mime.contains('/') -> mime.substringBefore('/').replaceFirstChar { it.titlecase() }
-    else -> "File"
+private fun attachmentLabel(mime: String, uti: String?, name: String?): String {
+    if (mime.contains("vcard", ignoreCase = true)) return "Contact card"
+    if (mime.contains("location", ignoreCase = true)) return "Location"
+    if (mime.contains("contact", ignoreCase = true)) return "Contact"
+    return when (AttachmentMedia.kind(mime, uti, name)) {
+        AttachmentMediaKind.IMAGE ->
+            if (mime.contains("image/gif", ignoreCase = true) ||
+                name?.endsWith(".gif", ignoreCase = true) == true
+            ) {
+                "GIF"
+            } else {
+                "Photo"
+            }
+        AttachmentMediaKind.VIDEO -> "Video"
+        AttachmentMediaKind.AUDIO -> "Audio message"
+        AttachmentMediaKind.PDF -> "PDF"
+        AttachmentMediaKind.FILE ->
+            if (mime.contains('/')) mime.substringBefore('/').replaceFirstChar { it.titlecase() }
+            else "File"
+    }
 }
 
 /**

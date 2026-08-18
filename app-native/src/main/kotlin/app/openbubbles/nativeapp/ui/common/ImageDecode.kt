@@ -124,7 +124,7 @@ fun rememberDecodedImage(
             return@produceState
         }
         val decoded = withContext(Dispatchers.IO) {
-            decodeRasterFile(file!!, maxDimensionPx)
+            decodeLocalImage(file, maxDimensionPx)
         }
         if (decoded != null) ImageDecodeCache.put(key, decoded)
         value = decoded
@@ -157,6 +157,15 @@ fun rememberChatBackground(
         if (decoded != null) ImageDecodeCache.put(cacheKey, decoded)
         value = decoded
     }.value
+}
+
+/**
+ * Decodes a local still image. [BitmapFactory] handles JPEG/PNG/WebP;
+ * [ImageDecoder] is the HEIC/HEIF/AVIF fallback on API 28+.
+ */
+internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
+    if (file == null || !file.isFile) return null
+    return decodeRasterFile(file, maxDimensionPx)
 }
 
 private fun decodeRasterFile(file: File, maxDimensionPx: Int): DecodedImage? {
@@ -213,6 +222,20 @@ private fun decodeFileWithImageDecoder(file: File, maxDimensionPx: Int): Decoded
             aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
         )
     }.getOrNull()
+}
+
+internal fun Bitmap.scaledToMaxDimension(maxDimensionPx: Int): Bitmap {
+    val longest = maxOf(width, height)
+    if (longest <= maxDimensionPx) return this
+    val scale = maxDimensionPx.toFloat() / longest.toFloat()
+    val scaled = Bitmap.createScaledBitmap(
+        this,
+        (width * scale).toInt().coerceAtLeast(1),
+        (height * scale).toInt().coerceAtLeast(1),
+        true,
+    )
+    if (scaled !== this) recycle()
+    return scaled
 }
 
 /**

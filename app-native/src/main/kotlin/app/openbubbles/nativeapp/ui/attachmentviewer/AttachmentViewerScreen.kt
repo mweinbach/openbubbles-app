@@ -48,11 +48,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.AttachmentProvider
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.rememberPdfPageCount
 import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
@@ -65,9 +68,9 @@ private const val MinZoom = 1f
 private const val MaxZoom = 6f
 
 /**
- * Fullscreen attachment viewer: pinch-to-zoom / pan via transform gestures,
- * tap to toggle the chrome, back (gesture or button) returns. Non-image or
- * not-yet-downloaded attachments render an explanatory placeholder.
+ * Fullscreen attachment viewer: pinch-to-zoom images, in-app video
+ * playback, in-app PDF pages. Tap toggles the chrome. Other file types
+ * keep the external Open / Share actions.
  */
 @Composable
 fun AttachmentViewerScreen(
@@ -83,6 +86,11 @@ fun AttachmentViewerScreen(
     var chromeVisible by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    var videoFailed by remember(guid) { mutableStateOf(false) }
+    val mediaKind = AttachmentMedia.kind(meta?.mime, meta?.uti, meta?.name)
+    val pdfPages = rememberPdfPageCount(file.takeIf { mediaKind == AttachmentMediaKind.PDF })
+    val zoomable = mediaKind == AttachmentMediaKind.IMAGE && file != null
+    val playbackMime = meta?.playbackMime ?: meta?.mime
 
     // No BackHandler here: NavDisplay's own back handling covers the pop, and
     // an inner handler would swallow the predictive-back preview gesture.
@@ -91,18 +99,24 @@ fun AttachmentViewerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(MinZoom, MaxZoom)
-                    // Panning only matters once zoomed in; snap back when at 1x.
-                    offset = if (newScale > 1f) offset + pan else Offset.Zero
-                    scale = newScale
-                }
-            }
+            .then(
+                if (zoomable) {
+                    Modifier.pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(MinZoom, MaxZoom)
+                            offset = if (newScale > 1f) offset + pan else Offset.Zero
+                            scale = newScale
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { chromeVisible = !chromeVisible },
                     onDoubleTap = {
+                        if (!zoomable) return@detectTapGestures
                         scale = if (scale > 1f) 1f else 2.5f
                         offset = Offset.Zero
                     },
@@ -113,24 +127,7 @@ fun AttachmentViewerScreen(
         val content: @Composable () -> Unit = when {
             meta == null -> { { ViewerMessage("Attachment not found") } }
             file == null -> { { ViewerMessage("${meta.name ?: "Attachment"} — not downloaded yet") } }
-            !meta.isImage -> {
-                {
-                    ExternalAttachmentActions(
-                        name = meta.name,
-                        onOpen = {
-                            if (!openAttachmentExternally(context, file, meta.mime)) {
-                                Toast.makeText(context, "No app can open this attachment", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onShare = {
-                            if (!shareAttachment(context, file, meta.mime)) {
-                                Toast.makeText(context, "Unable to share this attachment", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                }
-            }
-            else -> {
+            mediaKind == AttachmentMediaKind.IMAGE || meta.isImage -> {
                 {
                     val decoded = rememberDecodedImage(file = file, maxDimensionPx = 2048)
                     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
@@ -142,7 +139,6 @@ fun AttachmentViewerScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .aspectRatio(aspect)
-                                // Flies in from the transcript thumbnail.
                                 .sharedAttachment(guid)
                                 .graphicsLayer(
                                     scaleX = scale,
@@ -156,6 +152,44 @@ fun AttachmentViewerScreen(
                     }
                 }
             }
+            mediaKind == AttachmentMediaKind.VIDEO && !videoFailed -> {
+                {
+                    AttachmentVideoPlayer(
+                        file = file,
+                        onPlaybackError = { videoFailed = true },
+                    )
+                }
+            }
+            mediaKind == AttachmentMediaKind.PDF && (pdfPages == null || pdfPages > 0) -> {
+                {
+                    if (pdfPages == null) {
+                        ViewerMessage("Opening PDF…")
+                    } else {
+                        AttachmentPdfViewer(
+                            file = file,
+                            name = meta.name,
+                            pageCount = pdfPages,
+                        )
+                    }
+                }
+            }
+            else -> {
+                {
+                    ExternalAttachmentActions(
+                        name = meta.name,
+                        onOpen = {
+                            if (!openAttachmentExternally(context, file, playbackMime)) {
+                                Toast.makeText(context, "No app can open this attachment", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onShare = {
+                            if (!shareAttachment(context, file, playbackMime)) {
+                                Toast.makeText(context, "Unable to share this attachment", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+            }
         }
         content()
         ViewerChrome(
@@ -165,12 +199,11 @@ fun AttachmentViewerScreen(
             onBack = onBack,
             onShare = if (file == null) null else {
                 {
-                    if (!shareAttachment(context, file, meta?.mime)) {
+                    if (!shareAttachment(context, file, playbackMime)) {
                         Toast.makeText(context, "Unable to share this attachment", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
-            // The parent box centers content; the chrome must anchor to the top.
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }

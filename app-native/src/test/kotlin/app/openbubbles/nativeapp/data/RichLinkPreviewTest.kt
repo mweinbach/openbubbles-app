@@ -48,4 +48,41 @@ class RichLinkPreviewTest {
     fun `non web text has no preview`() {
         assertNull(parseRichLinkPreview(null, "No links here"))
     }
+
+    @Test
+    fun `mixed text drops the preview URL and keeps the caption`() {
+        assertEquals(
+            "Check this out",
+            displayTextForRichLink(
+                "Check this out https://www.example.com/path?q=1",
+                "https://www.example.com/path?q=1",
+            ),
+        )
+        assertEquals(
+            "before after",
+            displayTextForRichLink(
+                "before https://example.com/story after",
+                "https://example.com/story/",
+            ),
+        )
+    }
+
+    @Test
+    fun `url-only text collapses to empty so the card can stand alone`() {
+        assertEquals(
+            "",
+            displayTextForRichLink(
+                "https://www.nps.gov/yose/index.htm",
+                "https://www.nps.gov/yose/index.htm",
+            ),
+        )
+    }
+
+    @Test
+    fun `unrelated text is left alone when the URL is only in metadata`() {
+        assertEquals(
+            "look at this",
+            displayTextForRichLink("look at this", "https://example.com/story"),
+        )
+    }
 }

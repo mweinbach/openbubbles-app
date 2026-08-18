@@ -43,10 +43,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.rememberPdfPreview
+import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
@@ -80,8 +84,8 @@ fun AttachmentContent(
     smsChat: Boolean = false,
 ) {
     val effectiveShape = shape ?: AttachmentShape
-    when {
-        attachment.isAudio -> VoiceMemoBubble(
+    when (AttachmentMedia.kind(attachment.mime, attachment.uti, attachment.name)) {
+        AttachmentMediaKind.AUDIO -> VoiceMemoBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
             onDownloadAttachment = onDownloadAttachment,
@@ -90,7 +94,7 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
-        attachment.isImage -> ImageAttachmentBubble(
+        AttachmentMediaKind.IMAGE -> ImageAttachmentBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
@@ -98,7 +102,7 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
-        attachment.isVideo -> VideoAttachmentBubble(
+        AttachmentMediaKind.VIDEO -> VideoAttachmentBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
@@ -106,7 +110,7 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
-        else -> FileAttachmentRow(
+        AttachmentMediaKind.PDF -> PdfAttachmentBubble(
             attachment = attachment,
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
@@ -114,6 +118,25 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
+        AttachmentMediaKind.FILE -> if (attachment.isImage) {
+            ImageAttachmentBubble(
+                attachment = attachment,
+                attachmentFile = attachmentFile,
+                onOpenAttachment = onOpenAttachment,
+                onDownloadAttachment = onDownloadAttachment,
+                modifier = modifier,
+                shape = effectiveShape,
+            )
+        } else {
+            FileAttachmentRow(
+                attachment = attachment,
+                attachmentFile = attachmentFile,
+                onOpenAttachment = onOpenAttachment,
+                onDownloadAttachment = onDownloadAttachment,
+                modifier = modifier,
+                shape = effectiveShape,
+            )
+        }
     }
 }
 
@@ -142,7 +165,7 @@ private fun ImageAttachmentBubble(
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(aspect)
-            .clickable(enabled = decoded != null) { onOpenAttachment(attachment.guid) },
+            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
     ) {
         val image = decoded?.image
         if (image != null) {
@@ -164,7 +187,7 @@ private fun ImageAttachmentBubble(
     }
 }
 
-/** Video tile; tapping a local payload opens the system media player. */
+/** Video tile with a decoded poster frame when the file is on disk. */
 @Composable
 private fun VideoAttachmentBubble(
     attachment: AttachmentMeta,
@@ -177,22 +200,34 @@ private fun VideoAttachmentBubble(
     val file = remember(attachment.guid, attachment.downloaded) {
         attachmentFile(attachment.guid)
     }
+    val poster = rememberVideoPoster(file = file, maxDimensionPx = 512)
+    val aspect = poster?.aspectRatio ?: FallbackAspectRatio
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
-            .aspectRatio(FallbackAspectRatio)
+            .aspectRatio(aspect)
             .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AttachmentPlaceholder(
-                attachment = attachment,
-                onDownloadAttachment = onDownloadAttachment,
-                icon = Icons.Filled.VideoFile,
-                showDownload = file == null,
-            )
+            val image = poster?.image
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = attachment.name ?: "Video",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().sharedAttachment(attachment.guid),
+                )
+            } else {
+                AttachmentPlaceholder(
+                    attachment = attachment,
+                    onDownloadAttachment = onDownloadAttachment,
+                    icon = Icons.Filled.VideoFile,
+                    showDownload = file == null,
+                )
+            }
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.55f),
@@ -205,6 +240,65 @@ private fun VideoAttachmentBubble(
                     contentDescription = "Play video",
                     tint = Color.White,
                     modifier = Modifier.padding(8.dp),
+                )
+            }
+        }
+    }
+}
+
+/** PDF tile: first-page raster when decoded, otherwise the file row. */
+@Composable
+private fun PdfAttachmentBubble(
+    attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onDownloadAttachment: (AttachmentMeta) -> Unit,
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
+) {
+    val file = remember(attachment.guid, attachment.downloaded) {
+        attachmentFile(attachment.guid)
+    }
+    val preview = rememberPdfPreview(file = file, maxDimensionPx = 512)
+    if (preview == null) {
+        FileAttachmentRow(
+            attachment = attachment,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
+            onDownloadAttachment = onDownloadAttachment,
+            modifier = modifier,
+            shape = shape,
+        )
+        return
+    }
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+            .widthIn(max = ImageBubbleMaxWidth)
+            .heightIn(max = ImageBubbleMaxHeight)
+            .aspectRatio(preview.aspectRatio)
+            .clickable { onOpenAttachment(attachment.guid) },
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                bitmap = preview.image,
+                contentDescription = attachment.name ?: "PDF",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().sharedAttachment(attachment.guid),
+            )
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp),
+            ) {
+                Text(
+                    text = "PDF",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
         }

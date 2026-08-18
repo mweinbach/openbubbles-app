@@ -123,7 +123,13 @@ class NativeMainActivity : ComponentActivity() {
         }
 
         debugLines = listOf(Hello.greeting(), rustStatus)
+        resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
         renderUi()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        resumeRoute?.let { outState.putString(STATE_RESUME_ROUTE, it) }
     }
 
     private fun renderUi() {
@@ -220,6 +226,9 @@ class NativeMainActivity : ComponentActivity() {
 
         /** Keeps quick app switches warm but releases UI during longer background periods. */
         internal const val BACKGROUND_UI_RELEASE_MS = 60_000L
+
+        /** Survives fold / unfold activity recreation so the open chat is restored. */
+        internal const val STATE_RESUME_ROUTE = "resume_route"
 
         /**
          * Chat guid requested by a notification tap, consumed once by

@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import app.openbubbles.core.attachment.AttachmentMedia
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -156,7 +157,7 @@ internal object FakeChatData {
                 mime = attachment.mime,
                 name = attachment.name,
                 sizeBytes = attachment.sizeBytes,
-                isImage = attachment.mime.startsWith("image/", ignoreCase = true),
+                isImage = AttachmentMedia.isImage(attachment.mime, null, attachment.name),
                 downloaded = true,
                 // The caption text occupies part 0, attachments follow.
                 partIndex = (index + 1).toLong(),

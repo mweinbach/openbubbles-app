@@ -149,6 +149,8 @@ private fun sampleState() = ChatListUiState(
 /** Compact Messages-style app bar, flat rows, and the width cap on wide windows. */
 @PreviewTest
 @FormFactorPreviews
+@Preview(name = "landscape-phone", widthDp = 891, heightDp = 411, showBackground = true)
+@Preview(name = "landscape-tablet", widthDp = 1280, heightDp = 800, showBackground = true)
 @Composable
 fun ChatListScreenScreenshot() {
     // dynamicColor = false: Layoutlib has no wallpaper, so the dynamic path
@@ -393,6 +395,62 @@ fun ChatScreenScreenshot() {
                     message(3, "grabbing coffee now, want anything?", fromMe = true, status = MessageStatus.DELIVERED),
                 ),
                 typingSenders = listOf("alex@icloud.com"),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/**
+ * Caption + rich-link preview share one bubble; the raw URL is not repeated
+ * in the text once the card is present.
+ */
+@PreviewTest
+@Preview(name = "chat-rich-link", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-rich-link-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenRichLinkScreenshot() {
+    val preview = RichLinkPreview(
+        url = "https://www.nps.gov/yose/index.htm",
+        displayHost = "nps.gov",
+        title = "Yosemite National Park",
+        summary = "Plan the route, check conditions, and get ready for Saturday's hike.",
+        imageBytes = null,
+        imageMime = null,
+        iconBytes = null,
+        iconMime = null,
+    )
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Alex Chen",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(
+                    message(
+                        id = 1,
+                        text = "Check the trail conditions https://www.nps.gov/yose/index.htm",
+                        fromMe = false,
+                        richLink = preview,
+                    ),
+                    message(
+                        id = 2,
+                        text = "https://www.nps.gov/yose/index.htm",
+                        fromMe = true,
+                        status = MessageStatus.DELIVERED,
+                        richLink = preview,
+                    ),
+                ),
             ),
             onInputChange = {},
             onSend = {},

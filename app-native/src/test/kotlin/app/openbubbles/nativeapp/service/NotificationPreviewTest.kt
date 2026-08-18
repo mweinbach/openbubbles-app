@@ -61,6 +61,20 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `heic quicktime and pdf still label when mime is generic`() {
+        assertEquals(
+            "1 Photo, 1 Video, 1 PDF",
+            notificationPreview(
+                message(
+                    attachment("application/octet-stream", "IMG_1234.HEIC"),
+                    attachment("application/octet-stream", "RenderedVideo.mov"),
+                    attachment("application/octet-stream", "itinerary.pdf"),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `object only message does not create an empty notification`() {
         assertNull(notificationPreview(message(UPart.Object("{}"))))
     }

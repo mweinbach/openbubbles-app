@@ -139,6 +139,7 @@ import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.FaceTimeActivity
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
 import app.openbubbles.nativeapp.ui.common.formatConversationTimestamp
 import app.openbubbles.nativeapp.ui.common.localDay
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
@@ -613,7 +614,11 @@ fun ChatScreen(
         }
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            containerColor = if (background != null) Color.Transparent else MaterialTheme.colorScheme.background,
+            containerColor = when {
+                background != null -> Color.Transparent
+                LocalIsMultiPane.current -> MaterialTheme.colorScheme.surface
+                else -> MaterialTheme.colorScheme.background
+            },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {

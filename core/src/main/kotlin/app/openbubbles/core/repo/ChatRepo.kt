@@ -307,7 +307,7 @@ class ChatRepo(
             id = chat.id,
             guid = chat.guid,
             title = deriveTitle(chat, contactInfo, addressInfo),
-            snippet = latest?.let { snippet(it) },
+            snippet = latest?.let { snippet(it, isGroup, contactInfo, addressInfo) },
             date = latest?.dateCreated ?: chat.dbOnlyLatestMessageDate,
             hasUnread = chat.hasUnreadMessage,
             unreadCount = unreadCount(chat),
@@ -468,16 +468,35 @@ class ChatRepo(
     }
 
     /** Chat list snippet for the latest message. */
-    private fun snippet(message: Message): String {
-        if (message.itemType != null && message.itemType > 0) return groupEventText(message)
-        if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
-            return reactionSnippet(message)
+    private fun snippet(
+        message: Message,
+        isGroup: Boolean,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
+    ): String {
+        if (message.itemType != null && message.itemType > 0) {
+            return groupEventText(message, contactInfo, addressInfo)
         }
-        if (!message.text.isNullOrBlank()) return message.text
-        return if (message.hasAttachments) "Attachment" else ""
+        if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
+            return reactionSnippet(message, contactInfo, addressInfo)
+        }
+        val body = when {
+            !message.text.isNullOrBlank() -> message.text
+            message.hasAttachments -> "Attachment"
+            else -> ""
+        }
+        if (body.isEmpty()) return ""
+        if (!isGroup || message.isFromMe) return body
+        val handle = message.handleRelation.target ?: return body
+        val sender = handleShortName(handle, contactInfo, addressInfo)
+        return if (isHandleAddress(sender, handle)) body else "$sender: $body"
     }
 
-    private fun reactionSnippet(message: Message): String {
+    private fun reactionSnippet(
+        message: Message,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
+    ): String {
         val rawType = message.associatedMessageType ?: return "Reaction"
         val removed = rawType.startsWith("-")
         val type = rawType.removePrefix("-")
@@ -491,11 +510,7 @@ class ChatRepo(
             "emoji" -> "reacted ${message.associatedMessageEmoji.orEmpty()} to"
             else -> "reacted to"
         }
-        val actor = if (message.isFromMe) {
-            "You"
-        } else {
-            message.handleRelation.target?.let(::handleDisplayName) ?: "Someone"
-        }
+        val actor = snippetActor(message, contactInfo, addressInfo)
         val targetText = message.associatedMessageGuid?.let { guid ->
             messageBox.query()
                 .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -509,6 +524,16 @@ class ChatRepo(
         } else {
             "$actor $label “$targetText”"
         }
+    }
+
+    private fun snippetActor(
+        message: Message,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
+    ): String {
+        if (message.isFromMe) return "You"
+        val handle = message.handleRelation.target ?: return "Someone"
+        return handleShortName(handle, contactInfo, addressInfo)
     }
 
     /** Port of `Chat.getChatCreatorSubtitle`, including linked contacts. */
@@ -526,7 +551,7 @@ class ChatRepo(
     ): String {
         if (!chat.displayName.isNullOrEmpty()) return chat.displayName
         val other = otherHandle(chat)
-        if (other != null) return handleDisplayName(other, contactInfo)
+        if (other != null) return handleDisplayName(other, contactInfo, addressInfo)
         ContactSync.displayInfoForMatchKeys(chat.chatIdentifier, addressInfo)
             ?.name?.takeIf { it.isNotBlank() }
             ?.let { return it }
@@ -535,11 +560,11 @@ class ChatRepo(
             handles.isEmpty() ->
                 if (chat.chatIdentifier?.startsWith("urn:biz") == true) "Business Chat"
                 else chat.chatIdentifier ?: "Unnamed chat"
-            handles.size == 1 -> handleDisplayName(handles[0], contactInfo)
+            handles.size == 1 -> handleDisplayName(handles[0], contactInfo, addressInfo)
             handles.size <= 4 -> handles.dropLast(1)
-                .joinToString(", ") { handleShortName(it, contactInfo) } +
-                " & " + handleShortName(handles.last(), contactInfo)
-            else -> handles.take(3).joinToString(", ") { handleShortName(it, contactInfo) } +
+                .joinToString(", ") { handleShortName(it, contactInfo, addressInfo) } +
+                " & " + handleShortName(handles.last(), contactInfo, addressInfo)
+            else -> handles.take(3).joinToString(", ") { handleShortName(it, contactInfo, addressInfo) } +
                 " & ${handles.size - 3} others"
         }
     }
@@ -547,37 +572,68 @@ class ChatRepo(
     private fun handleDisplayName(
         handle: Handle,
         contactInfo: Map<Long, HandleDisplayInfo>,
-    ): String = contactInfo[handle.id]?.name
-        ?.takeIf { it.isNotBlank() }
-        ?: handle.formattedAddress
+        addressInfo: Map<String, HandleDisplayInfo> = emptyMap(),
+    ): String = contactInfo[handle.id]?.name?.takeIf { it.isNotBlank() }
+        ?: ContactSync.displayInfoForMatchKeys(handle.formattedAddress, addressInfo)?.name
+        ?: ContactSync.displayInfoForMatchKeys(handle.address, addressInfo)?.name
+        ?: handle.formattedAddress?.takeIf { it.isNotBlank() }
         ?: handle.address
 
     private fun handleShortName(
         handle: Handle,
         contactInfo: Map<Long, HandleDisplayInfo>,
-    ): String = handleDisplayName(handle, contactInfo).split(' ', limit = 2).firstOrNull()
-        ?: handleDisplayName(handle, contactInfo)
+        addressInfo: Map<String, HandleDisplayInfo> = emptyMap(),
+    ): String = handleDisplayName(handle, contactInfo, addressInfo)
+        .split(' ', limit = 2)
+        .firstOrNull()
+        ?: handleDisplayName(handle, contactInfo, addressInfo)
 
     internal fun handleDisplayName(handle: Handle): String =
-        handle.formattedAddress ?: handle.address
+        handleDisplayName(
+            handle,
+            contactSync.displayInfoByHandleId(),
+            contactSync.displayInfoByMatchKey(),
+        )
 
     internal fun handleShortName(handle: Handle): String =
-        handleDisplayName(handle).split(' ', limit = 2).firstOrNull()
-            ?: handleDisplayName(handle)
+        handleShortName(
+            handle,
+            contactSync.displayInfoByHandleId(),
+            contactSync.displayInfoByMatchKey(),
+        )
+
+    private fun isHandleAddress(name: String, handle: Handle): Boolean {
+        val keys = ContactSync.addressMatchKeys(name)
+        if (keys.isEmpty()) return false
+        return ContactSync.addressMatchKeys(handle.address).any(keys::contains) ||
+            ContactSync.addressMatchKeys(handle.formattedAddress.orEmpty()).any(keys::contains)
+    }
 
     /**
      * Port of `Message.buildGroupEventText` for rename / participant / photo
      * events (itemType 1–3).
      */
-    internal fun groupEventText(message: Message): String {
+    internal fun groupEventText(message: Message): String =
+        groupEventText(
+            message,
+            contactSync.displayInfoByHandleId(),
+            contactSync.displayInfoByMatchKey(),
+        )
+
+    private fun groupEventText(
+        message: Message,
+        contactInfo: Map<Long, HandleDisplayInfo>,
+        addressInfo: Map<String, HandleDisplayInfo>,
+    ): String {
         val name = when {
             message.isFromMe -> "You"
-            message.handleRelation.target != null -> handleDisplayName(message.handleRelation.target)
+            message.handleRelation.target != null ->
+                handleShortName(message.handleRelation.target, contactInfo, addressInfo)
             else -> "Unknown"
         }
         val other = message.otherHandle?.let { rowId ->
             handleBox.query().equal(Handle_.originalROWID, rowId).build().use { it.findFirst() }
-        }?.let { handleDisplayName(it) } ?: "someone"
+        }?.let { handleShortName(it, contactInfo, addressInfo) } ?: "someone"
 
         return when (message.itemType?.toInt()) {
             1 -> if (message.groupActionType == 0L) "$name added $other to the conversation."

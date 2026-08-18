@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
+import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.backup.BackupManager
 import app.openbubbles.core.backup.StoreGate
@@ -469,6 +470,8 @@ object CoreGraph {
                         hasTransferMetadata = attachment.metadata?.containsKey("rustpush") == true ||
                             attachment.metadata?.containsKey("cloud") == true,
                         maxBytes = maxBytes,
+                        uti = attachment.uti,
+                        name = attachment.transferName,
                     )
                 }
                 .forEach { attachment ->
@@ -691,26 +694,21 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     chatId = item.chatId,
 )
 
-/** True when the mime/uti pair clearly describes an image. */
-internal fun isImageAttachment(mime: String?, uti: String?): Boolean {
-    if (mime != null && mime.startsWith("image/", ignoreCase = true)) return true
-    if (uti == null) return false
-    return uti.equals("public.image", ignoreCase = true) ||
-        uti.startsWith("public.image.", ignoreCase = true) ||
-        uti.endsWith(".heic", ignoreCase = true) ||
-        uti.endsWith(".heif", ignoreCase = true)
-}
+/** True when the mime/uti/name triple clearly describes an image. */
+internal fun isImageAttachment(mime: String?, uti: String?, name: String? = null): Boolean =
+    AttachmentMedia.isImage(mime, uti, name)
 
 internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
     guid = attachment.guid,
     mime = attachment.mimeType,
     name = attachment.transferName,
     sizeBytes = attachment.totalBytes,
-    isImage = isImageAttachment(attachment.mimeType, attachment.uti),
+    isImage = isImageAttachment(attachment.mimeType, attachment.uti, attachment.transferName),
     downloaded = attachment.isDownloaded,
     partIndex = (attachment.metadata?.get("messagePart") as? Number)?.toLong()
         ?: attachment.guid?.substringAfterLast('_')?.toLongOrNull()
         ?: 0L,
+    uti = attachment.uti,
 )
 
 /** Non-empty retracted-part array inside a dbMessageSummaryInfo JSON blob. */
@@ -1218,7 +1216,11 @@ private class CoreChatInfoRepository(
                         ?: mime.substringAfter('/', mime).ifBlank { "Attachment" },
                     attachmentGuid = guid,
                     url = attachment.webUrl?.takeIf { it.isNotBlank() },
-                    isImage = mime.startsWith("image/", ignoreCase = true),
+                    isImage = AttachmentMedia.isImage(
+                        mime,
+                        attachment.uti,
+                        attachment.transferName,
+                    ),
                 )
             }
         }

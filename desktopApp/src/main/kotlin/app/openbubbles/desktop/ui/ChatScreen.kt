@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.MessageKind
 import app.openbubbles.core.model.MessageStatus
@@ -425,21 +426,15 @@ private fun StatusTick(status: MessageStatus, tint: Color) {
 // Attachments
 // ------------------------------------------------------------------
 
-/** True when the mime/uti pair clearly describes an image. */
-private fun isImageAttachment(mime: String?, uti: String?): Boolean {
-    if (mime != null && mime.startsWith("image/", ignoreCase = true)) return true
-    if (uti == null) return false
-    return uti.equals("public.image", ignoreCase = true) ||
-        uti.startsWith("public.image.", ignoreCase = true) ||
-        uti.endsWith(".heic", ignoreCase = true) ||
-        uti.endsWith(".heif", ignoreCase = true)
-}
-
 private fun attachmentToMeta(attachment: Attachment): AttachmentMeta = AttachmentMeta(
     guid = attachment.guid.orEmpty(),
     name = attachment.transferName ?: "Attachment",
     sizeBytes = attachment.totalBytes ?: 0L,
-    isImage = isImageAttachment(attachment.mimeType, attachment.uti),
+    isImage = AttachmentMedia.isImage(
+        attachment.mimeType,
+        attachment.uti,
+        attachment.transferName,
+    ),
     downloaded = attachment.isDownloaded,
     localFile = DesktopGraph.localAttachmentFile(attachment),
 )
