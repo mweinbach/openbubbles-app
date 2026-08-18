@@ -2,6 +2,28 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.11
+
+### Enhancements
+
+- Apple ID registration problems now appear as a clear recovery state on the
+  chat list and in Settings. When Apple needs two-factor authentication or a
+  fresh sign-in, OpenBubbles keeps the existing push connection alive for as
+  long as Apple permits and takes you directly back through verification.
+- Attachment transfers, group and profile updates, and CloudKit sync now use
+  the asynchronous native engine path, keeping those operations from blocking
+  other app work.
+
+### Fixes
+
+- Fixed iCloud Keychain recovery failing with a CloudSync "bad message" error
+  when Apple returns the current CKKS ownership-proof format. Repair can now
+  join the trust circle and resume History, Passwords, Contacts, and Wi-Fi sync.
+- A rejected iCloud activation no longer discards the saved Apple ID session.
+  You can still use "Continue as" after Apple reports that the device cannot
+  create another iCloud account, instead of being forced into repeated fresh
+  activations.
+
 ## v2.3.10
 
 ### Fixes
