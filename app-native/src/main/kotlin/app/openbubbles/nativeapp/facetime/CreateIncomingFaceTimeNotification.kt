@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.facetime
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -28,10 +27,21 @@ data class FtIncomingCall(
 object CreateIncomingFaceTimeNotification {
     const val tag = "create-incoming-facetime-notification"
 
+    const val CHANNEL_ID = FaceTimeNotifications.CHANNEL_INCOMING
+
     val avatarCache = mutableMapOf<String, Bitmap?>()
 
+    /**
+     * Registers [CHANNEL_ID] before the first ring. Delegates to
+     * [FaceTimeNotifications] so the incoming / missed / in-call channels
+     * stay one owner.
+     */
+    fun ensureChannel(context: Context) {
+        FaceTimeNotifications.ensureIncomingChannel(context)
+    }
+
     fun create(context: Context, call: FtIncomingCall) {
-        val channelId: String = "facetime_incoming"
+        val channelId: String = FaceTimeNotifications.ensureIncomingChannel(context)
         val notificationId: Int = call.notificationId
         val callUuid: String? = call.callUuid
         val title: String = call.title
@@ -117,11 +127,15 @@ object CreateIncomingFaceTimeNotification {
             notificationBuilder.setLargeIcon(callerBitmap)
         }
         notificationBuilder.setContentIntent(openSummaryIntent)
+        // Always attach the full-screen intent. On Android 14+ a denied
+        // USE_FULL_SCREEN_INTENT grant still lets the system keep the
+        // heads-up / lock-screen fallback; omitting the intent turns a
+        // ringing call into an ordinary notification.
         notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
+        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
         // clear after 30 seconds in case we didn't get an event from the server
-        notificationBuilder.setTimeoutAfter(30000);
+        notificationBuilder.setTimeoutAfter(30000)
 
-        val notificationManager = context.getSystemService(NotificationManager::class.java)
         val notification = notificationBuilder.build()
         // loop ringtone
         notification.flags = notification.flags or NotificationCompat.FLAG_INSISTENT

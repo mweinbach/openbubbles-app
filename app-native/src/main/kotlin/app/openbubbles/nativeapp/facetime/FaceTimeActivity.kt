@@ -21,20 +21,32 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Rational
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.MarginLayoutParams
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.PermissionRequest
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.marginTop
 import androidx.core.view.updateLayoutParams
+import androidx.window.layout.FoldingFeature
+import androidx.window.layout.WindowInfoTracker
 import app.openbubbles.nativeapp.R
 import app.openbubbles.nativeapp.databinding.ActivityFaceTimeBinding
 import app.openbubbles.nativeapp.service.FaceTimeDispatch
+import app.openbubbles.nativeapp.ui.adaptive.FaceTimeTabletopInsets
+import app.openbubbles.nativeapp.ui.adaptive.faceTimeTabletopInsets
+import app.openbubbles.nativeapp.ui.adaptive.isTabletopFold
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
@@ -64,6 +76,9 @@ class FaceTimeActivity : Activity() {
             dispatchCallAction(FaceTimeActionReceiver.ACTION_END)
         }
     }
+    private val foldScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var lastFoldFeature: FoldingFeature? = null
+    private var defaultCallDescriptionTopMargin: Int? = null
 
     companion object {
         @SuppressLint("StaticFieldLeak") // Cleared in onDestroy when this instance is the active call.
@@ -191,8 +206,7 @@ class FaceTimeActivity : Activity() {
         }
 
         if (mirrorReady) {
-            binding.mainFrame.visibility = View.VISIBLE
-            binding.splashLayout.visibility = View.GONE
+            showInCallSurface()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window.setBackgroundBlurRadius(0)
             }
@@ -305,12 +319,112 @@ class FaceTimeActivity : Activity() {
 
         val view = binding.root
         setContentView(view)
+        observeFoldingFeatures()
+    }
+
+    /**
+     * Incoming splash: poster/identity above a tabletop hinge, accept/decline
+     * below. In-call: letterbox the WebView above that hinge so call chrome
+     * does not sit on the crease.
+     */
+    private fun observeFoldingFeatures() {
+        binding.root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            applyIncomingCallFold(lastFoldFeature)
+        }
+        foldScope.launch {
+            WindowInfoTracker.getOrCreate(this@FaceTimeActivity)
+                .windowLayoutInfo(this@FaceTimeActivity)
+                .collect { layoutInfo ->
+                    lastFoldFeature = layoutInfo.displayFeatures
+                        .filterIsInstance<FoldingFeature>()
+                        .firstOrNull()
+                    applyIncomingCallFold(lastFoldFeature)
+                }
+        }
+    }
+
+    private fun applyIncomingCallFold(feature: FoldingFeature?) {
+        if (!::binding.isInitialized) return
+        if (defaultCallDescriptionTopMargin == null) {
+            defaultCallDescriptionTopMargin =
+                (binding.callDescription.layoutParams as FrameLayout.LayoutParams).topMargin
+        }
+        val windowHeight = binding.root.height.takeIf { it > 0 }
+            ?: resources.displayMetrics.heightPixels
+        val split = if (
+            feature != null &&
+            isTabletopFold(
+                horizontalHinge = feature.orientation == FoldingFeature.Orientation.HORIZONTAL,
+                halfOpened = feature.state == FoldingFeature.State.HALF_OPENED,
+            )
+        ) {
+            faceTimeTabletopInsets(
+                windowHeightPx = windowHeight,
+                hingeTopPx = feature.bounds.top,
+                hingeBottomPx = feature.bounds.bottom,
+            )
+        } else {
+            null
+        }
+        applyTabletopSplit(split)
+        applyInCallLetterbox(split)
+    }
+
+    private fun applyTabletopSplit(split: FaceTimeTabletopInsets?) {
+        val description = binding.callDescription.layoutParams as FrameLayout.LayoutParams
+        val buttons = binding.acceptButtons.layoutParams as FrameLayout.LayoutParams
+        if (split == null) {
+            description.height = FrameLayout.LayoutParams.WRAP_CONTENT
+            description.topMargin = defaultCallDescriptionTopMargin ?: description.topMargin
+            description.gravity = Gravity.NO_GRAVITY
+            buttons.topMargin = 0
+            buttons.height = FrameLayout.LayoutParams.MATCH_PARENT
+            buttons.gravity = Gravity.BOTTOM
+        } else {
+            description.height = split.contentHeightPx
+            description.topMargin = 0
+            description.gravity = Gravity.CENTER_HORIZONTAL or Gravity.CENTER_VERTICAL
+            buttons.topMargin = split.controlsTopMarginPx
+            buttons.height = FrameLayout.LayoutParams.MATCH_PARENT
+            buttons.gravity = Gravity.BOTTOM
+        }
+        binding.callDescription.layoutParams = description
+        binding.acceptButtons.layoutParams = buttons
+    }
+
+    private fun applyInCallLetterbox(split: FaceTimeTabletopInsets?) {
+        val params = binding.mainFrame.layoutParams as FrameLayout.LayoutParams
+        val inCall = binding.splashLayout.visibility != View.VISIBLE
+        if (split != null && inCall) {
+            params.height = split.contentHeightPx
+            params.topMargin = 0
+            params.gravity = Gravity.TOP
+        } else {
+            params.height = FrameLayout.LayoutParams.MATCH_PARENT
+            params.topMargin = 0
+            params.gravity = Gravity.NO_GRAVITY
+        }
+        binding.mainFrame.layoutParams = params
+    }
+
+    private fun showInCallSurface() {
+        binding.mainFrame.visibility = View.VISIBLE
+        binding.splashLayout.visibility = View.GONE
+        applyIncomingCallFold(lastFoldFeature)
     }
 
     var serviceStarted: Boolean = false
 
     fun startService() {
         if (serviceStarted) return
+        val hasCamera = checkSelfPermission(Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val hasMic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (faceTimeForegroundServiceType(hasCamera, hasMic) == 0) {
+            Log.w("FaceTime", "skipping in-call FGS without camera or microphone permission")
+            return
+        }
 
         val intent = Intent(this, FaceTimeInCallService::class.java)
         startForegroundService(intent)
@@ -362,6 +476,7 @@ class FaceTimeActivity : Activity() {
         contentObserver?.let {
             applicationContext.contentResolver.unregisterContentObserver(it)
         }
+        foldScope.cancel()
 
         super.onDestroy()
     }
@@ -397,8 +512,7 @@ class FaceTimeActivity : Activity() {
         binding.acceptButtons.visibility = View.GONE
         binding.loadingBanner.text = getString(R.string.facetime_connecting)
         Handler(Looper.getMainLooper()).postDelayed({
-            binding.mainFrame.visibility = View.VISIBLE
-            binding.splashLayout.visibility = View.GONE
+            showInCallSurface()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window.setBackgroundBlurRadius(0)
             }
@@ -430,8 +544,7 @@ class FaceTimeActivity : Activity() {
         cached.mirrorReadyCall = {
             mirrorReady = true
             if (answered) {
-                binding.mainFrame.visibility = View.VISIBLE
-                binding.splashLayout.visibility = View.GONE
+                showInCallSurface()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     window.setBackgroundBlurRadius(0)
                 }

@@ -54,6 +54,7 @@
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
+        android:resizeableActivity="true"
         android:enableOnBackInvokedCallback="true"
         tools:ignore="UnusedAttribute">
 
@@ -71,6 +72,7 @@
             android:name="app.openbubbles.nativeapp.NativeMainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -211,7 +213,9 @@
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:exported="false"
-            android:showOnLockScreen="true"
+            android:resizeableActivity="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:supportsPictureInPicture="true"
             android:taskAffinity=".FaceTime"
             android:theme="@style/Theme.Call" />

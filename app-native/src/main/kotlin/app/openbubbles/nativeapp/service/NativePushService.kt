@@ -16,6 +16,7 @@ import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.TranscriptBackgroundStore
+import app.openbubbles.nativeapp.facetime.FaceTimeNotifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -545,6 +546,9 @@ class NativePushService : Service(), MsgReceiver {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH)
         )
+        FaceTimeNotifications.ensureIncomingChannel(this)
+        FaceTimeNotifications.ensureMissedChannel(this)
+        FaceTimeNotifications.ensureInCallChannel(this)
     }
 
     private fun startForegroundCompat() {

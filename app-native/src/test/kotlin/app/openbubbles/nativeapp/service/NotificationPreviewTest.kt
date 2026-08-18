@@ -118,6 +118,78 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `conversation identity uses the lowest related chat id`() {
+        val identity = conversationIdentity(9L, listOf(12L, 7L, 9L))
+
+        assertEquals(7L, identity.conversationChatId)
+        assertEquals("chat-7", identity.conversationId)
+        assertEquals(conversationNotificationId(7L), identity.notificationId)
+    }
+
+    @Test
+    fun `incoming and reply confirmation share the same conversation identity`() {
+        val incoming = conversationIdentity(8L, listOf(8L, 11L))
+        val reply = conversationIdentity(11L, listOf(8L, 11L))
+
+        assertEquals(incoming.conversationId, reply.conversationId)
+        assertEquals(incoming.notificationId, reply.notificationId)
+        assertEquals("chat-8", incoming.conversationId)
+    }
+
+    @Test
+    fun `direct history person key matches the shortcut chat guid`() {
+        assertEquals(
+            "any;+15551234567",
+            messagingHistoryPersonKey(
+                isGroup = false,
+                handleAddress = "+15551234567",
+                chatGuid = "any;+15551234567",
+            ),
+        )
+    }
+
+    @Test
+    fun `group history person key uses the handle address`() {
+        assertEquals(
+            "mailto:alice@icloud.com",
+            messagingHistoryPersonKey(
+                isGroup = true,
+                handleAddress = "mailto:alice@icloud.com",
+                chatGuid = "chat-guid",
+            ),
+        )
+        assertNull(
+            messagingHistoryPersonKey(
+                isGroup = true,
+                handleAddress = "  ",
+                chatGuid = "chat-guid",
+            ),
+        )
+    }
+
+    @Test
+    fun `conversation shortcut spec keeps locus and shortcut ids aligned`() {
+        val identity = conversationIdentity(4L, listOf(4L))
+        val spec = conversationShortcutSpec(identity, title = "Alice", chatGuid = "chat-guid")
+
+        assertEquals("chat-4", spec.id)
+        assertEquals("chat-4", spec.locusId)
+        assertEquals("Alice", spec.shortLabel)
+        assertEquals("chat-guid", spec.chatGuid)
+    }
+
+    @Test
+    fun `blank conversation title falls back for shortcut labels`() {
+        val spec = conversationShortcutSpec(
+            conversationIdentity(1L),
+            title = "  ",
+            chatGuid = "guid",
+        )
+
+        assertEquals("OpenBubbles", spec.shortLabel)
+    }
+
+    @Test
     fun `legacy notification stack keeps one notification per chat`() {
         val stableId = conversationNotificationId(7L)
         val entries = listOf(

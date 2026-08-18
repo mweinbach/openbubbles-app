@@ -101,6 +101,7 @@ google-material = { module = "com.google.android.material:material", version.ref
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camera" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camera" }
+androidx-camera-mlkit-vision = { module = "androidx.camera:camera-mlkit-vision", version.ref = "camera" }
 mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkitBarcode" }
 
 # --- objectbox -------------------------------------------------------------

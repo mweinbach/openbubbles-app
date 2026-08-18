@@ -7,22 +7,29 @@ import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.captionBar
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.VerticalDragHandle
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.adaptive.layout.PaneExpansionAnchor
-import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
+import androidx.compose.material3.adaptive.layout.PaneExpansionState
+import androidx.compose.material3.adaptive.layout.ThreePaneScaffoldScope
 import androidx.compose.material3.adaptive.layout.rememberPaneExpansionState
 import androidx.compose.material3.toShape
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
@@ -85,6 +92,7 @@ import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
+import app.openbubbles.nativeapp.ui.adaptive.messagingListDetailDirective
 import app.openbubbles.nativeapp.ui.common.LocalAppSharedTransitionScope
 import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
 import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
@@ -221,6 +229,7 @@ private fun routeToKey(route: String): NavKey? = when {
  * That behavior comes from [ListDetailSceneStrategy] reading pane metadata off
  * the back stack rather than from any explicit width branching here.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OpenBubblesApp(
     modifier: Modifier = Modifier,
@@ -246,9 +255,7 @@ fun OpenBubblesApp(
     // tablets get list|chat instead of a stretched phone layout, and from
     // 1200dp up conversation details get the third pane. Below that they
     // replace the conversation so the page is never a levitated card.
-    val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(
-        currentWindowAdaptiveInfoV2(),
-    )
+    val directive = messagingListDetailDirective(currentWindowAdaptiveInfoV2())
     val isMultiPane = directive.maxHorizontalPartitions > 1
     val threePane = directive.maxHorizontalPartitions >= 3
 
@@ -272,8 +279,16 @@ fun OpenBubblesApp(
      */
     fun openChat(chatId: Long) {
         transcriptPrefetchJob?.cancel()
+        val last = backStack.lastOrNull()
+        // Tapping the already-selected row while chat info replaced the
+        // conversation pops back to that transcript. The list is visible
+        // in multi-pane, so this is the list-detail "same item" contract.
+        if (last is ChatInfoKey && last.chatId == chatId) {
+            popBack()
+            return
+        }
         val key = ChatKey(chatId)
-        if (backStack.lastOrNull() == key) return
+        if (last == key) return
         // A conversation belongs to the Chats tab: entering one from another
         // top-level destination (notification tap while in Settings) replaces
         // it so the detail pane never renders orphaned beside nothing.
@@ -287,6 +302,30 @@ fun OpenBubblesApp(
             backStack.removeAt(backStack.lastIndex)
         }
         backStack.add(key)
+    }
+
+    /**
+     * Search sits beside the list on wide windows (detail pane) and is a
+     * full-screen overlay on compact. Opening it swaps the open conversation
+     * the same way [openChat] does, so back lands on the list placeholder.
+     */
+    fun openSearch() {
+        if (backStack.lastOrNull() is SearchKey) return
+        backStack.removeAll {
+            it is SettingsKey || it is FindMyKey || it is NewChatKey ||
+                it is LoginKey || it is ArchivedChatsKey
+        }
+        while (backStack.size > 1 &&
+            (
+                backStack.last() is ChatKey ||
+                    backStack.last() is ChatInfoKey ||
+                    backStack.last() is AttachmentKey ||
+                    backStack.last() is SearchKey
+                )
+        ) {
+            backStack.removeAt(backStack.lastIndex)
+        }
+        backStack.add(SearchKey)
     }
 
     // The conversation whose row should read as selected in the list pane.
@@ -402,18 +441,29 @@ fun OpenBubblesApp(
             PaneExpansionAnchor.Proportion(0.6f),
         ),
     )
+    // rememberListDetailSceneStrategy keys on this lambda. An inline
+    // lambda would rebuild the strategy (and drop the user's split) on
+    // every recomposition, including a fold / unfold.
+    val paneExpansionDragHandle:
+        @Composable ThreePaneScaffoldScope.(PaneExpansionState) -> Unit = remember {
+            { state ->
+                val interactionSource = remember { MutableInteractionSource() }
+                VerticalDragHandle(
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .paneExpansionDraggable(
+                            state,
+                            LocalMinimumInteractiveComponentSize.current,
+                            interactionSource,
+                        )
+                        .systemGestureExclusion(),
+                )
+            }
+        }
     val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>(
         directive = directive,
         paneExpansionState = paneExpansionState,
-        paneExpansionDragHandle = { state ->
-            // One interaction source for both the drag modifier and the handle,
-            // so the handle's pressed shape morph tracks the actual drag.
-            val interactionSource = remember { MutableInteractionSource() }
-            VerticalDragHandle(
-                interactionSource = interactionSource,
-                modifier = Modifier.paneExpansionDraggable(state, 48.dp, interactionSource),
-            )
-        },
+        paneExpansionDragHandle = paneExpansionDragHandle,
     )
 
     // Hoisted spec reads: the transition lambdas are not composable.
@@ -498,7 +548,7 @@ fun OpenBubblesApp(
                             MessagingPrefs(listContext).defaultSendingHandle
                         },
                         onSetSendFrom = viewModel::setSenderOverride,
-                        onOpenSearch = { navigateTo(SearchKey) },
+                        onOpenSearch = { openSearch() },
                         onVisibleChatsChanged = { ids ->
                             transcriptPrefetchJob?.cancel()
                             transcriptPrefetchJob = prefetchScope.launch {
@@ -626,9 +676,11 @@ fun OpenBubblesApp(
                         chat = chat,
                         participants = participants,
                         onBack = { popBack() },
-                        // Third pane sits beside the chat; phones and two-pane
-                        // replace the conversation, so back has somewhere to go.
-                        showBackButton = !threePane,
+                        // The list is visible whenever there is more than one
+                        // pane, so chat info does not offer a back arrow. Two-
+                        // pane still replaces the conversation; tapping the
+                        // selected list row pops back to it.
+                        showBackButton = !isMultiPane,
                         onRename = { name ->
                             AppGraph.chatInfoActions.rename(chatId, name)
                         },
@@ -712,7 +764,13 @@ fun OpenBubblesApp(
                     )
                 }
 
-                entry<SearchKey>(metadata = overlayMetadata) {
+                entry<SearchKey>(
+                    metadata = if (isMultiPane) {
+                        ListDetailSceneStrategy.detailPane()
+                    } else {
+                        overlayMetadata
+                    },
+                ) {
                     val viewModel: SearchViewModel =
                         viewModel(factory = SearchViewModel.factory(AppGraph.search, AppGraph.chats))
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -738,6 +796,7 @@ fun OpenBubblesApp(
                             }
                         },
                         onBack = { popBack() },
+                        docked = isMultiPane,
                     )
                 }
 
@@ -792,7 +851,11 @@ fun OpenBubblesApp(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.captionBar),
+    ) {
         appContent()
     }
 }

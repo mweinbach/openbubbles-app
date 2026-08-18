@@ -20,7 +20,7 @@ object CreateMissedFaceTimeNotification {
         callerName: String,
         callerAvatar: ByteArray?,
     ) {
-        val channelId: String = "facetime_missed"
+        val channelId: String = FaceTimeNotifications.ensureMissedChannel(context)
 
         // create a bundle for extra info
         val extras = Bundle()

@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,8 +87,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.separatingVerticalHingeBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -126,10 +130,13 @@ import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
+import app.openbubbles.nativeapp.facetime.fullScreenCallSettingsIntent
+import app.openbubbles.nativeapp.facetime.shouldOfferFullScreenCallSettings
 import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
 import app.openbubbles.nativeapp.update.UpdateSettings
+import app.openbubbles.nativeapp.ui.adaptive.settingsTwoPaneSplit
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.formatRelativePast
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -193,6 +200,7 @@ fun SettingsScreen(
     onOpenArchived: () -> Unit = {},
     archivedCount: Int = 0,
     showBackButton: Boolean = true,
+    windowAdaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfoV2(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -442,6 +450,9 @@ fun SettingsScreen(
     }
 
     var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }
+    var offerFullScreenCalls by remember {
+        mutableStateOf(shouldOfferFullScreenCallSettings(context))
+    }
     val smsRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -452,6 +463,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isDefaultSmsApp = SmsRole.isHeld(context)
+                offerFullScreenCalls = shouldOfferFullScreenCallSettings(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -529,9 +541,16 @@ fun SettingsScreen(
 
     // Compact: collapsing headline. Medium+ (foldable inner, tablet): the
     // Messages pattern — title sits next to back so the list gets the height.
-    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val windowSizeClass = windowAdaptiveInfo.windowSizeClass
     val isMediumWidth = windowSizeClass.isWidthAtLeastBreakpoint(
         WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+    )
+    val density = LocalDensity.current
+    val hinge = windowAdaptiveInfo.windowPosture.separatingVerticalHingeBounds.firstOrNull()
+    val twoPane = settingsTwoPaneSplit(
+        hingeLeftDp = hinge?.let { with(density) { it.left.toDp().value } },
+        hingeRightDp = hinge?.let { with(density) { it.right.toDp().value } },
+        defaultListWidthDp = SettingsListPaneWidth.value,
     )
     val scrollBehavior = if (isMediumWidth) {
         TopAppBarDefaults.pinnedScrollBehavior()
@@ -823,6 +842,7 @@ fun SettingsScreen(
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
                 var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
+                val notifCount = if (offerFullScreenCalls) 4 else 3
                 SettingsToggleItem(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
@@ -832,7 +852,7 @@ fun SettingsScreen(
                         notifPrefs.hidePreviews = enabled
                     },
                     index = 0,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.Filled.VisibilityOff,
                 )
                 SettingsToggleItem(
@@ -844,7 +864,7 @@ fun SettingsScreen(
                         notifPrefs.replyEnabled = enabled
                     },
                     index = 1,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.AutoMirrored.Filled.Reply,
                 )
                 SettingsToggleItem(
@@ -856,9 +876,27 @@ fun SettingsScreen(
                         notifPrefs.notifyReactions = enabled
                     },
                     index = 2,
-                    count = 3,
+                    count = notifCount,
                     icon = Icons.Filled.EmojiEmotions,
                 )
+                if (offerFullScreenCalls) {
+                    SettingsActionItem(
+                        title = "Full-screen FaceTime alerts",
+                        supporting = "Android is blocking incoming calls from taking over the lock screen. Tap to allow them.",
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    fullScreenCallSettingsIntent(context.packageName),
+                                )
+                            }
+                        },
+                        index = 3,
+                        count = notifCount,
+                        multiline = true,
+                        icon = Icons.Filled.Videocam,
+                        iconTone = SettingsRowTone.Error,
+                    )
+                }
             }
 
             if (filter == null || filter == SettingsSection.Messaging) {
@@ -1121,11 +1159,11 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .padding(horizontal = 24.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(twoPane.gutterDp.dp),
             ) {
                 Column(
                     modifier = Modifier
-                        .width(SettingsListPaneWidth)
+                        .width(twoPane.listWidthDp.dp)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
                         .navigationBarsPadding(),
