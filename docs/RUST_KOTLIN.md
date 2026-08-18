@@ -72,10 +72,10 @@ Default anisette is remote-v3. Hosted hardware relay exists in the API and is no
 Android: `AndroidNativeKeystore` behind `NativeKeystore`. Desktop restore uses the software
 keystore. Treat `hw_info.plist`, `gsa.plist`, `id.plist`, and `keystore*.plist` as secrets.
 
-On-device validation (OpenAbsinthe) loads the packaged `libopenbubbles_official.so` on arm64,
-checks layout + UniFFI contract-version anchor, then runs Apple's validation handshake. Mismatch
-is unavailable — no silent relay fallback. Debug account-free smoke: 517-byte envelope
-(`openbubbles_debug_nac_round_trip`).
+On-device validation (OpenAbsinthe) is compiled from `rustpush/open-absinthe` into the main Rust
+library for every supported ABI. Constructor, key establishment, signing framing, and the recovered
+architecture-neutral proof circuit are all source-built; no official native library is packaged.
+Debug account-free smoke: 517-byte envelope (`openbubbles_debug_nac_round_trip`).
 
 ## Build
 

@@ -15,7 +15,6 @@ import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
-import app.openbubbles.nativeapp.data.OfficialEngineProbe
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -118,7 +117,7 @@ class NativeMainActivity : FragmentActivity() {
         // Boot the Rust runtime (state dirs + keystore) before any UI can
         // provision or sign in — onboarding reaches Rust before the push
         // service ever starts. The UniFFI smoke test lives in the same
-        // coroutine: loading the .so (dlopen + JNA proxy + checksum sweep)
+        // coroutine: loading the source-built .so and JNA proxy
         // is a first-frame stall when run on the main thread.
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { app.openbubbles.nativeapp.data.RustBoot.ensureStarted(this@NativeMainActivity, filesDir.absolutePath) }
@@ -136,12 +135,6 @@ class NativeMainActivity : FragmentActivity() {
         // (or taps into the signed-in app) just get a contact re-sync.
         if (DeviceContacts.hasPermission(this)) {
             syncContacts()
-        }
-
-        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                android.util.Log.i("OfficialEngineProbe", OfficialEngineProbe.probe().summary())
-            }
         }
 
         debugLines = listOf(Hello.greeting())
