@@ -350,13 +350,15 @@ class FaceTimeActivity : Activity() {
             defaultCallDescriptionTopMargin =
                 (binding.callDescription.layoutParams as FrameLayout.LayoutParams).topMargin
         }
-        val tabletop = feature != null && isTabletopFold(
-            horizontalHinge = feature.orientation == FoldingFeature.Orientation.HORIZONTAL,
-            halfOpened = feature.state == FoldingFeature.State.HALF_OPENED,
-        )
         val windowHeight = binding.root.height.takeIf { it > 0 }
             ?: resources.displayMetrics.heightPixels
-        val split = if (tabletop && feature != null) {
+        val split = if (
+            feature != null &&
+            isTabletopFold(
+                horizontalHinge = feature.orientation == FoldingFeature.Orientation.HORIZONTAL,
+                halfOpened = feature.state == FoldingFeature.State.HALF_OPENED,
+            )
+        ) {
             faceTimeTabletopInsets(
                 windowHeightPx = windowHeight,
                 hingeTopPx = feature.bounds.top,

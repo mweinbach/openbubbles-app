@@ -58,9 +58,12 @@ class AdaptiveLayoutTest {
 
     @Test
     fun `library directive matches two-panes-on-medium for foldable inner`() {
+        // WindowSizeClass.minWidthDp is the breakpoint floor, not the raw
+        // window width. currentWindowAdaptiveInfoV2() emits 0 / 600 / 840 /
+        // 1200 / 1600 — constructing 411 or 700 would match no branch.
         val compact = messagingListDetailDirective(
             WindowAdaptiveInfo(
-                windowSizeClass = WindowSizeClass(minWidthDp = 411, minHeightDp = 900),
+                windowSizeClass = WindowSizeClass(minWidthDp = 0, minHeightDp = 900),
                 windowPosture = Posture(),
             ),
         )
@@ -68,7 +71,10 @@ class AdaptiveLayoutTest {
 
         val foldableInner = messagingListDetailDirective(
             WindowAdaptiveInfo(
-                windowSizeClass = WindowSizeClass(minWidthDp = 700, minHeightDp = 900),
+                windowSizeClass = WindowSizeClass(
+                    minWidthDp = WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+                    minHeightDp = 900,
+                ),
                 windowPosture = Posture(),
             ),
         )
@@ -150,7 +156,7 @@ class AdaptiveLayoutTest {
         )
         val directive = messagingListDetailDirective(
             WindowAdaptiveInfo(
-                windowSizeClass = WindowSizeClass(minWidthDp = 400, minHeightDp = 900),
+                windowSizeClass = WindowSizeClass(minWidthDp = 0, minHeightDp = 900),
                 windowPosture = tabletop,
             ),
         )
