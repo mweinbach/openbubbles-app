@@ -2,6 +2,32 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.4
+
+### Enhancements
+
+- A performance overhaul of the messaging engine. Sending is dramatically
+  faster: the engine saves its contact-key cache once per send in a compact
+  format instead of rewriting a large file for every recipient, runs on
+  multiple threads so sends, receipts, and syncs no longer queue behind one
+  another, and stops writing thousands of internal trace lines per message.
+- Sends and attachment transfers now suspend instead of tying up app
+  threads, and downloads are capped at four at a time — several large
+  attachments can move at once without slowing conversations, and a
+  media-heavy chat can no longer starve the rest of the app.
+- The chat list and transcripts redraw only when something visible actually
+  changed, and contact names are cached instead of rescanned on every
+  update, so history sync and busy group chats stay smooth.
+- The app reaches its first frame faster: the native engine now loads off
+  the main thread.
+
+### Fixes
+
+- An incoming contact profile update (name or poster) no longer holds up
+  the messages behind it while its network fetch completes.
+- Incoming-message journal writes moved off the engine's receive loop, so
+  bursts of messages land without stalling the connection.
+
 ## v2.3.3
 
 ### Enhancements
