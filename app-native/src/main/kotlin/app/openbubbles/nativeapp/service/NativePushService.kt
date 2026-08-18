@@ -538,6 +538,7 @@ class NativePushService : Service(), MsgReceiver {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH)
         )
+        app.openbubbles.nativeapp.facetime.CreateIncomingFaceTimeNotification.ensureChannel(this)
     }
 
     private fun startForegroundCompat() {
