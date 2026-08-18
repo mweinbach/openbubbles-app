@@ -86,8 +86,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.separatingVerticalHingeBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -130,6 +133,7 @@ import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
 import app.openbubbles.nativeapp.update.UpdateSettings
+import app.openbubbles.nativeapp.ui.adaptive.settingsTwoPaneSplit
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.formatRelativePast
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -193,6 +197,7 @@ fun SettingsScreen(
     onOpenArchived: () -> Unit = {},
     archivedCount: Int = 0,
     showBackButton: Boolean = true,
+    windowAdaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfoV2(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -529,9 +534,16 @@ fun SettingsScreen(
 
     // Compact: collapsing headline. Medium+ (foldable inner, tablet): the
     // Messages pattern — title sits next to back so the list gets the height.
-    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val windowSizeClass = windowAdaptiveInfo.windowSizeClass
     val isMediumWidth = windowSizeClass.isWidthAtLeastBreakpoint(
         WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+    )
+    val density = LocalDensity.current
+    val hinge = windowAdaptiveInfo.windowPosture.separatingVerticalHingeBounds.firstOrNull()
+    val twoPane = settingsTwoPaneSplit(
+        hingeLeftDp = hinge?.let { with(density) { it.left.toDp().value } },
+        hingeRightDp = hinge?.let { with(density) { it.right.toDp().value } },
+        defaultListWidthDp = SettingsListPaneWidth.value,
     )
     val scrollBehavior = if (isMediumWidth) {
         TopAppBarDefaults.pinnedScrollBehavior()
@@ -1121,11 +1133,11 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .padding(horizontal = 24.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(twoPane.gutterDp.dp),
             ) {
                 Column(
                     modifier = Modifier
-                        .width(SettingsListPaneWidth)
+                        .width(twoPane.listWidthDp.dp)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
                         .navigationBarsPadding(),

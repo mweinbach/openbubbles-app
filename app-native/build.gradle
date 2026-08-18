@@ -132,7 +132,6 @@ dependencies {
     // Expressive surface explicitly AFTER the platform, matching AndroidX's
     // documented setup: the explicit version wins over the BOM's managed one.
     implementation libs.androidx.material3
-    implementation libs.androidx.material3.windowsize
     implementation libs.androidx.graphics.shapes
 
     // material3.adaptive is a DIFFERENT version train (1.3.0) from material3.
