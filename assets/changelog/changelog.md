@@ -2,6 +2,17 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.6
+
+### Enhancements
+
+- New Settings → iCloud → "Repair iCloud sync": if this device lost its
+  iCloud Keychain (History sync shows "no iCloud Keychain on this
+  state"), this resets only the device's iCloud state and takes you to
+  sign-in to rebuild it. Your iMessage registration, hardware setup, and
+  local messages are kept. Finish with Join iCloud Keychain from a
+  trusted Apple device.
+
 ## v2.3.5
 
 ### Fixes
