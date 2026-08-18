@@ -42,7 +42,7 @@ pub type MyHandler = SimpleHandler<SimpleExecutor<NoOpErrorListener, SimpleThrea
 
 include!("./mirrors.rs");
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let parent = path.parent().ok_or_else(|| anyhow!("path has no parent: {}", path.display()))?;
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     temp.write_all(bytes)?;
@@ -54,10 +54,37 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn atomic_write_plist<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
+pub(crate) fn atomic_write_plist<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
     let mut bytes = Vec::new();
     plist::to_writer_xml(&mut bytes, value)?;
     atomic_write(path, &bytes)
+}
+
+/// Moves an existing-but-unreadable state file aside so (a) the bytes stay
+/// on disk for recovery and (b) creation paths gated on `!exists()` — the
+/// login-time `keychain.plist` write, keystore initialization — can run
+/// again instead of being permanently blocked by a corrupt file.
+pub(crate) fn quarantine_corrupt_state(path: &Path) {
+    if !path.exists() {
+        return;
+    }
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut target = path.as_os_str().to_owned();
+    target.push(format!(".corrupt-{millis}"));
+    match std::fs::rename(path, &target) {
+        Ok(()) => log::error!(
+            "state file {} was unreadable; quarantined to {}",
+            path.display(),
+            Path::new(&target).display(),
+        ),
+        Err(error) => log::error!(
+            "state file {} was unreadable and could not be quarantined: {error}",
+            path.display(),
+        ),
+    }
 }
 
 #[derive(Debug, Default)]
@@ -489,8 +516,11 @@ pub async fn make_imclient(path: String, conn: &APSConnection, users: &Vec<IDSUs
 
     Arc::new(IMClient::new(conn.clone(), users.clone(), identity.clone(),
     &[&MADRID_SERVICE, &MULTIPLEX_SERVICE, &FACETIME_SERVICE, &VIDEO_SERVICE], dir.join("id_cache.plist"), conn.os_config.clone(), Box::new(move |updated_keys| {
-        println!("updated keys!!!");
-        std::fs::write(&id_path, plist_to_string(&updated_keys).unwrap()).unwrap();
+        info!("updated keys!!!");
+        // Atomic: a crash mid-write must never truncate the IDS users file.
+        if let Err(error) = atomic_write_plist(&id_path, &updated_keys) {
+            log::error!("failed to save updated IDS users: {error}");
+        }
     })).await)
 }
 
@@ -955,11 +985,19 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
     let dir = PathBuf::from_str(&path).unwrap();
     let cloudkit_path = dir.join("keychain.plist");
 
-    if let Err(e) = plist::from_file::<_, KeychainClientState>(&cloudkit_path) {
-        info!("Failed to desrialized {e}");
-    }
-
-    let state: KeychainClientState = plist::from_file(&cloudkit_path).ok()?;
+    let state: KeychainClientState = match plist::from_file(&cloudkit_path) {
+        Ok(state) => state,
+        Err(error) => {
+            if cloudkit_path.exists() {
+                log::error!("keychain state failed to deserialize: {error}");
+                // Leave the bytes recoverable and unblock the login-time
+                // recreation path (gated on !exists()) so the user can
+                // re-join iCloud Keychain instead of being stuck forever.
+                quarantine_corrupt_state(&cloudkit_path);
+            }
+            return None;
+        }
+    };
 
     Some(Arc::new(KeychainClient {
         anisette: anisette.clone(),
@@ -967,7 +1005,11 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
         state: DebugRwLock::new(state),
         config: config.config(),
         update_state: Box::new(move |update| {
-            plist::to_file_xml(&cloudkit_path, update).unwrap();
+            // Atomic: this fires on every trust sync; a crash mid-write used
+            // to truncate keychain.plist and permanently lose the keychain.
+            if let Err(error) = atomic_write_plist(&cloudkit_path, update) {
+                log::error!("failed to save keychain state: {error}");
+            }
         }),
         container: tokio::sync::Mutex::new(None),
         security_container: tokio::sync::Mutex::new(None),
@@ -1091,7 +1133,11 @@ pub async fn setup_push(config: &JoinedOSConfig, identity: &IDSNGMIdentity, stat
                         os_config: config_ref.clone(),
                         identity: saved_identity.clone().into(),
                     };
-                    std::fs::write(&state_path, plist_to_string(&state).unwrap()).unwrap();
+                    // Atomic: hw_info.plist is the provisioned hardware
+                    // identity; truncating it forces a full re-provision.
+                    if let Err(error) = atomic_write_plist(&state_path, &state) {
+                        log::error!("failed to save hardware state: {error}");
+                    }
                 },
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -2551,7 +2597,7 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
     if let Some(cloudkitstate) = cloudkitstate {
         let id_path = conf_dir.join("cloudkit.plist");
         if !id_path.exists() {
-            std::fs::write(id_path, plist_to_string(&cloudkitstate).unwrap()).unwrap();
+            atomic_write_plist(&id_path, &cloudkitstate).expect("failed to save cloudkit state");
         }
     } else {
         warn!("missing cloudkit tokens!");
@@ -2561,7 +2607,7 @@ pub async fn do_login(path: String, account: &Arc<Mutex<AppleAccount<DefaultAnis
     if let Some(keychain) = keychain {
         let id_path = conf_dir.join("keychain.plist");
         if !id_path.exists() {
-            std::fs::write(id_path, plist_to_string(&keychain).unwrap()).unwrap();
+            atomic_write_plist(&id_path, &keychain).expect("failed to save keychain state");
         }
     } else {
         warn!("missing keychain tokens!");

@@ -6,7 +6,7 @@ use openssl::{bn::BigNumContext, ec::{EcGroup, EcKey, EcPoint, PointConversionFo
 use rustpush::cloudkit_proto::base64_encode;
 use std::str::FromStr;
 use rasn::{types::SetOf, AsnType, Decode, Encode};
-use log::info;
+use log::{error, info};
 
 
 #[uniffi::remote(Enum)]
@@ -176,27 +176,52 @@ pub fn setup_keystore(dir: String, keystore: Arc<dyn NativeKeystore>) {
     info!("Using hardware {has_support}");
 
     if has_support {
-        let (state, key) = if let Ok(existing) = plist::from_file(&keystore_path) {
-            (existing, None)
-        } else {
-            let (keystore, key) = BackupKeystoreState::new(&keystore).expect("Failed to initialize keystore!");
-            (keystore, Some(key))
+        // A keystore state that exists but does not parse is quarantined,
+        // never silently replaced: re-initializing regenerates every secret
+        // (including the keychain cloud-key access key), which permanently
+        // orphans everything sealed by the old ones. Quarantining keeps the
+        // bytes recoverable while letting startup proceed.
+        let (state, key) = match plist::from_file(&keystore_path) {
+            Ok(existing) => (existing, None),
+            Err(error) => {
+                if keystore_path.exists() {
+                    error!("keystore state failed to deserialize: {error}");
+                    crate::api::api::quarantine_corrupt_state(&keystore_path);
+                }
+                let (keystore, key) = BackupKeystoreState::new(&keystore).expect("Failed to initialize keystore!");
+                (keystore, Some(key))
+            }
         };
 
         init_keystore(BackupKeystore {
             state: RwLock::new(state),
             update_state: Box::new(move |state| {
-                plist::to_file_xml(&keystore_path, state).unwrap();
+                // Atomic: a crash mid-write must never truncate the master
+                // keystore file.
+                if let Err(error) = crate::api::api::atomic_write_plist(&keystore_path, state) {
+                    error!("failed to save keystore state: {error}");
+                }
             }),
             hardware: keystore,
             unlocked_key: RwLock::new(key),
         });
     } else {
-        let state: SoftwareKeystoreState = plist::from_file(&soft_keystore).unwrap_or_default();
+        let state: SoftwareKeystoreState = match plist::from_file(&soft_keystore) {
+            Ok(existing) => existing,
+            Err(error) => {
+                if soft_keystore.exists() {
+                    error!("software keystore state failed to deserialize: {error}");
+                    crate::api::api::quarantine_corrupt_state(&soft_keystore);
+                }
+                SoftwareKeystoreState::default()
+            }
+        };
         init_keystore(SoftwareKeystore {
             state: RwLock::new(state),
             update_state: Box::new(move |state| {
-                plist::to_file_xml(&soft_keystore, state).unwrap();
+                if let Err(error) = crate::api::api::atomic_write_plist(&soft_keystore, state) {
+                    error!("failed to save software keystore state: {error}");
+                }
             }),
             encryptor: keystore,
         });
