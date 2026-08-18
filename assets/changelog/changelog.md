@@ -2,6 +2,16 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.7
+
+### Enhancements
+
+- Settings → iCloud now shows "This device in iCloud" — the Mac model
+  name and serial number this app presents to Apple. Tap to copy the
+  serial, so you can match this OpenBubbles device against the entry in
+  your trusted-device and iCloud Keychain list on your real Apple
+  devices.
+
 ## v2.3.6
 
 ### Enhancements
