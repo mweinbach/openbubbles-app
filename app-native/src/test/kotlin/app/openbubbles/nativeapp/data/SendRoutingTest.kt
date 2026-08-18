@@ -163,6 +163,12 @@ class SendRoutingTest {
     }
 
     @Test
+    fun `Apple read receipts stay on one chat even when siblings share unread state`() {
+        assertEquals(listOf(7L), appleReadReceiptChatIds(requestedChatId = 7L, explicitMessageChatId = null))
+        assertEquals(listOf(9L), appleReadReceiptChatIds(requestedChatId = 7L, explicitMessageChatId = 9L))
+    }
+
+    @Test
     fun `SIM chats never send Apple read receipts`() {
         assertFalse(shouldSendAppleReadReceipt(Chat().apply { isRpSms = true }))
         assertTrue(shouldSendAppleReadReceipt(Chat().apply { isRpSms = false }))

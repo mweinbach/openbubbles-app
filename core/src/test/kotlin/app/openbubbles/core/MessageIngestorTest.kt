@@ -866,6 +866,31 @@ class MessageIngestorTest {
         assertEquals("not delivered", row.errorMessage)
     }
 
+    @Test
+    fun `error receipt for an incoming guid does not mark that bubble failed`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("incoming-e1", friend, "hello")), myHandles)
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "err-read", sender = me, conversation = conversation(me, friend),
+                    message = UMessage.Error(
+                        forUuid = "incoming-e1",
+                        status = 5000uL,
+                        statusStr = "Could not deliver message. The recipient does not have iMessage or you are being rate-limited.",
+                    ),
+                    sentTimestamp = 1_700_000_100_000uL, sendDelivered = false, verificationFailed = false,
+                )
+            ),
+            myHandles,
+        )
+
+        val row = messageByGuid("incoming-e1")
+        assertNotNull(row)
+        assertFalse(row.isFromMe)
+        assertNull(row.errorMessage)
+        assertEquals(0, messageBox().all.count { it.guid.startsWith("error-protocol") })
+    }
+
     // ------------------------------------------------------------------
     // Reactions, renames, participants
     // ------------------------------------------------------------------

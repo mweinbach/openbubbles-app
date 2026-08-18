@@ -1352,12 +1352,13 @@ private object CoreReadReceiptSender : ReadReceiptSender {
                     .equal(Message_.stagingGuid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                     .build().use { it.findFirst() }
         }
-        val receiptChatIds = when {
-            explicitMessage != null -> listOf(explicitMessage.chat.targetId)
-            messageGuid != null -> listOf(chatId)
-            else -> relatedChatIds
-        }
-        receiptChatIds.forEach { receiptChatId ->
+        // Sibling phone/email threads share local unread state, but Apple
+        // only needs one receipt. Sending one per protocol chat repeats the
+        // same IDS lookup and is how a history update turns into a rate limit.
+        appleReadReceiptChatIds(
+            requestedChatId = chatId,
+            explicitMessageChatId = explicitMessage?.chat?.targetId,
+        ).forEach { receiptChatId ->
             sendReadReceipt(store, receiptChatId, messageGuid)
         }
     }
@@ -1407,6 +1408,16 @@ internal fun appleReadReceiptFailureMessage(error: Throwable): String? =
     }
 
 internal fun shouldSendAppleReadReceipt(chat: Chat): Boolean = chat.isRpSms != true
+
+/**
+ * Local unread is cleared on every related protocol chat. The Apple
+ * receipt goes to one chat: the message's own thread when known, otherwise
+ * the conversation the user opened.
+ */
+internal fun appleReadReceiptChatIds(
+    requestedChatId: Long,
+    explicitMessageChatId: Long?,
+): List<Long> = listOf(explicitMessageChatId ?: requestedChatId)
 
 /** Rust-backed tapback, edit, and undo-send operations with local echoes. */
 private object CoreMessageActions : MessageActions {

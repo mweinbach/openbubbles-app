@@ -655,10 +655,117 @@ class ChatViewModelTest {
 
         assertEquals(listOf<Pair<Long, String?>>(7L to null), receipts.marked)
 
-        messages.value.value += message(id = 2L, guid = "fresh", text = "just arrived", fromMe = false)
+        messages.value.value += message(
+            id = 2L,
+            guid = "fresh",
+            text = "just arrived",
+            fromMe = false,
+            date = 1_700_000_000_500L,
+        )
         advanceUntilIdle()
 
         assertEquals(listOf(7L to null, 7L to "fresh"), receipts.marked)
+    }
+
+    @Test
+    fun `history-imported messages while open do not send another Apple receipt`() = runTest(dispatcher) {
+        val messages = MutableMessages(
+            listOf(message(id = 1L, guid = "seen", text = "already here", fromMe = false)),
+        )
+        val receipts = RecordingReadReceipts()
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+            readReceiptSender = receipts,
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        messages.value.value += message(
+            id = 2L,
+            guid = "backfill",
+            text = "from iCloud",
+            fromMe = false,
+            date = 1_600_000_000_000L,
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(7L to null), receipts.marked)
+    }
+
+    @Test
+    fun `history sync pages do not send a receipt for every newest imported row`() = runTest(dispatcher) {
+        val messages = MutableMessages(
+            listOf(message(id = 1L, guid = "seen", text = "already here", fromMe = false)),
+        )
+        val receipts = RecordingReadReceipts()
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+            readReceiptSender = receipts,
+            historySyncActive = { true },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        messages.value.value += message(
+            id = 2L,
+            guid = "page-1",
+            text = "imported",
+            fromMe = false,
+            date = 1_700_000_000_500L,
+        )
+        advanceUntilIdle()
+        messages.value.value += message(
+            id = 3L,
+            guid = "page-2",
+            text = "also imported",
+            fromMe = false,
+            date = 1_700_000_000_800L,
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(7L to null), receipts.marked)
+    }
+
+    @Test
+    fun `live incoming after history sync still marks the conversation read`() = runTest(dispatcher) {
+        val messages = MutableMessages(
+            listOf(message(id = 1L, guid = "seen", text = "already here", fromMe = false)),
+        )
+        val receipts = RecordingReadReceipts()
+        var syncing = true
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            messageRepository = messages,
+            readReceiptSender = receipts,
+            historySyncActive = { syncing },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        messages.value.value += message(
+            id = 2L,
+            guid = "imported",
+            text = "from iCloud",
+            fromMe = false,
+            date = 1_700_000_000_500L,
+        )
+        advanceUntilIdle()
+        syncing = false
+        messages.value.value += message(
+            id = 3L,
+            guid = "live",
+            text = "just arrived",
+            fromMe = false,
+            date = 1_700_000_001_000L,
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(7L to null, 7L to "live"), receipts.marked)
     }
 
     @Test
@@ -715,6 +822,8 @@ class ChatViewModelTest {
         smsSender: SmsSender = NoopSmsSender,
         smsAttachmentSender: AttachmentSender = NoopAttachmentSender,
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
+        historySyncActive: () -> Boolean = { false },
+        openedAtMs: Long = 1_700_000_000_000L,
     ) = ChatViewModel(
         chatId = 7L,
         chatListRepository = chatListRepository,
@@ -728,6 +837,8 @@ class ChatViewModelTest {
         readReceiptSender = readReceiptSender,
         smsSender = smsSender,
         smsAttachmentSender = smsAttachmentSender,
+        historySyncActive = historySyncActive,
+        openedAtMs = openedAtMs,
     )
 
     private fun message(
@@ -740,6 +851,7 @@ class ChatViewModelTest {
         replyToPartLocator: String? = null,
         replyPartLocators: Map<Long, String> = emptyMap(),
         chatId: Long? = null,
+        date: Long = 1_700_000_000_000L,
         fromMe: Boolean = true,
         reactionEmoji: String? = null,
         edited: Boolean = false,
@@ -749,7 +861,7 @@ class ChatViewModelTest {
         id = id,
         text = text,
         isFromMe = fromMe,
-        date = 1L,
+        date = date,
         status = MessageStatus.SENT,
         isGroupEvent = false,
         reactionEmoji = reactionEmoji,

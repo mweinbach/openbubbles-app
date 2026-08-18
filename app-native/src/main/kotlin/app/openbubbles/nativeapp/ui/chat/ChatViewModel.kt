@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
+import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.FaceTimeCaller
 import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
@@ -168,6 +169,8 @@ class ChatViewModel(
     private val smsSender: SmsSender = SmsBridge.sender,
     private val smsAttachmentSender: AttachmentSender = SmsBridge.attachmentSender,
     initialInput: String? = null,
+    private val historySyncActive: () -> Boolean = { CloudSyncWiring.syncing.value },
+    private val openedAtMs: Long = System.currentTimeMillis(),
 ) : ViewModel() {
 
     init {
@@ -263,6 +266,20 @@ class ChatViewModel(
             return
         }
         if (newestIncoming == null || newestIncoming.guid == lastMarkedIncomingGuid) return
+        // History import and contact-merge replay rewrite the transcript
+        // while this screen is open. Advance the baseline so we do not dump
+        // a receipt for every imported page when sync finishes.
+        if (historySyncActive()) {
+            lastMarkedIncomingGuid = newestIncoming.guid
+            return
+        }
+        // CloudKit rows keep their original Apple timestamp. A page of
+        // older messages is not a live arrival and must not start another
+        // IDS lookup / iMessage send.
+        if (!isLiveIncomingRead(openedAtMs, newestIncoming.date)) {
+            lastMarkedIncomingGuid = newestIncoming.guid
+            return
+        }
         lastMarkedIncomingGuid = newestIncoming.guid
         viewModelScope.launch { readReceiptSender.markRead(chatId, newestIncoming.guid) }
     }
@@ -838,3 +855,7 @@ class ChatViewModel(
 }
 
 private val TAPBACK_EMOJI = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
+
+/** History-import timestamps predate opening the transcript; live arrivals do not. */
+internal fun isLiveIncomingRead(openedAtMs: Long, incomingDateMs: Long): Boolean =
+    incomingDateMs >= openedAtMs
