@@ -2,6 +2,32 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.2
+
+### Enhancements
+
+- Image, video, and PDF attachments now show real previews in the
+  transcript instead of a filename tile. Videos keep a play control, and
+  a caption plus a rich-link preview stay together as one message.
+- Chat-list snippets name the person who reacted or wrote in a group,
+  so those rows read like the conversation they belong to.
+- Foldable list-detail stays usable when the window is short, and
+  picking someone in new-chat search clears the query so the next
+  recipient starts clean.
+
+### Fixes
+
+- Chat wallpapers set on another Apple device now come down from
+  Messages in iCloud. Incremental history had already walked past the
+  type-138 background record and never retried it, and photo posters
+  often leave the watch image empty — those used to look like a cleared
+  wallpaper. History sync now queries those records on their own,
+  rewinds the message zone once if needed, and draws the photo
+  layer-stack image when the watch payload is blank.
+- URL punctuation no longer sticks to a following word, handle
+  detection is tighter, video play controls stay reachable, and
+  video previews expose the right accessibility label.
+
 ## v2.3.1
 
 ### Fixes
