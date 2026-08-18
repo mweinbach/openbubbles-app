@@ -587,16 +587,22 @@ class MessageIngestor(
     private fun handleSendConfirm(uuid: String, error: String?) {
         val message = findMessageByGuidOrStaging(uuid) ?: return
         if (error == null) {
+            if (message.sendingServiceId == null) return
             message.sendingServiceId = null
             messageBox.put(message)
-        } else {
-            markFailed(message, error)
+            return
         }
+        // Read receipts reuse the acknowledged message's guid as their
+        // envelope id. A failed receipt must not paint that incoming
+        // bubble as a failed send.
+        if (!message.isFromMe) return
+        markFailed(message, error)
     }
 
     private fun handleSmsConfirmSent(inst: UMessageInst, status: Boolean) {
         val message = findMessageByGuidOrStaging(inst.id) ?: return
         if (inst.verificationFailed) return
+        if (!message.isFromMe) return
         if (status) {
             // Promote the staged guid to the real one (Dart SmsConfirmSent).
             val staging = message.stagingGuid
