@@ -135,6 +135,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.AppGraph
+import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
@@ -142,7 +143,6 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.UiContacts
-import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
 import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
 import app.openbubbles.nativeapp.ui.chat.composer.MentionCandidate
@@ -1034,7 +1034,12 @@ fun ChatScreen(
         val message = selection.message
         MessageActionSheet(
             message = message,
+            chatGuid = uiState.chat?.guid.orEmpty(),
+            chatTitle = uiState.chat?.title.orEmpty(),
             isSms = uiState.chat?.isSms == true,
+            isGroup = uiState.chat?.isGroup == true,
+            attachmentFile = attachmentFile,
+            onDownloadAttachment = onDownloadAttachment,
             onReact = { index, emoji ->
                 selectedAction = null
                 onReact(message, selection.part, index, emoji)
@@ -1057,6 +1062,65 @@ fun ChatScreen(
             onUnsend = {
                 selectedAction = null
                 confirmUnsend = message
+            },
+            onForward = {
+                selectedAction = null
+                scope.launch {
+                    runCatching {
+                        AppGraph.messageActions.markForwarded(listOf(message.id))
+                    }
+                    snackbarHostState.showSnackbar("Forward: pick a chat from the share sheet")
+                }
+            },
+            onBookmark = {
+                selectedAction = null
+                scope.launch {
+                    AppGraph.messageActions.setBookmarked(listOf(message.id), !message.isBookmarked)
+                    snackbarHostState.showSnackbar(
+                        if (message.isBookmarked) "Bookmark removed" else "Bookmarked",
+                    )
+                }
+            },
+            onSelectMultiple = { selectedAction = null },
+            onViewThread = {
+                selectedAction = null
+                if (message.replyToGuid != null) onOpenReplyThread(message)
+            },
+            onStartConversation = {
+                selectedAction = null
+                val address = message.senderAddress
+                if (!address.isNullOrBlank()) {
+                    scope.launch {
+                        val id = withContext(Dispatchers.IO) {
+                            CoreGraph.findOrCreateChat(listOf(address), sms = false)
+                        }
+                        if (id != null) {
+                            snackbarHostState.showSnackbar("Opened a conversation")
+                        }
+                    }
+                }
+            },
+            onBlockSender = {
+                selectedAction = null
+                scope.launch {
+                    AppGraph.messageActions.blockSender(uiState.chat?.id ?: return@launch, archive = true)
+                    snackbarHostState.showSnackbar("Sender blocked")
+                }
+            },
+            onDeleteLocal = {
+                selectedAction = null
+                scope.launch {
+                    AppGraph.messageActions.deleteLocal(listOf(message.id))
+                }
+            },
+            onCancelSend = {
+                selectedAction = null
+                scope.launch {
+                    AppGraph.messageActions.cancelOutgoing(message.id)
+                }
+            },
+            onResult = { text ->
+                scope.launch { snackbarHostState.showSnackbar(text) }
             },
             onDismiss = { selectedAction = null },
         )
@@ -1118,131 +1182,6 @@ fun ChatScreen(
                 reviewCapture = null
             },
             onDismiss = { file.delete(); reviewCapture = null },
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MessageActionSheet(
-    message: MessageItem,
-    isSms: Boolean,
-    onReact: (Int, String?) -> Unit,
-    onReply: () -> Unit,
-    onSticker: () -> Unit,
-    onEdit: () -> Unit,
-    onUnsend: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var showCustomReaction by remember(message.guid) { mutableStateOf(false) }
-    var customReaction by remember(message.guid) { mutableStateOf("") }
-    val normalizedCustomReaction = normalizeCustomReaction(customReaction)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        if (!isSms) {
-            // Connected group of tapbacks: they are alternatives within one set,
-            // so they read as a single object rather than a loose row of text,
-            // and each carries a real button role and a 48dp target.
-            //
-            // Built from a Row with ButtonGroupDefaults.ConnectedSpaceBetween
-            // rather than the ButtonGroup composable on purpose. ButtonGroup
-            // reserves width for an overflow indicator and then hands each child
-            // a minimum width; with six fixed members in a bottom sheet that
-            // budget goes negative and its measure policy throws
-            // "maxWidth must be >= than minWidth". The hand-built form is the
-            // documented alternative and gives full layout control.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(
-                    ButtonGroupDefaults.ConnectedSpaceBetween,
-                ),
-            ) {
-                Tapbacks.forEachIndexed { index, emoji ->
-                    FilledTonalIconButton(
-                        onClick = { onReact(index, null) },
-                        shapes = IconButtonDefaults.shapes(),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                    ) {
-                        Text(
-                            text = emoji,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                }
-            }
-            TextButton(
-                onClick = { showCustomReaction = true },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            ) {
-                Icon(Icons.Filled.AddReaction, contentDescription = null)
-                Text("Custom reaction", modifier = Modifier.fillMaxWidth().padding(start = 12.dp))
-            }
-        }
-        TextButton(
-            onClick = onReply,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        ) { Text("Reply", modifier = Modifier.fillMaxWidth()) }
-        if (!isSms) {
-            TextButton(
-                onClick = onSticker,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            ) { Text("Add sticker", modifier = Modifier.fillMaxWidth()) }
-        }
-        if (!isSms && message.isFromMe && message.text.isNotBlank() && !message.unsent) {
-            TextButton(
-                onClick = onEdit,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            ) { Text("Edit", modifier = Modifier.fillMaxWidth()) }
-            TextButton(
-                onClick = onUnsend,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            ) { Text("Unsend", modifier = Modifier.fillMaxWidth()) }
-        }
-    }
-    if (showCustomReaction) {
-        AlertDialog(
-            onDismissRequest = { showCustomReaction = false },
-            title = { Text("Custom reaction") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Choose or enter one emoji.")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        CustomReactionSuggestions.forEach { emoji ->
-                            FilledTonalIconButton(
-                                onClick = { customReaction = emoji },
-                                shapes = IconButtonDefaults.shapes(),
-                            ) {
-                                Text(emoji)
-                            }
-                        }
-                    }
-                    TextField(
-                        value = customReaction,
-                        onValueChange = { customReaction = it },
-                        singleLine = true,
-                        label = { Text("Emoji") },
-                        isError = customReaction.isNotEmpty() && normalizedCustomReaction == null,
-                        supportingText = if (customReaction.isNotEmpty() && normalizedCustomReaction == null) {
-                            { Text("Enter a single emoji") }
-                        } else {
-                            null
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = normalizedCustomReaction != null,
-                    onClick = { onReact(6, requireNotNull(normalizedCustomReaction)) },
-                ) { Text("React") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomReaction = false }) { Text("Cancel") }
-            },
         )
     }
 }

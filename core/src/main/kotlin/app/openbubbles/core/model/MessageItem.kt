@@ -106,4 +106,10 @@ data class MessageItem(
     val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
+    val isBookmarked: Boolean = false,
+    val hasBeenForwarded: Boolean = false,
+    val dateDeleted: Date? = null,
+    val errorCode: Long? = null,
+    val errorMessage: String? = null,
+    val partCount: Int = 1,
 )

@@ -68,6 +68,18 @@ class ChatRepo(
         }
     }
 
+    /** Recoverably deleted conversations, newest deletion first. */
+    fun recentlyDeleted(limit: Int = 0): List<ChatListItem> {
+        val found = chatBox.query()
+            .notNull(Chat_.dateDeleted)
+            .orderDesc(Chat_.dateDeleted)
+            .build().use { it.find() }
+        val contactInfo = contactSync.displayInfoByHandleId()
+        val addressInfo = contactSync.displayInfoByMatchKey()
+        val projected = found.map { toItem(it, contactInfo, addressInfo) }
+        return if (limit > 0) projected.take(limit) else projected
+    }
+
     /**
      * Protocol chat ids represented by one direct-contact conversation.
      *
@@ -250,6 +262,84 @@ class ChatRepo(
         chatBox.put(chat)
     }
 
+    fun setLockChatName(chatId: Long, locked: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.lockChatName = locked
+        chatBox.put(chat)
+    }
+
+    fun setLockChatIcon(chatId: Long, locked: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.lockChatIcon = locked
+        chatBox.put(chat)
+    }
+
+    fun setAutoSendReadReceipts(chatId: Long, enabled: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.autoSendReadReceipts = enabled
+        chatBox.put(chat)
+    }
+
+    fun setAutoSendTypingIndicators(chatId: Long, enabled: Boolean) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.autoSendTypingIndicators = enabled
+        chatBox.put(chat)
+    }
+
+    fun setCustomAvatarPath(chatId: Long, path: String?) {
+        val chat = chatBox.get(chatId) ?: return
+        chat.customAvatarPath = path?.takeIf { it.isNotBlank() }
+        chatBox.put(chat)
+    }
+
+    fun isBlocked(chatId: Long): Boolean {
+        val chat = chatBox.get(chatId) ?: return false
+        val remote = otherHandles(chat)
+        return remote.isNotEmpty() && remote.all { it.blocked == true }
+    }
+
+    fun setBlocked(chatId: Long, blocked: Boolean, archive: Boolean = false) {
+        val chat = chatBox.get(chatId) ?: return
+        store.runInTx {
+            otherHandles(chat).forEach { handle ->
+                handle.blocked = blocked
+                handleBox.put(handle)
+            }
+            if (archive || !blocked) {
+                chat.isArchived = archive
+                if (archive) {
+                    chat.isPinned = false
+                    chat.pinIndex = null
+                }
+            }
+            if (blocked) {
+                chat.muteType = "mute"
+                chat.muteArgs = null
+            }
+            chatBox.put(chat)
+        }
+    }
+
+    fun restoreDeleted(chatId: Long) {
+        val chat = chatBox.get(chatId) ?: return
+        store.runInTx {
+            chat.dateDeleted = null
+            chat.messages.forEach { message ->
+                message.dateDeleted = null
+                messageBox.put(message)
+            }
+            chatBox.put(chat)
+        }
+    }
+
+    fun permanentlyDelete(chatId: Long) {
+        val chat = chatBox.get(chatId) ?: return
+        store.runInTx {
+            chat.messages.toList().forEach(messageBox::remove)
+            chatBox.remove(chat)
+        }
+    }
+
     /** Soft-delete so a genuinely new incoming message can restore the chat. */
     fun softDelete(chatId: Long): String? {
         val chat = chatBox.get(chatId) ?: return null
@@ -325,6 +415,12 @@ class ChatRepo(
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
             senderOverride = chat.senderOverride,
             receivedOnHandle = chat.usingHandle,
+            dateDeleted = chat.dateDeleted,
+            lockChatName = chat.lockChatName == true,
+            lockChatIcon = chat.lockChatIcon == true,
+            autoSendReadReceipts = chat.autoSendReadReceipts,
+            autoSendTypingIndicators = chat.autoSendTypingIndicators,
+            blocked = others.isNotEmpty() && others.all { it.blocked == true },
         )
     }
 

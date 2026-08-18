@@ -120,6 +120,99 @@ class MessageRepo(
             .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
 
+    fun bookmarked(chatId: Long, limit: Int = 0): List<MessageItem> {
+        val chatIds = conversationChatIds(chatId)
+        var condition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
+        chatIds.drop(1).forEach { id -> condition = condition.or(Message_.chatId.equal(id)) }
+        val found = messageBox.query(
+            condition
+                .and(Message_.isBookmarked.equal(true))
+                .and(Message_.associatedMessageGuid.isNull())
+                .and(Message_.dateDeleted.isNull()),
+        ).orderDesc(Message_.dateCreated).build().use { it.find() }
+        val projected = found.map(::toItem)
+        return if (limit > 0) projected.take(limit) else projected
+    }
+
+    fun recentlyDeleted(chatId: Long? = null, limit: Int = 0): List<MessageItem> {
+        var condition: QueryCondition<Message> = Message_.dateDeleted.notNull()
+            .and(Message_.associatedMessageGuid.isNull())
+        if (chatId != null) {
+            val chatIds = conversationChatIds(chatId)
+            var chatCondition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
+            chatIds.drop(1).forEach { id -> chatCondition = chatCondition.or(Message_.chatId.equal(id)) }
+            condition = condition.and(chatCondition)
+        }
+        val found = messageBox.query(condition)
+            .orderDesc(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .build().use { it.find() }
+        val projected = found.map(::toItem)
+        return if (limit > 0) projected.take(limit) else projected
+    }
+
+    fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) {
+        if (messageIds.isEmpty()) return
+        store.runInTx {
+            messageBox.get(messageIds.toLongArray()).forEach { message ->
+                message.isBookmarked = bookmarked
+                messageBox.put(message)
+            }
+        }
+    }
+
+    fun markForwarded(messageIds: Collection<Long>) {
+        if (messageIds.isEmpty()) return
+        store.runInTx {
+            messageBox.get(messageIds.toLongArray()).forEach { message ->
+                message.hasBeenForwarded = true
+                messageBox.put(message)
+            }
+        }
+    }
+
+    fun deleteLocal(messageIds: Collection<Long>) {
+        if (messageIds.isEmpty()) return
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val affectedChats = linkedSetOf<Long>()
+        store.runInTx {
+            messageBox.get(messageIds.toLongArray()).forEach { message ->
+                affectedChats += message.chat.targetId
+                message.dbAttachments.toList().forEach(attachmentBox::remove)
+                messageBox.remove(message)
+            }
+            affectedChats.forEach(::refreshChatLatest)
+        }
+    }
+
+    fun cancelOutgoing(messageId: Long): Boolean {
+        val message = messageBox.get(messageId) ?: return false
+        if (!message.isFromMe || statusOf(message) !in setOf(MessageStatus.SENDING, MessageStatus.FAILED)) {
+            return false
+        }
+        deleteLocal(listOf(messageId))
+        return true
+    }
+
+    fun clearTranscript(chatId: Long) {
+        val ids = conversationChatIds(chatId)
+        val messages = ids.flatMap { id ->
+            messageBox.query().equal(Message_.chatId, id).build().use { it.find() }
+        }
+        deleteLocal(messages.map { it.id })
+    }
+
+    fun restoreDeleted(messageIds: Collection<Long>) {
+        if (messageIds.isEmpty()) return
+        store.runInTx {
+            messageBox.get(messageIds.toLongArray()).forEach { message ->
+                message.dateDeleted = null
+                messageBox.put(message)
+                refreshChatLatest(message.chat.targetId)
+            }
+        }
+    }
+
     /**
      * Newest-first messages whose body contains [text] (case-insensitive),
      * across every conversation. Reactions (which duplicate their target's
@@ -402,7 +495,28 @@ class MessageRepo(
             },
             stickers = activeReactions.flatMap(::stickerPlacements),
             chatId = message.chat.targetId,
+            isBookmarked = message.isBookmarked == true,
+            hasBeenForwarded = message.hasBeenForwarded,
+            dateDeleted = message.dateDeleted,
+            errorCode = message.error,
+            errorMessage = message.errorMessage,
+            partCount = 1 + if (message.hasAttachments) message.dbAttachments.size else 0,
         )
+    }
+
+    private fun refreshChatLatest(chatId: Long) {
+        val chat = chatBox.get(chatId) ?: return
+        val latest = messageBox.query()
+            .equal(Message_.chatId, chatId)
+            .isNull(Message_.associatedMessageGuid)
+            .isNull(Message_.dateDeleted)
+            .orderDesc(Message_.dateCreated)
+            .orderDesc(Message_.id)
+            .build().use { it.findFirst() }
+        chat.dbLatestMessage.target = latest
+        chat.dbOnlyLatestMessageDate = latest?.dateCreated
+        if (latest == null) chat.hasUnreadMessage = false
+        chatBox.put(chat)
     }
 
     private fun conversationChatIds(chatId: Long): List<Long> =

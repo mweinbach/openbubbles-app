@@ -369,6 +369,9 @@ object CoreGraph {
         if (ing != null && st != null) CoreTypingRepository(ing, st) else FakeTypingRepository
     }
 
+    fun isChatBlocked(chatId: Long): Boolean =
+        store?.let { ChatRepo(it).isBlocked(chatId) } == true
+
     /** Bytes used by the attachments cache directory (0 when unavailable). */
     fun attachmentsCacheBytes(): Long {
         val disk = attachmentStore() ?: return 0L
@@ -687,6 +690,13 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     preferredChatId = item.preferredChatId,
     senderOverride = item.senderOverride,
     receivedOnHandle = item.receivedOnHandle,
+    dateDeleted = item.dateDeleted?.time,
+    lockChatName = item.lockChatName,
+    lockChatIcon = item.lockChatIcon,
+    autoSendReadReceipts = item.autoSendReadReceipts,
+    autoSendTypingIndicators = item.autoSendTypingIndicators,
+    blocked = item.blocked,
+    guid = item.guid,
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -750,6 +760,12 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
         )
     },
     chatId = item.chatId,
+    isBookmarked = item.isBookmarked,
+    hasBeenForwarded = item.hasBeenForwarded,
+    dateDeleted = item.dateDeleted?.time,
+    errorCode = item.errorCode,
+    errorMessage = item.errorMessage,
+    partCount = item.partCount,
 )
 
 /** True when the mime/uti/name triple clearly describes an image. */
@@ -1000,6 +1016,55 @@ private class CoreChatListRepository(
     override fun setSenderOverride(id: Long, handle: String?) =
         memberIds(id).forEach { repo.setSenderOverride(it, handle) }
 
+    override fun setLockChatName(id: Long, locked: Boolean) =
+        memberIds(id).forEach { repo.setLockChatName(it, locked) }
+
+    override fun setLockChatIcon(id: Long, locked: Boolean) =
+        memberIds(id).forEach { repo.setLockChatIcon(it, locked) }
+
+    override fun setAutoSendReadReceipts(id: Long, enabled: Boolean) {
+        memberIds(id).forEach { memberId ->
+            repo.setAutoSendReadReceipts(memberId, enabled)
+            AppContext.current?.let { MessagingPrefs(it).setChatReadReceiptOverride(memberId, enabled) }
+        }
+    }
+
+    override fun setAutoSendTypingIndicators(id: Long, enabled: Boolean) {
+        memberIds(id).forEach { memberId ->
+            repo.setAutoSendTypingIndicators(memberId, enabled)
+            AppContext.current?.let { MessagingPrefs(it).setChatTypingOverride(memberId, enabled) }
+        }
+    }
+
+    override fun setCustomAvatar(id: Long, file: File?) {
+        memberIds(id).forEach { memberId ->
+            val context = AppContext.current ?: return@forEach
+            val directory = File(context.filesDir, "chat_avatars").apply { mkdirs() }
+            val destination = file?.let { source ->
+                val extension = source.extension.takeIf { it.length in 2..5 } ?: "jpg"
+                File(directory, "chat-$memberId-${UUID.randomUUID()}.$extension").also { target ->
+                    source.copyTo(target, overwrite = true)
+                }
+            }
+            repo.setCustomAvatarPath(memberId, destination?.absolutePath)
+            if (destination != null) repo.setLockChatIcon(memberId, true)
+        }
+        UiContacts.notifyAvatarsChanged()
+    }
+
+    override fun setBlocked(id: Long, blocked: Boolean, archive: Boolean) =
+        memberIds(id).forEach { repo.setBlocked(it, blocked, archive) }
+
+    override fun clearTranscript(id: Long) {
+        CoreGraph.store?.let { MessageRepo(it, repo).clearTranscript(id) }
+    }
+
+    override fun recentlyDeleted(): List<ChatListItem> = repo.recentlyDeleted().map(::coreChatToUi)
+
+    override fun restoreDeleted(id: Long) = repo.restoreDeleted(id)
+
+    override fun permanentlyDelete(id: Long) = repo.permanentlyDelete(id)
+
     override fun delete(id: Long) {
         memberIds(id).forEach { memberId ->
             val recordId = repo.softDelete(memberId) ?: return@forEach
@@ -1155,6 +1220,27 @@ internal class CoreMessageListRepository(
             paging.newestId = keep.lastOrNull()?.id
         }
     }
+
+    override fun bookmarked(chatId: Long): List<MessageItem> =
+        repo.bookmarked(chatId).map(::coreMessageToUi)
+
+    override fun recentlyDeleted(chatId: Long?): List<MessageItem> =
+        repo.recentlyDeleted(chatId).map(::coreMessageToUi)
+
+    override fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) =
+        repo.setBookmarked(messageIds, bookmarked)
+
+    override fun markForwarded(messageIds: Collection<Long>) =
+        repo.markForwarded(messageIds)
+
+    override fun deleteLocal(messageIds: Collection<Long>) =
+        repo.deleteLocal(messageIds)
+
+    override fun cancelOutgoing(messageId: Long): Boolean =
+        repo.cancelOutgoing(messageId)
+
+    override fun restoreDeleted(messageIds: Collection<Long>) =
+        repo.restoreDeleted(messageIds)
 
     private fun pageToUi(
         chatId: Long,
@@ -1685,6 +1771,35 @@ private object CoreMessageActions : MessageActions {
             state.unsendMessage(conversation, sender, messageGuid, 0uL)
         }
         ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+    }
+
+    override suspend fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) {
+        withContext(Dispatchers.IO) {
+            CoreGraph.store?.let { MessageRepo(it).setBookmarked(messageIds, bookmarked) }
+        }
+    }
+
+    override suspend fun deleteLocal(messageIds: Collection<Long>) {
+        withContext(Dispatchers.IO) {
+            CoreGraph.store?.let { MessageRepo(it).deleteLocal(messageIds) }
+        }
+    }
+
+    override suspend fun cancelOutgoing(messageId: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            CoreGraph.store?.let { MessageRepo(it).cancelOutgoing(messageId) } == true
+        }
+
+    override suspend fun markForwarded(messageIds: Collection<Long>) {
+        withContext(Dispatchers.IO) {
+            CoreGraph.store?.let { MessageRepo(it).markForwarded(messageIds) }
+        }
+    }
+
+    override suspend fun blockSender(chatId: Long, archive: Boolean) {
+        withContext(Dispatchers.IO) {
+            CoreGraph.store?.let { ChatRepo(it).setBlocked(chatId, blocked = true, archive = archive) }
+        }
     }
 
     private fun actionContext(chatId: Long): MessageActionContext {

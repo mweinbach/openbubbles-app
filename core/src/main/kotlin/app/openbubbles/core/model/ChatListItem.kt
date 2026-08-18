@@ -56,4 +56,12 @@ data class ChatListItem(
     val senderOverride: String? = null,
     /** My handle this conversation was received on / is addressed to (rust form). */
     val receivedOnHandle: String? = null,
+    /** Recoverable-delete timestamp; null for active chats. */
+    val dateDeleted: Date? = null,
+    val lockChatName: Boolean = false,
+    val lockChatIcon: Boolean = false,
+    val autoSendReadReceipts: Boolean = false,
+    val autoSendTypingIndicators: Boolean = false,
+    /** True when every remote handle represented by this direct chat is blocked. */
+    val blocked: Boolean = false,
 )

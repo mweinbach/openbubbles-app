@@ -51,6 +51,13 @@ data class ChatListItem(
     val senderOverride: String? = null,
     /** My handle this conversation was received on (rust form), when known. */
     val receivedOnHandle: String? = null,
+    val dateDeleted: Long? = null,
+    val lockChatName: Boolean = false,
+    val lockChatIcon: Boolean = false,
+    val autoSendReadReceipts: Boolean = false,
+    val autoSendTypingIndicators: Boolean = false,
+    val blocked: Boolean = false,
+    val guid: String = id.toString(),
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -164,6 +171,12 @@ data class MessageItem(
     val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
+    val isBookmarked: Boolean = false,
+    val hasBeenForwarded: Boolean = false,
+    val dateDeleted: Long? = null,
+    val errorCode: Long? = null,
+    val errorMessage: String? = null,
+    val partCount: Int = 1,
 )
 
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
@@ -178,6 +191,16 @@ interface ChatListRepository {
 
     /** Per-chat send-from override; null returns the chat to the default address. */
     fun setSenderOverride(id: Long, handle: String?) = Unit
+    fun setLockChatName(id: Long, locked: Boolean) = Unit
+    fun setLockChatIcon(id: Long, locked: Boolean) = Unit
+    fun setAutoSendReadReceipts(id: Long, enabled: Boolean) = Unit
+    fun setAutoSendTypingIndicators(id: Long, enabled: Boolean) = Unit
+    fun setCustomAvatar(id: Long, file: File?) = Unit
+    fun setBlocked(id: Long, blocked: Boolean, archive: Boolean = false) = Unit
+    fun clearTranscript(id: Long) = Unit
+    fun recentlyDeleted(): List<ChatListItem> = emptyList()
+    fun restoreDeleted(id: Long) = Unit
+    fun permanentlyDelete(id: Long) = Unit
     fun delete(id: Long)
 }
 
@@ -210,6 +233,14 @@ interface MessageListRepository {
 
     /** Releases per-conversation paging state when its ViewModel is cleared. */
     fun release(chatId: Long) = Unit
+
+    fun bookmarked(chatId: Long): List<MessageItem> = emptyList()
+    fun recentlyDeleted(chatId: Long? = null): List<MessageItem> = emptyList()
+    fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) = Unit
+    fun markForwarded(messageIds: Collection<Long>) = Unit
+    fun deleteLocal(messageIds: Collection<Long>) = Unit
+    fun cancelOutgoing(messageId: Long): Boolean = false
+    fun restoreDeleted(messageIds: Collection<Long>) = Unit
 }
 
 data class OutgoingTextSend(
@@ -332,6 +363,12 @@ interface MessageActions {
     suspend fun edit(chatId: Long, messageGuid: String, newText: String)
 
     suspend fun unsend(chatId: Long, messageGuid: String)
+
+    suspend fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) = Unit
+    suspend fun deleteLocal(messageIds: Collection<Long>) = Unit
+    suspend fun cancelOutgoing(messageId: Long): Boolean = false
+    suspend fun markForwarded(messageIds: Collection<Long>) = Unit
+    suspend fun blockSender(chatId: Long, archive: Boolean = false) = Unit
 }
 
 /**

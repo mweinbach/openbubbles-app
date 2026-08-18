@@ -122,6 +122,9 @@
         <receiver
             android:name="app.openbubbles.nativeapp.service.MarkReadReceiver"
             android:exported="false" />
+        <receiver
+            android:name="app.openbubbles.nativeapp.service.MessageReminderReceiver"
+            android:exported="false" />
 
         <!-- PackageInstaller commit results for the self-updater. Only the
              system holds the PendingIntent that targets this action. -->

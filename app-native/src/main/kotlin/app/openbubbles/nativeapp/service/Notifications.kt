@@ -91,6 +91,7 @@ object Notifications {
         messageGuid: String? = null,
     ) {
         if (isConversationVisible(chatId)) return
+        if (CoreGraph.isChatBlocked(chatId)) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
         val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId)

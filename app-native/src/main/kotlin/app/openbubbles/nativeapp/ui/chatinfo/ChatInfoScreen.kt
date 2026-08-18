@@ -72,6 +72,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
@@ -288,6 +289,7 @@ fun ChatInfoScreen(
                     onChoose = { pickBackground.launch("image/*") },
                     onClear = { launchAction(onClearBackground) },
                 )
+                ChatLocalOptions(chat)
                 if (!chat.isSms) {
                     TextButton(
                         onClick = { confirmReportJunk = true },
@@ -338,6 +340,7 @@ fun ChatInfoScreen(
                     onChoose = { pickBackground.launch("image/*") },
                     onClear = { launchAction(onClearBackground) },
                 )
+                chat?.let { ChatLocalOptions(it) }
                 if (participants.isNotEmpty()) {
                     Text(
                         text = "PARTICIPANTS",
@@ -888,6 +891,61 @@ private fun ChatInfoScreenPreview() {
             onBack = {},
             onLeaveChat = {},
         )
+    }
+}
+
+@Composable
+private fun ChatLocalOptions(chat: ChatListItem) {
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = "OPTIONS",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        TextButton(onClick = { AppGraph.chats.setLockChatName(chat.id, !chat.lockChatName) }) {
+            Text(if (chat.lockChatName) "Unlock chat name" else "Lock chat name")
+        }
+        TextButton(onClick = { AppGraph.chats.setLockChatIcon(chat.id, !chat.lockChatIcon) }) {
+            Text(if (chat.lockChatIcon) "Unlock chat icon" else "Lock chat icon")
+        }
+        TextButton(
+            onClick = { AppGraph.chats.setAutoSendTypingIndicators(chat.id, !chat.autoSendTypingIndicators) },
+        ) {
+            Text(
+                if (chat.autoSendTypingIndicators) {
+                    "Stop sending typing indicators"
+                } else {
+                    "Send typing indicators in this chat"
+                },
+            )
+        }
+        TextButton(
+            onClick = { AppGraph.chats.setAutoSendReadReceipts(chat.id, !chat.autoSendReadReceipts) },
+        ) {
+            Text(
+                if (chat.autoSendReadReceipts) {
+                    "Don't send read receipts in this chat"
+                } else {
+                    "Send read receipts in this chat"
+                },
+            )
+        }
+        TextButton(
+            onClick = { scope.launch { AppGraph.chats.clearTranscript(chat.id) } },
+        ) {
+            Text("Clear transcript")
+        }
+        if (chat.blocked) {
+            TextButton(onClick = { AppGraph.chats.setBlocked(chat.id, blocked = false) }) {
+                Text("Unblock sender")
+            }
+        }
     }
 }
 
