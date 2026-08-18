@@ -2,6 +2,25 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.5
+
+### Enhancements
+
+- The engine work from 2.3.4 now covers every remaining operation:
+  stickers, message edits and unsends, group renames, participant
+  changes, group photos, profile sharing, and Messages-in-iCloud sync
+  all run fully in the background engine instead of holding an app
+  thread for their network round trips.
+- iCloud history sync pulls its pages more efficiently and no longer
+  ties up a thread for the whole run, so a large first-time import
+  coexists better with live messaging.
+
+### Fixes
+
+- Incoming shared-profile updates could silently fail to apply a
+  contact's name and photo; the profile pipeline now delivers them
+  reliably.
+
 ## v2.3.4
 
 ### Enhancements
