@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.mlkit.vision.MlKitAnalyzer
-import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -110,7 +109,9 @@ fun QrScannerSheet(
     val cameraController = remember {
         LifecycleCameraController(context).apply {
             cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            // Preview stays enabled with PreviewView; keep the default
+            // IMAGE_CAPTURE | IMAGE_ANALYSIS set so the finder is not a
+            // black surface. Analysis is the only use case we consume.
             imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
         }
     }
@@ -201,7 +202,7 @@ internal fun qrMlKitAnalyzer(
     onBarcode: (ByteArray?, String?) -> Unit,
 ): MlKitAnalyzer = MlKitAnalyzer(
     listOf(scanner),
-    CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED,
+    ImageAnalysis.COORDINATE_SYSTEM_ORIGINAL,
     executor,
 ) { result ->
     val barcodes = result?.getValue(scanner).orEmpty()

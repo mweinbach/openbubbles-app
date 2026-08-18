@@ -38,18 +38,18 @@ class FaceTimeInCallService : Service() {
         )
 
         try {
-            // camera|microphone types exist from Android 11. The three-arg
-            // startForeground is required from Android 10, but passing 0 on
+            // Three-arg startForeground exists on Android 10. Camera and
+            // microphone types exist on Android 11. Passing type 0 on
             // Android 14+ throws MissingForegroundServiceTypeException.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (type == 0) {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && type == 0 -> {
                     Log.w(TAG, "refusing camera|microphone FGS with no media permissions")
                     stopSelf()
-                    return
                 }
-                startForeground(FOREGROUND_ID, notification, type)
-            } else {
-                startForeground(FOREGROUND_ID, notification)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                    startForeground(FOREGROUND_ID, notification, type)
+                }
+                else -> startForeground(FOREGROUND_ID, notification)
             }
         } catch (e: RuntimeException) {
             Log.w(TAG, "failed to start FaceTime foreground service", e)

@@ -777,7 +777,10 @@ object Notifications {
         val spec = conversationShortcutSpec(identity, title, chatGuid)
         val person = Person.Builder()
             .setName(spec.shortLabel)
-            .setKey(spec.id)
+            // MessagingStyle's remote person is keyed by chat guid; the
+            // published shortcut must use the same Person key so Android
+            // can rank the conversation.
+            .setKey(spec.chatGuid)
             .setImportant(true)
             .build()
         val intent = Intent(context, NativeMainActivity::class.java)
