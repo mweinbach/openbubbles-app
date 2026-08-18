@@ -2,6 +2,17 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.2.2
+
+### Fixes
+
+- Messages stopped arriving after a contact set a chat background: the
+  wallpaper payload could not be decoded, which wedged the delivery journal
+  and blocked every message queued behind it. Wallpapers that omit the
+  fields Apple's newer payloads leave out now parse, a background that
+  cannot apply no longer fails message delivery, and journal entries that
+  still fail after three attempts are dropped instead of retrying forever.
+
 ## v2.2.1
 
 ### Fixes
