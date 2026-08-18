@@ -2,6 +2,41 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.0
+
+### Enhancements
+
+- Tablets and foldables now use a real two-pane messaging layout. Unfolded
+  foldables and portrait tablets show the conversation list beside the
+  open chat, with chat details as a third pane on extra-wide screens. The
+  panes sit flush with no gutter so the list and transcript read as one
+  surface, and a book-posture hinge keeps Settings split around the crease.
+- Incoming FaceTime and the QR pairing scanner stay off a tabletop hinge:
+  call controls and the scanner sit below the fold so they remain usable
+  when the device is tented.
+- Search is now adaptive: phones still get a full-screen search bar, while
+  wide windows dock search in the detail pane so the conversation list
+  stays visible.
+- The chat list gets out of the way while you scroll — the top bar and
+  new-chat button hide on the way down and return when you scroll up.
+  Pinned conversations also size their columns to the available width.
+- Incoming FaceTime calls publish as conversation notifications, and
+  Settings can send you to Android's full-screen incoming-call permission
+  when that grant is missing.
+
+### Fixes
+
+- Incoming FaceTime calls ring again. The native app never created the
+  incoming-call notification channel the retired Flutter client used to,
+  so Android 8+ silently dropped every incoming ring on a fresh install.
+  The channel is now registered at service startup — ringtone, vibration,
+  high importance — so calls notify even before the first one arrives.
+- QR pairing no longer shows a black camera preview. If the back camera is
+  unavailable the scanner falls through to the front camera, then any
+  remaining camera, instead of getting stuck.
+- Binding the QR camera or delivering a scanned payload can no longer
+  crash the login sheet.
+
 ## v2.2.3
 
 ### Fixes
