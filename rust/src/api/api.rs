@@ -3060,10 +3060,14 @@ pub fn cancel_poll(cancel: &mpsc::Sender<()>) {
     let _ = cancel.try_send(());
 }
 
-fn reset_user(path: &str) {
+/// Deletes only the iCloud service state (keychain, CloudKit, passwords,
+/// Find My, FaceTime, shared streams, StatusKit key) while keeping the
+/// Apple session (gsa.plist), IDS registration, and hardware identity.
+/// The next sign-in refetches delegates and recreates every file — the
+/// recovery path for service state corrupted before writes were atomic.
+pub(crate) fn reset_icloud_services(path: &str) {
     let dir = PathBuf::from_str(path).unwrap();
 
-    let _ = std::fs::remove_file(dir.join("gsa.plist"));
     let _ = std::fs::remove_file(dir.join("findmy.plist"));
     let _ = std::fs::remove_file(dir.join("facetime.plist"));
     let _ = std::fs::remove_file(dir.join("cloudkit.plist"));
@@ -3072,10 +3076,20 @@ fn reset_user(path: &str) {
     let _ = std::fs::remove_file(dir.join("sharedstreams.plist"));
 
     let path = dir.join("statuskit.plist");
-    std::fs::write(&path, plist_to_string(&StatusKitState {
+    let state = StatusKitState {
         my_key: None,
         ..plist::from_file(&path).unwrap_or_default()
-    }).unwrap()).unwrap();
+    };
+    if let Err(error) = atomic_write_plist(&path, &state) {
+        log::error!("failed to reset statuskit state: {error}");
+    }
+}
+
+fn reset_user(path: &str) {
+    let dir = PathBuf::from_str(path).unwrap();
+
+    let _ = std::fs::remove_file(dir.join("gsa.plist"));
+    reset_icloud_services(path);
 }
 
 pub async fn reset_state(cancel: &mpsc::Sender<()>, path: String, config: &JoinedOSConfig, aps: &APSConnection, account: Option<Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>>, reset_hw: bool, logout: bool) -> anyhow::Result<()> {

@@ -368,6 +368,32 @@ object CoreGraph {
         return teardown
     }
 
+    /**
+     * Repair a lost iCloud Keychain: stop push, wipe only the iCloud
+     * service state (keychain, CloudKit, passwords, Find My, FaceTime,
+     * shared streams — the Apple session, IDS registration, and hardware
+     * identity are kept), and let the signed-out gate route the user
+     * through sign-in, which refetches delegates and recreates the files.
+     */
+    suspend fun repairICloudServices(context: android.content.Context): Result<Unit> {
+        Log.i("CoreGraph", "iCloud service repair requested")
+        PushStateHolder.clear(resetError = true)
+        runCatching {
+            context.stopService(
+                android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
+        }.onFailure { error ->
+            Log.e("CoreGraph", "push service stop failed during iCloud repair", error)
+        }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                // Let the service's teardown finish so a final trust sync
+                // cannot re-materialize the files being deleted.
+                kotlinx.coroutines.delay(1_500)
+                uniffi.rust_lib_bluebubbles.repairIcloudServices(context.filesDir.absolutePath)
+            }.map { }
+        }.also { Log.i("CoreGraph", "iCloud service repair finished: $it") }
+    }
+
     /** Attachment send path (staging + Rust upload + echo ingest). */
     val attachmentSender: AttachmentSender by lazy {
         if (store != null) CoreAttachmentSender else FakeAttachmentSender

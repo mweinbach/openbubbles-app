@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Healing
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -208,6 +209,7 @@ fun SettingsScreen(
     onOpenRecentlyDeleted: () -> Unit = {},
     onOpenPasswords: () -> Unit = {},
     onOpenSharedAlbums: () -> Unit = {},
+    onOpenSignIn: () -> Unit = {},
     archivedCount: Int = 0,
     recentlyDeletedCount: Int = 0,
     showBackButton: Boolean = true,
@@ -221,6 +223,9 @@ fun SettingsScreen(
     var showSignOutConfirmation by rememberSaveable { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     var signOutError by remember { mutableStateOf<String?>(null) }
+    var showRepairConfirmation by rememberSaveable { mutableStateOf(false) }
+    var repairing by remember { mutableStateOf(false) }
+    var repairError by remember { mutableStateOf<String?>(null) }
     val messagingPrefs = remember(context) { MessagingPrefs(context) }
     val profilePrefs = remember(context) { ProfilePrefs(context) }
     val historySyncPreferences = remember(context) { HistorySyncPreferences(context) }
@@ -839,6 +844,9 @@ fun SettingsScreen(
                     if (manager != null && syncing) add("stop")
                     if (manager != null && !syncing && inClique == true) add("sync")
                     if (recoveryCode != null) add("recovery")
+                    // Signed in but iCloud sync unavailable = the keychain
+                    // state on this device is missing or was corrupted.
+                    if (pushState != null && manager == null) add("repair")
                     add("contacts")
                 }
                 val count = icloudRows.size
@@ -906,6 +914,17 @@ fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = Icons.Filled.CloudDownload,
+                        )
+                        "repair" -> SettingsActionItem(
+                            title = "Repair iCloud sync",
+                            supporting = "Reset this device's iCloud state, then sign in again to rebuild it",
+                            onClick = { showRepairConfirmation = true },
+                            index = index,
+                            count = count,
+                            enabled = !repairing,
+                            busy = repairing,
+                            multiline = true,
+                            icon = Icons.Filled.Healing,
                         )
                         "recovery" -> SettingsActionItem(
                             title = "Device Keychain code",
@@ -1621,6 +1640,64 @@ fun SettingsScreen(
             text = { Text(error) },
             confirmButton = {
                 TextButton(onClick = { signOutError = null }) { Text("OK") }
+            },
+        )
+    }
+
+    if (showRepairConfirmation) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!repairing) showRepairConfirmation = false
+            },
+            title = { Text("Repair iCloud sync?") },
+            text = {
+                Text(
+                    "This resets the iCloud state on this device (keychain, sync, passwords). " +
+                        "Your Apple ID session, iMessage registration, and local messages are kept. " +
+                        "You'll be taken to sign-in to rebuild it; afterwards use Join iCloud Keychain.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repairing = true
+                        repairError = null
+                        scope.launch {
+                            val result = CoreGraph.repairICloudServices(context)
+                            repairing = false
+                            showRepairConfirmation = false
+                            if (result.isSuccess) {
+                                onOpenSignIn()
+                            } else {
+                                repairError = result.exceptionOrNull()?.message ?: "Repair failed"
+                            }
+                        }
+                    },
+                    enabled = !repairing,
+                ) {
+                    if (repairing) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    } else {
+                        Text("Repair", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRepairConfirmation = false },
+                    enabled = !repairing,
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
+    repairError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { repairError = null },
+            title = { Text("Repair incomplete") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { repairError = null }) { Text("OK") }
             },
         )
     }

@@ -1509,6 +1509,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1559,6 +1561,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message(
 fun uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_func_repair_icloud_services(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment(
 ): Short
@@ -2408,6 +2412,8 @@ fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: Unif
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_func_repair_icloud_services(`dir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_restore_attachment(`xml`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_func_restore_call_poster_save(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2589,7 +2595,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_relay() != 31657.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data() != 16595.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data() != 1032.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message() != 44576.toShort()) {
@@ -2599,6 +2605,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_recover_keychain() != 40899.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_repair_icloud_services() != 861.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_restore_attachment() != 16887.toShort()) {
@@ -18853,10 +18862,6 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 
 
 
-        /**
-         * Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
-         * from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
-         */
     @Throws(UException::class) fun `provisionFromValidationData`(`dir`: kotlin.String, `data`: kotlin.ByteArray, `extra`: UHwExtra)
         =
     uniffiRustCallWithError(UException) { _status ->
@@ -18888,6 +18893,24 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_recover_keychain(
         _status)
+}
+
+
+
+        /**
+         * Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
+         * from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
+         * Deletes only this device's iCloud service state (keychain, CloudKit,
+         * passwords, Find My, FaceTime, shared streams) while keeping the Apple
+         * session, IDS registration, and hardware identity. Recovery for state
+         * corrupted before writes were atomic: stop the push service first, call
+         * this, then sign in again — the login flow refetches Apple delegates and
+         * recreates every file — and finally re-join iCloud Keychain.
+         */ fun `repairIcloudServices`(`dir`: kotlin.String)
+        =
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_repair_icloud_services(
+        FfiConverterString.lower(`dir`),_status)
 }
 
 

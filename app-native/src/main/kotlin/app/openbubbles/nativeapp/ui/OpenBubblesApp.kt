@@ -832,6 +832,7 @@ fun OpenBubblesApp(
                         onOpenRecentlyDeleted = { navigateTo(RecentlyDeletedKey) },
                         onOpenPasswords = { navigateTo(PasswordsKey) },
                         onOpenSharedAlbums = { navigateTo(SharedAlbumsKey) },
+                        onOpenSignIn = { navigateTo(LoginKey) },
                         archivedCount = listState.archived.size,
                         recentlyDeletedCount = AppGraph.chats.recentlyDeleted().size,
                         showBackButton = true,

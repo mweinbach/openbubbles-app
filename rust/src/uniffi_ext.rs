@@ -3302,6 +3302,17 @@ fn provision(config: api::JoinedOSConfig, dir: String) -> Result<(), UError> {
 
 /// Provision from raw validation data (517 bytes, 0x02-prefixed) extracted
 /// from a real Mac. One-time per install; see the Flutter app's hw_inp flow.
+/// Deletes only this device's iCloud service state (keychain, CloudKit,
+/// passwords, Find My, FaceTime, shared streams) while keeping the Apple
+/// session, IDS registration, and hardware identity. Recovery for state
+/// corrupted before writes were atomic: stop the push service first, call
+/// this, then sign in again — the login flow refetches Apple delegates and
+/// recreates every file — and finally re-join iCloud Keychain.
+#[uniffi::export]
+pub fn repair_icloud_services(dir: String) {
+    api::reset_icloud_services(&dir);
+}
+
 #[uniffi::export]
 pub fn provision_from_validation_data(
     dir: String,
