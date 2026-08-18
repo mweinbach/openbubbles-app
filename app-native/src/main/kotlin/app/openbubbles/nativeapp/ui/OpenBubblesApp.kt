@@ -889,6 +889,7 @@ fun OpenBubblesApp(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("iCloud Password", value))
                         },
+                        onPrepareCreatePassword = viewModel::prepareCreatePassword,
                         onCreatePassword = viewModel::createPassword,
                         onCreateGroup = viewModel::createGroup,
                         onAcceptInvite = viewModel::acceptInvite,

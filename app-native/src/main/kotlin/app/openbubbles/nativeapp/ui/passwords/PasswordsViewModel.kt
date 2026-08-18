@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,8 +43,11 @@ data class PasswordsUiState(
     val category: VaultCategory = VaultCategory.Passwords,
     val query: String = "",
     val items: List<VaultItemUi> = emptyList(),
+    val categoryCounts: Map<VaultCategory, Int> = emptyMap(),
+    val categoryLoading: Boolean = false,
     val groups: List<VaultGroupUi> = emptyList(),
     val invites: List<VaultInviteUi> = emptyList(),
+    val groupsLoaded: Boolean = false,
     val selected: VaultItemUi? = null,
     val revealedSecret: String? = null,
     val secretExpiresAtSeconds: Long? = null,
@@ -65,7 +69,8 @@ internal fun filterVaultItems(
 
 interface PasswordsPort {
     suspend fun isInClique(): Boolean
-    suspend fun listItems(): List<VaultItemUi>
+    suspend fun sync()
+    suspend fun listItems(category: VaultCategory): List<VaultItemUi>
     suspend fun listGroups(): List<VaultGroupUi>
     suspend fun listInvites(): List<VaultInviteUi>
     suspend fun reveal(item: VaultItemUi): Pair<String, Long?>
@@ -79,16 +84,15 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
 
     override suspend fun isInClique(): Boolean = withContext(Dispatchers.IO) { state().isInClique() }
 
-    override suspend fun listItems(): List<VaultItemUi> = withContext(Dispatchers.IO) {
-        state().listPasswords().map { item ->
+    override suspend fun sync() {
+        state().syncPasswords()
+    }
+
+    override suspend fun listItems(category: VaultCategory): List<VaultItemUi> = withContext(Dispatchers.IO) {
+        state().listPasswords(category.itemKind()).map { item ->
             VaultItemUi(
                 id = item.id,
-                category = when (item.kind) {
-                    UVaultItemKind.PASSWORD -> VaultCategory.Passwords
-                    UVaultItemKind.PASSKEY -> VaultCategory.Passkeys
-                    UVaultItemKind.CODE -> VaultCategory.Codes
-                    UVaultItemKind.WIFI -> VaultCategory.Wifi
-                },
+                category = item.kind.category(),
                 title = item.title,
                 username = item.username,
                 groupId = item.groupId,
@@ -137,11 +141,30 @@ class FakePasswordsPort(
     var groups: List<VaultGroupUi> = emptyList(),
     var invites: List<VaultInviteUi> = emptyList(),
     var secret: Pair<String, Long?> = "secret" to null,
+    var syncedItems: List<VaultItemUi>? = null,
 ) : PasswordsPort {
+    var syncCount: Int = 0
+    val itemListRequests = mutableListOf<VaultCategory>()
+    var groupListCount: Int = 0
+    var inviteListCount: Int = 0
+
     override suspend fun isInClique() = inClique
-    override suspend fun listItems() = items
-    override suspend fun listGroups() = groups
-    override suspend fun listInvites() = invites
+    override suspend fun sync() {
+        syncCount += 1
+        syncedItems?.let { items = it }
+    }
+    override suspend fun listItems(category: VaultCategory): List<VaultItemUi> {
+        itemListRequests += category
+        return items.filter { it.category == category }
+    }
+    override suspend fun listGroups(): List<VaultGroupUi> {
+        groupListCount += 1
+        return groups
+    }
+    override suspend fun listInvites(): List<VaultInviteUi> {
+        inviteListCount += 1
+        return invites
+    }
     override suspend fun reveal(item: VaultItemUi) = secret
     override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) {
         items = items + VaultItemUi("created", VaultCategory.Passwords, site, username, groupId)
@@ -157,23 +180,79 @@ class FakePasswordsPort(
 class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
     private val mutableState = MutableStateFlow(PasswordsUiState())
     val uiState: StateFlow<PasswordsUiState> = mutableState.asStateFlow()
+    private var categoryLoadJob: Job? = null
 
     init { refresh() }
 
-    fun refresh() = runAction(showLoading = true) {
-        val inClique = port.isInClique()
-        if (!inClique) {
-            mutableState.update { it.copy(loading = false, inClique = false, items = emptyList(), groups = emptyList(), invites = emptyList()) }
-            return@runAction
+    fun refresh() {
+        categoryLoadJob?.cancel()
+        runAction(showLoading = true) {
+            val category = mutableState.value.category
+            val inClique = port.isInClique()
+            if (!inClique) {
+                mutableState.update {
+                    it.copy(
+                        loading = false,
+                        inClique = false,
+                        items = emptyList(),
+                        categoryCounts = emptyMap(),
+                        categoryLoading = false,
+                        groups = emptyList(),
+                        invites = emptyList(),
+                        groupsLoaded = false,
+                    )
+                }
+                return@runAction
+            }
+            mutableState.update {
+                it.copy(
+                    inClique = true,
+                    items = emptyList(),
+                    categoryCounts = emptyMap(),
+                    categoryLoading = true,
+                    groups = emptyList(),
+                    invites = emptyList(),
+                    groupsLoaded = false,
+                )
+            }
+            loadCategoryContent(category)
+            mutableState.update { it.copy(loading = false, busy = true) }
+            port.sync()
+            loadCategoryContent(mutableState.value.category)
         }
-        val items = port.listItems()
-        val groups = port.listGroups()
-        val invites = port.listInvites()
-        mutableState.update { it.copy(loading = false, inClique = true, items = items, groups = groups, invites = invites) }
     }
 
-    fun setCategory(category: VaultCategory) = mutableState.update {
-        it.copy(category = category, selected = null, revealedSecret = null, error = null)
+    fun setCategory(category: VaultCategory) {
+        if (category == mutableState.value.category && !mutableState.value.categoryLoading) return
+        categoryLoadJob?.cancel()
+        mutableState.update {
+            it.copy(
+                category = category,
+                query = "",
+                items = emptyList(),
+                selected = null,
+                revealedSecret = null,
+                secretExpiresAtSeconds = null,
+                categoryLoading = true,
+                error = null,
+            )
+        }
+        categoryLoadJob = viewModelScope.launch {
+            try {
+                loadCategoryContent(category)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (mutableState.value.category == category) {
+                    mutableState.update {
+                        it.copy(
+                            categoryLoading = false,
+                            error = error.message ?: "iCloud Passwords failed",
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun setQuery(query: String) = mutableState.update { it.copy(query = query) }
@@ -192,26 +271,77 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
 
     fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction {
         port.createPassword(site.trim(), username.trim(), password, groupId)
-        refreshAfterWrite()
+        refreshAfterWrite(VaultCategory.Passwords)
     }
 
     fun createGroup(name: String) = runAction {
         port.createGroup(name.trim())
-        refreshAfterWrite()
+        refreshAfterWrite(VaultCategory.Groups)
     }
 
     fun acceptInvite(id: String) = runAction {
         port.acceptInvite(id)
-        refreshAfterWrite()
+        refreshAfterWrite(VaultCategory.Groups)
     }
 
     fun clearError() = mutableState.update { it.copy(error = null) }
 
-    private suspend fun refreshAfterWrite() {
-        val items = port.listItems()
-        val groups = port.listGroups()
-        val invites = port.listInvites()
-        mutableState.update { it.copy(items = items, groups = groups, invites = invites, selected = null, revealedSecret = null) }
+    fun prepareCreatePassword() {
+        if (mutableState.value.groupsLoaded) return
+        runAction {
+            val groups = port.listGroups()
+            mutableState.update {
+                it.copy(
+                    groups = groups,
+                    groupsLoaded = true,
+                    categoryCounts = it.categoryCounts + (VaultCategory.Groups to groups.size),
+                )
+            }
+        }
+    }
+
+    private suspend fun loadCategoryContent(category: VaultCategory) {
+        if (category == VaultCategory.Groups) {
+            val groups = port.listGroups()
+            val invites = port.listInvites()
+            if (mutableState.value.category == category) {
+                mutableState.update {
+                    it.copy(
+                        groups = groups,
+                        invites = invites,
+                        groupsLoaded = true,
+                        categoryCounts = it.categoryCounts + (category to groups.size),
+                        categoryLoading = false,
+                    )
+                }
+            }
+        } else {
+            val items = port.listItems(category)
+            if (mutableState.value.category == category) {
+                mutableState.update {
+                    it.copy(
+                        items = items,
+                        categoryCounts = it.categoryCounts + (category to items.size),
+                        categoryLoading = false,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshAfterWrite(category: VaultCategory) {
+        mutableState.update {
+            it.copy(
+                category = category,
+                query = "",
+                items = emptyList(),
+                selected = null,
+                revealedSecret = null,
+                secretExpiresAtSeconds = null,
+                categoryLoading = true,
+            )
+        }
+        loadCategoryContent(category)
     }
 
     private fun runAction(showLoading: Boolean = false, action: suspend () -> Unit) {
@@ -222,7 +352,13 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update { it.copy(loading = false, error = error.message ?: "iCloud Passwords failed") }
+                mutableState.update {
+                    it.copy(
+                        loading = false,
+                        categoryLoading = false,
+                        error = error.message ?: "iCloud Passwords failed",
+                    )
+                }
             } finally {
                 mutableState.update { it.copy(loading = false, busy = false) }
             }
@@ -235,4 +371,19 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
             initializer { PasswordsViewModel(port) }
         }
     }
+}
+
+private fun VaultCategory.itemKind(): UVaultItemKind = when (this) {
+    VaultCategory.Passwords -> UVaultItemKind.PASSWORD
+    VaultCategory.Passkeys -> UVaultItemKind.PASSKEY
+    VaultCategory.Codes -> UVaultItemKind.CODE
+    VaultCategory.Wifi -> UVaultItemKind.WIFI
+    VaultCategory.Groups -> error("Groups are not vault items")
+}
+
+private fun UVaultItemKind.category(): VaultCategory = when (this) {
+    UVaultItemKind.PASSWORD -> VaultCategory.Passwords
+    UVaultItemKind.PASSKEY -> VaultCategory.Passkeys
+    UVaultItemKind.CODE -> VaultCategory.Codes
+    UVaultItemKind.WIFI -> VaultCategory.Wifi
 }

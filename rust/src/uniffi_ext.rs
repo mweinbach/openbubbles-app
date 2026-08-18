@@ -808,53 +808,77 @@ fn native_shared_albums(
         .ok_or_else(|| UError::NotReady { reason: "iCloud Shared Albums unavailable".to_string() })
 }
 
+#[uniffi::export(async_runtime = "tokio")]
+impl NativePushState {
+    /// Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
+    /// shared password groups before Kotlin reads the local vault cache.
+    pub async fn sync_passwords(&self) -> Result<(), UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let manager = native_password_manager(&state)?;
+            api::sync_passwords(&manager, &state.conn)
+                .await
+                .map_err(|error| UError::Failed {
+                    reason: format!("failed to sync iCloud Passwords: {error}"),
+                })
+        }).await
+    }
+}
+
 #[uniffi::export]
 impl NativePushState {
-    pub fn list_passwords(&self) -> Result<Vec<UVaultItem>, UError> {
+    pub fn list_passwords(&self, kind: UVaultItemKind) -> Result<Vec<UVaultItem>, UError> {
         let manager = native_password_manager(self.shared())?;
-        let mut items = Vec::new();
-        for (id, (group_id, password)) in RUNTIME.block_on(api::get_passwords(&manager)) {
-            items.push(UVaultItem {
-                id,
-                kind: UVaultItemKind::Password,
-                title: password.srvr,
-                username: Some(password.acct),
-                group_id,
-                modified_at_ms: password.mdat,
-            });
-        }
-        for (id, (group_id, metadata)) in RUNTIME.block_on(api::get_passwords_meta(&manager)) {
-            let Ok(data) = metadata.get_password_data() else { continue };
-            let Some(totp) = data.totp else { continue };
-            items.push(UVaultItem {
-                id,
-                kind: UVaultItemKind::Code,
-                title: totp.issuer.unwrap_or_else(|| metadata.srvr.clone()),
-                username: totp.account_name.or(Some(metadata.acct)),
-                group_id,
-                modified_at_ms: metadata.mdat,
-            });
-        }
-        for (id, (group_id, passkey)) in RUNTIME.block_on(api::get_passkeys(&manager)) {
-            items.push(UVaultItem {
-                id,
-                kind: UVaultItemKind::Passkey,
-                title: passkey.labl,
-                username: None,
-                group_id,
-                modified_at_ms: passkey.mdat,
-            });
-        }
-        for (id, (group_id, wifi)) in RUNTIME.block_on(api::get_wifi_passwords(&manager)) {
-            items.push(UVaultItem {
-                id,
-                kind: UVaultItemKind::Wifi,
-                title: wifi.acct,
-                username: None,
-                group_id,
-                modified_at_ms: wifi.mdat,
-            });
-        }
+        let mut items: Vec<UVaultItem> = match kind {
+            UVaultItemKind::Password => RUNTIME.block_on(api::get_passwords(&manager))
+                .into_iter()
+                .map(|(id, (group_id, password))| UVaultItem {
+                    id,
+                    kind: UVaultItemKind::Password,
+                    title: password.srvr,
+                    username: Some(password.acct),
+                    group_id,
+                    modified_at_ms: password.mdat,
+                })
+                .collect(),
+            UVaultItemKind::Code => RUNTIME.block_on(api::get_passwords_meta(&manager))
+                .into_iter()
+                .filter_map(|(id, (group_id, metadata))| {
+                    let data = metadata.get_password_data().ok()?;
+                    let totp = data.totp?;
+                    Some(UVaultItem {
+                        id,
+                        kind: UVaultItemKind::Code,
+                        title: totp.issuer.unwrap_or_else(|| metadata.srvr.clone()),
+                        username: totp.account_name.or(Some(metadata.acct)),
+                        group_id,
+                        modified_at_ms: metadata.mdat,
+                    })
+                })
+                .collect(),
+            UVaultItemKind::Passkey => RUNTIME.block_on(api::get_passkeys(&manager))
+                .into_iter()
+                .map(|(id, (group_id, passkey))| UVaultItem {
+                    id,
+                    kind: UVaultItemKind::Passkey,
+                    title: passkey.labl,
+                    username: None,
+                    group_id,
+                    modified_at_ms: passkey.mdat,
+                })
+                .collect(),
+            UVaultItemKind::Wifi => RUNTIME.block_on(api::get_wifi_passwords(&manager))
+                .into_iter()
+                .map(|(id, (group_id, wifi))| UVaultItem {
+                    id,
+                    kind: UVaultItemKind::Wifi,
+                    title: wifi.acct,
+                    username: None,
+                    group_id,
+                    modified_at_ms: wifi.mdat,
+                })
+                .collect(),
+        };
         items.sort_by_key(|item| item.title.to_lowercase());
         Ok(items)
     }

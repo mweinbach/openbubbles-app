@@ -1,16 +1,28 @@
 package app.openbubbles.nativeapp.ui.passwords
 
 import android.content.res.Configuration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -19,8 +31,8 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Password
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
@@ -32,7 +44,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,13 +55,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
-import app.openbubbles.nativeapp.ui.settings.SettingsGroupSpacing
 import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
 import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -63,6 +86,7 @@ fun PasswordsScreen(
     onSelect: (VaultItemUi?) -> Unit,
     onReveal: () -> Unit,
     onCopy: (String) -> Unit,
+    onPrepareCreatePassword: () -> Unit,
     onCreatePassword: (String, String, String, String?) -> Unit,
     onCreateGroup: (String) -> Unit,
     onAcceptInvite: (String) -> Unit,
@@ -84,7 +108,13 @@ fun PasswordsScreen(
                 },
                 actions = {
                     if (uiState.inClique == true) {
-                        IconButton(onClick = { showCreatePassword = true }, enabled = !uiState.busy) {
+                        IconButton(
+                            onClick = {
+                                onPrepareCreatePassword()
+                                showCreatePassword = true
+                            },
+                            enabled = !uiState.busy,
+                        ) {
                             Icon(Icons.Filled.Add, contentDescription = "Create password")
                         }
                     }
@@ -182,6 +212,7 @@ private fun CliqueRequired(error: String?, onOpenICloudSettings: () -> Unit, mod
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VaultContent(
     uiState: PasswordsUiState,
@@ -193,66 +224,130 @@ private fun VaultContent(
     modifier: Modifier = Modifier,
 ) {
     val filtered = filterVaultItems(uiState.items, uiState.category, uiState.query)
-    LazyColumn(
-        modifier = modifier.fillMaxSize().navigationBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
     ) {
-        item {
-            SettingsGroup(title = "Vault") {
-                val categories = VaultCategory.entries
-                categories.forEachIndexed { index, category ->
-                    SettingsActionItem(
-                        title = category.title,
-                        supporting = category.supporting(uiState),
-                        onClick = { onCategory(category) },
-                        index = index,
-                        count = categories.size,
-                        icon = category.icon,
-                        iconTone = if (category == uiState.category) SettingsRowTone.Active else null,
+        LazyColumn(
+            modifier = Modifier
+                .widthIn(max = 840.dp)
+                .fillMaxSize()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            item(key = "categories") {
+                Column(modifier = Modifier.padding(bottom = 20.dp)) {
+                    Text(
+                        text = "Categories",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                     )
-                }
-            }
-        }
-        if (uiState.category != VaultCategory.Groups) {
-            item {
-                OutlinedTextField(
-                    value = uiState.query,
-                    onValueChange = onQuery,
-                    label = { Text("Search") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
-                )
-            }
-            item {
-                SettingsGroup(title = uiState.category.title) {
-                    if (filtered.isEmpty()) {
-                        SettingsInfoItem(
-                            title = "Nothing saved",
-                            supporting = "No matching items are available.",
-                            index = 0,
-                            count = 1,
-                            icon = uiState.category.icon,
-                        )
-                    } else {
-                        filtered.forEachIndexed { index, item ->
-                            SettingsActionItem(
-                                title = item.title,
-                                supporting = item.username,
-                                onClick = { onSelect(item) },
-                                index = index,
-                                count = filtered.size,
-                                icon = item.category.icon,
-                            )
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val columnCount = when {
+                            maxWidth >= 720.dp -> 4
+                            maxWidth >= 520.dp -> 3
+                            else -> 2
+                        }
+                        val gap = 12.dp
+                        val cardWidth = (maxWidth - gap * (columnCount - 1)) / columnCount
+                        FlowRow(
+                            maxItemsInEachRow = columnCount,
+                            horizontalArrangement = Arrangement.spacedBy(gap),
+                            verticalArrangement = Arrangement.spacedBy(gap),
+                        ) {
+                            VaultCategory.entries.forEach { category ->
+                                VaultCategoryCard(
+                                    category = category,
+                                    count = uiState.categoryCounts[category],
+                                    selected = category == uiState.category,
+                                    loading = category == uiState.category && uiState.categoryLoading,
+                                    onClick = { onCategory(category) },
+                                    modifier = Modifier.width(cardWidth),
+                                )
+                            }
                         }
                     }
                 }
             }
-        } else {
-            if (uiState.invites.isNotEmpty()) {
-                item {
-                    SettingsGroup(title = "Invitations") {
-                        uiState.invites.forEachIndexed { index, invite ->
+
+            if (uiState.category != VaultCategory.Groups) {
+                item(key = "search") {
+                    TextField(
+                        value = uiState.query,
+                        onValueChange = onQuery,
+                        placeholder = { Text("Search ${uiState.category.title}") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, contentDescription = null)
+                        },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 20.dp),
+                    )
+                }
+                item(key = "section-title") {
+                    VaultSectionHeader(
+                        category = uiState.category,
+                        count = uiState.categoryCounts[uiState.category],
+                    )
+                }
+                when {
+                    uiState.categoryLoading -> item(key = "loading") {
+                        VaultLoadingRow(uiState.category)
+                    }
+                    filtered.isEmpty() -> item(key = "empty") {
+                        SettingsInfoItem(
+                            title = "Nothing saved",
+                            supporting = if (uiState.query.isBlank()) {
+                                "No ${uiState.category.title.lowercase()} are available."
+                            } else {
+                                "No matching items are available."
+                            },
+                            index = 0,
+                            count = 1,
+                            icon = uiState.category.icon,
+                        )
+                    }
+                    else -> itemsIndexed(
+                        items = filtered,
+                        key = { _, item -> "${item.category}:${item.id}" },
+                    ) { index, item ->
+                        SettingsActionItem(
+                            title = item.title,
+                            supporting = item.username,
+                            onClick = { onSelect(item) },
+                            index = index,
+                            count = filtered.size,
+                            icon = item.category.icon,
+                        )
+                    }
+                }
+            } else {
+                item(key = "groups-title") {
+                    VaultSectionHeader(
+                        category = VaultCategory.Groups,
+                        count = uiState.categoryCounts[VaultCategory.Groups],
+                    )
+                }
+                if (uiState.categoryLoading) {
+                    item(key = "groups-loading") { VaultLoadingRow(VaultCategory.Groups) }
+                } else {
+                    if (uiState.invites.isNotEmpty()) {
+                        item(key = "invites-title") {
+                            VaultListLabel("Invitations")
+                        }
+                        itemsIndexed(
+                            items = uiState.invites,
+                            key = { _, invite -> "invite:${invite.id}" },
+                        ) { index, invite ->
                             SettingsActionItem(
                                 title = invite.groupName,
                                 supporting = "Invited by ${invite.inviter}",
@@ -264,24 +359,28 @@ private fun VaultContent(
                             )
                         }
                     }
-                }
-            }
-            item {
-                SettingsGroup(title = "Available groups") {
-                    val count = uiState.groups.size + 1
-                    SettingsActionItem(
-                        title = "Create group",
-                        onClick = onCreateGroup,
-                        index = 0,
-                        count = count,
-                        icon = Icons.Filled.Add,
-                    )
-                    uiState.groups.forEachIndexed { index, group ->
+                    item(key = "available-groups-title") {
+                        VaultListLabel("Available groups", topPadding = 20.dp)
+                    }
+                    val groupRowCount = uiState.groups.size + 1
+                    item(key = "create-group") {
+                        SettingsActionItem(
+                            title = "Create group",
+                            onClick = onCreateGroup,
+                            index = 0,
+                            count = groupRowCount,
+                            icon = Icons.Filled.Add,
+                        )
+                    }
+                    itemsIndexed(
+                        items = uiState.groups,
+                        key = { _, group -> "group:${group.id}" },
+                    ) { index, group ->
                         SettingsInfoItem(
                             title = group.name,
                             supporting = "${group.memberCount} members${if (group.owner) " • Owner" else ""}",
                             index = index + 1,
-                            count = count,
+                            count = groupRowCount,
                             icon = Icons.Filled.Badge,
                         )
                     }
@@ -289,6 +388,153 @@ private fun VaultContent(
             }
         }
     }
+}
+
+@Composable
+private fun VaultCategoryCard(
+    category: VaultCategory,
+    count: Int?,
+    selected: Boolean,
+    loading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
+    }
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = containerColor,
+        contentColor = contentColor,
+        modifier = modifier
+            .heightIn(min = 108.dp)
+            .semantics {
+                this.selected = selected
+                role = Role.RadioButton
+            },
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = category.icon,
+                        contentDescription = null,
+                        tint = if (selected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        },
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = contentColor,
+                    )
+                } else {
+                    Text(
+                        text = count?.toString() ?: "—",
+                        style = MaterialTheme.typography.titleMediumEmphasized,
+                        color = contentColor,
+                    )
+                }
+            }
+            Text(
+                text = category.title,
+                style = if (selected) {
+                    MaterialTheme.typography.titleMediumEmphasized
+                } else {
+                    MaterialTheme.typography.titleMedium
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VaultSectionHeader(category: VaultCategory, count: Int?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            text = category.title,
+            style = MaterialTheme.typography.titleLargeEmphasized,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        count?.let {
+            Text(
+                text = "$it items",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VaultLoadingRow(category: VaultCategory) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp,
+            )
+            Text("Loading ${category.title.lowercase()}…")
+        }
+    }
+}
+
+@Composable
+private fun VaultListLabel(text: String, topPadding: androidx.compose.ui.unit.Dp = 8.dp) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = topPadding, bottom = 8.dp),
+    )
 }
 
 @Composable
@@ -357,10 +603,13 @@ private fun CreatePasswordDialog(
                 )
                 if (groups.isNotEmpty()) {
                     Text("Group", style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = {
-                        val index = groups.indexOfFirst { it.id == groupId }
-                        groupId = groups.getOrNull(index + 1)?.id
-                    }) {
+                    TextButton(
+                        onClick = {
+                            val index = groups.indexOfFirst { it.id == groupId }
+                            groupId = groups.getOrNull(index + 1)?.id
+                        },
+                        enabled = !busy,
+                    ) {
                         Text(groups.firstOrNull { it.id == groupId }?.name ?: "Personal")
                     }
                 }
@@ -397,7 +646,7 @@ private fun TextEntryDialog(
 }
 
 private val VaultCategory.title: String get() = when (this) {
-    VaultCategory.Passwords -> "Web passwords"
+    VaultCategory.Passwords -> "Passwords"
     VaultCategory.Passkeys -> "Passkeys"
     VaultCategory.Codes -> "Codes"
     VaultCategory.Wifi -> "Wi-Fi"
@@ -405,22 +654,15 @@ private val VaultCategory.title: String get() = when (this) {
 }
 
 private val VaultCategory.icon get() = when (this) {
-    VaultCategory.Passwords -> Icons.Filled.Public
+    VaultCategory.Passwords -> Icons.Filled.Password
     VaultCategory.Passkeys -> Icons.Filled.Key
     VaultCategory.Codes -> Icons.Filled.Security
     VaultCategory.Wifi -> Icons.Filled.Wifi
     VaultCategory.Groups -> Icons.Filled.Badge
 }
 
-private fun VaultCategory.supporting(state: PasswordsUiState): String = when (this) {
-    VaultCategory.Passwords -> "${state.items.count { it.category == this }} saved logins"
-    VaultCategory.Passkeys -> "${state.items.count { it.category == this }} cloud sign-ins"
-    VaultCategory.Codes -> "${state.items.count { it.category == this }} one-time codes"
-    VaultCategory.Wifi -> "${state.items.count { it.category == this }} saved networks"
-    VaultCategory.Groups -> "${state.groups.size} groups • ${state.invites.size} invites"
-}
-
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
+@Preview(name = "phone", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
+@Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PasswordsPreview() {
     OpenBubblesTheme {
@@ -429,9 +671,11 @@ private fun PasswordsPreview() {
                 loading = false,
                 inClique = true,
                 items = listOf(VaultItemUi("1", VaultCategory.Passwords, "example.com", "person@example.com")),
+                categoryCounts = mapOf(VaultCategory.Passwords to 1),
             ),
             onBack = {}, onRefresh = {}, onOpenICloudSettings = {}, onCategory = {}, onQuery = {},
-            onSelect = {}, onReveal = {}, onCopy = {}, onCreatePassword = { _, _, _, _ -> },
+            onSelect = {}, onReveal = {}, onCopy = {}, onPrepareCreatePassword = {},
+            onCreatePassword = { _, _, _, _ -> },
             onCreateGroup = {}, onAcceptInvite = {},
         )
     }

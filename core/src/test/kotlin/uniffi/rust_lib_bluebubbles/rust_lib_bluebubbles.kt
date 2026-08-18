@@ -1513,6 +1513,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1783,6 +1785,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_passwords(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_shared_albums(
 ): Short
@@ -2148,7 +2152,7 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_group_in
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_groups(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(`ptr`: Pointer,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_album_assets(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -2213,6 +2217,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`:
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_passwords(`ptr`: Pointer,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_shared_albums(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
@@ -2844,7 +2850,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_groups() != 44227.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords() != 28842.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords() != 22580.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_album_assets() != 19510.toShort()) {
@@ -2941,6 +2947,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 33695.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_passwords() != 60135.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_shared_albums() != 40274.toShort()) {
@@ -6347,7 +6356,7 @@ public interface NativePushStateInterface {
 
     fun `listPasswordGroups`(): List<UVaultGroup>
 
-    fun `listPasswords`(): List<UVaultItem>
+    fun `listPasswords`(`kind`: UVaultItemKind): List<UVaultItem>
 
     fun `listSharedAlbumAssets`(`albumId`: kotlin.String): List<USharedAlbumAsset>
 
@@ -6526,6 +6535,12 @@ public interface NativePushStateInterface {
      * contract as `sync_chats_page`.
      */
     suspend fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
+
+    /**
+     * Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
+     * shared password groups before Kotlin reads the local vault cache.
+     */
+    suspend fun `syncPasswords`()
 
     fun `syncSharedAlbums`()
 
@@ -7473,12 +7488,12 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
-    @Throws(UException::class)override fun `listPasswords`(): List<UVaultItem> {
+    @Throws(UException::class)override fun `listPasswords`(`kind`: UVaultItemKind): List<UVaultItem> {
             return FfiConverterSequenceTypeUVaultItem.lift(
     callWithPointer {
     uniffiRustCallWithError(UException) { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(
-        it, _status)
+        it, FfiConverterTypeUVaultItemKind.lower(`kind`),_status)
 }
     }
     )
@@ -8147,6 +8162,32 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeUMessageSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
+     * Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
+     * shared password groups before Kotlin reads the local vault cache.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncPasswords`() {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_passwords(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
         // Error FFI converter
         UException.ErrorHandler,
     )
