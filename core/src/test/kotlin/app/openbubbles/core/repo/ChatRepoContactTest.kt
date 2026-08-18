@@ -307,6 +307,124 @@ class ChatRepoContactTest {
     }
 
     @Test
+    fun `group reaction snippet uses the contact first name`() {
+        val actor = handle("+14243614182")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:alex",
+                    displayName = "Alex Chen",
+                    firstName = "Alex",
+                    lastName = "Chen",
+                    avatarPath = null,
+                    addresses = listOf(actor.address),
+                ),
+            ),
+        )
+        groupChat(
+            guid = "iMessage;+;tea",
+            title = "Japanese tea enjoyas",
+            handles = listOf(actor, handle("+15550000099")),
+            latest = { chat ->
+                val target = Message().apply {
+                    guid = "target-tea"
+                    text = "mf posting on a 1 year old thread"
+                    dateCreated = Date(100L)
+                    isFromMe = false
+                    this.chat.target = chat
+                }
+                store.boxFor(Message::class.java).put(target)
+                Message().apply {
+                    guid = "react-tea"
+                    associatedMessageGuid = "target-tea"
+                    associatedMessageType = "emphasize"
+                    dateCreated = Date(200L)
+                    isFromMe = false
+                    handleRelation.target = actor
+                    this.chat.target = chat
+                }
+            },
+        )
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("Japanese tea enjoyas", item.title)
+        assertEquals("Alex emphasized “mf posting on a 1 year old thread”", item.snippet)
+    }
+
+    @Test
+    fun `group message snippet prefixes the contact first name`() {
+        val sender = handle("+15167549533")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "native:bobby",
+                    displayName = "Bobby Example",
+                    firstName = "Bobby",
+                    lastName = "Example",
+                    avatarPath = null,
+                    addresses = listOf("(516) 754-9533"),
+                ),
+            ),
+        )
+        groupChat(
+            guid = "iMessage;+;capital",
+            title = "Bobby’s Capital",
+            handles = listOf(sender, handle("+15550000088")),
+            latest = { chat ->
+                Message().apply {
+                    guid = "msg-capital"
+                    text = "Nah man keep it"
+                    dateCreated = Date(300L)
+                    isFromMe = false
+                    handleRelation.target = sender
+                    this.chat.target = chat
+                }
+            },
+        )
+
+        assertEquals(
+            "Bobby: Nah man keep it",
+            ChatRepo(store).chats().single().snippet,
+        )
+    }
+
+    @Test
+    fun `group event snippet names the contact instead of the handle`() {
+        val actor = handle("+14243614182")
+        val other = handle("+15551230000")
+        other.originalROWID = 77L
+        store.boxFor(Handle::class.java).put(other)
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact("icloud:alex", "Alex Chen", "Alex", "Chen", null, listOf(actor.address)),
+                RawContact("icloud:sam", "Sam Lee", "Sam", "Lee", null, listOf(other.address)),
+            ),
+        )
+        groupChat(
+            guid = "iMessage;+;added",
+            title = "Weekend Crew",
+            handles = listOf(actor, other),
+            latest = { chat ->
+                Message().apply {
+                    guid = "event-add"
+                    itemType = 1L
+                    groupActionType = 0L
+                    otherHandle = 77L
+                    dateCreated = Date(400L)
+                    isFromMe = false
+                    handleRelation.target = actor
+                    this.chat.target = chat
+                }
+            },
+        )
+
+        assertEquals(
+            "Alex added Sam to the conversation.",
+            ChatRepo(store).chats().single().snippet,
+        )
+    }
+
+    @Test
     fun `participant addresses fall back to the chat identifier`() {
         val chat = Chat().apply {
             guid = "iMessage;-;friend@icloud.com"
@@ -327,6 +445,29 @@ class ChatRepoContactTest {
         service = "iMessage"
         uniqueAddressAndService = "$address/$service"
     }.also(store.boxFor(Handle::class.java)::put)
+
+    private fun groupChat(
+        guid: String,
+        title: String,
+        handles: List<Handle>,
+        latest: (Chat) -> Message,
+    ): Chat {
+        val chat = Chat().apply {
+            this.guid = guid
+            chatIdentifier = guid
+            displayName = title
+            style = 43L
+            isRpSms = false
+            this.handles.addAll(handles)
+        }
+        store.boxFor(Chat::class.java).put(chat)
+        val message = latest(chat)
+        store.boxFor(Message::class.java).put(message)
+        chat.dbLatestMessage.target = message
+        chat.dbOnlyLatestMessageDate = message.dateCreated
+        store.boxFor(Chat::class.java).put(chat)
+        return chat
+    }
 
     private fun chat(
         guid: String,
