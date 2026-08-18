@@ -22,7 +22,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::{select, sync::{broadcast, mpsc, watch}};
 pub use mpsc::Sender;
 pub use rustpush::{APSMessage, CircleClientSession, CircleServerSession, EntitlementAuthState, IDSNGMIdentity, LoginDelegate, MADRID_SERVICE, TokenProvider, authenticate_apple, authenticate_phone, authenticate_smsless, cloud_messages::CloudMessagesClient, cloudkit::{CloudKitClient, CloudKitState}, facetime::{FACETIME_SERVICE, FTClient, FTState, VIDEO_SERVICE}, findmy::{FindMyClient, FindMyState, FindMyStateManager, MULTIPLEX_SERVICE}, keychain::{KeychainClient, KeychainClientState}, login_apple_delegates, name_photo_sharing::ProfilesClient, sharedstreams::{AssetMetadata, FFMpegFilePackager, FileMetadata, FilePackager, PreparedAsset, PreparedFile, SharedStreamClient, SharedStreamsState, SyncController, SyncManager, SyncState}, statuskit::{ChannelInterestToken, StatusKitClient, StatusKitState, StatusKitStatus}};
-use rustpush::{AnisetteProvider, DebugRwLock, cloudkit::contact_info_to_handle, cloudkit_proto::{CuttlefishSerializedKey, base64_encode}, findmy::SharedBeaconClient, keychain::{CloudKey, CurrentBottle, SivKey}, passwords::PasswordState, request_update_account};
+use rustpush::{AnisetteProvider, DebugRwLock, cloudkit::contact_info_to_handle, cloudkit_proto::{CuttlefishSerializedKey, base64_encode}, findmy::SharedBeaconClient, keychain::{CloudKey, CurrentBottle, SivKey}, passwords::PasswordState, request_update_account, SendJob, SendResult};
 pub use rustpush::findmy::{FindMyFriendsClient, FindMyPhoneClient};
 pub use rustpush::sharedstreams::{SharedAlbum, SyncStatus};
 pub use rustpush::cloudkit_proto::EscrowData;
@@ -2106,22 +2106,77 @@ pub async fn send(state: &Arc<IMClient>, local: &Arc<mpsc::Sender<PushMessage>>,
 
     let local = local.clone();
     let uuid = msg.id.clone();
-    if let Some(handle) = result.handle {
-        tokio::spawn(async move {
-            let maybeerr = match handle.await {
-                Ok(Ok(())) => None,
-                Ok(Err(err)) => Some(format!("{err}")),
-                Err(join) => Some(format!("send task failed: {join}")),
-            };
-            info!("Finished handle {}", uuid);
-            let _ = local.send(PushMessage::SendConfirm { uuid, error: maybeerr }).await;
-        });
+    let sender = msg.sender.clone();
+    let SendJob { process, handle } = result;
+    if let Some(handle) = handle {
+        tokio::spawn(watch_send_progress(local, uuid, sender, process, handle));
     } else {
         // The APNs job already finished. Still emit SendConfirm so the
         // staged bubble does not stay in-flight (or look sent) forever.
         let _ = local.send(PushMessage::SendConfirm { uuid, error: None }).await;
     }
     Ok(true)
+}
+
+/// Drives the SendConfirm for one dispatched message.
+///
+/// iMessage semantics: the first ack from any *recipient* device (participant
+/// != sender) means Apple accepted and delivered the message, so the bubble's
+/// "sending" state should clear immediately rather than waiting out the full
+/// multi-device fan-out — which retries stragglers for up to 60s x 6 rounds.
+/// Delivered/read states keep arriving afterwards through the echo path.
+///
+/// A terminal confirm is still emitted when the job ends with no recipient
+/// delivery, so genuine failures keep surfacing; a terminal success after an
+/// early confirm is suppressed (clients treat a second confirm as a no-op,
+/// but there is no reason to send one).
+async fn watch_send_progress<P: AsRef<str> + Clone + Send + 'static>(
+    local: Arc<mpsc::Sender<PushMessage>>,
+    uuid: String,
+    sender: Option<String>,
+    mut process: broadcast::Receiver<(P, SendResult)>,
+    handle: tokio::task::JoinHandle<Result<(), rustpush::PushError>>,
+) {
+    let mut delivered = false;
+    loop {
+        match process.recv().await {
+            Ok((target, status)) => {
+                if is_confirming_delivery(delivered, target.as_ref(), &sender, &status) {
+                    delivered = true;
+                    let _ = local
+                        .send(PushMessage::SendConfirm { uuid: uuid.clone(), error: None })
+                        .await;
+                }
+            }
+            // We only care about the first delivery; missing intermediate
+            // progress cannot un-deliver a message we already confirmed.
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+    let maybeerr = match handle.await {
+        Ok(Ok(())) => None,
+        Ok(Err(err)) => Some(format!("{err}")),
+        Err(join) => Some(format!("send task failed: {join}")),
+    };
+    info!("Finished handle {}", uuid);
+    if !delivered {
+        let _ = local.send(PushMessage::SendConfirm { uuid, error: maybeerr }).await;
+    }
+}
+
+/// True when this per-device progress event should clear the sending state:
+/// the first successful ack from a recipient's device (not one of the
+/// sender's own devices, which ack eagerly but prove nothing about delivery).
+fn is_confirming_delivery(
+    already_delivered: bool,
+    participant: &str,
+    sender: &Option<String>,
+    status: &SendResult,
+) -> bool {
+    !already_delivered
+        && matches!(status, SendResult::Sent)
+        && sender.as_deref() != Some(participant)
 }
 
 pub async fn get_handles(state: &Arc<IMClient>) -> anyhow::Result<Vec<String>> {
@@ -3078,4 +3133,139 @@ pub async fn convert_token_to_uuid(state: &Arc<IMClient>, handle: String, token:
 pub async fn get_sms_targets(state: &Arc<IMClient>, handle: String, refresh: bool) -> anyhow::Result<Vec<PrivateDeviceInfo>> {
     let targets = state.identity.get_sms_targets(&handle, refresh).await?;
     Ok(targets)
+}
+
+#[cfg(test)]
+mod send_confirm_tests {
+    use super::*;
+
+    #[test]
+    fn first_recipient_ack_confirms() {
+        let sender = Some("tel:+10000000000".to_string());
+        assert!(is_confirming_delivery(
+            false,
+            "tel:+15550001111",
+            &sender,
+            &SendResult::Sent,
+        ));
+    }
+
+    #[test]
+    fn sender_own_device_never_confirms() {
+        let sender = Some("tel:+10000000000".to_string());
+        assert!(!is_confirming_delivery(
+            false,
+            "tel:+10000000000",
+            &sender,
+            &SendResult::Sent,
+        ));
+    }
+
+    #[test]
+    fn only_the_first_delivery_confirms() {
+        let sender = Some("tel:+10000000000".to_string());
+        assert!(!is_confirming_delivery(
+            true,
+            "tel:+15550001111",
+            &sender,
+            &SendResult::Sent,
+        ));
+    }
+
+    #[test]
+    fn error_results_never_confirm() {
+        let sender = Some("tel:+10000000000".to_string());
+        assert!(!is_confirming_delivery(
+            false,
+            "tel:+15550001111",
+            &sender,
+            &SendResult::APSError(5032),
+        ));
+        assert!(!is_confirming_delivery(
+            false,
+            "tel:+15550001111",
+            &sender,
+            &SendResult::TimedOut,
+        ));
+    }
+
+    #[tokio::test]
+    async fn watch_emits_early_confirm_then_suppresses_terminal() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let (progress_tx, progress_rx) = broadcast::channel(8);
+        let sender = Some("tel:+10000000000".to_string());
+        // A job that lingers (stragglers) long after the recipient acked.
+        let (job_done_tx, job_done_rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let _ = job_done_rx.await;
+            Ok::<_, rustpush::PushError>(())
+        });
+
+        let watcher = tokio::spawn(watch_send_progress(
+            Arc::new(tx),
+            "uuid-1".to_string(),
+            sender,
+            progress_rx,
+            handle,
+        ));
+
+        let ack = |participant: &str| (participant.to_string(), SendResult::Sent);
+        let _ = progress_tx.send(ack("tel:+10000000000")); // own device — ignored
+        let _ = progress_tx.send(ack("tel:+15550001111")); // recipient — confirms
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let _ = progress_tx.send(ack("tel:+15550002222")); // duplicate — no-op
+
+        let first = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await.unwrap();
+        assert!(matches!(
+            first,
+            Some(PushMessage::SendConfirm { error: None, .. })
+        ));
+        assert!(tokio::time::timeout(Duration::from_millis(50), rx.recv())
+            .await
+            .is_err(), "no duplicate confirm before the job ends");
+
+        // The send job drops its progress sender when it finishes; closing
+        // the channel lets the watcher fall through to awaiting the handle.
+        drop(progress_tx);
+        let _ = job_done_tx.send(());
+        watcher.await.unwrap();
+        // Ok(None) is also fine: the watcher dropping its Arc<Sender> closes
+        // the channel — what must NOT happen is another SendConfirm.
+        match tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+            Err(_) | Ok(None) => {}
+            Ok(Some(PushMessage::SendConfirm { uuid, error })) => {
+                panic!("terminal confirm after early confirm: uuid={uuid} error={error:?}")
+            }
+            Ok(Some(_)) => panic!("unexpected channel message after job end"),
+        }
+    }
+
+    #[tokio::test]
+    async fn watch_reports_failure_when_nothing_delivered() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let (progress_tx, progress_rx) = broadcast::channel(8);
+        let sender = Some("tel:+10000000000".to_string());
+        let handle =
+            tokio::spawn(async { Err::<(), _>(rustpush::PushError::SendTimedOut) });
+
+        let watcher = tokio::spawn(watch_send_progress(
+            Arc::new(tx),
+            "uuid-2".to_string(),
+            sender,
+            progress_rx,
+            handle,
+        ));
+
+        let _ = progress_tx.send((
+            "tel:+15550001111".to_string(),
+            SendResult::APSError(5032),
+        ));
+        drop(progress_tx); // closes the channel; watcher awaits the job
+        watcher.await.unwrap();
+
+        let terminal = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(terminal, Some(PushMessage::SendConfirm { error: Some(_), .. })));
+    }
 }
