@@ -149,6 +149,25 @@ class TranscriptBackgroundStoreTest {
     }
 
     @Test
+    fun `legacy flutter poster prefix is rewritten to a native image file`() = runBlocking {
+        val prefix = File(root, "app_flutter/avatars/you/poster-9").apply { mkdirs() }
+        val png = File(prefix, "layer.png").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        chat.transcriptPosterPath = prefix.absolutePath
+        store.boxFor(Chat::class.java).put(chat)
+        val backgroundStore = TranscriptBackgroundStore(store, filesDir, cacheDir) { _, _ ->
+            error("legacy migration must not download")
+        }
+
+        backgroundStore.migrateLegacyPosters()
+
+        val migrated = store.boxFor(Chat::class.java).get(chat.id)
+        val dest = File(requireNotNull(migrated.transcriptPosterPath))
+        assertTrue(dest.absolutePath.contains("chat_backgrounds"))
+        assertTrue(dest.isFile)
+        assertTrue(dest.readBytes().contentEquals(png.readBytes()))
+    }
+
+    @Test
     fun `conversation background resolution checks files and falls back to synced poster`() {
         val transcript = File(root, "transcript.img").apply { writeBytes(byteArrayOf(1)) }
         val missingCustom = File(root, "missing-custom.img")

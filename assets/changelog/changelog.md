@@ -2,6 +2,29 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v2.3.1
+
+### Fixes
+
+- Chat backgrounds set on another Apple device show again after the
+  native upgrade. The Flutter client stored those wallpapers as a poster
+  archive (a folder plus a misnamed .jpg plist), and the native app
+  treated a missing regular image file as "no background." Those posters
+  are read again — the watch image or decoded photo layer — and rewritten
+  to a real picture the conversation can draw.
+- Photos and videos from iCloud message history download again. Large
+  attachments were dying in Rust when Apple's Ford keying blob did not
+  put the chunk keys at the field the decoder expected, which aborted
+  the transfer with no useful error. The decoder now walks wrapped, bare,
+  and nested Ford layouts and returns a download error instead of
+  crashing the thread.
+- Failed photo and video sends no longer look successful. The local echo
+  of an outgoing attachment was treated as Apple's ACK, so a timed-out
+  or undeliverable send stayed a silent success. The bubble now stays on
+  Sending… until Apple confirms, exhausted deliveries mark Send failed,
+  and that in-flight label stays visible on media rows (not only your
+  latest message).
+
 ## v2.3.0
 
 ### Enhancements

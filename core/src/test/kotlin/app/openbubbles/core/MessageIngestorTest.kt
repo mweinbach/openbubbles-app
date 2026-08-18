@@ -786,7 +786,28 @@ class MessageIngestorTest {
         assertNotNull(row)
         assertEquals("final text", row.text)
         assertNull(row.stagingGuid) // promoted
-        assertNull(row.sendingServiceId)
+        // Echo is not Apple's ACK. The row stays in-flight until SendConfirm.
+        assertEquals(MessageRepo.DEFAULT_SENDING_SERVICE_ID, row.sendingServiceId)
+    }
+
+    @Test
+    fun `echo of a staged send does not clear the in-flight marker`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid, sender = me, text = "photo", stagingGuid = "echo-still-sending",
+        )
+        ingestor.ingest(push(textInst("echo-still-sending", me, "photo")), myHandles)
+
+        val row = messageByGuid("echo-still-sending")
+        assertNotNull(row)
+        assertEquals(MessageRepo.DEFAULT_SENDING_SERVICE_ID, row.sendingServiceId)
+        assertEquals(app.openbubbles.core.model.MessageStatus.SENDING, messageRepo.statusOf(row))
+
+        ingestor.ingest(UPushMessage.SendConfirm(uuid = "echo-still-sending", error = null), myHandles)
+        val confirmed = messageByGuid("echo-still-sending")
+        assertNotNull(confirmed)
+        assertNull(confirmed.sendingServiceId)
+        assertEquals(app.openbubbles.core.model.MessageStatus.SENT, messageRepo.statusOf(confirmed))
     }
 
     @Test

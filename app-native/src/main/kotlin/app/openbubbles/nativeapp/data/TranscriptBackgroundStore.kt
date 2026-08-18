@@ -52,6 +52,34 @@ internal class TranscriptBackgroundStore(
         },
     )
 
+    /**
+     * Rewrite Flutter-era poster prefixes (`avatars/you/poster-N`) to a
+     * native watch-image file so the chat UI can decode them. Safe to call
+     * more than once; chats whose path already is a regular file are left
+     * alone.
+     */
+    suspend fun migrateLegacyPosters() = withContext(Dispatchers.IO) {
+        writeMutex.withLock {
+            val chatBox = store.boxFor(Chat::class.java)
+            val directory = File(filesDir, "chat_backgrounds").apply {
+                check(isDirectory || mkdirs()) { "failed to create transcript background directory" }
+            }
+            chatBox.all.forEach { chat ->
+                val path = chat.transcriptPosterPath ?: return@forEach
+                if (File(path).isFile) return@forEach
+                val resolved = resolveBackgroundImageFile(path, ::extractWatchImageFromPosterSave)
+                    ?: return@forEach
+                if (resolved.absolutePath == path) return@forEach
+                val destination = File(directory, "shared-${chat.id}-legacy.img")
+                if (resolved.canonicalFile != destination.canonicalFile) {
+                    resolved.copyTo(destination, overwrite = true)
+                }
+                chat.transcriptPosterPath = destination.absolutePath
+                chatBox.put(chat)
+            }
+        }
+    }
+
     override suspend fun apply(update: TranscriptBackgroundUpdate) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val chatBox = store.boxFor(Chat::class.java)

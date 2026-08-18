@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.exifinterface.media.ExifInterface
 import app.openbubbles.nativeapp.data.MemoryCaches
+import app.openbubbles.nativeapp.data.extractWatchImageFromPosterSave
+import app.openbubbles.nativeapp.data.resolveBackgroundImageFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -130,16 +132,49 @@ fun rememberDecodedImage(
 }
 
 /**
+ * Resolves Flutter-era poster prefixes on a background thread, then decodes
+ * the raster the same way [rememberDecodedImage] does.
+ */
+@Composable
+fun rememberChatBackground(
+    customPath: String?,
+    syncedPath: String?,
+    maxDimensionPx: Int = 1440,
+): DecodedImage? {
+    val cacheKey = remember(customPath, syncedPath, maxDimensionPx) {
+        "bg:${customPath.orEmpty()}:${syncedPath.orEmpty()}:$maxDimensionPx"
+    }
+    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        ImageDecodeCache.get(cacheKey)?.let {
+            value = it
+            return@produceState
+        }
+        val decoded = withContext(Dispatchers.IO) {
+            sequenceOf(customPath, syncedPath)
+                .mapNotNull { resolveBackgroundImageFile(it, ::extractWatchImageFromPosterSave) }
+                .firstNotNullOfOrNull { decodeRasterFile(it, maxDimensionPx) }
+        }
+        if (decoded != null) ImageDecodeCache.put(cacheKey, decoded)
+        value = decoded
+    }.value
+}
+
+/**
  * Decodes a local still image. [BitmapFactory] handles JPEG/PNG/WebP;
  * [ImageDecoder] is the HEIC/HEIF/AVIF fallback on API 28+.
  */
 internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
     if (file == null || !file.isFile) return null
-    return decodeLocalImageWithBitmapFactory(file, maxDimensionPx)
-        ?: decodeLocalImageWithImageDecoder(file, maxDimensionPx)
+    return decodeRasterFile(file, maxDimensionPx)
 }
 
-private fun decodeLocalImageWithBitmapFactory(file: File, maxDimensionPx: Int): DecodedImage? =
+private fun decodeRasterFile(file: File, maxDimensionPx: Int): DecodedImage? {
+    if (!file.isFile) return null
+    return decodeFileWithBitmapFactory(file, maxDimensionPx)
+        ?: decodeFileWithImageDecoder(file, maxDimensionPx)
+}
+
+private fun decodeFileWithBitmapFactory(file: File, maxDimensionPx: Int): DecodedImage? =
     runCatching {
         val orientation = file.readImageOrientation()
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -162,10 +197,11 @@ private fun decodeLocalImageWithBitmapFactory(file: File, maxDimensionPx: Int): 
         )
     }.getOrNull()
 
-private fun decodeLocalImageWithImageDecoder(file: File, maxDimensionPx: Int): DecodedImage? {
+private fun decodeFileWithImageDecoder(file: File, maxDimensionPx: Int): DecodedImage? {
     if (Build.VERSION.SDK_INT < 28) return null
     return runCatching {
-        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+        val source = ImageDecoder.createSource(file)
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             val width = info.size.width
             val height = info.size.height
             if (width > 0 && height > 0) {

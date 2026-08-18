@@ -117,7 +117,9 @@ object CoreGraph {
     private val transcriptBackgroundStore: TranscriptBackgroundStore? by lazy {
         val context = AppContext.current ?: return@lazy null
         store ?: return@lazy null
-        TranscriptBackgroundStore(context.applicationContext) { PushStateHolder.state }
+        TranscriptBackgroundStore(context.applicationContext) { PushStateHolder.state }.also { store ->
+            launchBackground { store.migrateLegacyPosters() }
+        }
     }
 
     /**
@@ -1882,6 +1884,17 @@ internal object CoreAttachmentSender : AttachmentSender {
                     )
                 }
                 failureLookupGuid = inst.id
+                val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
+                val realAttachmentGuids = normal?.let {
+                    MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.map { item -> item.guid }
+                }.orEmpty()
+                if (realAttachmentGuids.size == prepared.stagedGuids.size) {
+                    // Move payloads before ingest so the bubble does not lose
+                    // its local preview when the guid swaps to the Rust id.
+                    prepared.stagedGuids.zip(realAttachmentGuids).forEach { (local, real) ->
+                        prepared.disk.promoteLocalDirectory(local, real)
+                    }
+                }
                 // Promote to the Rust staging guid so the echo and SendConfirm
                 // receipts find the row (same swap Dart performs).
                 val messageBox = store.boxFor(Message::class.java)
@@ -1900,22 +1913,16 @@ internal object CoreAttachmentSender : AttachmentSender {
                         }
                 }
                 ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
-                val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
-                val realAttachmentGuids = normal?.let {
-                    MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.map { item -> item.guid }
-                }.orEmpty()
-                if (realAttachmentGuids.size == prepared.stagedGuids.size) {
-                    // Database promotion happens during ingest; move each local
-                    // payload to its real guid (parts stay in send order) so the
-                    // confirmed bubble keeps rendering without a redundant
-                    // network download.
-                    prepared.stagedGuids.zip(realAttachmentGuids).forEach { (local, real) ->
-                        prepared.disk.promoteLocalDirectory(local, real)
-                    }
-                }
             } catch (failure: Throwable) {
-                CoreGraphStageHolder.messageRepo(store)
+                val marked = CoreGraphStageHolder.messageRepo(store)
                     .failOutgoing(failureLookupGuid, failure.message ?: failure.javaClass.simpleName)
+                if (marked == null) {
+                    android.util.Log.w(
+                        "CoreAttachmentSender",
+                        "attachment send failed but no staged row for $failureLookupGuid",
+                        failure,
+                    )
+                }
             } finally {
                 UploadProgressBoard.clear(progressGuid)
             }
