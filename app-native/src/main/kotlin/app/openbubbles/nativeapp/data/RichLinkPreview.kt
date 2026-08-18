@@ -79,10 +79,11 @@ internal fun displayTextForRichLink(messageText: String, previewUrl: String): St
     if (matches.isEmpty()) return messageText.trim()
     val builder = StringBuilder(messageText)
     matches.asReversed().forEach { match ->
-        val cleaned = match.value.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}')
-        val normalized = cleaned.normalizeHttpUrl()?.trimEnd('/') ?: return@forEach
+        val trimmed = match.value.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}')
+        val normalized = trimmed.normalizeHttpUrl()?.trimEnd('/') ?: return@forEach
         if (normalized.equals(target, ignoreCase = true)) {
-            builder.delete(match.range.first, match.range.last + 1)
+            // Delete only the URL portion so trailing punctuation survives.
+            builder.delete(match.range.first, match.range.first + trimmed.length)
         }
     }
     return builder.toString()

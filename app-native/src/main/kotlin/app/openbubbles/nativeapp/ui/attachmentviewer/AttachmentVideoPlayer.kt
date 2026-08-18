@@ -22,6 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import java.io.File
@@ -51,6 +55,10 @@ fun AttachmentVideoPlayer(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .semantics {
+                role = Role.Button
+                contentDescription = if (playing) "Pause video" else "Play video"
+            }
             .clickable {
                 val view = videoView ?: return@clickable
                 if (view.isPlaying) {
@@ -90,7 +98,7 @@ fun AttachmentVideoPlayer(
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Play video",
+                    contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.padding(12.dp),
                 )

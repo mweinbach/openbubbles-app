@@ -228,19 +228,23 @@ private fun VideoAttachmentBubble(
                     showDownload = file == null,
                 )
             }
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.55f),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(46.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Play video",
-                    tint = Color.White,
-                    modifier = Modifier.padding(8.dp),
-                )
+            // Only show the play affordance when the video is downloaded;
+            // otherwise AttachmentPlaceholder already displays the download action.
+            if (file != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(46.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Play video",
+                        tint = Color.White,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
             }
         }
     }

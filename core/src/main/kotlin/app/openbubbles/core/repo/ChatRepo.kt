@@ -488,8 +488,8 @@ class ChatRepo(
         if (body.isEmpty()) return ""
         if (!isGroup || message.isFromMe) return body
         val handle = message.handleRelation.target ?: return body
-        val sender = handleShortName(handle, contactInfo, addressInfo)
-        return if (isHandleAddress(sender, handle)) body else "$sender: $body"
+        val displayName = handleDisplayName(handle, contactInfo, addressInfo)
+        return if (isHandleAddress(displayName, handle)) body else "${handleShortName(handle, contactInfo, addressInfo)}: $body"
     }
 
     private fun reactionSnippet(
