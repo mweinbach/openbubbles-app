@@ -389,6 +389,11 @@ class MessageIngestor(
             return
         }
 
+        // Read receipts reuse the acknowledged message's guid as their
+        // envelope id. An echo or peer receipt must not stamp
+        // delivered/read onto the incoming bubble we were acknowledging.
+        if (!message.isFromMe) return
+
         val date = MessageMapper.dateFromMs(inst.sentTimestamp)
         if (read) message.dateRead = date else message.dateDelivered = date
         messageBox.put(message)

@@ -319,6 +319,9 @@ class MessageRepo(
                 .equal(Message_.stagingGuid, stagingGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                 .build().use { it.findFirst() }
             ?: return@callInTx null
+        // Send-path failures look up by guid. Read receipts reuse an
+        // incoming guid as their envelope id; never paint that bubble failed.
+        if (!message.isFromMe) return@callInTx null
         message.sendingServiceId = null
         message.error = 1L
         message.errorMessage = errorText.take(200)
