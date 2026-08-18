@@ -2,6 +2,22 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Build and upload APK/AAB/Windows artifacts'
+        required: false
+        default: true
+        type: boolean
+
+# Every push and PR runs the test suite only; the APK/AAB/desktop
+# artifacts are built on manual dispatch (package input) — releases
+# always build their own signed APK in release-update.yml. Cancel a
+# superseded run when a newer commit lands on the same ref.
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
 name: Native (Kotlin+Rust)
 jobs:
   android:
@@ -70,18 +86,24 @@ jobs:
 
       # apt instead of arduino/setup-protoc: the action still targets the
       # deprecated Node 20 runtime (same approach as release-update.yml).
+      # Retries + timeouts: a flaky Ubuntu mirror once wedged a release run
+      # for the job's full 60-minute limit with no error.
       - name: Install Protobuf compiler
+        timeout-minutes: 5
         run: |
           if ! command -v protoc >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y protobuf-compiler
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+              update -qq
+            sudo apt-get -o Acquire::Retries=3 install -y protobuf-compiler
           fi
           protoc --version
 
       # The NDK must match ndkVersion in app-native/build.gradle; without a
       # cache AGP re-downloads ~2 GB every run. Absolute path: runner env
       # vars like ANDROID_HOME are not visible in `with:` expressions.
+      # Only packaging cross-compiles Rust, so skip entirely for test runs.
       - name: Cache Android NDK
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         uses: actions/cache@v5
         with:
           path: /usr/local/lib/android/sdk/ndk/28.2.13676358
@@ -103,7 +125,10 @@ jobs:
 
       # The Android cdylib builds (2 ABIs x debug/release) via
       # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
+      # Unused on test-only runs; also avoids re-saving a cache whose
+      # target dir the cross-builds never populated.
       - name: Cache Android Cargo builds
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         uses: actions/cache@v5
         with:
           path: build-native/app-native/cargo-android/target
@@ -136,20 +161,31 @@ jobs:
       - name: Rust library tests
         run: cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 
-      - name: Native JVM tests + model parity + lint + Android artifacts
+      - name: Native JVM tests + model parity + lint
         run: |
           cd native
           ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
             :db:checkModelParity :app-native:lintDebug \
             :app-native:checkUniffiBindings :app-native:validateDebugScreenshotTest \
-            :app-native:assembleDebug :app-native:bundleRelease --console=plain
+            --console=plain
+
+      # Packaging pulls the Rust Android cross-builds (2 ABIs x debug/release)
+      # through mergeJniLibFolders — the expensive half of the job — so it
+      # runs only when artifacts were explicitly requested.
+      - name: Android artifacts
+        if: github.event_name == 'workflow_dispatch' && inputs.package
+        run: |
+          cd native
+          ./gradlew :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
       - uses: actions/upload-artifact@v5
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         with:
           name: native-alpha-debug-apk
           path: build-native/app-native/outputs/apk/debug/app-native-debug.apk
 
       - uses: actions/upload-artifact@v5
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         with:
           name: native-alpha-release-aab-debug-signed
           path: build-native/app-native/outputs/bundle/release/app-native-release.aab
@@ -226,6 +262,7 @@ jobs:
       # choco instead of arduino/setup-protoc: the action still targets the
       # deprecated Node 20 runtime.
       - name: Install Protobuf compiler
+        timeout-minutes: 10
         shell: bash
         run: |
           if ! command -v protoc >/dev/null 2>&1; then
@@ -262,9 +299,11 @@ jobs:
           ./gradlew.bat :db:checkModelParity --console=plain
 
       - name: Package Windows distributable
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         run: cd native; ./gradlew.bat :desktopApp:verifyHostRustResource :desktopApp:createDistributable --console=plain
 
       - uses: actions/upload-artifact@v5
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         with:
           name: native-desktop-windows
           path: build-native/desktopApp/compose/binaries/main/*
