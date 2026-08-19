@@ -5,9 +5,49 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 import androidx.core.content.ContextCompat
+import app.openbubbles.core.contacts.AvatarUpdate
+import app.openbubbles.core.contacts.ContactSync
+import app.openbubbles.core.contacts.DeviceContactSnapshot
 import app.openbubbles.core.contacts.RawContact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+sealed interface DeviceContactsReadResult {
+    data class Success(val snapshot: DeviceContactSnapshot) : DeviceContactsReadResult
+    data object PermissionDenied : DeviceContactsReadResult
+    data class Failure(val cause: Throwable) : DeviceContactsReadResult
+}
+
+/**
+ * Runs reconciliation only for a complete successful provider snapshot.
+ * In particular, successful empty snapshots are authoritative while denied
+ * and failed reads are not.
+ */
+internal inline fun DeviceContactsReadResult.applySuccessfulSnapshot(
+    reconcile: (DeviceContactSnapshot) -> Unit,
+): Boolean = when (this) {
+    is DeviceContactsReadResult.Success -> {
+        reconcile(snapshot)
+        true
+    }
+    DeviceContactsReadResult.PermissionDenied,
+    is DeviceContactsReadResult.Failure,
+    -> false
+}
+
+internal fun stableAndroidContactId(lookupKey: String): String =
+    ContactSync.DEVICE_CONTACT_PREFIX + lookupKey
+
+internal data class ContactProviderRevision(
+    val rowId: String,
+    val lookupKey: String,
+    val updatedAtMillis: Long,
+)
+
+internal fun providerSnapshotIsStable(
+    before: Collection<ContactProviderRevision>,
+    after: Collection<ContactProviderRevision>,
+): Boolean = before.toSet() == after.toSet()
 
 /**
  * Reads the device contacts provider into [RawContact] rows for
@@ -21,80 +61,124 @@ object DeviceContacts {
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
             PackageManager.PERMISSION_GRANTED
 
-    suspend fun read(context: Context): List<RawContact> = withContext(Dispatchers.IO) {
+    suspend fun read(context: Context): DeviceContactsReadResult = withContext(Dispatchers.IO) {
         if (!hasPermission(context)) {
-            emptyList()
+            DeviceContactsReadResult.PermissionDenied
         } else {
-            runCatching { readLocked(context) }.getOrDefault(emptyList())
+            runCatching { DeviceContactsReadResult.Success(readLocked(context)) }
+                .getOrElse(DeviceContactsReadResult::Failure)
         }
     }
 
-    private fun readLocked(context: Context): List<RawContact> {
+    private fun readLocked(context: Context): DeviceContactSnapshot {
+        repeat(2) {
+            val rows = readContactRows(context)
+            val addressesById = readAddresses(context)
+            val revisionsAfterAddresses = readContactRows(context).map(ContactProviderRow::revision)
+            if (providerSnapshotIsStable(rows.map(ContactProviderRow::revision), revisionsAfterAddresses)) {
+                return buildSnapshot(rows, addressesById)
+            }
+        }
+        error("ContactsProvider changed while reading contacts")
+    }
+
+    private fun buildSnapshot(
+        rows: List<ContactProviderRow>,
+        addressesById: Map<String, List<String>>,
+    ): DeviceContactSnapshot {
         val out = mutableListOf<RawContact>()
-        context.contentResolver.query(
+        val legacyIds = LinkedHashMap<String, String>()
+        rows.forEach { row ->
+            val addresses = addressesById[row.rowId].orEmpty()
+            if (addresses.isEmpty()) return@forEach // unreachable over iMessage/SMS anyway
+            val id = stableAndroidContactId(row.lookupKey)
+            val (first, last) = splitName(row.name)
+            out += RawContact(
+                id = id,
+                displayName = row.name,
+                firstName = first,
+                lastName = last,
+                avatarUpdate = row.photo?.let(AvatarUpdate::Set) ?: AvatarUpdate.Clear,
+                addresses = addresses,
+            )
+            legacyIds[id] = row.rowId
+        }
+        return DeviceContactSnapshot(
+            contacts = out,
+            legacyNativeIds = legacyIds,
+        )
+    }
+
+    private fun readContactRows(context: Context): List<ContactProviderRow> {
+        val cursor = context.contentResolver.query(
             ContactsContract.Contacts.CONTENT_URI,
             arrayOf(
                 ContactsContract.Contacts._ID,
+                ContactsContract.Contacts.LOOKUP_KEY,
                 ContactsContract.Contacts.DISPLAY_NAME,
                 ContactsContract.Contacts.PHOTO_URI,
                 ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
-                ContactsContract.Contacts.IN_VISIBLE_GROUP,
+                ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
             ),
             null, null, null,
-        )?.use { cursor ->
-            val addressesById = readAddresses(context)
-            while (cursor.moveToNext()) {
-                val id = cursor.getString(0) ?: continue
-                val name = cursor.getString(1)
-                val photo = cursor.getString(2)?.takeIf { it.isNotBlank() }
-                    ?: cursor.getString(3)?.takeIf { it.isNotBlank() }
-                val addresses = addressesById[id].orEmpty()
-                if (addresses.isEmpty()) continue // unreachable over iMessage/SMS anyway
-                val (first, last) = splitName(name)
-                out += RawContact(
-                    id = id,
-                    displayName = name,
-                    firstName = first,
-                    lastName = last,
-                    avatarPath = photo,
-                    addresses = addresses,
-                )
+        ) ?: error("ContactsProvider returned no contacts cursor")
+        return cursor.use {
+            buildList {
+                while (cursor.moveToNext()) {
+                    val rowId = cursor.getString(0)
+                        ?: error("ContactsProvider returned a contact without _ID")
+                    val lookupKey = cursor.getString(1)?.takeIf(String::isNotBlank)
+                        ?: error("ContactsProvider returned contact $rowId without LOOKUP_KEY")
+                    val name = cursor.getString(2)
+                    val photo = cursor.getString(3)?.takeIf { it.isNotBlank() }
+                        ?: cursor.getString(4)?.takeIf { it.isNotBlank() }
+                    add(
+                        ContactProviderRow(
+                            rowId = rowId,
+                            lookupKey = lookupKey,
+                            name = name,
+                            photo = photo,
+                            updatedAtMillis = cursor.getLong(5),
+                        ),
+                    )
+                }
             }
         }
-        return out
     }
 
     private fun readAddresses(context: Context): Map<String, List<String>> {
         val byId = mutableMapOf<String, MutableList<String>>()
-        context.contentResolver.query(
+        val emailCursor = context.contentResolver.query(
             ContactsContract.CommonDataKinds.Email.CONTENT_URI,
             arrayOf(
                 ContactsContract.CommonDataKinds.Email.CONTACT_ID,
                 ContactsContract.CommonDataKinds.Email.ADDRESS,
             ),
             null, null, null,
-        )?.use { cursor ->
+        ) ?: error("ContactsProvider returned no email cursor")
+        emailCursor.use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0) ?: continue
                 val email = cursor.getString(1) ?: continue
                 byId.getOrPut(id) { mutableListOf() }.add(email)
             }
         }
-        context.contentResolver.query(
+        val phoneCursor = context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(
                 ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
             ),
             null, null, null,
-        )?.use { cursor ->
+        ) ?: error("ContactsProvider returned no phone cursor")
+        phoneCursor.use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0) ?: continue
                 val number = cursor.getString(1) ?: continue
                 byId.getOrPut(id) { mutableListOf() }.add(number)
             }
         }
-        return byId
+        return byId.mapValues { (_, addresses) -> addresses.distinct() }
     }
 
     private fun splitName(displayName: String?): Pair<String?, String?> {
@@ -106,5 +190,16 @@ object DeviceContacts {
                 displayName.substring(0, idx) to displayName.substring(idx + 1)
             }
         }
+    }
+
+    private data class ContactProviderRow(
+        val rowId: String,
+        val lookupKey: String,
+        val name: String?,
+        val photo: String?,
+        val updatedAtMillis: Long,
+    ) {
+        fun revision(): ContactProviderRevision =
+            ContactProviderRevision(rowId, lookupKey, updatedAtMillis)
     }
 }

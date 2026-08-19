@@ -15,6 +15,7 @@ import app.openbubbles.core.contacts.ContactConflict
 import app.openbubbles.core.contacts.ContactMergePolicy
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.DeviceContactsReadResult
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -109,7 +110,12 @@ object ContactDeviceSync {
                 return@withContext SyncOutcome(written = 0, conflicts = 0)
             }
             val icloud = CoreGraph.icloudContacts()
-            val device = DeviceContacts.read(context)
+            val device = when (val read = DeviceContacts.read(context)) {
+                is DeviceContactsReadResult.Success -> read.snapshot.contacts
+                DeviceContactsReadResult.PermissionDenied ->
+                    return@withContext SyncOutcome(written = 0, conflicts = 0)
+                is DeviceContactsReadResult.Failure -> throw read.cause
+            }
             val ours = DeviceContactWriter.readOurs(context)
             val plan = ContactMergePolicy.plan(
                 icloud = icloud,

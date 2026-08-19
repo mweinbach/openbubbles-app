@@ -31,8 +31,10 @@ import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExpandedDockedSearchBar
 import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
@@ -53,8 +55,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -210,6 +216,27 @@ private fun SearchResults(
                 .fillMaxSize()
                 .navigationBarsPadding(),
         )
+        uiState.searching -> SearchLoading(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
+        uiState.query.trim().length < 2 -> SearchPlaceholder(
+            icon = Icons.Filled.Search,
+            title = "Keep typing",
+            body = "Enter at least two characters to search.",
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
+        uiState.error != null -> SearchPlaceholder(
+            icon = Icons.Filled.SearchOff,
+            title = "Search unavailable",
+            body = uiState.error,
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
         !uiState.hasResults -> SearchPlaceholder(
             icon = Icons.Filled.SearchOff,
             title = "No results",
@@ -285,6 +312,20 @@ private fun SearchResults(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SearchLoading(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "Searching"
+            progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        LoadingIndicator()
     }
 }
 

@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.data
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
+import app.openbubbles.core.contacts.AvatarUpdate
 import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.nativeapp.data.contacts.ContactDeviceSync
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import org.w3c.dom.Node
 import uniffi.rust_lib_bluebubbles.NativePushState
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.net.URI
 import java.security.MessageDigest
 import java.util.Base64
@@ -31,7 +33,7 @@ private const val MAX_REDIRECTS = 5
 private const val MULTIGET_BATCH = 64
 private const val AUTO_SYNC_FRESHNESS_MS = 15 * 60 * 1000L
 private const val MAX_PHOTO_BYTES = 5 * 1024 * 1024
-internal const val ICLOUD_PHOTO_CACHE_VERSION = 2
+internal const val ICLOUD_PHOTO_CACHE_VERSION = 3
 private const val PHOTO_CACHE_VERSION_KEY = "photo_cache_version"
 
 internal fun hasImageMagic(bytes: ByteArray): Boolean {
@@ -51,6 +53,27 @@ internal fun resolveContactPhoto(
     download: (String) -> ByteArray?,
 ): ByteArray? = parsed.photo ?: parsed.photoUri?.let(download)?.takeIf(::hasImageMagic)
 
+/**
+ * A missing PHOTO on a complete card is authoritative. A present PHOTO that
+ * cannot be decoded, downloaded, or persisted is not: preserve the prior
+ * avatar until a later pass can fetch it.
+ */
+internal fun cardDavAvatarUpdate(
+    parsed: ParsedVCard,
+    download: (String) -> ByteArray?,
+    persist: (ByteArray) -> File?,
+): AvatarUpdate {
+    val inline = parsed.photo
+    if (inline != null) {
+        if (!hasImageMagic(inline)) return AvatarUpdate.Keep
+        return persist(inline)?.absolutePath?.let(AvatarUpdate::Set) ?: AvatarUpdate.Keep
+    }
+    val uri = parsed.photoUri
+        ?: return if (parsed.photoDeclared) AvatarUpdate.Keep else AvatarUpdate.Clear
+    val downloaded = download(uri)?.takeIf(::hasImageMagic) ?: return AvatarUpdate.Keep
+    return persist(downloaded)?.absolutePath?.let(AvatarUpdate::Set) ?: AvatarUpdate.Keep
+}
+
 /** Ignore a stored CardDAV cursor after the PHOTO parser changes so existing books re-download images. */
 internal fun cardDavCursorForPhotoCache(
     storedCtag: String?,
@@ -63,8 +86,37 @@ internal fun cardDavCursorForPhotoCache(
 internal fun writeContactPhoto(directory: File, stem: String, bytes: ByteArray?): File? {
     if (bytes == null || !hasImageMagic(bytes)) return null
     return runCatching {
-        File(directory, "$stem.img").apply { writeBytes(bytes) }
+        directory.mkdirs()
+        val contentHash = MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val target = File(directory, "$stem-$contentHash.img")
+        if (target.isFile) return@runCatching target
+
+        val temporary = File.createTempFile(".$stem-", ".tmp", directory)
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(bytes)
+                output.fd.sync()
+            }
+            if (!temporary.renameTo(target) && !target.isFile) {
+                error("Could not atomically publish contact photo")
+            }
+            target
+        } finally {
+            temporary.delete()
+        }
     }.getOrNull()
+}
+
+/** Deletes superseded versioned files and the pre-v3 fixed-path file. */
+internal fun cleanupContactPhotos(directory: File, stem: String, keep: File?) {
+    val keepPath = keep?.absolutePath
+    directory.listFiles()?.forEach { candidate ->
+        val owned = candidate.name == "$stem.img" ||
+            (candidate.name.startsWith("$stem-") && candidate.name.endsWith(".img"))
+        if (owned && candidate.absolutePath != keepPath) candidate.delete()
+    }
 }
 
 internal data class ParsedVCard(
@@ -76,6 +128,7 @@ internal data class ParsedVCard(
     val photoUri: String? = null,
     val nickname: String? = null,
     val company: String? = null,
+    val photoDeclared: Boolean = photo != null || photoUri != null,
 )
 
 /** Minimal vCard 3/4 parser for the fields used by handle resolution. */
@@ -87,6 +140,7 @@ internal object ICloudVCardParser {
         var lastName: String? = null
         var photo: ByteArray? = null
         var photoUri: String? = null
+        var photoDeclared = false
         var nickname: String? = null
         var company: String? = null
         val addresses = LinkedHashSet<String>()
@@ -124,6 +178,7 @@ internal object ICloudVCardParser {
                     .takeIf(String::isNotEmpty)
                     ?.let(addresses::add)
                 "PHOTO" -> {
+                    photoDeclared = true
                     val value = raw.trim().trim('"', '\'')
                     when {
                         value.startsWith("data:", ignoreCase = true) ->
@@ -154,6 +209,7 @@ internal object ICloudVCardParser {
             photoUri = photoUri,
             nickname = nickname,
             company = company,
+            photoDeclared = photoDeclared,
         )
     }
 
@@ -609,34 +665,60 @@ object ICloudContactSync {
                         (knownBefore - deletedIds + upsertIds).toSet()
                     }
 
-                    val raw = result.cards.mapNotNull { (href, vcard) ->
+                    val rawWithHref = result.cards.mapNotNull { (href, vcard) ->
                         val parsed = ICloudVCardParser.parse(vcard)
                         if (parsed.addresses.isEmpty()) return@mapNotNull null
-                        val photo = resolveContactPhoto(parsed) { uri ->
-                            val resolved = runCatching { href.resolve(uri) }.getOrNull() ?: return@resolveContactPhoto null
-                            if (resolved.scheme != "https" || !isAppleICloudHost(resolved.host)) return@resolveContactPhoto null
-                            val bytes = client.downloadPhoto(resolved)
-                            if (bytes == null) {
-                                Log.w("ICloudContactSync", "contact photo download failed: $resolved")
-                            }
-                            bytes
-                        }
-                        RawContact(
+                        val avatarUpdate = cardDavAvatarUpdate(
+                            parsed = parsed,
+                            download = { uri ->
+                                val resolved = runCatching { href.resolve(uri) }.getOrNull()
+                                if (resolved == null ||
+                                    resolved.scheme != "https" ||
+                                    !isAppleICloudHost(resolved.host)
+                                ) {
+                                    null
+                                } else {
+                                    client.downloadPhoto(resolved).also { bytes ->
+                                        if (bytes == null) {
+                                            Log.w(
+                                                "ICloudContactSync",
+                                                "contact photo download failed: $resolved",
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            persist = { bytes ->
+                                savePhoto(context, href.toString(), bytes)
+                            },
+                        )
+                        href.toString() to RawContact(
                             id = contactId(href.toString()),
                             displayName = parsed.displayName,
                             firstName = parsed.firstName,
                             lastName = parsed.lastName,
-                            avatarPath = savePhoto(context, href.toString(), photo),
+                            avatarUpdate = avatarUpdate,
                             addresses = parsed.addresses,
                             nickname = parsed.nickname,
                             company = parsed.company,
                         )
                     }
+                    val raw = rawWithHref.map { it.second }
                     val noLongerUsable = upsertIds - raw.mapTo(HashSet()) { it.id.removePrefix("icloud:") }
                     val toRemove = (if (result.reset) knownBefore - knownAfter else deletedIds) + noLongerUsable
 
-                    CoreGraph.syncContacts(raw)
+                    check(CoreGraph.syncContacts(raw)) {
+                        "Contact persistence unavailable during CardDAV sync"
+                    }
+                    rawWithHref.forEach { (href, contact) ->
+                        when (val avatar = contact.avatarUpdate) {
+                            AvatarUpdate.Keep -> {}
+                            AvatarUpdate.Clear -> cleanupPhotos(context, href, keep = null)
+                            is AvatarUpdate.Set -> cleanupPhotos(context, href, keep = File(avatar.path))
+                        }
+                    }
                     val removedNow = CoreGraph.removeContacts(toRemove.map(::contactId))
+                    toRemove.forEach { href -> cleanupPhotos(context, href, keep = null) }
                     imported += raw.size
                     removed += removedNow
 
@@ -683,13 +765,18 @@ object ICloudContactSync {
         }
     }
 
-    private fun savePhoto(context: Context, href: String, bytes: ByteArray?): String? {
-        val directory = File(context.filesDir, "icloud_contact_avatars").apply { mkdirs() }
-        val name = MessageDigest.getInstance("SHA-256")
-            .digest(href.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        return writeContactPhoto(directory, name, bytes)?.absolutePath
-    }
+    private fun savePhoto(context: Context, href: String, bytes: ByteArray): File? =
+        writeContactPhoto(photoDirectory(context), photoStem(href), bytes)
+
+    private fun cleanupPhotos(context: Context, href: String, keep: File?) =
+        cleanupContactPhotos(photoDirectory(context), photoStem(href), keep)
+
+    private fun photoDirectory(context: Context) =
+        File(context.filesDir, "icloud_contact_avatars").apply { mkdirs() }
+
+    private fun photoStem(href: String) = MessageDigest.getInstance("SHA-256")
+        .digest(href.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 
     private fun contactId(href: String) = "icloud:$href"
     private fun prefSuffix(url: URI) = sha256(url.toString()).take(24)

@@ -1,10 +1,15 @@
 package app.openbubbles.nativeapp.data
 
 import java.nio.file.Files
-import org.junit.Test
+import kotlin.coroutines.Continuation
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.Test
+import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UProgressCallback
 
 class OutgoingAttachmentFilesTest {
     @Test
@@ -25,5 +30,18 @@ class OutgoingAttachmentFilesTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `iMessage attachment sends avoid the foreign progress callback`() {
+        assertNull(attachmentSendProgressCallback())
+    }
+
+    @Test
+    fun `iMessage attachment send binding remains suspending`() {
+        val method = NativePushState::class.java.methods.single { it.name == "sendAttachments" }
+
+        assertEquals(UProgressCallback::class.java, method.parameterTypes[method.parameterCount - 2])
+        assertEquals(Continuation::class.java, method.parameterTypes.last())
     }
 }

@@ -1,8 +1,13 @@
 package app.openbubbles.nativeapp.data
 
+import app.openbubbles.core.contacts.AvatarUpdate
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class ICloudContactsTest {
 
@@ -139,6 +144,41 @@ class ICloudContactsTest {
     }
 
     @Test
+    fun `complete CardDAV photo absence clears while download failure preserves`() {
+        val noPhoto = ParsedVCard("A", "A", null, listOf("a@example.com"), null)
+        assertIs<AvatarUpdate.Clear>(
+            cardDavAvatarUpdate(noPhoto, download = { error("no URI") }, persist = { error("no bytes") }),
+        )
+
+        val remote = ParsedVCard(
+            "B",
+            "B",
+            null,
+            listOf("b@example.com"),
+            photo = null,
+            photoUri = "https://p01-contacts.icloud.com/photo",
+        )
+        assertIs<AvatarUpdate.Keep>(
+            cardDavAvatarUpdate(remote, download = { null }, persist = { error("download failed") }),
+        )
+
+        val malformed = ICloudVCardParser.parse(
+            """
+                BEGIN:VCARD
+                VERSION:3.0
+                FN:Malformed Photo
+                EMAIL:broken@example.com
+                PHOTO;ENCODING=BASE64:not-base64
+                END:VCARD
+            """.trimIndent(),
+        )
+        assertTrue(malformed.photoDeclared)
+        assertIs<AvatarUpdate.Keep>(
+            cardDavAvatarUpdate(malformed, download = { error("no URI") }, persist = { error("no bytes") }),
+        )
+    }
+
+    @Test
     fun `stale photo cache version forces a full CardDAV recrawl`() {
         assertEquals(
             null to null,
@@ -158,6 +198,32 @@ class ICloudContactsTest {
             assertEquals(jpeg.toList(), writeContactPhoto(directory, "ok", jpeg)?.readBytes()?.toList())
             assertEquals(null, writeContactPhoto(directory, "html", "<html>nope</html>".toByteArray()))
             assertEquals(null, writeContactPhoto(directory, "empty", null))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `changed photo bytes get a new path and old versions clean up`() {
+        val directory = java.nio.file.Files.createTempDirectory("ob-contact-photo-version").toFile()
+        try {
+            val firstBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(12) { 1 }
+            val secondBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(12) { 2 }
+            val first = writeContactPhoto(directory, "card", firstBytes)!!
+            val second = writeContactPhoto(directory, "card", secondBytes)!!
+            val legacy = java.io.File(directory, "card.img").apply { writeBytes(firstBytes) }
+
+            assertNotEquals(first.absolutePath, second.absolutePath)
+            assertEquals(first.length(), second.length())
+            assertTrue(first.isFile)
+            assertTrue(second.isFile)
+            assertTrue(legacy.isFile)
+
+            cleanupContactPhotos(directory, "card", keep = second)
+
+            assertFalse(first.exists())
+            assertTrue(second.isFile)
+            assertFalse(legacy.exists())
         } finally {
             directory.deleteRecursively()
         }

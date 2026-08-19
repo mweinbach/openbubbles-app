@@ -11,16 +11,21 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
@@ -67,8 +72,15 @@ class SearchViewModelTest {
         private val messages: List<MessageItem> = emptyList(),
         private val links: List<MessageItem> = emptyList(),
         private val people: List<RawContact> = emptyList(),
+        private val messageSearch: (suspend (String) -> List<MessageItem>)? = null,
     ) : SearchRepository {
-        override suspend fun searchMessages(query: String, limit: Int) = messages
+        val messageQueries = mutableListOf<String>()
+
+        override suspend fun searchMessages(query: String, limit: Int): List<MessageItem> {
+            messageQueries += query
+            return messageSearch?.invoke(query) ?: messages
+        }
+
         override suspend fun searchLinks(query: String, limit: Int) = links
         override suspend fun contacts() = people
     }
@@ -107,6 +119,116 @@ class SearchViewModelTest {
         val state = model.uiState.value
         assertTrue(state.chats.isEmpty())
         assertTrue(state.messages.isEmpty())
+    }
+
+    @Test
+    fun `query debounce exposes searching until the settled result completes`() = runTest(dispatcher) {
+        val search = FakeSearch(messages = listOf(message(1, "coffee", 7)))
+        val model = SearchViewModel(search, FakeChats(listOf(coffeeChat)))
+        backgroundScope.launch { model.uiState.collect() }
+        runCurrent()
+
+        model.onQueryChange("coffee")
+        runCurrent()
+
+        assertTrue(model.uiState.value.searching)
+        assertFalse(model.uiState.value.hasResults)
+        assertTrue(search.messageQueries.isEmpty())
+
+        advanceTimeBy(249)
+        runCurrent()
+        assertTrue(search.messageQueries.isEmpty())
+        assertTrue(model.uiState.value.searching)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf("coffee"), search.messageQueries)
+        assertFalse(model.uiState.value.searching)
+        assertEquals(listOf("g1"), model.uiState.value.messages.map { it.guid })
+    }
+
+    @Test
+    fun `rapid query replacement never exposes results from the previous query`() = runTest(dispatcher) {
+        val requests = mutableMapOf<String, CompletableDeferred<List<MessageItem>>>()
+        val search = FakeSearch(
+            messageSearch = { query ->
+                CompletableDeferred<List<MessageItem>>().also { requests[query] = it }.await()
+            },
+        )
+        val model = SearchViewModel(search, FakeChats(listOf(coffeeChat, hikeChat)))
+        backgroundScope.launch { model.uiState.collect() }
+        runCurrent()
+
+        model.onQueryChange("coffee")
+        advanceTimeBy(250)
+        runCurrent()
+        assertTrue(model.uiState.value.searching)
+        assertEquals(setOf("coffee"), requests.keys)
+
+        model.onQueryChange("hike")
+        runCurrent()
+        requests.getValue("coffee").complete(listOf(message(1, "coffee", 7)))
+        runCurrent()
+
+        assertEquals("hike", model.uiState.value.query)
+        assertTrue(model.uiState.value.searching)
+        assertFalse(model.uiState.value.hasResults)
+
+        advanceTimeBy(250)
+        runCurrent()
+        requests.getValue("hike").complete(listOf(message(2, "hike", 8)))
+        runCurrent()
+
+        assertFalse(model.uiState.value.searching)
+        assertEquals(listOf("g2"), model.uiState.value.messages.map { it.guid })
+        assertEquals(listOf("Weekend hike"), model.uiState.value.chats.map { it.title })
+    }
+
+    @Test
+    fun `failed search exposes an error instead of a false empty result`() = runTest(dispatcher) {
+        val search = FakeSearch(
+            messageSearch = { throw IllegalStateException("search unavailable") },
+        )
+        val model = SearchViewModel(search, FakeChats(listOf(coffeeChat)))
+        backgroundScope.launch { model.uiState.collect() }
+        runCurrent()
+
+        model.onQueryChange("missing")
+        advanceTimeBy(250)
+        runCurrent()
+
+        assertEquals(listOf("missing"), search.messageQueries)
+        assertFalse(model.uiState.value.searching)
+        assertFalse(model.uiState.value.hasResults)
+        assertEquals("search unavailable", model.uiState.value.error)
+    }
+
+    @Test
+    fun `avatar generation refreshes query tagged contact results`() = runTest(dispatcher) {
+        val generation = MutableStateFlow(0)
+        val search = FakeSearch(
+            people = listOf(
+                RawContact(
+                    id = "p1",
+                    displayName = "Coffee Person",
+                    firstName = null,
+                    lastName = null,
+                    avatarPath = "/avatars/old.img",
+                    addresses = listOf("coffee@example.com"),
+                ),
+            ),
+        )
+        val model = SearchViewModel(search, FakeChats(emptyList()), generation)
+        backgroundScope.launch { model.uiState.collect() }
+        model.onQueryChange("coffee")
+        advanceUntilIdle()
+
+        assertEquals(listOf("coffee"), search.messageQueries)
+        generation.value = 1
+        advanceUntilIdle()
+
+        assertEquals(listOf("coffee", "coffee"), search.messageQueries)
+        assertFalse(model.uiState.value.searching)
     }
 
     @Test

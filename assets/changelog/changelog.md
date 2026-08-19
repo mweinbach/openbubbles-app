@@ -2,6 +2,19 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.1
+
+### Fixes
+
+- Sending photo attachments no longer uses the native progress callback linked
+  to crashes, while uploads remain asynchronous and show reliable loading state.
+- Contact photos now update and clear correctly across Android Contacts and
+  iCloud, including changes that keep the same provider URI.
+- Message notification actions no longer collide between conversations, and
+  durable journal recovery no longer loses eligible alerts after process death.
+- Search and Shared Albums no longer show stale results or clear loading state
+  while newer work is still running.
+
 ## v3.4.0
 
 ### Enhancements

@@ -81,10 +81,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.DeviceContactsReadResult
+import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.sms.SmsPermissions
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -148,12 +152,34 @@ fun NewChatScreen(
         contactsPermission = granted
     }
 
-    val contacts by produceState<List<RawContact>?>(initialValue = null, contactsPermission) {
-        val nativeContacts = if (contactsPermission) DeviceContacts.read(context) else emptyList()
-        value = withContext(Dispatchers.IO) {
-            if (nativeContacts.isNotEmpty()) {
-                runCatching { CoreGraph.syncContacts(nativeContacts) }
+    val deviceContactsResult by produceState<DeviceContactsReadResult?>(
+        initialValue = null,
+        contactsPermission,
+    ) {
+        val readResult = if (contactsPermission) {
+            DeviceContacts.read(context)
+        } else {
+            DeviceContactsReadResult.PermissionDenied
+        }
+        withContext(Dispatchers.IO) {
+            readResult.applySuccessfulSnapshot { snapshot ->
+                CoreGraph.syncDeviceContacts(snapshot)
             }
+        }
+        value = readResult
+    }
+    val avatarGeneration by UiContacts.avatarGeneration.collectAsStateWithLifecycle()
+    val contacts by produceState<List<RawContact>?>(
+        initialValue = null,
+        contactsPermission,
+        deviceContactsResult,
+        avatarGeneration,
+    ) {
+        val nativeContacts = (deviceContactsResult as? DeviceContactsReadResult.Success)
+            ?.snapshot
+            ?.contacts
+            .orEmpty()
+        value = withContext(Dispatchers.IO) {
             CoreGraph.preferredContacts(includeNativeContacts = contactsPermission)
                 .ifEmpty { nativeContacts }
         }
