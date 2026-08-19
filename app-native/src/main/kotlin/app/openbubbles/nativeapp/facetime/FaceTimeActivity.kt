@@ -198,6 +198,7 @@ class FaceTimeActivity : Activity() {
 
     private fun answerCall() {
         answered = true
+        callUuid?.let { FaceTimeCallBridge.onCallEvent(this, it, FtCallEvent.LOCAL_ANSWER) }
 
         handlePermissionRequests()
 

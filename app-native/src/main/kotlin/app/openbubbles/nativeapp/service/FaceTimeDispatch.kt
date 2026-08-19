@@ -4,7 +4,8 @@ import android.content.Context
 import android.util.Log
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.PushStateHolder
-import app.openbubbles.nativeapp.facetime.CreateIncomingFaceTimeNotification
+import app.openbubbles.nativeapp.facetime.FaceTimeCallBridge
+import app.openbubbles.nativeapp.facetime.FtCallEvent
 import app.openbubbles.nativeapp.facetime.FtIncomingCall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,13 +49,21 @@ object FaceTimeDispatch {
             is UFtMessage.AddMembers -> if (ft.ring) onRing(context, ft.guid)
             is UFtMessage.JoinEvent -> {
                 if (ft.ring) onRing(context, ft.guid)
+                FaceTimeCallBridge.onCallEvent(context, ft.guid, FtCallEvent.CONNECTED)
                 app.openbubbles.nativeapp.facetime.FaceTimeActivity.activeFaceTimeActivity
                     ?.takeIf { it.callUuid == ft.guid }
                     ?.markConnected()
             }
-            is UFtMessage.Decline -> cancelRinging(context, ft.guid)
-            is UFtMessage.RespondedElsewhere -> cancelRinging(context, ft.guid)
+            is UFtMessage.Decline -> {
+                FaceTimeCallBridge.onCallEvent(context, ft.guid, FtCallEvent.REMOTE_DECLINED)
+                cancelRinging(context, ft.guid)
+            }
+            is UFtMessage.RespondedElsewhere -> {
+                FaceTimeCallBridge.onCallEvent(context, ft.guid, FtCallEvent.ANSWERED_ELSEWHERE)
+                cancelRinging(context, ft.guid)
+            }
             is UFtMessage.LeaveEvent -> {
+                FaceTimeCallBridge.onCallEvent(context, ft.guid, FtCallEvent.REMOTE_HUNG_UP)
                 // A participant left; if it was the active call, end the UI.
                 app.openbubbles.nativeapp.facetime.FaceTimeActivity.activeFaceTimeActivity
                     ?.takeIf { it.callUuid == ft.guid }
@@ -99,8 +108,9 @@ object FaceTimeDispatch {
             runCatching {
                 val sessions = state.ftSessions()
                 val session = sessions.firstOrNull { it.groupId == guid }
-                val callerName = session?.members
+                val remoteMembers = session?.members
                     ?.filter { it.handle !in session.myHandles }
+                val callerName = remoteMembers
                     ?.joinToString(" & ") { member ->
                         member.nickname ?: MessageMapper.normalizeAddress(member.handle)
                     }
@@ -114,7 +124,7 @@ object FaceTimeDispatch {
                 val link = state.getFtLink("nextincomingcall")
                 state.rotateIncomingLinks()
                 ringingCallGuid = guid
-                CreateIncomingFaceTimeNotification.create(
+                FaceTimeCallBridge.onIncomingRing(
                     context,
                     FtIncomingCall(
                         notificationId = guid.hashCode(),
@@ -125,6 +135,7 @@ object FaceTimeDispatch {
                         poster = null,
                         callerName = callerName,
                         callerAvatar = null,
+                        callerHandle = remoteMembers?.firstOrNull()?.handle,
                     ),
                 )
             }.onFailure { Log.w(TAG, "ring handling failed", it) }.isSuccess
