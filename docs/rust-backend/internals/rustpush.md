@@ -81,12 +81,7 @@ on real macOS `AOSKitAnisetteProvider` wins. `rust/` pins
 
 ## open-absinthe (on-device validation)
 
-`rustpush/open-absinthe/` is a source-recovered reimplementation of Apple's
-FairPlay/"absinthe" validation engine — the thing that proves the spoofed Mac is real
-to IDS without an official native library. `nac.rs` exposes `HardwareConfig`
-(`from_validation_data` parses the 517-byte `0x02` envelope), `ValidationCtx::new`
-(certificate chain + session-info request), `key_establishment`, and `sign()`. The
-signing proof runs on a recovered architecture-neutral p-code circuit
-(`proof_vm.rs`); Android debug builds differentially compare against a pinned
-official `.so` oracle. To touch validation logic, read `RECOVERY.md` in that crate
-first and keep the differential comparison green.
+`rustpush/open-absinthe/` is a nested submodule: the source-recovered Apple
+FairPlay/"absinthe" validation engine that produces the proof Apple accepts for the
+spoofed Mac identity. Full details — module map, API, differential oracle, recovery
+rules — are in [open-absinthe.md](open-absinthe.md).

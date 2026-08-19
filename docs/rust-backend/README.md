@@ -25,7 +25,9 @@ compile but are dead surface ([FRB legacy](#frb-legacy)).
 | [account/keystore.md](account/keystore.md) | Keystore backends, import wrapping, key-alias registry |
 | [icloud/history-sync.md](icloud/history-sync.md) | Messages-in-iCloud pull/push, cursors, clique join |
 | [icloud/services.md](icloud/services.md) | Passwords, Shared Albums, Find My, FaceTime, StatusKit, profiles |
-| [internals/rustpush.md](internals/rustpush.md) | rustpush protocol internals + open-absinthe validation |
+| [internals/rustpush.md](internals/rustpush.md) | rustpush protocol internals |
+| [internals/apple-private-apis.md](internals/apple-private-apis.md) | Vendored GSA/anisette crates + clearadi stub, feature-selected providers |
+| [internals/open-absinthe.md](internals/open-absinthe.md) | On-device validation engine: module map, API, differential oracle |
 | [changes.md](changes.md) | Change recipes by kind + invariant checklist — read before editing |
 
 ## Layer map
@@ -69,8 +71,9 @@ app-native / desktopApp        Compose UI, services, Android Keystore impl
 | `src/util.rs` | `ResourceManager`/`Resource` (the retry/backoff wrapper under APS + IDS), NSKeyedArchive coder helpers, `CompactECKey`, misc |
 | `src/activation.rs`, `src/macos.rs`, `src/relay.rs` | Albert activation (push cert CSR + FairPlay), `MacOSConfig`/`HardwareConfig` + on-device validation data, hosted `RelayConfig` |
 | `keystore/` | `Keystore` trait, `BackupKeystore` (hardware-backed + state file), `SoftwareKeystore` (desktop) |
-| `open-absinthe/` | Source-built Apple validation ("absinthe") circuit — constructor, key establishment, signing; loaded via `open_absinthe::nac` |
-| `apple-private-apis/` | Vendored `icloud-auth` (GSA/SRP), `omnisette` (anisette providers), `cloudkit-proto`, `cloudkit-derive` |
+| `cloudkit-proto/`, `cloudkit-derive/` | rustpush's own path crates: CloudKit protobuf definitions and the `CloudKitRecord` derive macro |
+| `open-absinthe/` | Nested submodule: source-built Apple validation engine (see [open-absinthe](internals/open-absinthe.md)) |
+| `apple-private-apis/` | Nested submodule: vendored `icloud-auth` (GSA/SRP), `omnisette` (anisette providers), `clearadi` stub (see [apple-private-apis](internals/apple-private-apis.md)) |
 
 `rustpush` types never cross the FFI boundary directly (they cannot derive UniFFI traits).
 Everything Kotlin sees is a `U*` record/enum from `uniffi_ext.rs`, or an opaque XML/plist
