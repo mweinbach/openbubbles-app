@@ -51,6 +51,14 @@ class AttachmentMediaTest {
     }
 
     @Test
+    fun `vcard is recognized by mime uti and extension`() {
+        assertTrue(AttachmentMedia.isVCard("text/vcard", null, null))
+        assertTrue(AttachmentMedia.isVCard("text/x-vcard", "public.vcard", null))
+        assertTrue(AttachmentMedia.isVCard("application/octet-stream", null, "Ada.vcf"))
+        assertFalse(AttachmentMedia.isVCard("image/jpeg", null, "photo.jpg"))
+    }
+
+    @Test
     fun `unknown files stay generic`() {
         assertEquals(AttachmentMediaKind.FILE, AttachmentMedia.kind(null, "public.data", "notes.txt"))
         assertEquals(AttachmentMediaKind.FILE, AttachmentMedia.kind("application/zip", null, "bundle.zip"))

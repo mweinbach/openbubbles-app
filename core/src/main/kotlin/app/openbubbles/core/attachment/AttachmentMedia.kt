@@ -33,6 +33,15 @@ object AttachmentMedia {
     fun isPdf(mime: String?, uti: String?, name: String?): Boolean =
         kind(mime, uti, name) == AttachmentMediaKind.PDF
 
+    fun isVCard(mime: String?, uti: String?, name: String?): Boolean {
+        val normalized = mime?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        if (normalized.contains("vcard")) return true
+        val type = uti?.trim()?.lowercase().orEmpty()
+        if (type.contains("vcard")) return true
+        val ext = name?.substringAfterLast('.')?.lowercase()
+        return ext == "vcf" || ext == "vcard"
+    }
+
     /** Types the transcript can preview or play once the file is on disk. */
     fun isInlinePreviewable(mime: String?, uti: String?, name: String?): Boolean =
         when (kind(mime, uti, name)) {

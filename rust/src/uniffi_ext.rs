@@ -51,10 +51,12 @@ use crate::RUNTIME;
 use prost::Message as ProstMessage;
 // All message-model types are re-exported at the rustpush crate root.
 use rustpush::{
-    ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, IconChangeMessage, LinkMeta,
+    Balloon, ChangeParticipantMessage, ConversationData, EditMessage, ErrorMessage, ExtensionApp,
+    IconChangeMessage, LinkMeta,
     IndexedMessagePart, Message, MessageInst, MessagePart, MessageParts, MessageType,
     MoveToRecycleBinMessage, NormalMessage, OperatedChat, PartExtension, PermanentDeleteMessage,
-    ReactMessage, ReactMessageType, Reaction, RenameMessage, ReportMessage, SetTranscriptBackgroundMessage,
+    ReactMessage, ReactMessageType, Reaction, RenameMessage, ReportMessage, ScheduleMode,
+    SetTranscriptBackgroundMessage,
     ShareProfileMessage, UnsendMessage, UpdateExtensionMessage, UpdateProfileMessage,
     UpdateProfileSharingMessage,
 };
@@ -538,6 +540,74 @@ impl NativePushState {
             normal.reply_part = reply_part;
             normal.effect = effect;
             normal.subject = subject;
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
+    }
+
+    /// Same as `send_text`, with Apple scheduled-send metadata.
+    pub async fn send_scheduled_text(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        text: String,
+        reply_guid: Option<String>,
+        reply_part: Option<String>,
+        effect: Option<String>,
+        subject: Option<String>,
+        scheduled_ms: u64,
+    ) -> Result<UMessageInst, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut normal = NormalMessage::new(text, MessageType::IMessage);
+            normal.reply_guid = reply_guid;
+            normal.reply_part = reply_part;
+            normal.effect = effect;
+            normal.subject = subject;
+            normal.scheduled = Some(ScheduleMode { ms: scheduled_ms, schedule: true });
+            let inst = api::new_msg(
+                back_conversation(conversation),
+                sender,
+                Message::Message(normal),
+            ).await;
+            send_inst_on(&state, inst).await
+        }).await
+    }
+
+    /// Sends an iMessage app balloon (polls, Find My live location).
+    pub async fn send_app(
+        &self,
+        conversation: UConversation,
+        sender: String,
+        bundle_id: String,
+        app_name: String,
+        url: String,
+        session: Option<String>,
+        ld_text: Option<String>,
+    ) -> Result<UMessageInst, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let mut normal = NormalMessage::new(
+                ld_text.clone().unwrap_or_default(),
+                MessageType::IMessage,
+            );
+            normal.app = Some(ExtensionApp {
+                name: app_name,
+                app_id: None,
+                bundle_id,
+                balloon: Some(Balloon {
+                    url,
+                    session,
+                    layout: None,
+                    ld_text,
+                    is_live: false,
+                    icon: None,
+                }),
+            });
             let inst = api::new_msg(
                 back_conversation(conversation),
                 sender,

@@ -1535,6 +1535,10 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1782,6 +1786,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_reveal_password(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_app(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments(
@@ -1793,6 +1799,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_profile(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_reaction(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_scheduled_text(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms(
 ): Short
@@ -2234,6 +2242,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_reveal_password(`ptr`:
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_app(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`bundleId`: RustBuffer.ByValue,`appName`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,`session`: RustBuffer.ByValue,`ldText`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePaths`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mimes`: RustBuffer.ByValue,`utis`: RustBuffer.ByValue,`names`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,
@@ -2245,6 +2255,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_profile(`ptr`: Po
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_reaction(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`toPart`: RustBuffer.ByValue,`reactionIdx`: Long,`emoji`: RustBuffer.ByValue,`toText`: RustBuffer.ByValue,`enable`: Byte,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_read(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`messageGuid`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_scheduled_text(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`scheduledMs`: Long,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_sms(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`usingNumber`: RustBuffer.ByValue,`fromHandle`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -2973,6 +2985,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rotate_incoming_links() != 710.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_app() != 38725.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 61754.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2989,6 +3004,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_read() != 7255.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_scheduled_text() != 10440.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_sms() != 26102.toShort()) {
@@ -6531,6 +6549,11 @@ public interface NativePushStateInterface {
     fun `rotateIncomingLinks`()
 
     /**
+     * Sends an iMessage app balloon (polls, Find My live location).
+     */
+    suspend fun `sendApp`(`conversation`: UConversation, `sender`: kotlin.String, `bundleId`: kotlin.String, `appName`: kotlin.String, `url`: kotlin.String, `session`: kotlin.String?, `ldText`: kotlin.String?): UMessageInst
+
+    /**
      * Upload a local file and send it as an attachment message in one call
      * (the Dart `sendAttachment` flow). `text` is an optional caption part
      * sent before the attachment. Returns the staged MessageInst; `id` is
@@ -6565,6 +6588,11 @@ public interface NativePushStateInterface {
     suspend fun `sendReaction`(`conversation`: UConversation, `sender`: kotlin.String, `toUuid`: kotlin.String, `toPart`: kotlin.ULong?, `reactionIdx`: kotlin.ULong, `emoji`: kotlin.String?, `toText`: kotlin.String, `enable`: kotlin.Boolean): UMessageInst
 
     suspend fun `sendRead`(`conversation`: UConversation, `sender`: kotlin.String, `messageGuid`: kotlin.String)
+
+    /**
+     * Same as `send_text`, with Apple scheduled-send metadata.
+     */
+    suspend fun `sendScheduledText`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `scheduledMs`: kotlin.ULong): UMessageInst
 
     /**
      * Send a text over the SMS relay (`MessageType::SMS`). `using_number`
@@ -7999,6 +8027,30 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
     /**
+     * Sends an iMessage app balloon (polls, Find My live location).
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `sendApp`(`conversation`: UConversation, `sender`: kotlin.String, `bundleId`: kotlin.String, `appName`: kotlin.String, `url`: kotlin.String, `session`: kotlin.String?, `ldText`: kotlin.String?) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_app(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`bundleId`),FfiConverterString.lower(`appName`),FfiConverterString.lower(`url`),FfiConverterOptionalString.lower(`session`),FfiConverterOptionalString.lower(`ldText`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
      * Upload a local file and send it as an attachment message in one call
      * (the Dart `sendAttachment` flow). `text` is an optional caption part
      * sent before the attachment. Returns the staged MessageInst; `id` is
@@ -8143,6 +8195,30 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         // lift function
         { Unit },
 
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
+     * Same as `send_text`, with Apple scheduled-send metadata.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `sendScheduledText`(`conversation`: UConversation, `sender`: kotlin.String, `text`: kotlin.String, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `scheduledMs`: kotlin.ULong) : UMessageInst {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_scheduled_text(
+                thisPtr,
+                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterString.lower(`text`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterULong.lower(`scheduledMs`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageInst.lift(it) },
         // Error FFI converter
         UException.ErrorHandler,
     )
