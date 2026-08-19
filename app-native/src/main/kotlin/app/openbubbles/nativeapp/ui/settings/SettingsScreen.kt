@@ -28,12 +28,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
@@ -45,15 +42,11 @@ import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.DownloadForOffline
-import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Notifications
@@ -63,14 +56,11 @@ import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -120,20 +110,14 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AppearancePrefs
-import app.openbubbles.nativeapp.data.AutoDownloadLimit
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.HistorySyncPreferences
 import app.openbubbles.nativeapp.data.HistorySyncWindow
 import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
-import app.openbubbles.nativeapp.data.MessagingPrefs
-import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.ProfilePrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.ThemeMode
@@ -141,9 +125,6 @@ import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.CircleProximityAdvertiser
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.data.unlockICloudKeychain
-import app.openbubbles.nativeapp.facetime.fullScreenCallSettingsIntent
-import app.openbubbles.nativeapp.facetime.shouldOfferFullScreenCallSettings
-import app.openbubbles.nativeapp.sms.SmsRole
 import app.openbubbles.nativeapp.update.UpdateCoordinator
 import app.openbubbles.nativeapp.update.UpdateDecision
 import app.openbubbles.nativeapp.update.UpdateSettings
@@ -178,9 +159,21 @@ private data class ConnectionInfo(
 
 private const val NATIVE_SETUP_PREFS = "native_setup"
 private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
-private const val SHARED_FOCUS_GUID = "0f58d6c8-0d40-4b40-9d48-e4ac18e38155"
 
-private enum class SettingsSection(
+/**
+ * One extracted settings area: `groups` emits its preference groups into the
+ * settings column (honoring the two-pane section filter), `dialogs` mounts
+ * its dialogs unconditionally at screen level. Both close over state owned
+ * by the section's `remember*Section` composable, which the screen calls
+ * unconditionally so state and running work survive rail-section switches
+ * and pane-layout changes.
+ */
+internal class SettingsSectionSlice(
+    val groups: @Composable (filter: SettingsSection?, showTitles: Boolean) -> Unit,
+    val dialogs: @Composable () -> Unit,
+)
+
+internal enum class SettingsSection(
     val title: String,
     val supporting: String,
     val icon: ImageVector,
@@ -317,7 +310,6 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
-    val registeredHandles by PushStateHolder.myHandlesFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
     val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
     val accountConnection = accountConnectionUiState(
@@ -339,19 +331,10 @@ fun SettingsScreen(
             withContext(Dispatchers.IO) { runCatching { state.deviceInfo() }.getOrNull() }
         }
     }
-    val messagingPrefs = remember(context) { MessagingPrefs(context) }
     val profilePrefs = remember(context) { ProfilePrefs(context) }
     val historySyncPreferences = remember(context) { HistorySyncPreferences(context) }
-    var defaultSendingHandle by remember {
-        mutableStateOf(messagingPrefs.defaultSendingHandle)
-    }
-    var showDefaultSendingHandleDialog by remember { mutableStateOf(false) }
     var historySyncWindow by remember { mutableStateOf(historySyncPreferences.window) }
     var showHistorySyncLimitDialog by remember { mutableStateOf(false) }
-    var autoDownloadLimit by remember {
-        mutableStateOf(AutoDownloadLimit.fromPersistedValue(messagingPrefs.autoDownloadMaxBytes))
-    }
-    var showAutoDownloadDialog by remember { mutableStateOf(false) }
     val themeMode by AppearancePrefs.themeModeFlow.collectAsStateWithLifecycle()
     var showThemeModeDialog by rememberSaveable { mutableStateOf(false) }
     var showProfileDialog by rememberSaveable { mutableStateOf(false) }
@@ -422,14 +405,6 @@ fun SettingsScreen(
         val files = withContext(Dispatchers.IO) { diagnosticLogFiles(context) }
         logCount = files.size
         logBytes = files.sumOf(File::length)
-    }
-    val availableSendingHandles = remember(registeredHandles) {
-        registeredHandles.sortedWith(
-            compareBy<String>(
-                { if (it.startsWith("tel:")) 0 else 1 },
-                { sendingHandleLabel(it).lowercase() },
-            ),
-        )
     }
 
     val syncManager = CloudSyncWiring.manager
@@ -809,26 +784,12 @@ fun SettingsScreen(
         }
     }
 
-    var isDefaultSmsApp by remember { mutableStateOf(SmsRole.isHeld(context)) }
-    var offerFullScreenCalls by remember {
-        mutableStateOf(shouldOfferFullScreenCallSettings(context))
-    }
-    val smsRoleLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        isDefaultSmsApp = SmsRole.isHeld(context)
-    }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, context) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                isDefaultSmsApp = SmsRole.isHeld(context)
-                offerFullScreenCalls = shouldOfferFullScreenCallSettings(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    val messagingSection = rememberMessagingSection(
+        archivedCount = archivedCount,
+        recentlyDeletedCount = recentlyDeletedCount,
+        onOpenArchived = onOpenArchived,
+        onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+    )
 
     // ------------------------------------------------------------------
     // Backup / restore
@@ -1287,277 +1248,8 @@ fun SettingsScreen(
                 }
             }
 
-            if (filter == null || filter == SettingsSection.Power) SettingsGroup(
-                title = if (showTitles) "Power" else null,
-            ) {
-                val ctx = context
-                var batterySaver by remember {
-                    androidx.compose.runtime.mutableStateOf(
-                        app.openbubbles.nativeapp.service.BatterySaver.isEnabled(ctx))
-                }
-                SettingsToggleItem(
-                    title = "Battery saver",
-                    // Subtitle must not change with state — the switch carries
-                    // that. State-dependent copy reflows the row on toggle.
-                    supporting = "Check iCloud every 15 min instead of a live connection — messages may be delayed",
-                    checked = batterySaver,
-                    onCheckedChange = { enabled ->
-                        // Flip the switch now; stopService + WorkManager +
-                        // startForegroundService are binder work that stalls
-                        // the tap frame if run inline.
-                        batterySaver = enabled
-                        scope.launch(Dispatchers.IO) {
-                            app.openbubbles.nativeapp.service.BatterySaver.setEnabled(ctx, enabled)
-                        }
-                    },
-                    index = 0,
-                    count = 1,
-                    icon = Icons.Filled.BatterySaver,
-                )
-            }
+            messagingSection.groups(filter, showTitles)
 
-            if (filter == null || filter == SettingsSection.Notifications) SettingsGroup(
-                title = if (showTitles) "Notifications" else null,
-            ) {
-                val notifPrefs = remember { NotifPrefs(context) }
-                var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
-                var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
-                var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
-                val notifCount = if (offerFullScreenCalls) 4 else 3
-                SettingsToggleItem(
-                    title = "Hide message previews",
-                    supporting = "Show \"iMessage\" instead of message content on notifications",
-                    checked = hidePreviews,
-                    onCheckedChange = { enabled ->
-                        hidePreviews = enabled
-                        notifPrefs.hidePreviews = enabled
-                    },
-                    index = 0,
-                    count = notifCount,
-                    icon = Icons.Filled.VisibilityOff,
-                )
-                SettingsToggleItem(
-                    title = "Quick reply",
-                    supporting = "Show the Reply action on message notifications",
-                    checked = replyEnabled,
-                    onCheckedChange = { enabled ->
-                        replyEnabled = enabled
-                        notifPrefs.replyEnabled = enabled
-                    },
-                    index = 1,
-                    count = notifCount,
-                    icon = Icons.AutoMirrored.Filled.Reply,
-                )
-                SettingsToggleItem(
-                    title = "Reaction notifications",
-                    supporting = "Notify when someone reacts to a message",
-                    checked = notifyReactions,
-                    onCheckedChange = { enabled ->
-                        notifyReactions = enabled
-                        notifPrefs.notifyReactions = enabled
-                    },
-                    index = 2,
-                    count = notifCount,
-                    icon = Icons.Filled.EmojiEmotions,
-                )
-                if (offerFullScreenCalls) {
-                    SettingsActionItem(
-                        title = "Full-screen FaceTime alerts",
-                        supporting = "Android is blocking incoming calls from taking over the lock screen. Tap to allow them.",
-                        onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    fullScreenCallSettingsIntent(context.packageName),
-                                )
-                            }
-                        },
-                        index = 3,
-                        count = notifCount,
-                        multiline = true,
-                        icon = Icons.Filled.Videocam,
-                        iconTone = SettingsRowTone.Error,
-                    )
-                }
-            }
-
-            if (filter == null || filter == SettingsSection.Messaging) {
-            SettingsGroup(
-                title = if (showTitles) "Messaging" else null,
-            ) {
-                var sendReadReceipts by remember {
-                    mutableStateOf(messagingPrefs.sendReadReceipts)
-                }
-                var sendTypingIndicators by remember {
-                    mutableStateOf(messagingPrefs.sendTypingIndicators)
-                }
-                var showDeliveryTimestamps by remember {
-                    mutableStateOf(messagingPrefs.showDeliveryTimestamps)
-                }
-                var shareFocusStatus by remember {
-                    mutableStateOf(messagingPrefs.shareFocusStatus)
-                }
-                var sendSubjectLines by remember {
-                    mutableStateOf(messagingPrefs.sendSubjectLines)
-                }
-                val rows = buildList<SettingsRowContent> {
-                    add { index, count ->
-                        SettingsActionItem(
-                            title = "Default sending address",
-                            supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
-                            onClick = { showDefaultSendingHandleDialog = true },
-                            index = index,
-                            count = count,
-                            enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
-                            icon = Icons.AutoMirrored.Filled.Send,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsToggleItem(
-                            title = "Send read receipts",
-                            supporting = "Tell people in direct iMessage chats when you read their messages",
-                            checked = sendReadReceipts,
-                            onCheckedChange = { enabled ->
-                                sendReadReceipts = enabled
-                                messagingPrefs.sendReadReceipts = enabled
-                            },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.DoneAll,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsToggleItem(
-                            title = "Send typing indicators",
-                            supporting = "Show people in iMessage chats when you are typing",
-                            checked = sendTypingIndicators,
-                            onCheckedChange = { enabled ->
-                                sendTypingIndicators = enabled
-                                messagingPrefs.sendTypingIndicators = enabled
-                            },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Keyboard,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsToggleItem(
-                            title = "Delivery timestamps",
-                            supporting = "Show delivered and read times below outgoing messages",
-                            checked = showDeliveryTimestamps,
-                            onCheckedChange = { enabled ->
-                                showDeliveryTimestamps = enabled
-                                messagingPrefs.showDeliveryTimestamps = enabled
-                            },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.ManageHistory,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsToggleItem(
-                            title = "Share Focus",
-                            supporting = "Publish a silenced Focus status to iMessage contacts",
-                            checked = shareFocusStatus,
-                            onCheckedChange = { enabled ->
-                                shareFocusStatus = enabled
-                                messagingPrefs.shareFocusStatus = enabled
-                                scope.launch(Dispatchers.IO) {
-                                    runCatching {
-                                        pushState?.publishStatus(if (enabled) SHARED_FOCUS_GUID else null)
-                                    }.onFailure {
-                                        withContext(Dispatchers.Main) {
-                                            shareFocusStatus = !enabled
-                                            messagingPrefs.shareFocusStatus = !enabled
-                                        }
-                                    }
-                                }
-                            },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Notifications,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsToggleItem(
-                            title = "Show subject field",
-                            supporting = "Add an optional subject line above the message composer",
-                            checked = sendSubjectLines,
-                            onCheckedChange = { enabled ->
-                                sendSubjectLines = enabled
-                                messagingPrefs.sendSubjectLines = enabled
-                            },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.AlternateEmail,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsActionItem(
-                            title = "Auto-download media",
-                            supporting = autoDownloadLimit.title,
-                            onClick = { showAutoDownloadDialog = true },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.DownloadForOffline,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsActionItem(
-                            title = "Archived conversations",
-                            supporting = if (archivedCount == 0) {
-                                "None"
-                            } else {
-                                "$archivedCount archived"
-                            },
-                            onClick = onOpenArchived,
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Archive,
-                        )
-                    }
-                    add { index, count ->
-                        SettingsActionItem(
-                            title = "Recently Deleted",
-                            supporting = if (recentlyDeletedCount == 0) {
-                                "None"
-                            } else {
-                                "$recentlyDeletedCount recoverable"
-                            },
-                            onClick = onOpenRecentlyDeleted,
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Restore,
-                        )
-                    }
-                    // One row for the SMS role: the chip tone says whether it is
-                    // active, the tap opens the system role picker either way.
-                    add { index, count ->
-                        SettingsActionItem(
-                            title = "SMS & MMS",
-                            supporting = if (isDefaultSmsApp) {
-                                "On — incoming and outgoing SMS stay in this app and in Android's message store"
-                            } else {
-                                "Off — set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
-                            },
-                            onClick = {
-                                SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
-                            },
-                            index = index,
-                            count = count,
-                            multiline = true,
-                            icon = Icons.Filled.Sms,
-                            iconTone = if (isDefaultSmsApp) {
-                                SettingsRowTone.Active
-                            } else {
-                                SettingsRowTone.Neutral
-                            },
-                        )
-                    }
-                }
-                rows.forEachIndexed { index, row -> row(index, rows.size) }
-            }
-
-            }
             if (filter == null) SettingsGroup(
                 title = if (showTitles) "Location" else null,
             ) {
@@ -2085,105 +1777,7 @@ fun SettingsScreen(
         )
     }
 
-    if (showDefaultSendingHandleDialog) {
-        val optionCount = availableSendingHandles.size + 1
-        AlertDialog(
-            onDismissRequest = { showDefaultSendingHandleDialog = false },
-            title = { Text("Default sending address") },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        "Used for every conversation, including ones that started on " +
-                            "another address. Long-press a conversation to give it its " +
-                            "own send-from address instead.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SettingsGroup {
-                        SettingsChoiceItem(
-                            title = "Automatic",
-                            supporting = "Use the conversation address, then the first registered address",
-                            selected = defaultSendingHandle == null,
-                            onClick = {
-                                defaultSendingHandle = null
-                                messagingPrefs.defaultSendingHandle = null
-                                showDefaultSendingHandleDialog = false
-                            },
-                            index = 0,
-                            count = optionCount,
-                        )
-                        availableSendingHandles.forEachIndexed { index, handle ->
-                            SettingsChoiceItem(
-                                title = sendingHandleLabel(handle),
-                                supporting = sendingHandleType(handle),
-                                selected = defaultSendingHandle == handle,
-                                onClick = {
-                                    defaultSendingHandle = handle
-                                    messagingPrefs.defaultSendingHandle = handle
-                                    showDefaultSendingHandleDialog = false
-                                },
-                                index = index + 1,
-                                count = optionCount,
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showDefaultSendingHandleDialog = false }) {
-                    Text("Done")
-                }
-            },
-        )
-    }
-
-    if (showAutoDownloadDialog) {
-        AlertDialog(
-            onDismissRequest = { showAutoDownloadDialog = false },
-            title = { Text("Auto-download media") },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 480.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        "Incoming photos, videos, and voice memos up to the selected " +
-                            "size download on their own. Anything larger shows a " +
-                            "download button instead.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SettingsGroup {
-                        AutoDownloadLimit.entries.forEachIndexed { index, option ->
-                            SettingsChoiceItem(
-                                title = option.title,
-                                supporting = option.description,
-                                selected = autoDownloadLimit == option,
-                                onClick = {
-                                    autoDownloadLimit = option
-                                    messagingPrefs.autoDownloadMaxBytes = option.persistedValue
-                                },
-                                index = index,
-                                count = AutoDownloadLimit.entries.size,
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAutoDownloadDialog = false }) {
-                    Text("Done")
-                }
-            },
-        )
-    }
+    messagingSection.dialogs()
 
     if (showThemeModeDialog) {
         AlertDialog(
@@ -2483,8 +2077,6 @@ fun SettingsScreen(
     }
 }
 
-private fun sendingHandleLabel(handle: String): String = handle.substringAfter(':', handle)
-
 private fun diagnosticLogFiles(context: android.content.Context): List<File> =
     File(context.filesDir, "logs").listFiles()
         ?.filter { it.isFile }
@@ -2512,12 +2104,6 @@ private fun shareDiagnosticLogs(context: android.content.Context): Boolean = run
     context.startActivity(Intent.createChooser(intent, "Share OpenBubbles logs"))
     true
 }.getOrDefault(false)
-
-private fun sendingHandleType(handle: String): String = when {
-    handle.startsWith("tel:") -> "Phone number"
-    handle.startsWith("mailto:") -> "Email address"
-    else -> "Registered address"
-}
 
 private fun UViableBottle.displayName(): String = buildString {
     append(deviceName.ifBlank { "Trusted device" })
