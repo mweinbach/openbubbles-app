@@ -37,6 +37,7 @@ data class SharedAlbumsUiState(
     val albums: List<SharedAlbumUi> = emptyList(),
     val selected: SharedAlbumUi? = null,
     val assets: List<SharedAlbumAssetUi> = emptyList(),
+    val assetsLoading: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
 )
@@ -107,13 +108,13 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     private val activeOperations = mutableMapOf<Long, OperationKind>()
     private var nextOperationId = 0L
     private var latestAlbumsGeneration = 0L
-    private var latestErrorGeneration = 0L
     private var selectionGeneration = 0L
     private var selectionJob: Job? = null
 
     init { refresh(false) }
 
     fun refresh(remote: Boolean = true) {
+        if (activeOperations.values.any { it.refreshing }) return
         loadAlbums(
             kind = if (remote) OperationKind.Refresh else OperationKind.InitialLoad,
         ) {
@@ -122,6 +123,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun syncNow() {
+        if (activeOperations.values.any { it.refreshing || it.busy }) return
         loadAlbums(kind = OperationKind.Refresh) {
             port.syncNow()
             port.list(false)
@@ -129,12 +131,12 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun select(album: SharedAlbumUi?) {
+        if (activeOperations.values.any { it == OperationKind.Action }) return
         val generation = ++selectionGeneration
         selectionJob?.cancel()
         mutableState.update { it.copy(selected = album, assets = emptyList()) }
 
         if (album == null || album.invitation) {
-            invalidateError()
             return
         }
 
@@ -149,6 +151,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun accept(albumId: String) {
+        if (activeOperations.values.any { it.busy }) return
         loadAlbums(kind = OperationKind.Action, clearSelection = true) {
             port.accept(albumId)
             port.list(true)
@@ -156,6 +159,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun acceptToken(token: String) {
+        if (activeOperations.values.any { it.busy }) return
         loadAlbums(kind = OperationKind.Action) {
             port.acceptToken(token.trim())
             port.list(true)
@@ -163,6 +167,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun setSync(album: SharedAlbumUi, folder: String?) {
+        if (activeOperations.values.any { it.busy }) return
         loadAlbums(kind = OperationKind.Action, clearSelection = true) {
             port.setSync(album.id, folder)
             port.list(false)
@@ -170,7 +175,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun clearError() {
-        invalidateError()
+        mutableState.update { it.copy(error = null) }
     }
 
     private fun loadAlbums(
@@ -201,25 +206,24 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
         operation: suspend () -> Unit,
     ): Job {
         val operationId = ++nextOperationId
-        val errorGeneration = ++latestErrorGeneration
         activeOperations[operationId] = kind
         mutableState.update { it.copy(error = null) }
         updateOperationFlags()
 
-        return viewModelScope.launch {
+        val job = viewModelScope.launch {
             try {
                 operation()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                if (errorGeneration == latestErrorGeneration) {
-                    mutableState.update { it.copy(error = error.message ?: "Shared Albums failed") }
-                }
-            } finally {
-                activeOperations.remove(operationId)
-                updateOperationFlags()
+                mutableState.update { it.copy(error = error.message ?: "Shared Albums failed") }
             }
         }
+        job.invokeOnCompletion {
+            activeOperations.remove(operationId)
+            updateOperationFlags()
+        }
+        return job
     }
 
     private suspend fun <T> serialized(operation: suspend () -> T): T {
@@ -231,17 +235,13 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
         }
     }
 
-    private fun invalidateError() {
-        latestErrorGeneration += 1
-        mutableState.update { it.copy(error = null) }
-    }
-
     private fun updateOperationFlags() {
         val operations = activeOperations.values
         mutableState.update { current ->
             current.copy(
                 loading = current.albums.isEmpty() && operations.any { it.loadsAlbums },
                 refreshing = operations.any { it.refreshing },
+                assetsLoading = operations.any { it == OperationKind.Selection },
                 busy = operations.any { it.busy },
             )
         }

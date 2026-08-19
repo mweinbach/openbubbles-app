@@ -221,6 +221,22 @@ private fun SearchResults(
                 .fillMaxSize()
                 .navigationBarsPadding(),
         )
+        uiState.query.trim().length < 2 -> SearchPlaceholder(
+            icon = Icons.Filled.Search,
+            title = "Keep typing",
+            body = "Enter at least two characters to search.",
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
+        uiState.error != null -> SearchPlaceholder(
+            icon = Icons.Filled.SearchOff,
+            title = "Search unavailable",
+            body = uiState.error,
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+        )
         !uiState.hasResults -> SearchPlaceholder(
             icon = Icons.Filled.SearchOff,
             title = "No results",

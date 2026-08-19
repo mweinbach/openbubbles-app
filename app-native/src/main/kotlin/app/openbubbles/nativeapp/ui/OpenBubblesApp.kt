@@ -1059,6 +1059,7 @@ fun OpenBubblesApp(
                         onSelect = viewModel::select,
                         onAccept = viewModel::accept,
                         onAcceptToken = viewModel::acceptToken,
+                        onClearError = viewModel::clearError,
                         onSetSync = { album, enabled ->
                             val folder = if (enabled) {
                                 val safeName = album.name.replace(Regex("[^A-Za-z0-9._ -]"), "_")

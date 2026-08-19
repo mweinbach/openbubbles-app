@@ -17,6 +17,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -184,7 +185,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `failed search settles as empty instead of remaining searching`() = runTest(dispatcher) {
+    fun `failed search exposes an error instead of a false empty result`() = runTest(dispatcher) {
         val search = FakeSearch(
             messageSearch = { throw IllegalStateException("search unavailable") },
         )
@@ -199,6 +200,35 @@ class SearchViewModelTest {
         assertEquals(listOf("missing"), search.messageQueries)
         assertFalse(model.uiState.value.searching)
         assertFalse(model.uiState.value.hasResults)
+        assertEquals("search unavailable", model.uiState.value.error)
+    }
+
+    @Test
+    fun `avatar generation refreshes query tagged contact results`() = runTest(dispatcher) {
+        val generation = MutableStateFlow(0L)
+        val search = FakeSearch(
+            people = listOf(
+                RawContact(
+                    id = "p1",
+                    displayName = "Coffee Person",
+                    firstName = null,
+                    lastName = null,
+                    avatarPath = "/avatars/old.img",
+                    addresses = listOf("coffee@example.com"),
+                ),
+            ),
+        )
+        val model = SearchViewModel(search, FakeChats(emptyList()), generation)
+        backgroundScope.launch { model.uiState.collect() }
+        model.onQueryChange("coffee")
+        advanceUntilIdle()
+
+        assertEquals(listOf("coffee"), search.messageQueries)
+        generation.value = 1L
+        advanceUntilIdle()
+
+        assertEquals(listOf("coffee", "coffee"), search.messageQueries)
+        assertFalse(model.uiState.value.searching)
     }
 
     @Test

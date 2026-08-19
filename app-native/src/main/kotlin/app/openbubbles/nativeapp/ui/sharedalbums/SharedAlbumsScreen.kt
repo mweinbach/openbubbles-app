@@ -4,10 +4,12 @@ import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,7 +34,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
@@ -54,6 +59,7 @@ fun SharedAlbumsScreen(
     onAccept: (String) -> Unit,
     onAcceptToken: (String) -> Unit,
     onSetSync: (SharedAlbumUi, Boolean) -> Unit,
+    onClearError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showTokenDialog by remember { mutableStateOf(false) }
@@ -73,10 +79,10 @@ fun SharedAlbumsScreen(
                     IconButton(onClick = { showTokenDialog = true }, enabled = !uiState.busy) {
                         Icon(Icons.Filled.AddLink, contentDescription = "Enter invitation code")
                     }
-                    IconButton(onClick = onSyncNow, enabled = !uiState.refreshing) {
+                    IconButton(onClick = onSyncNow, enabled = !uiState.refreshing && !uiState.busy) {
                         Icon(Icons.Filled.CloudSync, contentDescription = "Sync now")
                     }
-                    IconButton(onClick = onRefresh, enabled = !uiState.refreshing) {
+                    IconButton(onClick = onRefresh, enabled = !uiState.refreshing && !uiState.busy) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                 },
@@ -97,7 +103,14 @@ fun SharedAlbumsScreen(
         }
     }
     uiState.selected?.let { album ->
-        AlbumDialog(album, uiState.assets, uiState.busy, onSetSync, onDismiss = { onSelect(null) })
+        AlbumDialog(
+            album = album,
+            assets = uiState.assets,
+            assetsLoading = uiState.assetsLoading,
+            busy = uiState.busy,
+            onSetSync = onSetSync,
+            onDismiss = { onSelect(null) },
+        )
     }
     if (showTokenDialog) {
         var token by remember { mutableStateOf("") }
@@ -116,11 +129,10 @@ fun SharedAlbumsScreen(
     }
     uiState.error?.let { error ->
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = onClearError,
             title = { Text("Shared Albums") },
             text = { Text(error) },
-            confirmButton = { TextButton(onClick = onRefresh) { Text("Retry") } },
-            dismissButton = { TextButton(onClick = onBack) { Text("Close") } },
+            confirmButton = { TextButton(onClick = onClearError) { Text("Dismiss") } },
         )
     }
 }
@@ -189,6 +201,7 @@ private fun SharedAlbumsContent(
 private fun AlbumDialog(
     album: SharedAlbumUi,
     assets: List<SharedAlbumAssetUi>,
+    assetsLoading: Boolean,
     busy: Boolean,
     onSetSync: (SharedAlbumUi, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -201,7 +214,20 @@ private fun AlbumDialog(
                 album.owner?.let { Text("Shared by $it") }
                 album.location?.let { Text(it) }
                 Text("${album.assetCount} assets")
-                if (assets.isNotEmpty()) {
+                if (assetsLoading) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .semantics { contentDescription = "Loading album assets" },
+                            strokeWidth = 2.dp,
+                        )
+                        Text("Loading assets…")
+                    }
+                } else if (assets.isNotEmpty()) {
                     Text(assets.take(8).joinToString("\n") { it.filename })
                     if (assets.size > 8) Text("…and ${assets.size - 8} more")
                 }
@@ -230,7 +256,7 @@ private fun SharedAlbumsPreview() {
                 albums = listOf(SharedAlbumUi("1", "Family", "Alex", null, 24, false, true, "Synced")),
             ),
             onBack = {}, onRefresh = {}, onSyncNow = {}, onSelect = {}, onAccept = {},
-            onAcceptToken = {}, onSetSync = { _, _ -> },
+            onAcceptToken = {}, onSetSync = { _, _ -> }, onClearError = {},
         )
     }
 }

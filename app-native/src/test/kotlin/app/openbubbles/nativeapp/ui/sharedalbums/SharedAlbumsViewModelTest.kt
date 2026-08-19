@@ -141,6 +141,7 @@ class SharedAlbumsViewModelTest {
             assertEquals(listOf("1", "2"), port.assetCalls.map { it.albumId })
             assertEquals("2", model.uiState.value.selected?.id)
             assertTrue(model.uiState.value.assets.isEmpty())
+            assertTrue(model.uiState.value.assetsLoading)
             assertTrue(model.uiState.value.busy)
 
             port.assetCalls[0].result.complete(listOf(SharedAlbumAssetUi("old", "old.jpg")))
@@ -153,6 +154,29 @@ class SharedAlbumsViewModelTest {
 
             assertEquals(listOf("new"), model.uiState.value.assets.map { it.id })
             assertEquals("2", model.uiState.value.selected?.id)
+            assertFalse(model.uiState.value.assetsLoading)
+            assertFalse(model.uiState.value.busy)
+        }
+
+    @Test
+    fun `selection cancelled before dispatch cannot leave busy state behind`() =
+        runTest(dispatcher) {
+            val port = DeferredSharedAlbumsPort()
+            val model = SharedAlbumsViewModel(port)
+            runCurrent()
+            port.listCalls[0].result.complete(listOf(familyAlbum, vacationAlbum))
+            runCurrent()
+
+            model.select(familyAlbum)
+            model.select(vacationAlbum)
+            runCurrent()
+
+            assertEquals(listOf("2"), port.assetCalls.map { it.albumId })
+            assertTrue(model.uiState.value.assetsLoading)
+            port.assetCalls.single().result.complete(emptyList())
+            runCurrent()
+
+            assertFalse(model.uiState.value.assetsLoading)
             assertFalse(model.uiState.value.busy)
         }
 
