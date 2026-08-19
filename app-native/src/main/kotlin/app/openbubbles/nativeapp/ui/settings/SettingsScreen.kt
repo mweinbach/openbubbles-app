@@ -136,6 +136,7 @@ import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.ProfilePrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.ThemeMode
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.CircleProximityAdvertiser
 import app.openbubbles.nativeapp.service.NativePushService
@@ -309,6 +310,8 @@ fun SettingsScreen(
         mutableStateOf(AutoDownloadLimit.fromPersistedValue(messagingPrefs.autoDownloadMaxBytes))
     }
     var showAutoDownloadDialog by remember { mutableStateOf(false) }
+    val themeMode by AppearancePrefs.themeModeFlow.collectAsStateWithLifecycle()
+    var showThemeModeDialog by rememberSaveable { mutableStateOf(false) }
     var showProfileDialog by rememberSaveable { mutableStateOf(false) }
     var firstName by remember { mutableStateOf(profilePrefs.firstName) }
     var lastName by remember { mutableStateOf(profilePrefs.lastName) }
@@ -1528,9 +1531,10 @@ fun SettingsScreen(
                 var dynamicColor by remember(persistedDynamicColor) {
                     mutableStateOf(persistedDynamicColor)
                 }
-                SettingsInfoItem(
+                SettingsActionItem(
                     title = "Theme",
-                    supporting = "System default",
+                    supporting = themeMode.title,
+                    onClick = { showThemeModeDialog = true },
                     index = 0,
                     count = 2,
                     icon = Icons.Filled.DarkMode,
@@ -2119,6 +2123,38 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showAutoDownloadDialog = false }) {
+                    Text("Done")
+                }
+            },
+        )
+    }
+
+    if (showThemeModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeModeDialog = false },
+            title = { Text("Theme") },
+            text = {
+                SettingsGroup {
+                    ThemeMode.entries.forEachIndexed { index, mode ->
+                        SettingsChoiceItem(
+                            title = mode.title,
+                            supporting = mode.description,
+                            selected = themeMode == mode,
+                            onClick = {
+                                // The pref write re-themes the whole app; off
+                                // the tap frame so the selection stays smooth.
+                                scope.launch(Dispatchers.Default) {
+                                    AppearancePrefs.themeMode = mode
+                                }
+                            },
+                            index = index,
+                            count = ThemeMode.entries.size,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeModeDialog = false }) {
                     Text("Done")
                 }
             },
