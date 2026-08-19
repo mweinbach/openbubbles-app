@@ -55,7 +55,7 @@ data class SearchUiState(
 
 private data class SettledSearchResults(
     val query: String,
-    val avatarGeneration: Long,
+    val avatarGeneration: Int,
     val error: String? = null,
     val people: List<RawContact> = emptyList(),
     val messages: List<MessageItem> = emptyList(),
@@ -78,7 +78,7 @@ private const val SectionCap = 4
 class SearchViewModel(
     private val search: SearchRepository,
     chatsRepository: ChatListRepository,
-    private val avatarGeneration: StateFlow<Long> = UiContacts.avatarGeneration,
+    private val avatarGeneration: StateFlow<Int> = UiContacts.avatarGeneration,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
@@ -161,7 +161,7 @@ class SearchViewModel(
 
     private suspend fun loadSettledResults(
         trimmed: String,
-        generation: Long,
+        generation: Int,
     ): SettledSearchResults = try {
         coroutineScope {
             val messages = async { search.searchMessages(trimmed) }

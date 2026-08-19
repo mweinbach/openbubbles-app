@@ -205,7 +205,7 @@ class SearchViewModelTest {
 
     @Test
     fun `avatar generation refreshes query tagged contact results`() = runTest(dispatcher) {
-        val generation = MutableStateFlow(0L)
+        val generation = MutableStateFlow(0)
         val search = FakeSearch(
             people = listOf(
                 RawContact(
@@ -224,7 +224,7 @@ class SearchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("coffee"), search.messageQueries)
-        generation.value = 1L
+        generation.value = 1
         advanceUntilIdle()
 
         assertEquals(listOf("coffee", "coffee"), search.messageQueries)
