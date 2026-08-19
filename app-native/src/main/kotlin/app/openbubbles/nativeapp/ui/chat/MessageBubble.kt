@@ -691,19 +691,17 @@ private fun BubbleEffectLayer(
     }
     val reduceMotion = LocalReduceMotion.current
     val progress = remember(effect) { Animatable(if (reduceMotion) 1f else 0f) }
+    val spatialSpec = when (effect) {
+        BubbleEffect.SLAM, BubbleEffect.LOUD -> fastSpatialSpec<Float>()
+        else -> defaultSpatialSpec<Float>()
+    }
     LaunchedEffect(effect, reduceMotion) {
         if (reduceMotion) {
             progress.snapTo(1f)
             return@LaunchedEffect
         }
         progress.snapTo(0f)
-        progress.animateTo(
-            1f,
-            animationSpec = when (effect) {
-                BubbleEffect.SLAM, BubbleEffect.LOUD -> fastSpatialSpec()
-                else -> defaultSpatialSpec()
-            },
-        )
+        progress.animateTo(1f, animationSpec = spatialSpec)
     }
     val originX = if (fromMe) 1f else 0f
     Box {

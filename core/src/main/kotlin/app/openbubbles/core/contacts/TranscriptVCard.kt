@@ -39,8 +39,16 @@ object TranscriptVCardParser {
                     firstName = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
                 }
                 "ORG" -> organization = value.substringBefore(';').takeIf { it.isNotBlank() }
-                "TEL" -> phones += value.removePrefix("tel:", ignoreCase = true)
-                "EMAIL" -> emails += value.removePrefix("mailto:", ignoreCase = true)
+                "TEL" -> phones += if (value.startsWith("tel:", ignoreCase = true)) {
+                    value.substring(4)
+                } else {
+                    value
+                }
+                "EMAIL" -> emails += if (value.startsWith("mailto:", ignoreCase = true)) {
+                    value.substring(7)
+                } else {
+                    value
+                }
             }
         }
 

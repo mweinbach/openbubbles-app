@@ -495,7 +495,8 @@ private fun ChatSections(
     footer: @Composable ColumnScope.() -> Unit,
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
-    val filterUnknown = remember { MessagingPrefs(LocalContext.current).filterUnknownSenders }
+    val context = LocalContext.current
+    val filterUnknown = remember { MessagingPrefs(context).filterUnknownSenders }
     val itemSpecs = rememberItemAnimationSpecs()
     val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind, filterUnknown) {
         fun visible(chats: List<ChatListItem>) =
@@ -760,9 +761,10 @@ fun ChatListRow(
     val context = LocalContext.current
     val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
     val showDmAvatars = remember { MessagingPrefs(context).showAvatarsInDirectChats }
+    val contactAvatarPath = rememberContactAvatarPath(chat.avatarAddress)
     val avatarPath = when {
         !chat.isGroup && !showDmAvatars -> null
-        else -> chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress)
+        else -> chat.avatarPath ?: contactAvatarPath
     }
     val secondaryText = if (selected) {
         MaterialTheme.colorScheme.onSecondaryContainer
