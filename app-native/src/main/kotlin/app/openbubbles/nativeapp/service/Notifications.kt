@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -35,8 +36,8 @@ import uniffi.rust_lib_bluebubbles.UMessageInst
  *    title for every remote history row; groups resolve each sender through
  *    contacts. Last 4 store messages plus the current message, chat guid as
  *    the conversation id (shortcutId) and person/search key
- *  - stable per-chat request codes whose PendingIntent extras update to the
- *    newest message
+ *  - explicit per-conversation/per-operation PendingIntent filter identities;
+ *    extras update to the newest message without participating in equality
  *  - tap deep-links into the chat (`chat_guid` extra), swipe-dismiss marks the
  *    chat read, "Mark As Read" / "Reply" actions mirror the Flutter actions
  *  - sanitized content when previews are hidden ([NotifPrefs.hidePreviews]):
@@ -99,10 +100,17 @@ object Notifications {
         val conversationId = identity.conversationId
         val notificationId = identity.notificationId
         val activeNotifications = nm.activeNotifications
-        val duplicate = messageGuid != null && activeNotifications.any {
-            it.id == notificationId &&
-                it.notification.extras.getString(EXTRA_MESSAGE_GUID) == messageGuid
-        }
+        val duplicate = messageGuid != null && hasActiveMatchingMessageNotification(
+            entries = activeNotifications.map { active ->
+                ActiveMessageNotificationRef(
+                    id = active.id,
+                    conversationId = active.notification.extras.getString(EXTRA_CONVERSATION_ID),
+                    messageGuid = active.notification.extras.getString(EXTRA_MESSAGE_GUID),
+                )
+            },
+            identity = identity,
+            messageGuid = messageGuid,
+        )
         activeNotifications
             .filter { active ->
                 val extras = active.notification.extras
@@ -125,6 +133,7 @@ object Notifications {
             context,
             requestCode,
             Intent(context, NativeMainActivity::class.java)
+                .withNotificationIdentity(conversationId, NotificationPendingIntentOperation.OPEN)
                 .putExtra(EXTRA_CHAT_GUID, chatGuid),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -133,15 +142,29 @@ object Notifications {
         // dismissed notification is already gone).
         val deleteIntent = PendingIntent.getBroadcast(
             context,
-            requestCode + 1,
-            markReadIntent(context, chatId, messageGuid, cancelNotifications = false),
+            requestCode,
+            markReadIntent(
+                context = context,
+                conversationId = conversationId,
+                operation = NotificationPendingIntentOperation.DISMISS,
+                chatId = chatId,
+                messageGuid = messageGuid,
+                cancelNotifications = false,
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
         val markReadIntent = PendingIntent.getBroadcast(
             context,
-            requestCode + 2,
-            markReadIntent(context, chatId, messageGuid, cancelNotifications = true),
+            requestCode,
+            markReadIntent(
+                context = context,
+                conversationId = conversationId,
+                operation = NotificationPendingIntentOperation.MARK_READ,
+                chatId = chatId,
+                messageGuid = messageGuid,
+                cancelNotifications = true,
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val markReadAction = NotificationCompat.Action.Builder(0, "Mark As Read", markReadIntent)
@@ -214,8 +237,9 @@ object Notifications {
             // PendingIntent must be mutable (required on API 31+).
             val replyIntent = PendingIntent.getBroadcast(
                 context,
-                requestCode + 3,
+                requestCode,
                 Intent(context, ReplyReceiver::class.java)
+                    .withNotificationIdentity(conversationId, NotificationPendingIntentOperation.REPLY)
                     .putExtra(EXTRA_CHAT_ID, chatId)
                     .putExtra(EXTRA_CHAT_GUID, chatGuid)
                     .putExtra(EXTRA_MESSAGE_GUID, messageGuid)
@@ -234,6 +258,34 @@ object Notifications {
         }
 
         nm.notify(notificationId, builder.build())
+    }
+
+    internal fun runtimeStateForIncoming(
+        context: Context,
+        chatId: Long,
+        messageGuid: String,
+    ): IncomingNotificationRuntimeState {
+        val nm = context.getSystemService(NotificationManager::class.java)
+            ?: return IncomingNotificationRuntimeState(
+                notificationsEnabled = false,
+                activeMatchingNotification = false,
+            )
+        val identity = conversationIdentity(chatId, CoreGraph.relatedDirectChatIds(chatId))
+        val active = nm.activeNotifications.map { notification ->
+            ActiveMessageNotificationRef(
+                id = notification.id,
+                conversationId = notification.notification.extras.getString(EXTRA_CONVERSATION_ID),
+                messageGuid = notification.notification.extras.getString(EXTRA_MESSAGE_GUID),
+            )
+        }
+        return IncomingNotificationRuntimeState(
+            notificationsEnabled = nm.areNotificationsEnabled(),
+            activeMatchingNotification = hasActiveMatchingMessageNotification(
+                entries = active,
+                identity = identity,
+                messageGuid = messageGuid,
+            ),
+        )
     }
 
     internal fun previewForIncoming(inst: UMessageInst): String? {
@@ -280,13 +332,21 @@ object Notifications {
             context,
             requestCode,
             Intent(context, NativeMainActivity::class.java)
+                .withNotificationIdentity(conversationId, NotificationPendingIntentOperation.OPEN)
                 .putExtra(EXTRA_CHAT_GUID, chatGuid),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val deleteIntent = PendingIntent.getBroadcast(
             context,
-            requestCode + 1,
-            markReadIntent(context, chatId, messageGuid = null, cancelNotifications = false),
+            requestCode,
+            markReadIntent(
+                context = context,
+                conversationId = conversationId,
+                operation = NotificationPendingIntentOperation.DISMISS,
+                chatId = chatId,
+                messageGuid = null,
+                cancelNotifications = false,
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -366,6 +426,7 @@ object Notifications {
         }
         cancelOtherChatNotifications(nm, chatId, requestCode)
         val openIntent = Intent(context, NativeMainActivity::class.java).apply {
+            withNotificationIdentity(conversationId, NotificationPendingIntentOperation.OPEN)
             chatGuid?.let { putExtra(EXTRA_CHAT_GUID, it) }
         }
         val contentIntent = PendingIntent.getActivity(
@@ -682,14 +743,25 @@ object Notifications {
 
     private fun markReadIntent(
         context: Context,
+        conversationId: String,
+        operation: NotificationPendingIntentOperation,
         chatId: Long,
         messageGuid: String?,
         cancelNotifications: Boolean,
     ) =
         Intent(context, MarkReadReceiver::class.java)
+            .withNotificationIdentity(conversationId, operation)
             .putExtra(EXTRA_CHAT_ID, chatId)
             .putExtra(EXTRA_MESSAGE_GUID, messageGuid)
             .putExtra(EXTRA_CANCEL_NOTIFICATIONS, cancelNotifications)
+
+    private fun Intent.withNotificationIdentity(
+        conversationId: String,
+        operation: NotificationPendingIntentOperation,
+    ): Intent {
+        val identity = notificationPendingIntentIdentity(conversationId, operation)
+        return setAction(identity.action).setData(Uri.parse(identity.dataUri))
+    }
 
     /**
      * Lockscreen-safe mirror of the notification: already-sanitized content

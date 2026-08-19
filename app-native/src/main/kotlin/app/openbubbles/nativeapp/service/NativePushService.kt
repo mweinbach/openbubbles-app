@@ -10,13 +10,17 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import app.openbubbles.core.model.ChatMute
 import app.openbubbles.core.sync.TranscriptBackgroundUpdate
+import app.openbubbles.db.Message
+import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.TranscriptBackgroundStore
 import app.openbubbles.nativeapp.facetime.FaceTimeNotifications
+import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,8 +42,8 @@ import uniffi.rust_lib_bluebubbles.markJournalAttempt
 import uniffi.rust_lib_bluebubbles.ptrToMessage
 import uniffi.rust_lib_bluebubbles.readQueuedJournal
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
-import java.util.concurrent.atomic.AtomicInteger
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Foreground service owning the live Rust push state for the native app —
@@ -161,9 +165,10 @@ class NativePushService : Service(), MsgReceiver {
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
                 when (decoded) {
                     null -> Unit
-                    UPushMessage.ProcessQueue -> drainMessageJournal(handles, allowNotifications = true)
+                    UPushMessage.ProcessQueue ->
+                        drainMessageJournal(handles, IncomingNotificationSource.LIVE)
                     UPushMessage.RegistrationState -> handleRegistrationState()
-                    else -> ingestAndNotify(decoded, handles, allowNotifications = true)
+                    else -> ingestAndNotify(decoded, handles, IncomingNotificationSource.LIVE)
                 }
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
             } catch (error: Throwable) {
@@ -225,12 +230,12 @@ class NativePushService : Service(), MsgReceiver {
      */
     private suspend fun drainMessageJournal(
         handles: Set<String>,
-        allowNotifications: Boolean,
+        notificationSource: IncomingNotificationSource,
     ) = journalMutex.withLock {
         while (true) {
             val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
             try {
-                ingestAndNotify(entry.message, handles, allowNotifications)
+                ingestAndNotify(entry.message, handles, notificationSource)
             } catch (error: Throwable) {
                 Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
                 runCatching {
@@ -253,7 +258,7 @@ class NativePushService : Service(), MsgReceiver {
     private suspend fun ingestAndNotify(
         decoded: UPushMessage,
         handles: Set<String>,
-        allowNotifications: Boolean,
+        notificationSource: IncomingNotificationSource,
     ) {
         if (FaceTimeDispatch.onPushMessage(this, decoded)) return
         val ingestor = CoreGraph.ingestor
@@ -268,9 +273,16 @@ class NativePushService : Service(), MsgReceiver {
             // bubble's download chip remains for anything over the ceiling.
             chat?.let { CoreGraph.autoDownloadForChat(it.id) }
         }
-        if (allowNotifications && result.isNewIncomingMessage) {
-            notifyIncoming(decoded, chat)
-        }
+        // The caller completes the Rust pointer/journal entry only after this
+        // method returns, so every delivery reaches an explicit notification
+        // disposition after persistence.
+        notifyIncoming(
+            decoded = decoded,
+            chat = chat,
+            handles = handles,
+            source = notificationSource,
+            newlyIngested = result.isNewIncomingMessage,
+        )
     }
 
     /** Sticker bodies are ordinary MMCS attachments; fetch them immediately so overlays render. */
@@ -435,10 +447,12 @@ class NativePushService : Service(), MsgReceiver {
                 ICloudContactSync.sync(applicationContext, live)
             }
             // Recover durable messages left by a process death before starting
-            // the live loop. They may overlap history sync or already-rendered
-            // rows, so this startup catch-up is deliberately silent. New
-            // ProcessQueue events use the same drain with notifications enabled.
-            drainMessageJournal(handles, allowNotifications = false)
+            // the live loop. A replay alerts only while its persisted row is
+            // still unread and no matching notification is active. Rust does
+            // not persist a separate "notification posted" disposition, so a
+            // process death in the tiny interval after notify() but before the
+            // platform exposes the active notification remains a bounded race.
+            drainMessageJournal(handles, IncomingNotificationSource.JOURNAL_RECOVERY)
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop", it)
@@ -547,34 +561,102 @@ class NativePushService : Service(), MsgReceiver {
 
     // -- Notifications -------------------------------------------------------
 
-    private fun notifyIncoming(decoded: UPushMessage, chat: app.openbubbles.db.Chat?) {
-        val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
-        if (inst.sender == null || inst.sender in PushStateHolder.myHandles) return
-        if (inst.message is UMessage.React && !NotifPrefs(this).notifyReactions) return
-        val body = Notifications.previewForIncoming(inst) ?: return
-        val target = chat ?: return
-        if (app.openbubbles.core.model.ChatMute.shouldMute(
-                target,
-                senderAddress = inst.sender,
-                messageText = body,
+    private fun notifyIncoming(
+        decoded: UPushMessage,
+        chat: app.openbubbles.db.Chat?,
+        handles: Set<String>,
+        source: IncomingNotificationSource,
+        newlyIngested: Boolean,
+    ): IncomingNotificationDisposition {
+        val inst = (decoded as? UPushMessage.IMessage)?.inst
+        val sender = inst?.sender
+        val isMessage = inst?.message is UMessage.Normal || inst?.message is UMessage.React
+        val reactionAllowed = inst?.message !is UMessage.React || NotifPrefs(this).notifyReactions
+        val body = inst?.takeIf { isMessage && reactionAllowed }?.let(Notifications::previewForIncoming)
+        val persistedMessage = inst?.id?.let(::messageByGuid)
+        val target = persistedMessage?.chat?.target ?: chat
+        val persisted = persistedMessage != null &&
+            target != null &&
+            persistedMessage.chat.targetId == target.id &&
+            !target.guid.isNullOrBlank()
+        val eligibleIncoming = isMessage &&
+            reactionAllowed &&
+            body != null &&
+            sender != null &&
+            sender !in handles &&
+            inst?.verificationFailed == false &&
+            persistedMessage?.isFromMe != true &&
+            persistedMessage?.verificationFailed != true
+        val lastReadAtMs = target?.lastReadMessageGuid
+            ?.let(::messageByGuid)
+            ?.dateCreated
+            ?.time
+        val unread = persistedMessage != null &&
+            target != null &&
+            isPersistedIncomingMessageUnread(
+                chatHasUnreadMessage = target.hasUnreadMessage,
+                chatDeleted = target.dateDeleted != null,
+                messageFromMe = persistedMessage.isFromMe,
+                messageDeleted = persistedMessage.dateDeleted != null,
+                messageCreatedAtMs = persistedMessage.dateCreated?.time,
+                lastReadAtMs = lastReadAtMs,
             )
-        ) return
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-            getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == false
-        ) return
+        val runtimeState = if (persisted && target != null && inst != null) {
+            Notifications.runtimeStateForIncoming(this, target.id, inst.id)
+        } else {
+            IncomingNotificationRuntimeState(
+                notificationsEnabled = false,
+                activeMatchingNotification = false,
+            )
+        }
+        val disposition = incomingNotificationDisposition(
+            IncomingNotificationFacts(
+                source = source,
+                newlyIngested = newlyIngested,
+                eligibleIncoming = eligibleIncoming,
+                persisted = persisted,
+                unread = unread,
+                conversationVisible = target?.let { Notifications.isConversationVisible(it.id) } == true,
+                muted = target != null &&
+                    body != null &&
+                    ChatMute.shouldMute(target, senderAddress = sender, messageText = body),
+                blocked = target?.let { CoreGraph.isChatBlocked(it.id) } == true,
+                notificationsEnabled = runtimeState.notificationsEnabled,
+                activeMatchingNotification = runtimeState.activeMatchingNotification,
+            ),
+        )
+        if (disposition == IncomingNotificationDisposition.NOT_PERSISTED) {
+            error("incoming message ${inst?.id ?: "<unknown>"} was not persisted with a stable chat")
+        }
+        if (disposition != IncomingNotificationDisposition.POST) return disposition
 
-        val identity = CoreGraph.messageNotificationIdentity(target, inst.sender)
-
+        val notificationChat = checkNotNull(target)
+        val notificationBody = checkNotNull(body)
+        val notificationInst = checkNotNull(inst)
+        val identity = CoreGraph.messageNotificationIdentity(
+            chat = notificationChat,
+            senderAddress = sender,
+            myHandles = handles,
+        )
         Notifications.postIncoming(
             context = this,
-            chatId = target.id,
-            chatGuid = target.guid ?: return,
+            chatId = notificationChat.id,
+            chatGuid = checkNotNull(notificationChat.guid),
             title = identity.title,
-            text = body,
+            text = notificationBody,
             isGroup = identity.isGroup,
             senderName = identity.senderName,
-            messageGuid = inst.id,
+            messageGuid = notificationInst.id,
         )
+        return disposition
+    }
+
+    private fun messageByGuid(guid: String): Message? {
+        val box = CoreGraph.store?.boxFor(Message::class.java) ?: return null
+        return box.query()
+            .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build()
+            .use { it.findFirst() }
     }
 
     private fun createChannels() {

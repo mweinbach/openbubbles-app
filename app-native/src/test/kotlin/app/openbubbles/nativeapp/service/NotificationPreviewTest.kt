@@ -132,6 +132,50 @@ class NotificationPreviewTest {
     }
 
     @Test
+    fun `pending intent identities prevent adjacent chat operation aliases`() {
+        val first = conversationIdentity(41L)
+        val adjacent = conversationIdentity(42L)
+        // This is the old collision: chat 41's +2 mark-read request code was
+        // chat 42's +1 dismiss request code, and both targeted one receiver.
+        assertEquals(first.notificationId + 2, adjacent.notificationId + 1)
+
+        val identities = listOf(first, adjacent).flatMap { conversation ->
+            NotificationPendingIntentOperation.entries.map { operation ->
+                notificationPendingIntentIdentity(conversation.conversationId, operation)
+            }
+        }
+
+        assertEquals(identities.size, identities.distinct().size)
+        assertNotEquals(
+            notificationPendingIntentIdentity(
+                first.conversationId,
+                NotificationPendingIntentOperation.MARK_READ,
+            ),
+            notificationPendingIntentIdentity(
+                adjacent.conversationId,
+                NotificationPendingIntentOperation.DISMISS,
+            ),
+        )
+    }
+
+    @Test
+    fun `pending intent identity is stable for merged direct chat siblings`() {
+        val first = conversationIdentity(8L, listOf(8L, 11L))
+        val sibling = conversationIdentity(11L, listOf(8L, 11L))
+
+        assertEquals(
+            notificationPendingIntentIdentity(
+                first.conversationId,
+                NotificationPendingIntentOperation.REPLY,
+            ),
+            notificationPendingIntentIdentity(
+                sibling.conversationId,
+                NotificationPendingIntentOperation.REPLY,
+            ),
+        )
+    }
+
+    @Test
     fun `conversation identity uses the lowest related chat id`() {
         val identity = conversationIdentity(9L, listOf(12L, 7L, 9L))
 
