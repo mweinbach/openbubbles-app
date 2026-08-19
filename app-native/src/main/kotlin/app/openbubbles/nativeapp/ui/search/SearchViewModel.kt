@@ -11,8 +11,11 @@ import app.openbubbles.nativeapp.data.ChatListRepository
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SearchRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,15 +41,22 @@ data class SearchMessageRow(
 
 data class SearchUiState(
     val query: String = "",
+    val searching: Boolean = false,
     val chats: List<ChatListItem> = emptyList(),
     val people: List<RawContact> = emptyList(),
     val messages: List<SearchMessageRow> = emptyList(),
     val links: List<SearchMessageRow> = emptyList(),
 ) {
-    /** The debounced query drives sections, so the raw field text is not authoritative. */
     val hasResults: Boolean
         get() = chats.isNotEmpty() || people.isNotEmpty() || messages.isNotEmpty() || links.isNotEmpty()
 }
+
+private data class SettledSearchResults(
+    val query: String,
+    val people: List<RawContact> = emptyList(),
+    val messages: List<MessageItem> = emptyList(),
+    val links: List<MessageItem> = emptyList(),
+)
 
 /** Single-character queries match half the store; two is the useful floor. */
 private const val MinQueryLength = 2
@@ -78,37 +88,44 @@ class SearchViewModel(
     private val chats: StateFlow<List<ChatListItem>> = chatsRepository.chats()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Transcript hits as (message matches, link matches). Implementations dispatch their own IO. */
-    private val hits: StateFlow<Pair<List<MessageItem>, List<MessageItem>>> = activeQuery
+    /**
+     * Every emitted snapshot is complete and tagged with the debounced query that produced it.
+     * Keeping sections together prevents a fast section from being combined with slower results
+     * from another query.
+     */
+    private val settledResults: StateFlow<SettledSearchResults> = activeQuery
         .mapLatest { trimmed ->
             if (trimmed.length < MinQueryLength) {
-                Pair(emptyList(), emptyList())
+                SettledSearchResults(query = trimmed)
             } else {
-                val messages = runCatching { search.searchMessages(trimmed) }
-                    .getOrDefault(emptyList())
-                val links = runCatching { search.searchLinks(trimmed) }
-                    .getOrDefault(emptyList())
-                messages to links
+                coroutineScope {
+                    val messages = async { searchOrEmpty { search.searchMessages(trimmed) } }
+                    val links = async { searchOrEmpty { search.searchLinks(trimmed) } }
+                    val people = async { searchOrEmpty { search.contacts() } }
+                    SettledSearchResults(
+                        query = trimmed,
+                        messages = messages.await(),
+                        links = links.await(),
+                        people = people.await()
+                            .filter { contact -> contact.matches(trimmed) }
+                            .sortedBy { it.displayName.orEmpty() }
+                            .take(SectionCap),
+                    )
+                }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Pair(emptyList(), emptyList()))
-
-    private val people: StateFlow<List<RawContact>> = activeQuery
-        .mapLatest { trimmed ->
-            if (trimmed.length < MinQueryLength) {
-                emptyList()
-            } else {
-                runCatching { search.contacts() }.getOrDefault(emptyList())
-                    .filter { contact -> contact.matches(trimmed) }
-                    .sortedBy { it.displayName.orEmpty() }
-                    .take(SectionCap)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            SettledSearchResults(query = ""),
+        )
 
     val uiState: StateFlow<SearchUiState> =
-        combine(query, activeQuery, chats, hits, people) { rawQuery, trimmed, chatList, hitPair, peopleMatches ->
-            val chatMatches = if (trimmed.length < MinQueryLength) {
+        combine(query, chats, settledResults) { rawQuery, chatList, settled ->
+            val trimmed = rawQuery.trim()
+            val resultsMatchQuery = settled.query == trimmed
+            val shouldSearch = trimmed.length >= MinQueryLength
+            val chatMatches = if (!shouldSearch || !resultsMatchQuery) {
                 emptyList()
             } else {
                 chatList.filter { chat ->
@@ -129,16 +146,19 @@ class SearchViewModel(
                     link = link,
                 )
             }
+            val messages = settled.messages.takeIf { resultsMatchQuery }.orEmpty()
+            val links = settled.links.takeIf { resultsMatchQuery }.orEmpty()
             // A message surfaced as a link does not repeat in message results.
-            val linkGuids = hitPair.second.mapTo(HashSet()) { it.guid }
+            val linkGuids = links.mapTo(HashSet()) { it.guid }
             SearchUiState(
                 query = rawQuery,
+                searching = shouldSearch && !resultsMatchQuery,
                 chats = chatMatches,
-                people = peopleMatches,
-                messages = hitPair.first
+                people = settled.people.takeIf { resultsMatchQuery }.orEmpty(),
+                messages = messages
                     .filter { it.guid !in linkGuids }
                     .mapNotNull { rowFor(it) },
-                links = hitPair.second.mapNotNull { item ->
+                links = links.mapNotNull { item ->
                     item.richLink?.let { rowFor(item, it) }
                 },
             )
@@ -161,3 +181,12 @@ class SearchViewModel(
 private fun RawContact.matches(query: String): Boolean =
     displayName?.contains(query, ignoreCase = true) == true ||
         addresses.any { it.contains(query, ignoreCase = true) }
+
+private suspend fun <T> searchOrEmpty(search: suspend () -> List<T>): List<T> =
+    try {
+        search()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        emptyList()
+    }
