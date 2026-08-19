@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
 import app.openbubbles.nativeapp.data.CloudSyncWiring
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.FaceTimeCaller
 import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class ChatUiState(
@@ -174,6 +177,9 @@ class ChatViewModel(
     initialInput: String? = null,
     private val historySyncActive: () -> Boolean = { CloudSyncWiring.syncing.value },
     private val openedAtMs: Long = System.currentTimeMillis(),
+    private val participantAddresses: (Long) -> List<String> = {
+        AppGraph.chatInfo.participantAddresses(it)
+    },
 ) : ViewModel() {
 
     init {
@@ -224,10 +230,18 @@ class ChatViewModel(
     init {
         // While the conversation is on screen, warm its details-pane data
         // (shared photos, contact card, poster, Find My) so tapping the
-        // header renders content instead of loading placeholders. Local
-        // reads only — warming never hits the network.
+        // header renders content instead of loading placeholders, and the
+        // participants' display names + avatars so sender labels, the header
+        // avatar, and chat-info rows seed instantly. Local reads only —
+        // warming never hits the network.
         viewModelScope.launch {
             val item = chat.filterNotNull().first()
+            runCatching {
+                val participants = withContext(Dispatchers.IO) {
+                    participantAddresses(item.preferredChatId)
+                }
+                ContactDisplayWarmCache.warm(participants + listOfNotNull(item.avatarAddress))
+            }
             runCatching { ChatInfoWarmCache.warm(item) }
         }
     }

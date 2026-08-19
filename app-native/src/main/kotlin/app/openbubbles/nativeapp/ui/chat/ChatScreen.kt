@@ -145,6 +145,8 @@ import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
+import app.openbubbles.nativeapp.data.ContactDisplay
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
 import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
@@ -639,7 +641,8 @@ fun ChatScreen(
     }
 
     // Contact names for group sender labels and "<name> unsent a message"
-    // rows (best effort).
+    // rows (best effort). Rows peek ContactDisplayWarmCache while this map
+    // fills, so warm names paint on the first frame.
     val senderNames = remember { mutableStateMapOf<String, String>() }
     LaunchedEffect(uiState.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
@@ -649,7 +652,12 @@ fun ChatScreen(
             .distinct()
         val names = withContext(Dispatchers.IO) {
             addresses.mapNotNull { address ->
-                resolver(address)?.first?.let { address to it }
+                val resolved = resolver(address)
+                ContactDisplayWarmCache.put(
+                    address,
+                    ContactDisplay(resolved?.first, resolved?.second),
+                )
+                resolved?.first?.let { address to it }
             }
         }
         names.forEach { (address, name) ->
@@ -950,7 +958,10 @@ fun ChatScreen(
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
-                                    senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
+                                    senderDisplayName = entry.message.senderAddress?.let {
+                                        senderNames[it]
+                                            ?: ContactDisplayWarmCache.peek(it)?.displayName
+                                    },
                                     replyQuote = resolveReplyQuote(
                                         entry.message,
                                         messagesByGuid,

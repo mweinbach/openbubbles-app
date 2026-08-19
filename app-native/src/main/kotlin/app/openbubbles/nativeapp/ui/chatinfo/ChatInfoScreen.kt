@@ -74,6 +74,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.ContactDisplay
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
@@ -840,11 +842,20 @@ private suspend fun prepareChatBackground(context: Context, uri: Uri): File = wi
 /**
  * Resolves contact names + photo URIs for participant addresses via
  * [UiContacts] (null resolver or unknown addresses keep the raw address as
- * the display name).
+ * the display name). Seeded synchronously from [ContactDisplayWarmCache] so
+ * warm rows render named on the first frame.
  */
 @Composable
 fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
-    val resolved = remember { mutableStateMapOf<String, Pair<String?, String?>>() }
+    val resolved = remember(addresses) {
+        mutableStateMapOf<String, Pair<String?, String?>>().apply {
+            addresses.forEach { address ->
+                ContactDisplayWarmCache.peek(address)?.let { warm ->
+                    put(address, warm.displayName to warm.avatarPath)
+                }
+            }
+        }
+    }
     val generation by UiContacts.avatarGeneration.collectAsState()
     LaunchedEffect(addresses, generation) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
@@ -854,6 +865,7 @@ fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
             }
         }
         contacts.forEach { (address, info) ->
+            ContactDisplayWarmCache.put(address, ContactDisplay(info.first, info.second))
             resolved[address] = info
         }
     }
