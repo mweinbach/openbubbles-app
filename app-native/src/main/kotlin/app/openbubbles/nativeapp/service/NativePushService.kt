@@ -70,7 +70,7 @@ class NativePushService : Service(), MsgReceiver {
     /** Journal consumption belongs to the service lifecycle, never a global polling loop. */
     private val journalMutex = Mutex()
     /** Keeps recovery semantics even when persisting Rust's retry counter fails. Guarded by [journalMutex]. */
-    private val journalFailures = mutableSetOf<String>()
+    private val journalFailures = mutableSetOf<ULong>()
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
