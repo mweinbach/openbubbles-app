@@ -19,8 +19,8 @@ android {
         applicationId "com.openbubbles.messaging"
         minSdk 26
         targetSdk 36
-        versionCode 20002267
-        versionName "3.3.0"
+        versionCode 20002268
+        versionName "3.4.0"
 
         // Keep in sync with installed Rust cross targets (rustup target list)
         ndk {

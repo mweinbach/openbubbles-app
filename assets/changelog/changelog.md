@@ -1,6 +1,22 @@
 # What's new?
 
-Below are the last few OpenBubbles App release changelogs
+Below are the last few OpenGarden App release changelogs
+
+## v3.4.0
+
+### Enhancements
+
+- The app is now called OpenGarden. Notifications continue to identify
+  themselves as iMessage.
+- The ongoing connection notification is quieter and smaller: a single line
+  with no timestamp, and on Android 12 and newer it stays hidden entirely
+  when a reconnect finishes within ten seconds.
+
+### Fixes
+
+- Themed (monochrome) launcher icons no longer render as a featureless
+  silhouette. The typing dots in the app icon and the hole in the Passwords
+  key icon are visible again when themed icons are enabled.
 
 ## v3.3.0
 
