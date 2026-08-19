@@ -115,8 +115,14 @@ private val SenderAvatarSize = 28.dp
 /** Gap between the avatar gutter and the bubble stack. */
 private val SenderAvatarSpacing = 8.dp
 
-/** How far the tapback pill rises above / hangs outside the bubble's top corner. */
-private val ReactionChipOverlap = 14.dp
+/** How far the tapback pill rises above the bubble's top edge. */
+private val ReactionChipRise = 14.dp
+
+/**
+ * How far the pill hangs outside the bubble's outer edge — under the 12dp
+ * transcript gutter so a bubble at the screen edge never clips the pill.
+ */
+private val ReactionChipOverhang = 10.dp
 
 /** Extra row headroom so the overlapping tapback never crosses the item bounds. */
 private val ReactionRowExtraTopPadding = 12.dp
@@ -902,8 +908,8 @@ private fun ReactionChip(
         border = BorderStroke(1.dp, outline),
         modifier = modifier
             .offset(
-                x = if (isFromMe) ReactionChipOverlap else -ReactionChipOverlap,
-                y = -ReactionChipOverlap,
+                x = if (isFromMe) ReactionChipOverhang else -ReactionChipOverhang,
+                y = -ReactionChipRise,
             )
             .graphicsLayer {
                 scaleX = scale.value
