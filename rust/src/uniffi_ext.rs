@@ -3226,6 +3226,16 @@ fn sync_err(e: impl std::fmt::Display) -> UError {
     UError::Failed { reason: format!("cloudkit sync failed: {e}") }
 }
 
+fn pairing_code(code: String, label: &str) -> Result<String, UError> {
+    let code = code.trim().to_string();
+    if code.len() != 6 || !code.chars().all(|character| character.is_ascii_digit()) {
+        return Err(UError::InvalidArgument {
+            reason: format!("{label} must contain exactly 6 digits"),
+        });
+    }
+    Ok(code)
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
     /// Whether CloudKit message-history sync can run on this state.
@@ -3288,6 +3298,51 @@ impl NativePushState {
                 device_password,
             ))
             .map_err(sync_err)
+    }
+
+    /// Start Octagon proximity pairing and return the BLE service UUID that
+    /// Android must advertise while a trusted Apple device approves access.
+    pub async fn start_clique_pairing(&self) -> Result<String, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            api::start_clique_pairing(&state)
+                .await
+                .map_err(|error| UError::Failed {
+                    reason: format!("failed to start nearby iCloud Keychain approval: {error}"),
+                })
+        }).await
+    }
+
+    /// Submit the six-digit code displayed by the trusted Apple device and
+    /// finish Octagon trust establishment. `device_password` becomes this
+    /// device's locally stored recovery code for future escrow recovery.
+    pub async fn complete_clique_pairing(
+        &self,
+        code: String,
+        device_password: String,
+    ) -> Result<(), UError> {
+        let code = pairing_code(code, "approval code")?;
+        let device_password = pairing_code(device_password, "device recovery code")?;
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            api::complete_clique_pairing(&state, code, device_password)
+                .await
+                .map_err(|error| UError::Failed {
+                    reason: format!("nearby iCloud Keychain approval failed: {error}"),
+                })
+        }).await
+    }
+
+    /// Cancel any active Octagon proximity-pairing request.
+    pub async fn cancel_clique_pairing(&self) -> Result<(), UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            api::cancel_clique_pairing(&state)
+                .await
+                .map_err(|error| UError::Failed {
+                    reason: format!("failed to cancel nearby iCloud Keychain approval: {error}"),
+                })
+        }).await
     }
 
     /// Pull one page of chat changes (`sync_chats`). Pass the previous
@@ -3539,6 +3594,18 @@ impl NativePushState {
             message_cursor: message_cursor.unwrap_or_default(),
         })
         }).await
+    }
+}
+
+#[cfg(test)]
+mod clique_pairing_tests {
+    use super::pairing_code;
+
+    #[test]
+    fn pairing_codes_are_six_ascii_digits() {
+        assert_eq!(pairing_code(" 012345 ".to_string(), "approval code").unwrap(), "012345");
+        assert!(pairing_code("12345".to_string(), "approval code").is_err());
+        assert!(pairing_code("１２３４５６".to_string(), "approval code").is_err());
     }
 }
 

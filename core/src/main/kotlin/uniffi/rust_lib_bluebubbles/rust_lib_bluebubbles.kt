@@ -1529,6 +1529,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1654,11 +1660,15 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_add_password_tot
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_clique_pairing(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_change_participants(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_complete_clique_pairing(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime(
 ): Short
@@ -1799,6 +1809,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_profile(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_set_shared_album_sync(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_clique_pairing(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call(
 ): Short
@@ -2100,12 +2112,16 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_add_password_totp(`ptr
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_clique_pairing(`ptr`: Pointer,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_change_participants(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newParticipants`: RustBuffer.ByValue,`groupVersion`: Long,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cloud_sync_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_complete_clique_pairing(`ptr`: Pointer,`code`: RustBuffer.ByValue,`devicePassword`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_facetime(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password(`ptr`: Pointer,`site`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2246,6 +2262,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_set_shared_album_sync(
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sms_targets_for(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_clique_pairing(`ptr`: Pointer,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_facetime_call(`ptr`: Pointer,`uuid`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,`participants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_loop(`ptr`: Pointer,`handler`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2772,6 +2790,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in() != 16891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_clique_pairing() != 42071.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime() != 29235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2779,6 +2800,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cloud_sync_state() != 28004.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_complete_clique_pairing() != 28085.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_facetime() != 58173.toShort()) {
@@ -2989,6 +3013,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sms_targets_for() != 30326.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_clique_pairing() != 16032.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_start_facetime_call() != 15830.toShort()) {
@@ -6217,6 +6244,11 @@ public interface NativePushStateInterface {
     fun `approveLetMeIn`(`sharedSecret`: kotlin.ByteArray, `pseud`: kotlin.String, `requestor`: kotlin.String, `nickname`: kotlin.String?, `token`: kotlin.ByteArray, `delegationUuid`: kotlin.String?, `usage`: kotlin.String?, `approvedGroup`: kotlin.String?)
 
     /**
+     * Cancel any active Octagon proximity-pairing request.
+     */
+    suspend fun `cancelCliquePairing`()
+
+    /**
      * Cancel/hang up a call by guid.
      */
     fun `cancelFacetime`(`guid`: kotlin.String)
@@ -6233,6 +6265,13 @@ public interface NativePushStateInterface {
      * Whether CloudKit message-history sync can run on this state.
      */
     fun `cloudSyncState`(): USyncState
+
+    /**
+     * Submit the six-digit code displayed by the trusted Apple device and
+     * finish Octagon trust establishment. `device_password` becomes this
+     * device's locally stored recovery code for future escrow recovery.
+     */
+    suspend fun `completeCliquePairing`(`code`: kotlin.String, `devicePassword`: kotlin.String)
 
     /**
      * Start an outgoing call.
@@ -6576,6 +6615,12 @@ public interface NativePushStateInterface {
     fun `smsTargetsFor`(`handle`: kotlin.String, `refresh`: kotlin.Boolean): List<USmsTarget>
 
     /**
+     * Start Octagon proximity pairing and return the BLE service UUID that
+     * Android must advertise while a trusted Apple device approves access.
+     */
+    suspend fun `startCliquePairing`(): kotlin.String
+
+    /**
      * Validate every peer, reserve the next FaceTime link, rotate it into
      * the active slot, and create the outgoing session as one native action.
      * Returning the reserved link prevents Kotlin from racing link rotation
@@ -6869,6 +6914,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
     /**
+     * Cancel any active Octagon proximity-pairing request.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `cancelCliquePairing`() {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_clique_pairing(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
      * Cancel/hang up a call by guid.
      */
     @Throws(UException::class)override fun `cancelFacetime`(`guid`: kotlin.String)
@@ -6923,6 +6993,33 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     )
     }
 
+
+
+    /**
+     * Submit the six-digit code displayed by the trusted Apple device and
+     * finish Octagon trust establishment. `device_password` becomes this
+     * device's locally stored recovery code for future escrow recovery.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `completeCliquePairing`(`code`: kotlin.String, `devicePassword`: kotlin.String) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_complete_clique_pairing(
+                thisPtr,
+                FfiConverterString.lower(`code`),FfiConverterString.lower(`devicePassword`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
 
 
     /**
@@ -8226,6 +8323,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     )
     }
 
+
+
+    /**
+     * Start Octagon proximity pairing and return the BLE service UUID that
+     * Android must advertise while a trusted Apple device approves access.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `startCliquePairing`() : kotlin.String {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_start_clique_pairing(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterString.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
 
 
     /**

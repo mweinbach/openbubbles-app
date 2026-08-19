@@ -1976,6 +1976,7 @@ async fn handle_circle(state: &SharedPushState, signin: &Option<IdmsRequestedSig
         match client.handle_circle_request(msg).await {
             Err(e) => {
                 warn!("error {e}");
+                *locked = None;
             },
             Ok(Some(LoginState::LoggedIn)) => {
                 // we are done
@@ -3073,6 +3074,129 @@ pub async fn circle_setup_clique(client: &Arc<Mutex<Option<CircleClientSession<D
         return Err(e.into())
     }
     Ok(false)
+}
+
+pub async fn start_clique_pairing(state: &SharedPushState) -> anyhow::Result<String> {
+    let services = state
+        .icloud_services
+        .as_ref()
+        .ok_or_else(|| anyhow!("iCloud account unavailable"))?;
+    let keychain = services
+        .keychain
+        .as_ref()
+        .ok_or_else(|| anyhow!("iCloud Keychain unavailable"))?;
+    if keychain.is_in_clique().await {
+        return Err(anyhow!("this device is already in the iCloud Keychain trust circle"));
+    }
+
+    let mut session_slot = state.client_session.lock().await;
+    if session_slot.is_some() {
+        return Err(anyhow!("an iCloud Keychain approval session is already active"));
+    }
+
+    let dsid = {
+        let mut account = services.account.lock().await;
+        if account.spd.is_none() {
+            account.get_token("com.apple.gs.idms.pet").await;
+        }
+        account
+            .spd
+            .as_ref()
+            .and_then(|spd| spd.get("DsPrsId"))
+            .and_then(Value::as_unsigned_integer)
+            .ok_or_else(|| anyhow!("Apple account is missing its directory-services identifier"))?
+    };
+
+    let session = CircleClientSession::new(
+        dsid,
+        services.account.clone(),
+        state.conn.get_token().await,
+    ).await?;
+    let session_id = session
+        .session_id
+        .clone()
+        .ok_or_else(|| anyhow!("Apple did not provide a proximity pairing session identifier"))?;
+    *session_slot = Some(session);
+    Ok(session_id)
+}
+
+pub async fn cancel_clique_pairing(state: &SharedPushState) -> anyhow::Result<()> {
+    let session = state.client_session.lock().await.take();
+    if let Some(session) = session {
+        session.cancel().await?;
+    }
+    Ok(())
+}
+
+pub async fn complete_clique_pairing(
+    state: &SharedPushState,
+    code: String,
+    device_password: String,
+) -> anyhow::Result<()> {
+    let keychain = state
+        .icloud_services
+        .as_ref()
+        .and_then(|services| services.keychain.clone())
+        .ok_or_else(|| anyhow!("iCloud Keychain unavailable"))?;
+
+    {
+        let mut session_slot = state.client_session.lock().await;
+        let session = session_slot
+            .as_mut()
+            .ok_or_else(|| anyhow!("no iCloud Keychain approval session is active"))?;
+        session.send_code(&code).await?;
+    }
+
+    let result = tokio::time::timeout(Duration::from_secs(180), async {
+        let mut setup_sent = false;
+        loop {
+            if keychain.is_in_clique().await {
+                return Ok(());
+            }
+
+            let setup_result = {
+                let mut session_slot = state.client_session.lock().await;
+                let Some(session) = session_slot.as_mut() else {
+                    return Err(anyhow!(
+                        "Apple ended the approval session before iCloud Keychain membership was confirmed",
+                    ));
+                };
+                if setup_sent {
+                    None
+                } else {
+                    Some(session.setup_trusted_peers(keychain.clone(), device_password.as_bytes()).await)
+                }
+            };
+
+            match setup_result {
+                Some(Ok(())) => setup_sent = true,
+                Some(Err(rustpush::PushError::WrongStep(_))) => {}
+                Some(Err(rustpush::PushError::CircleOver)) => {
+                    return Err(anyhow!(
+                        "nearby-device verification failed; keep Bluetooth on and the trusted Apple device close by",
+                    ));
+                }
+                Some(Err(error)) => return Err(error.into()),
+                None => {}
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            let _ = cancel_clique_pairing(state).await;
+            Err(error)
+        }
+        Err(_) => {
+            let _ = cancel_clique_pairing(state).await;
+            Err(anyhow!(
+                "timed out waiting for approval from a nearby trusted Apple device",
+            ))
+        }
+    }
 }
 
 pub async fn verify_2fa(path: String, client: &mut CircleClientSession<DefaultAnisetteProvider>, _anisette: &ArcAnisetteClient<DefaultAnisetteProvider>, os_config: &JoinedOSConfig, account: &Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>, watcher: &mut broadcast::Receiver<APSMessage>, idms: &Arc<IdmsAuthListener>, code: String) -> anyhow::Result<(LoginState, Option<IDSUser>)> {
