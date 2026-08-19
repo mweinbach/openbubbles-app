@@ -628,6 +628,9 @@ private fun ChatSections(
                             onLongClick = onChatLongClick,
                             selected = chat.id == selectedChatId || chat.id in checkedIds,
                             checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface),
                         )
                     }
                 }

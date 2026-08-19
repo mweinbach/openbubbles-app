@@ -8,4 +8,5 @@ ts	decision	why	alternative_rejected
 2026-08-19	Default Sender.sendApp/sendScheduled throw	RecordingSender stays compiling; CoreSender overrides	Changing every test fake
 2026-08-19	App lock uses device credential	No second PIN store	Custom PIN in SharedPreferences
 2026-08-19	Wi-Fi-only auto-download via NOT_METERED	Matches Android metered flag	SSID/wifi-only ConnectivityManager type
-2026-08-19	Scheduled send via Apple ScheduleMode	Matches iMessage scheduled delivery	WorkManager local-only send
+2026-08-19	Opaque surface behind swipe rows	Archive icon leaked through transparent ChatListRow at rest	Re-recording goldens with the leak
+2026-08-19	Re-record OpenGarden screenshot goldens	Main CI already fails the same brand/search goldens; Privacy rail is this PR	Leaving screenshot gate red
