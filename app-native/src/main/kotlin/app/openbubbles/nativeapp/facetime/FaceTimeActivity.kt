@@ -178,6 +178,9 @@ class FaceTimeActivity : Activity() {
 
         // weird bug where it uses the Music stream but the default stream is set to call
         // you want it maxed. Trust me. And if you don't the UI will open so you know :)
+        // The WebView owns the call audio session, so the self-managed telecom
+        // connection deliberately does not manage audio routing or focus; this
+        // stream mirroring stays the volume path even when telecom tracks the call.
         val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         initialMediaVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         updateMediaVolume(audioManager)
