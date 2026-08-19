@@ -9,6 +9,16 @@ internal enum class IncomingNotificationSource {
     JOURNAL_RECOVERY,
 }
 
+internal fun journalEntryNotificationSource(
+    drainSource: IncomingNotificationSource,
+    priorAttempts: Int,
+): IncomingNotificationSource =
+    if (drainSource == IncomingNotificationSource.JOURNAL_RECOVERY || priorAttempts > 0) {
+        IncomingNotificationSource.JOURNAL_RECOVERY
+    } else {
+        IncomingNotificationSource.LIVE
+    }
+
 /** Final notification disposition reached before a Rust pointer is completed. */
 internal enum class IncomingNotificationDisposition {
     POST,

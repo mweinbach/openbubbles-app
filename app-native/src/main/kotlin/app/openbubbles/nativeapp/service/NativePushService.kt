@@ -166,7 +166,7 @@ class NativePushService : Service(), MsgReceiver {
                 when (decoded) {
                     null -> Unit
                     UPushMessage.ProcessQueue ->
-                        drainMessageJournal(handles)
+                        drainMessageJournal(handles, IncomingNotificationSource.LIVE)
                     UPushMessage.RegistrationState -> handleRegistrationState()
                     else -> ingestAndNotify(decoded, handles, IncomingNotificationSource.LIVE)
                 }
@@ -230,14 +230,19 @@ class NativePushService : Service(), MsgReceiver {
      */
     private suspend fun drainMessageJournal(
         handles: Set<String>,
+        drainSource: IncomingNotificationSource,
     ) = journalMutex.withLock {
         while (true) {
             val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
             try {
-                // Every queued item uses recovery semantics. If a previous
-                // attempt persisted the row but failed before notify(), ingest
-                // deduplication must not permanently suppress the retry.
-                ingestAndNotify(entry.message, handles, IncomingNotificationSource.JOURNAL_RECOVERY)
+                // Fresh live entries preserve duplicate suppression. A prior
+                // failed attempt, or any startup drain, uses recovery semantics
+                // so persistence-before-notify can still alert on retry.
+                val entrySource = journalEntryNotificationSource(
+                    drainSource = drainSource,
+                    priorAttempts = entry.attempts.toInt(),
+                )
+                ingestAndNotify(entry.message, handles, entrySource)
             } catch (error: Throwable) {
                 Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
                 runCatching {
@@ -455,7 +460,7 @@ class NativePushService : Service(), MsgReceiver {
             // not persist a separate "notification posted" disposition, so a
             // process death in the tiny interval after notify() but before the
             // platform exposes the active notification remains a bounded race.
-            drainMessageJournal(handles)
+            drainMessageJournal(handles, IncomingNotificationSource.JOURNAL_RECOVERY)
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop", it)

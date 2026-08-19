@@ -8,6 +8,22 @@ import kotlin.test.assertTrue
 class JournalNotificationPolicyTest {
 
     @Test
+    fun `fresh live journal entries suppress duplicates but retries recover alerts`() {
+        assertEquals(
+            IncomingNotificationSource.LIVE,
+            journalEntryNotificationSource(IncomingNotificationSource.LIVE, priorAttempts = 0),
+        )
+        assertEquals(
+            IncomingNotificationSource.JOURNAL_RECOVERY,
+            journalEntryNotificationSource(IncomingNotificationSource.LIVE, priorAttempts = 1),
+        )
+        assertEquals(
+            IncomingNotificationSource.JOURNAL_RECOVERY,
+            journalEntryNotificationSource(IncomingNotificationSource.JOURNAL_RECOVERY, priorAttempts = 0),
+        )
+    }
+
+    @Test
     fun `recovery after death before ingest posts the newly persisted message`() {
         assertEquals(
             IncomingNotificationDisposition.POST,
