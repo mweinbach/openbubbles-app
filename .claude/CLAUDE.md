@@ -12,7 +12,11 @@ Do not implement from Flutter / GetX / Dart ObjectBox recipes. Historical files:
 Current:
 
 - `docs/ARCHITECTURE.md` — modules and runtime
+- `docs/DEVELOPMENT.md` — evidence-first change loop and handoff
 - `docs/UI.md` — Compose design and navigation
 - `docs/RUST_KOTLIN.md` — UniFFI boundary
 - `docs/PERSISTENCE.md` — ObjectBox contract
 - `docs/VERIFY.md` — what tests prove
+
+Load the task-specific OpenBubbles skill routed by `AGENTS.md` before live-flow, send-lifecycle,
+UniFFI-contract, or native-library compatibility work.

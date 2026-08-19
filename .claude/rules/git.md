@@ -3,6 +3,9 @@
 Follow [../../CONTRIBUTING.md](../../CONTRIBUTING.md): focused, descriptive commits; tests with
 the behavior they protect; rustpush submodule commit first, then the parent pointer.
 
+Follow the worktree, nested-push, and evidence-handoff sequence in
+[../../docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
+
 State which Gradle/cargo gates ran and which device checks remain. Never claim a push, login,
 upgrade, or store publish without evidence.
 

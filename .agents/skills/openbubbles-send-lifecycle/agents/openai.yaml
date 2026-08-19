@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenBubbles Send Lifecycle"
+  short_description: "Fix outgoing message state and event ordering"
+  default_prompt: "Use $openbubbles-send-lifecycle to diagnose and fix this stuck, duplicated, or incorrectly failed outgoing message."

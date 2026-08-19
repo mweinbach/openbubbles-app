@@ -77,3 +77,5 @@ The activity may dispose Compose after 60s in the background; the service keeps 
 
 See [VERIFY.md](VERIFY.md). JVM tests cover policy and ingest. Device/login/battery/upgrade
 remain [CUTOVER.md](../tools/CUTOVER.md).
+For investigation order and cross-layer evidence, start with [DEVELOPMENT.md](DEVELOPMENT.md)
+rather than inferring runtime health from the last visible UI state.

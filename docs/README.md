@@ -2,6 +2,7 @@
 
 Current (Kotlin + Rust):
 
+- [DEVELOPMENT.md](DEVELOPMENT.md) — evidence-first change loop, device proof, handoff
 - [ARCHITECTURE.md](ARCHITECTURE.md) — modules, login, send/receive, background modes
 - [UI.md](UI.md) — Compose design, Navigation3, screens, recipes
 - [RUST_KOTLIN.md](RUST_KOTLIN.md) — UniFFI, rust vs rustpush, queue, keystore

@@ -82,7 +82,7 @@ Debug account-free smoke: 517-byte envelope (`openbubbles_debug_nac_round_trip`)
 - Android `.so`: direct Cargo/NDK build (`app-native/cargo-android.gradle`). The native build does
   not require Dart or Flutter tooling.
 - Bindings: `rust/build-uniffi.sh` → `core/src/main/kotlin/uniffi/`. Commit the result.
-- Gate: `:app-native:checkUniffiBindings` (not in the default CI command).
+- Gate: `:app-native:checkUniffiBindings` (runs in default PR/push native CI).
 - There are no `#[test]`s under `rust/src/`. Protocol unit tests are
   `cargo test --manifest-path rustpush/Cargo.toml --lib --locked`.
   APNs proxy/replay stay `#[ignore]`.

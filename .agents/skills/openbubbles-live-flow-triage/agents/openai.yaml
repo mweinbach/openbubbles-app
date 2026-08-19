@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenBubbles Live Flow Triage"
+  short_description: "Trace account, transport, journal, and UI state"
+  default_prompt: "Use $openbubbles-live-flow-triage to diagnose this device-observed messaging or login mismatch without changing code first."

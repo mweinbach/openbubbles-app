@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenBubbles Native Compatibility"
+  short_description: "Trace ELF, APK, and native library provenance"
+  default_prompt: "Use $openbubbles-native-library-compat to investigate this native Android library compatibility or provenance issue."

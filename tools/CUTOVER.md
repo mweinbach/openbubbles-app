@@ -12,8 +12,8 @@ already-completed mechanical cutover.
 - [x] ObjectBox model parity is enforced by `:db:checkModelParity`.
 - [x] Database, core, and Android JVM tests run in native CI.
 - [x] Fixture-free `rustpush` library tests run in native CI.
-- [x] Debug APK assembles for arm64 and x86_64.
-- [x] Android lint and release-variant AAB compilation run in native CI.
+- [x] Manual native workflow packaging assembles the debug APK for arm64 and x86_64.
+- [x] PR/push native CI runs Android lint; manual package dispatch compiles the release AAB.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.
 - [x] OpenAbsinthe constructor, key establishment, and signing use the recovered
@@ -32,6 +32,10 @@ already-completed mechanical cutover.
       notification-silenced state.
 
 ## Android device acceptance
+
+Record each run using the device/artifact/scenario evidence fields in
+[docs/DEVELOPMENT.md](../docs/DEVELOPMENT.md#6-capture-hardware-evidence). An unchecked item stays
+unchecked until direct hardware evidence exists.
 
 - [ ] The combined source-only OpenAbsinthe path completes account-free Apple
       validation and returns a 517-byte envelope on a 16 KB device build.
@@ -101,7 +105,7 @@ in [docs/RELEASES.md](../docs/RELEASES.md).
 
 - [ ] Build and install the signed release APK/AAB using the production key.
 - [ ] Verify version-code continuity and in-place upgrade signature.
-- [x] Add release-variant artifact and lint gates to CI (CI AAB is debug-signed).
+- [x] Add lint to PR/push CI and debug-signed release-variant artifacts to manual package dispatch.
 - [ ] Measure and reduce release package size where practical.
 - [ ] Complete store listing, privacy disclosure, signing backup, and rollback plan.
 

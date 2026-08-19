@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenBubbles UniFFI Contract"
+  short_description: "Evolve Kotlin-visible Rust contracts safely"
+  default_prompt: "Use $openbubbles-uniffi-contract-change to change this Kotlin-visible Rust API and regenerate its bindings safely."

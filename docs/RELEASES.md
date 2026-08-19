@@ -71,3 +71,6 @@ replace the secret. Deploy keys are per-repository (GitHub constraint).
 ## On-device acceptance
 
 See the "Self-update acceptance" section of [tools/CUTOVER.md](../tools/CUTOVER.md).
+Use the release completion handoff in [DEVELOPMENT.md](DEVELOPMENT.md#7-commit-push-and-release) to
+keep the version, changelog, workflow, signed asset, feed hash, and remaining device checks in one
+evidence unit.

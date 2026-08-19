@@ -23,16 +23,26 @@ JDK 21 only. Gradle root is `native/` (not the repo root). Submodules required.
 - `rust/src/frb_generated*.rs` and existing Flutter Rust Bridge exports still compile as legacy Rust
   surface. They are not the Kotlin API; Kotlin uses committed UniFFI bindings from `:core`.
 
+All paths and commands in this file start at the repository root. Keep directory changes in
+subshells so Gradle does not leave later Rust paths resolving under `native/`.
+
 ```bash
-cd native
-./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain
+(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain)
 ```
 
-UI chrome: also `:app-native:validateDebugScreenshotTest`.
-`rustpush/` changes: `cargo test --manifest-path rustpush/Cargo.toml --lib --locked`.
-UniFFI surface changes: `cd rust && ./build-uniffi.sh`, then commit the Kotlin in `core/src/main/kotlin/uniffi/`.
+UI chrome: also `(cd native && ./gradlew :app-native:validateDebugScreenshotTest --console=plain)`.
+`rustpush/` changes: `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` from the root.
+UniFFI surface changes: `(cd rust && ./build-uniffi.sh)`, then commit the Kotlin in `core/src/main/kotlin/uniffi/`.
 Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). Do not claim those passed without hardware evidence.
+
+## Development loop
+
+Follow [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): anchor the exact symptom and worktree, identify
+the owning contract, prove the first failing boundary, make the narrow slice, run the union of
+affected gates, capture device evidence separately, then commit and push leaf submodules before
+parent pointers. A visible UI status, green host test, successful package, and hardware protocol
+oracle are different evidence tiers; state exactly which one passed.
 
 ## Hard constraints
 
@@ -44,47 +54,21 @@ Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). D
 - Keep the Android Rust build Dart-free: direct Cargo + pinned NDK only.
 - SIM (`isRpSms`) attachments go through Android MMS, never MMCS.
 - Default path is self-hosted OABS + on-device validation. Do not require a hosted hardware relay.
-- After completing and verifying requested changes, commit them and push the current branch automatically unless the user explicitly asks not to.
+- After completing and verifying requested changes, commit them and push the current branch automatically unless the user explicitly asks not to. Only include safely separable requested work; never sweep unrelated generated files or unrelated/unverified changes into the commit. Report the blocker if clean separation is impossible.
 - Commit rustpush changes inside the submodule first, then the parent pointer separately.
 - Never commit credentials, `hw_info.plist` / `gsa.plist` / `id.plist`, keystores, `android/key.properties`, APNs proxy certs, or replay traffic.
 
 ## Cursor Cloud specific instructions
 
-README/CONTRIBUTING list JDK, NDK, Rust, and `native/local.properties`, but two CI-only steps are required before `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` or a Gradle compile of `rustpush/`.
-
-**FairPlay placeholder certs.** `rustpush/certs/fairplay/*` is gitignored. Copy the legacy placeholders the same way `.github/workflows/native.yml` does (`Set up fake Fairplay keys`):
-
-```bash
-mkdir -p rustpush/certs/fairplay
-for name in \
-  4056631661436364584235346952193 \
-  4056631661436364584235346952194 \
-  4056631661436364584235346952195 \
-  4056631661436364584235346952196 \
-  4056631661436364584235346952197 \
-  4056631661436364584235346952198 \
-  4056631661436364584235346952199 \
-  4056631661436364584235346952200 \
-  4056631661436364584235346952201 \
-  4056631661436364584235346952208
-do
-  cp rustpush/certs/legacy-fairplay/fairplay.pem "rustpush/certs/fairplay/$name.pem"
-  cp rustpush/certs/legacy-fairplay/fairplay.crt "rustpush/certs/fairplay/$name.crt"
-done
-```
-
-**`sdk.dir`.** `native/local.properties` is gitignored. Point Gradle at the Android SDK (CI writes `sdk.dir=$ANDROID_HOME`; on this image the SDK is `/home/ubuntu/android-sdk` and `ANDROID_HOME` may be unset):
-
-```bash
-echo "sdk.dir=${ANDROID_HOME:-/home/ubuntu/android-sdk}" > native/local.properties
-```
-
-Do not commit the generated FairPlay files or `local.properties`.
+Before compiling `rustpush/` on a bare cloud image, create the gitignored FairPlay placeholders
+and `native/local.properties` exactly as documented in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#cloudci-fixture-setup). Do not commit either fixture set.
 
 ## Read when relevant
 
 | Task | Doc |
 |---|---|
+| Evidence-first change loop, device evidence, handoff | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Modules, login, receive/send, live vs poll | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Compose design, nav, screens, how to add UI | [docs/UI.md](docs/UI.md) |
 | UniFFI, rust vs rustpush, keystore, queue | [docs/RUST_KOTLIN.md](docs/RUST_KOTLIN.md) |
@@ -102,6 +86,10 @@ destinations for Find My / Settings (those live in the chat-list profile menu).
 
 | When | Load |
 |---|---|
+| Device says connected but login/receive state disagrees | [openbubbles-live-flow-triage](.agents/skills/openbubbles-live-flow-triage/SKILL.md) |
+| Outgoing message is stuck, duplicated, or has wrong status | [openbubbles-send-lifecycle](.agents/skills/openbubbles-send-lifecycle/SKILL.md) |
+| Kotlin-visible Rust API/event/type changes | [openbubbles-uniffi-contract-change](.agents/skills/openbubbles-uniffi-contract-change/SKILL.md) |
+| Native `.so`, 16 KiB, ELF/RELRO, or provenance issue | [openbubbles-native-library-compat](.agents/skills/openbubbles-native-library-compat/SKILL.md) |
 | Any Compose / visual change | [.agents/skills/m3-expressive/SKILL.md](.agents/skills/m3-expressive/SKILL.md) then the specialist it routes to |
 | Theme, color, shapes, type | [m3-expressive-theming](.agents/skills/m3-expressive-theming/SKILL.md) |
 | Springs, shared elements, reduce-motion | [m3-expressive-motion](.agents/skills/m3-expressive-motion/SKILL.md) |

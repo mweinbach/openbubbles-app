@@ -2,7 +2,8 @@
 
 OpenBubbles is in a native Kotlin/Rust cutover. New work must target the native
 modules; do not reintroduce Flutter or Dart application code. Agents should
-start from [AGENTS.md](AGENTS.md).
+start from [AGENTS.md](AGENTS.md). The executable change loop and evidence handoff are in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Setup
 
@@ -34,14 +35,14 @@ Prefer shared behavior in `core/`; keep Android framework types in
 Run focused tests while iterating. Before completing a native change, run:
 
 ```bash
-cd native
-./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain
+(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain)
 ```
 
 For changes touching `rustpush/`, also run:
 
 ```bash
+# From the repository root
 cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 ```
 
