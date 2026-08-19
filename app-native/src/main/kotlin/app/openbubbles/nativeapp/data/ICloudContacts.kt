@@ -73,6 +73,8 @@ internal data class ParsedVCard(
     val addresses: List<String>,
     val photo: ByteArray?,
     val photoUri: String? = null,
+    val nickname: String? = null,
+    val company: String? = null,
 )
 
 /** Minimal vCard 3/4 parser for the fields used by handle resolution. */
@@ -84,6 +86,8 @@ internal object ICloudVCardParser {
         var lastName: String? = null
         var photo: ByteArray? = null
         var photoUri: String? = null
+        var nickname: String? = null
+        var company: String? = null
         val addresses = LinkedHashSet<String>()
 
         for (line in lines) {
@@ -99,6 +103,12 @@ internal object ICloudVCardParser {
                     lastName = parts.getOrNull(0)?.takeIf(String::isNotBlank)
                     firstName = parts.getOrNull(1)?.takeIf(String::isNotBlank)
                 }
+                // NICKNAME is a comma list; ORG is "company;unit;…" — the
+                // device writer only carries one value of each.
+                "NICKNAME" -> nickname = splitEscaped(decodeText(raw, descriptor), ',')
+                    .firstOrNull()?.trim()?.takeIf(String::isNotBlank)
+                "ORG" -> company = splitEscaped(decodeText(raw, descriptor), ';')
+                    .firstOrNull()?.trim()?.takeIf(String::isNotBlank)
                 "EMAIL", "TEL" -> decodeText(raw, descriptor)
                     .trim()
                     .let { address ->
@@ -141,6 +151,8 @@ internal object ICloudVCardParser {
             addresses = addresses.toList(),
             photo = photo,
             photoUri = photoUri,
+            nickname = nickname,
+            company = company,
         )
     }
 
@@ -615,6 +627,8 @@ object ICloudContactSync {
                             lastName = parsed.lastName,
                             avatarPath = savePhoto(context, href.toString(), photo),
                             addresses = parsed.addresses,
+                            nickname = parsed.nickname,
+                            company = parsed.company,
                         )
                     }
                     val noLongerUsable = upsertIds - raw.mapTo(HashSet()) { it.id.removePrefix("icloud:") }
