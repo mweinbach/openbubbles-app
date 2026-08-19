@@ -139,6 +139,7 @@ class NativeMainActivity : FragmentActivity() {
 
         debugLines = listOf(Hello.greeting())
         resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
+            ?: intent?.getStringExtra(EXTRA_INITIAL_ROUTE)?.takeIf { it.isNotBlank() }
         pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
             IncomingShareRequest(
                 text = savedInstanceState.getString(STATE_SHARE_TEXT),
@@ -266,6 +267,13 @@ class NativeMainActivity : FragmentActivity() {
     companion object {
         /** Deep-link extra carrying the tapped notification's chat guid. */
         const val EXTRA_CHAT_GUID = "chat_guid"
+
+        /**
+         * Deep-link extra carrying an initial [Routes] value (e.g. the
+         * credential-provider settings shortcut opening [Routes.PASSWORDS]).
+         * Seeds [resumeRoute] on a cold start when there is no saved route.
+         */
+        const val EXTRA_INITIAL_ROUTE = "initial_route"
 
         /** Keeps quick app switches warm but releases UI during longer background periods. */
         internal const val BACKGROUND_UI_RELEASE_MS = 60_000L

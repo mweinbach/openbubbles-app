@@ -75,8 +75,12 @@ interface PasswordsPort {
     suspend fun listInvites(): List<VaultInviteUi>
     suspend fun reveal(item: VaultItemUi): Pair<String, Long?>
     suspend fun createPassword(site: String, username: String, password: String, groupId: String?)
+    suspend fun deleteItem(item: VaultItemUi)
     suspend fun createGroup(name: String)
+    suspend fun renameGroup(id: String, name: String)
+    suspend fun deleteGroup(id: String)
     suspend fun acceptInvite(id: String)
+    suspend fun declineInvite(id: String)
 }
 
 class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : PasswordsPort {
@@ -127,12 +131,25 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
     override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) =
         withContext(Dispatchers.IO) { state().createPassword(site, username, password, groupId) }
 
+    override suspend fun deleteItem(item: VaultItemUi) = withContext(Dispatchers.IO) {
+        state().deletePassword(item.id, item.category.itemKind(), item.groupId)
+    }
+
     override suspend fun createGroup(name: String) {
         withContext(Dispatchers.IO) { state().createPasswordGroup(name) }
     }
 
+    override suspend fun renameGroup(id: String, name: String) =
+        withContext(Dispatchers.IO) { state().renamePasswordGroup(id, name) }
+
+    override suspend fun deleteGroup(id: String) =
+        withContext(Dispatchers.IO) { state().deletePasswordGroup(id) }
+
     override suspend fun acceptInvite(id: String) =
         withContext(Dispatchers.IO) { state().acceptPasswordGroupInvite(id) }
+
+    override suspend fun declineInvite(id: String) =
+        withContext(Dispatchers.IO) { state().declinePasswordGroupInvite(id) }
 }
 
 class FakePasswordsPort(
@@ -169,10 +186,22 @@ class FakePasswordsPort(
     override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) {
         items = items + VaultItemUi("created", VaultCategory.Passwords, site, username, groupId)
     }
+    override suspend fun deleteItem(item: VaultItemUi) {
+        items = items.filterNot { it.id == item.id && it.category == item.category }
+    }
     override suspend fun createGroup(name: String) {
         groups = groups + VaultGroupUi("created-group", name, true, 1)
     }
+    override suspend fun renameGroup(id: String, name: String) {
+        groups = groups.map { if (it.id == id) it.copy(name = name) else it }
+    }
+    override suspend fun deleteGroup(id: String) {
+        groups = groups.filterNot { it.id == id }
+    }
     override suspend fun acceptInvite(id: String) {
+        invites = invites.filterNot { it.id == id }
+    }
+    override suspend fun declineInvite(id: String) {
         invites = invites.filterNot { it.id == id }
     }
 }
@@ -274,13 +303,39 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
         refreshAfterWrite(VaultCategory.Passwords)
     }
 
+    fun deleteSelected() {
+        val item = mutableState.value.selected ?: return
+        runAction {
+            port.deleteItem(item)
+            mutableState.update {
+                it.copy(selected = null, revealedSecret = null, secretExpiresAtSeconds = null)
+            }
+            refreshAfterWrite(item.category)
+        }
+    }
+
     fun createGroup(name: String) = runAction {
         port.createGroup(name.trim())
         refreshAfterWrite(VaultCategory.Groups)
     }
 
+    fun renameGroup(id: String, name: String) = runAction {
+        port.renameGroup(id, name.trim())
+        refreshAfterWrite(VaultCategory.Groups)
+    }
+
+    fun deleteGroup(id: String) = runAction {
+        port.deleteGroup(id)
+        refreshAfterWrite(VaultCategory.Groups)
+    }
+
     fun acceptInvite(id: String) = runAction {
         port.acceptInvite(id)
+        refreshAfterWrite(VaultCategory.Groups)
+    }
+
+    fun declineInvite(id: String) = runAction {
+        port.declineInvite(id)
         refreshAfterWrite(VaultCategory.Groups)
     }
 

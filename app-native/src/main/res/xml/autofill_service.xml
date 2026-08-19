@@ -2,5 +2,5 @@
 <autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:supportsInlineSuggestions="true"
-    android:settingsActivity="com.bluebubbles.messaging.services.credentials.CredentialSettingsActivity"
+    android:settingsActivity="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
     tools:ignore="UnusedAttribute" />

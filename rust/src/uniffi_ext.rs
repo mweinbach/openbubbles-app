@@ -1012,6 +1012,97 @@ impl NativePushState {
         })
     }
 
+    pub fn decline_password_group_invite(&self, invite_id: String) -> Result<(), UError> {
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(api::decline_invite(&manager, invite_id)).map_err(|error| UError::Failed {
+            reason: format!("failed to decline password group invitation: {error}"),
+        })
+    }
+
+    pub fn rename_password_group(&self, group_id: String, name: String) -> Result<(), UError> {
+        if name.trim().is_empty() {
+            return Err(UError::InvalidArgument { reason: "a group name is required".to_string() });
+        }
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(api::rename_group(&manager, group_id, name)).map_err(|error| UError::Failed {
+            reason: format!("failed to rename password group: {error}"),
+        })
+    }
+
+    /// Delete an owned group (removes the CloudKit zone) or leave a shared one
+    /// (removes our participation). `rustpush` picks the right operation from
+    /// whether this device owns the group.
+    pub fn delete_password_group(&self, group_id: String) -> Result<(), UError> {
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(api::delete_group(&manager, group_id)).map_err(|error| UError::Failed {
+            reason: format!("failed to delete password group: {error}"),
+        })
+    }
+
+    /// Delete a saved vault item. For a password this removes both the
+    /// `com.apple.cfnetwork` credential and its paired
+    /// `com.apple.password-manager` metadata, matching how the Passwords app
+    /// deletes a login. Deleting a code clears only the TOTP so the saved
+    /// password survives; passkeys and Wi-Fi entries remove the single record.
+    pub fn delete_password(
+        &self,
+        id: String,
+        kind: UVaultItemKind,
+        group_id: Option<String>,
+    ) -> Result<(), UError> {
+        let manager = native_password_manager(self.shared())?;
+        RUNTIME.block_on(async {
+            match kind {
+                UVaultItemKind::Password => {
+                    // Capture (site, account) before the delete so the matching
+                    // password-manager metadata record can be removed too.
+                    let target = api::get_passwords(&manager)
+                        .await
+                        .get(&id)
+                        .map(|(_, entry)| (entry.srvr.clone(), entry.acct.clone()));
+                    api::delete_password(&manager, id, group_id.clone()).await?;
+                    if let Some((srvr, acct)) = target {
+                        for (meta_id, (meta_group, meta)) in api::get_passwords_meta(&manager).await {
+                            if meta.srvr == srvr && meta.acct == acct && meta_group == group_id {
+                                api::delete_password_meta(&manager, meta_id, meta_group).await?;
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                UVaultItemKind::Passkey => api::delete_passkey(&manager, id, group_id).await,
+                UVaultItemKind::Wifi => api::delete_wifi_password(&manager, id, group_id).await,
+                UVaultItemKind::Code => {
+                    let target = api::get_passwords_meta(&manager)
+                        .await
+                        .get(&id)
+                        .map(|(group, meta)| (group.clone(), meta.srvr.clone(), meta.acct.clone()));
+                    if let Some((group, srvr, acct)) = target {
+                        let criteria = rustpush::passwords::PasswordCriteria { site: srvr, account: acct };
+                        manager
+                            .modify_password_entry::<rustpush::passwords::PasswordManagerMeta>(
+                                &criteria,
+                                |entry| {
+                                    if let Ok(mut data) = entry.get_password_data() {
+                                        data.totp = None;
+                                        if let Ok(encoded) =
+                                            rustpush::passwords::PasswordManagerMeta::get_data(&data)
+                                        {
+                                            entry.data = encoded;
+                                        }
+                                    }
+                                },
+                                group,
+                            )
+                            .await?;
+                    }
+                    Ok(())
+                }
+            }
+        })
+        .map_err(|error| UError::Failed { reason: format!("failed to delete item: {error}") })
+    }
+
     pub fn list_shared_albums(&self, refresh: bool) -> Result<Vec<USharedAlbum>, UError> {
         let manager = native_shared_albums(self.shared())?;
         let ((albums, syncing), (statuses, failure)) = RUNTIME.block_on(async {

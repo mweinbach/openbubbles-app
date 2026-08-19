@@ -889,10 +889,27 @@ fun OpenBubblesApp(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("iCloud Password", value))
                         },
+                        onDelete = {
+                            val activity = context as? androidx.fragment.app.FragmentActivity
+                            if (activity != null) {
+                                CredentialUserAuth.authenticate(
+                                    activity = activity,
+                                    title = "Delete iCloud item",
+                                    subtitle = "Authenticate to delete this item from all your devices",
+                                    onSuccess = viewModel::deleteSelected,
+                                    onFailure = {},
+                                )
+                            } else {
+                                viewModel.deleteSelected()
+                            }
+                        },
                         onPrepareCreatePassword = viewModel::prepareCreatePassword,
                         onCreatePassword = viewModel::createPassword,
                         onCreateGroup = viewModel::createGroup,
+                        onRenameGroup = viewModel::renameGroup,
+                        onDeleteGroup = viewModel::deleteGroup,
                         onAcceptInvite = viewModel::acceptInvite,
+                        onDeclineInvite = viewModel::declineInvite,
                     )
                 }
 

@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -97,5 +98,63 @@ class PasswordsViewModelTest {
         assertEquals(1, port.groupListCount)
         assertEquals(1, port.inviteListCount)
         assertEquals(1, model.uiState.value.categoryCounts[VaultCategory.Groups])
+    }
+
+    @Test
+    fun `deleting the selected item removes it and clears the selection`() = runTest(dispatcher) {
+        val keep = VaultItemUi("keep", VaultCategory.Passwords, "keep.example", "alice")
+        val drop = VaultItemUi("drop", VaultCategory.Passwords, "drop.example", "bob")
+        val port = FakePasswordsPort(items = listOf(keep, drop))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+
+        model.select(drop)
+        model.deleteSelected()
+        advanceUntilIdle()
+
+        assertEquals(listOf("keep"), model.uiState.value.items.map { it.id })
+        assertNull(model.uiState.value.selected)
+    }
+
+    @Test
+    fun `renaming a group updates its name`() = runTest(dispatcher) {
+        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2)))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        model.setCategory(VaultCategory.Groups)
+        advanceUntilIdle()
+
+        model.renameGroup("family", "Household")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Household"), model.uiState.value.groups.map { it.name })
+    }
+
+    @Test
+    fun `deleting a group removes it`() = runTest(dispatcher) {
+        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2)))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        model.setCategory(VaultCategory.Groups)
+        advanceUntilIdle()
+
+        model.deleteGroup("family")
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), model.uiState.value.groups.map { it.id })
+    }
+
+    @Test
+    fun `declining an invite removes it`() = runTest(dispatcher) {
+        val port = FakePasswordsPort(invites = listOf(VaultInviteUi("inv", "Family", "alice@example.com")))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        model.setCategory(VaultCategory.Groups)
+        advanceUntilIdle()
+
+        model.declineInvite("inv")
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), model.uiState.value.invites.map { it.id })
     }
 }

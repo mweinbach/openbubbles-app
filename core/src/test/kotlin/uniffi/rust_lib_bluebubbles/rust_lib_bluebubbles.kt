@@ -1515,6 +1515,14 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1652,6 +1660,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_create_password_
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_password_group_invite(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_share(
@@ -1659,6 +1669,10 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_beacon_sh
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_chats_remote(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_password(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_password_group(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_device_info(
 ): Short
@@ -1737,6 +1751,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_followin
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_password_group(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam(
 ): Short
@@ -2084,6 +2100,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_create_password_group(
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_password_group_invite(`ptr`: Pointer,`inviteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_attachments_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_beacon_share(`ptr`: Pointer,`shareId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2092,6 +2110,10 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_chats_remote(`p
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_messages_remote(`ptr`: Pointer,`recordIds`: RustBuffer.ByValue,
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_password(`ptr`: Pointer,`id`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_password_group(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_device_info(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2170,6 +2192,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_password_group(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_report_spam(`ptr`: Pointer,`handle`: RustBuffer.ByValue,`messages`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_reveal_password(`ptr`: Pointer,`id`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2748,6 +2772,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_facetime() != 51777.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_decline_password_group_invite() != 41297.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_attachments_remote() != 10450.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2758,6 +2785,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_messages_remote() != 39838.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_password() != 43043.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_delete_password_group() != 22782.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_device_info() != 22640.toShort()) {
@@ -2875,6 +2908,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 18530.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_password_group() != 43819.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_report_spam() != 51800.toShort()) {
@@ -6180,6 +6216,8 @@ public interface NativePushStateInterface {
 
     fun `declineFacetime`(`guid`: kotlin.String)
 
+    fun `declinePasswordGroupInvite`(`inviteId`: kotlin.String)
+
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
@@ -6201,6 +6239,22 @@ public interface NativePushStateInterface {
      * Push local message deletions to iCloud (`delete_messages`).
      */
     suspend fun `deleteMessagesRemote`(`recordIds`: List<kotlin.String>)
+
+    /**
+     * Delete a saved vault item. For a password this removes both the
+     * `com.apple.cfnetwork` credential and its paired
+     * `com.apple.password-manager` metadata, matching how the Passwords app
+     * deletes a login. Deleting a code clears only the TOTP so the saved
+     * password survives; passkeys and Wi-Fi entries remove the single record.
+     */
+    fun `deletePassword`(`id`: kotlin.String, `kind`: UVaultItemKind, `groupId`: kotlin.String?)
+
+    /**
+     * Delete an owned group (removes the CloudKit zone) or leave a shared one
+     * (removes our participation). `rustpush` picks the right operation from
+     * whether this device owns the group.
+     */
+    fun `deletePasswordGroup`(`groupId`: kotlin.String)
 
     /**
      * Identity of the emulated hardware this device presents to Apple:
@@ -6391,6 +6445,8 @@ public interface NativePushStateInterface {
      * Rename a group chat (Dart `renameChat`).
      */
     suspend fun `renameChat`(`conversation`: UConversation, `sender`: kotlin.String, `newName`: kotlin.String): UMessageInst
+
+    fun `renamePasswordGroup`(`groupId`: kotlin.String, `name`: kotlin.String)
 
     fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)
 
@@ -6865,6 +6921,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
+    @Throws(UException::class)override fun `declinePasswordGroupInvite`(`inviteId`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_decline_password_group_invite(
+        it, FfiConverterString.lower(`inviteId`),_status)
+}
+    }
+
+
+
+
     /**
      * Push local attachment deletions to iCloud (`delete_attachments`).
      */
@@ -6955,6 +7023,42 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         UException.ErrorHandler,
     )
     }
+
+
+    /**
+     * Delete a saved vault item. For a password this removes both the
+     * `com.apple.cfnetwork` credential and its paired
+     * `com.apple.password-manager` metadata, matching how the Passwords app
+     * deletes a login. Deleting a code clears only the TOTP so the saved
+     * password survives; passkeys and Wi-Fi entries remove the single record.
+     */
+    @Throws(UException::class)override fun `deletePassword`(`id`: kotlin.String, `kind`: UVaultItemKind, `groupId`: kotlin.String?)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_password(
+        it, FfiConverterString.lower(`id`),FfiConverterTypeUVaultItemKind.lower(`kind`),FfiConverterOptionalString.lower(`groupId`),_status)
+}
+    }
+
+
+
+
+    /**
+     * Delete an owned group (removes the CloudKit zone) or leave a shared one
+     * (removes our participation). `rustpush` picks the right operation from
+     * whether this device owns the group.
+     */
+    @Throws(UException::class)override fun `deletePasswordGroup`(`groupId`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_delete_password_group(
+        it, FfiConverterString.lower(`groupId`),_status)
+}
+    }
+
+
 
 
     /**
@@ -7643,6 +7747,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         UException.ErrorHandler,
     )
     }
+
+
+    @Throws(UException::class)override fun `renamePasswordGroup`(`groupId`: kotlin.String, `name`: kotlin.String)
+        =
+    callWithPointer {
+    uniffiRustCallWithError(UException) { _status ->
+    UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_password_group(
+        it, FfiConverterString.lower(`groupId`),FfiConverterString.lower(`name`),_status)
+}
+    }
+
+
 
 
     @Throws(UException::class)override fun `reportSpam`(`handle`: kotlin.String, `messages`: List<UReportMessage>)

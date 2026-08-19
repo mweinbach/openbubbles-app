@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Refresh
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -86,14 +89,21 @@ fun PasswordsScreen(
     onSelect: (VaultItemUi?) -> Unit,
     onReveal: () -> Unit,
     onCopy: (String) -> Unit,
+    onDelete: () -> Unit,
     onPrepareCreatePassword: () -> Unit,
     onCreatePassword: (String, String, String, String?) -> Unit,
     onCreateGroup: (String) -> Unit,
+    onRenameGroup: (String, String) -> Unit,
+    onDeleteGroup: (String) -> Unit,
     onAcceptInvite: (String) -> Unit,
+    onDeclineInvite: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreatePassword by remember { mutableStateOf(false) }
     var showCreateGroup by remember { mutableStateOf(false) }
+    var groupActions by remember { mutableStateOf<VaultGroupUi?>(null) }
+    var renameGroupTarget by remember { mutableStateOf<VaultGroupUi?>(null) }
+    var inviteActions by remember { mutableStateOf<VaultInviteUi?>(null) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -139,7 +149,8 @@ fun PasswordsScreen(
                 onQuery = onQuery,
                 onSelect = onSelect,
                 onCreateGroup = { showCreateGroup = true },
-                onAcceptInvite = onAcceptInvite,
+                onGroupClick = { groupActions = it },
+                onInviteClick = { inviteActions = it },
                 modifier = Modifier.padding(padding),
             )
         }
@@ -152,7 +163,40 @@ fun PasswordsScreen(
             busy = uiState.busy,
             onReveal = onReveal,
             onCopy = onCopy,
+            onDelete = onDelete,
             onDismiss = { onSelect(null) },
+        )
+    }
+    groupActions?.let { group ->
+        GroupActionsDialog(
+            group = group,
+            busy = uiState.busy,
+            onRename = { renameGroupTarget = group; groupActions = null },
+            onDelete = { onDeleteGroup(group.id); groupActions = null },
+            onDismiss = { groupActions = null },
+        )
+    }
+    renameGroupTarget?.let { group ->
+        TextEntryDialog(
+            title = "Rename group",
+            label = "Group name",
+            initial = group.name,
+            confirmLabel = "Rename",
+            busy = uiState.busy,
+            onDismiss = { renameGroupTarget = null },
+            onSubmit = {
+                onRenameGroup(group.id, it)
+                renameGroupTarget = null
+            },
+        )
+    }
+    inviteActions?.let { invite ->
+        InviteActionsDialog(
+            invite = invite,
+            busy = uiState.busy,
+            onAccept = { onAcceptInvite(invite.id); inviteActions = null },
+            onDecline = { onDeclineInvite(invite.id); inviteActions = null },
+            onDismiss = { inviteActions = null },
         )
     }
     if (showCreatePassword) {
@@ -220,7 +264,8 @@ private fun VaultContent(
     onQuery: (String) -> Unit,
     onSelect: (VaultItemUi) -> Unit,
     onCreateGroup: () -> Unit,
-    onAcceptInvite: (String) -> Unit,
+    onGroupClick: (VaultGroupUi) -> Unit,
+    onInviteClick: (VaultInviteUi) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val filtered = filterVaultItems(uiState.items, uiState.category, uiState.query)
@@ -351,7 +396,7 @@ private fun VaultContent(
                             SettingsActionItem(
                                 title = invite.groupName,
                                 supporting = "Invited by ${invite.inviter}",
-                                onClick = { onAcceptInvite(invite.id) },
+                                onClick = { onInviteClick(invite) },
                                 index = index,
                                 count = uiState.invites.size,
                                 icon = Icons.Filled.Badge,
@@ -376,9 +421,10 @@ private fun VaultContent(
                         items = uiState.groups,
                         key = { _, group -> "group:${group.id}" },
                     ) { index, group ->
-                        SettingsInfoItem(
+                        SettingsActionItem(
                             title = group.name,
                             supporting = "${group.memberCount} members${if (group.owner) " • Owner" else ""}",
+                            onClick = { onGroupClick(group) },
                             index = index + 1,
                             count = groupRowCount,
                             icon = Icons.Filled.Badge,
@@ -544,35 +590,153 @@ private fun CredentialDialog(
     busy: Boolean,
     onReveal: () -> Unit,
     onCopy: (String) -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmDelete by remember(item.id) { mutableStateOf(false) }
+    val noun = item.category.singular
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(item.title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item.username?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                if (item.category == VaultCategory.Passkeys) {
-                    Text("Passkey private keys stay protected and cannot be revealed.")
-                } else if (secret == null) {
-                    Text("Authenticate to reveal this ${item.category.title.lowercase()} value.")
-                } else {
-                    Text(secret, style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { onCopy(secret) }) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                        Text("Copy")
+            if (confirmDelete) {
+                Text("Delete this $noun? It is removed from iCloud and every device signed in to this account.")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item.username?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    if (item.category == VaultCategory.Passkeys) {
+                        Text("Passkey private keys stay protected and cannot be revealed.")
+                    } else if (secret == null) {
+                        Text("Authenticate to reveal this ${item.category.title.lowercase()} value.")
+                    } else {
+                        Text(secret, style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { onCopy(secret) }) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                            Text("Copy")
+                        }
+                    }
+                    TextButton(
+                        onClick = { confirmDelete = true },
+                        enabled = !busy,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (item.category == VaultCategory.Codes) "Delete code" else "Delete")
                     }
                 }
             }
         },
         confirmButton = {
-            if (item.category != VaultCategory.Passkeys && secret == null) {
-                TextButton(onClick = onReveal, enabled = !busy) { Text("Reveal") }
+            when {
+                confirmDelete -> TextButton(
+                    onClick = onDelete,
+                    enabled = !busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+                item.category != VaultCategory.Passkeys && secret == null ->
+                    TextButton(onClick = onReveal, enabled = !busy) { Text("Reveal") }
+                else -> TextButton(onClick = onDismiss) { Text("Done") }
+            }
+        },
+        dismissButton = {
+            if (confirmDelete) {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            } else if (secret == null) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun GroupActionsDialog(
+    group: VaultGroupUi,
+    busy: Boolean,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var confirmDelete by remember(group.id) { mutableStateOf(false) }
+    val destructiveLabel = if (group.owner) "Delete group" else "Leave group"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(group.name) },
+        text = {
+            if (confirmDelete) {
+                Text(
+                    if (group.owner) {
+                        "Delete \"${group.name}\"? Everyone loses access to its shared passwords."
+                    } else {
+                        "Leave \"${group.name}\"? You lose access to its shared passwords."
+                    },
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "${group.memberCount} members${if (group.owner) " • Owner" else ""}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (group.owner) {
+                        TextButton(onClick = onRename, enabled = !busy) {
+                            Icon(Icons.Filled.Edit, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Rename")
+                        }
+                    }
+                    TextButton(
+                        onClick = { confirmDelete = true },
+                        enabled = !busy,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text(destructiveLabel)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (confirmDelete) {
+                TextButton(
+                    onClick = onDelete,
+                    enabled = !busy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(destructiveLabel) }
             } else {
                 TextButton(onClick = onDismiss) { Text("Done") }
             }
         },
-        dismissButton = { if (secret == null) TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            if (confirmDelete) {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun InviteActionsDialog(
+    invite: VaultInviteUi,
+    busy: Boolean,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(invite.groupName) },
+        text = { Text("Invited by ${invite.inviter}") },
+        confirmButton = { TextButton(onClick = onAccept, enabled = !busy) { Text("Accept") } },
+        dismissButton = {
+            TextButton(
+                onClick = onDecline,
+                enabled = !busy,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Decline") }
+        },
     )
 }
 
@@ -632,14 +796,16 @@ private fun TextEntryDialog(
     busy: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
+    initial: String = "",
+    confirmLabel: String = "Create",
 ) {
-    var value by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { OutlinedTextField(value, { value = it }, label = { Text(label) }, singleLine = true) },
         confirmButton = {
-            TextButton(onClick = { onSubmit(value) }, enabled = !busy && value.isNotBlank()) { Text("Create") }
+            TextButton(onClick = { onSubmit(value) }, enabled = !busy && value.isNotBlank()) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -651,6 +817,14 @@ private val VaultCategory.title: String get() = when (this) {
     VaultCategory.Codes -> "Codes"
     VaultCategory.Wifi -> "Wi-Fi"
     VaultCategory.Groups -> "Groups"
+}
+
+private val VaultCategory.singular: String get() = when (this) {
+    VaultCategory.Passwords -> "password"
+    VaultCategory.Passkeys -> "passkey"
+    VaultCategory.Codes -> "code"
+    VaultCategory.Wifi -> "Wi-Fi password"
+    VaultCategory.Groups -> "group"
 }
 
 private val VaultCategory.icon get() = when (this) {
@@ -674,9 +848,10 @@ private fun PasswordsPreview() {
                 categoryCounts = mapOf(VaultCategory.Passwords to 1),
             ),
             onBack = {}, onRefresh = {}, onOpenICloudSettings = {}, onCategory = {}, onQuery = {},
-            onSelect = {}, onReveal = {}, onCopy = {}, onPrepareCreatePassword = {},
+            onSelect = {}, onReveal = {}, onCopy = {}, onDelete = {}, onPrepareCreatePassword = {},
             onCreatePassword = { _, _, _, _ -> },
-            onCreateGroup = {}, onAcceptInvite = {},
+            onCreateGroup = {}, onRenameGroup = { _, _ -> }, onDeleteGroup = {},
+            onAcceptInvite = {}, onDeclineInvite = {},
         )
     }
 }
