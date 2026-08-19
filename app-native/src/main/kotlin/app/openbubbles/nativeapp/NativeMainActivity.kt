@@ -95,6 +95,37 @@ private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = ru
     URLDecoder.decode(encoded, StandardCharsets.UTF_8.name())
 }.getOrDefault(value)
 
+/**
+ * The single navigation decision for a [NativeMainActivity] launch intent,
+ * shared by onCreate (cold) and onNewIntent (warm) so both apply the same
+ * precedence: a tapped notification beats a share payload, which beats an
+ * sms/mms compose uri, which beats an explicit route request.
+ */
+sealed interface MainLaunchAction {
+    data class OpenChat(val guid: String) : MainLaunchAction
+    data class Share(val request: IncomingShareRequest) : MainLaunchAction
+    data class Compose(val request: SmsComposeRequest) : MainLaunchAction
+    data class OpenRoute(val route: String, val standaloneTask: Boolean) : MainLaunchAction
+    data object None : MainLaunchAction
+}
+
+internal fun decideMainLaunchAction(
+    action: String?,
+    dataString: String?,
+    mimeType: String?,
+    extraText: String?,
+    streams: List<String>,
+    chatGuid: String?,
+    initialRoute: String?,
+    standaloneTask: Boolean,
+): MainLaunchAction {
+    chatGuid?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenChat(it) }
+    parseIncomingShareRequest(action, mimeType, extraText, streams)?.let { return MainLaunchAction.Share(it) }
+    parseSmsComposeRequest(action, dataString, extraText)?.let { return MainLaunchAction.Compose(it) }
+    initialRoute?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenRoute(it, standaloneTask) }
+    return MainLaunchAction.None
+}
+
 class NativeMainActivity : FragmentActivity() {
     private var debugLines: List<String> by mutableStateOf(emptyList())
     private var resumeRoute: String? = null
