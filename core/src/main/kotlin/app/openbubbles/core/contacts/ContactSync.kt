@@ -19,6 +19,8 @@ data class RawContact(
     val lastName: String?,
     val avatarPath: String?,
     val addresses: List<String>,
+    val nickname: String? = null,
+    val company: String? = null,
 )
 
 /**
@@ -251,6 +253,15 @@ class ContactSync(private val store: BoxStore) {
         contact.addresses = raw.addresses.map { normalizeAddress(it) }.filter { it.isNotEmpty() }
         // Keep a previously synced avatar when the platform reports none.
         if (raw.avatarPath != null) contact.avatarPath = raw.avatarPath
+        // CardDAV re-sends the whole card, so a null there is a real removal.
+        // Device reads never carry these and must not clear legacy rows.
+        if (isICloudContactId(raw.id)) {
+            contact.nickname = raw.nickname
+            contact.company = raw.company
+        } else {
+            raw.nickname?.let { contact.nickname = it }
+            raw.company?.let { contact.company = it }
+        }
         contact.isNative = true
 
         // Re-link handles from the (normalized) address list.
@@ -455,6 +466,29 @@ class ContactSync(private val store: BoxStore) {
             }
         }
 
+    /**
+     * Every stored iCloud/CardDAV contact at full fidelity, for the device
+     * contacts writer. Unlike [preferredContacts] nothing is deduplicated or
+     * merged across sources — the writer mirrors each card one-to-one.
+     */
+    fun icloudContacts(): List<RawContact> = store.callInReadTx {
+        contactBox.all
+            .filter { isICloudContact(it) }
+            .sortedBy { it.id }
+            .map { contact ->
+                RawContact(
+                    id = contact.nativeContactId.orEmpty(),
+                    displayName = contact.displayName,
+                    firstName = contact.firstName,
+                    lastName = contact.lastName,
+                    avatarPath = contact.avatarPath,
+                    addresses = contact.addresses,
+                    nickname = contact.nickname,
+                    company = contact.company,
+                )
+            }
+    }
+
     private fun handlesFor(
         contact: ContactV2,
         emailHandles: Map<String, Set<Handle>>,
@@ -485,8 +519,11 @@ class ContactSync(private val store: BoxStore) {
             else -> 2
         }
 
+        fun isICloudContactId(id: String?): Boolean =
+            id?.startsWith(ICLOUD_CONTACT_PREFIX) == true
+
         private fun isICloudContact(contact: ContactV2): Boolean =
-            contact.nativeContactId?.startsWith(ICLOUD_CONTACT_PREFIX) == true
+            isICloudContactId(contact.nativeContactId)
 
         private fun withoutAddressScheme(address: String): String {
             val trimmed = address.trim()
