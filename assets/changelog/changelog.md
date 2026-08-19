@@ -2,6 +2,21 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.2
+
+### Enhancements
+
+- Settings → iCloud now includes an experimental, read-only iCloud Photos
+  browser. It can display personal-library metadata and explicitly download
+  verified image previews into a separate app cache.
+
+### Fixes
+
+- Fixed an arm64 native interface mismatch that could crash physical Android
+  devices when sending an image or other attachment.
+- Attachment saving and location access now respect the capabilities and
+  permission model of each supported Android version.
+
 ## v3.4.1
 
 ### Fixes
