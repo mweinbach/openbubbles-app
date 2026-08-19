@@ -139,6 +139,21 @@ class MessageRepoPagingTest {
         assertNull(messageBox.get(message.id).dateDeleted)
     }
 
+    /**
+     * observeMessages drops structurally identical pages so writes in other
+     * chats stop waking open transcripts. That only holds while MessageItem
+     * stays a pure value projection; this pins the contract.
+     */
+    @Test
+    fun `page projection is structurally equal across unrelated writes`() {
+        val other = chat("unrelated-chat", handle("+15559998888"))
+        val before = repo.messages(chat.id, limit = 10)
+
+        message(other, "noise in another conversation", 5_000L)
+
+        assertEquals(before, repo.messages(chat.id, limit = 10))
+    }
+
     @Test
     fun `clear transcript deletes all local messages`() {
         repo.clearTranscript(chat.id)

@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -96,6 +97,11 @@ class MessageRepo(
         )
             .conflate()
             .map { messages(chatId, limit) }
+            // The subscriptions are store-wide, so a write in any other chat
+            // re-runs this page too. MessageItem is a pure DB projection;
+            // dropping identical pages here spares every downstream stage
+            // (UI mapping, enrichment, recomposition) for unrelated writes.
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
     /** Invalidates warmed UI projections when transcript display data changes. */

@@ -49,6 +49,28 @@ class RichLinkPreviewTest {
         assertNull(parseRichLinkPreview(null, "No links here"))
     }
 
+    /**
+     * Previews are re-parsed (fresh byte arrays) on every transcript
+     * emission; structural equality is what lets the identical-frame
+     * deduplication and Compose skipping work for link bubbles.
+     */
+    @Test
+    fun `equal content with distinct byte array instances compares equal`() {
+        fun preview() = RichLinkPreview(
+            url = "https://example.com/story",
+            displayHost = "example.com",
+            title = "Example story",
+            summary = "A useful summary",
+            imageBytes = byteArrayOf(137.toByte(), 80, 78, 71),
+            imageMime = "image/png",
+            iconBytes = byteArrayOf(1, 2, 3),
+            iconMime = "image/x-icon",
+        )
+
+        assertEquals(preview(), preview())
+        assertEquals(preview().hashCode(), preview().hashCode())
+    }
+
     @Test
     fun `mixed text drops the preview URL and keeps the caption`() {
         assertEquals(
