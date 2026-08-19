@@ -316,6 +316,10 @@ object CoreGraph {
     fun relinkContacts(): app.openbubbles.core.contacts.ContactRelinkResult? =
         CoreContacts.relink()?.also { UiContacts.notifyAvatarsChanged() }
 
+    /** Full-fidelity iCloud rows for the device-contacts mirror. */
+    fun icloudContacts(): List<app.openbubbles.core.contacts.RawContact> =
+        CoreContacts.icloud()
+
     /**
      * (display name, avatar path) for a handle address, or null when unknown.
      *
@@ -1045,6 +1049,9 @@ private object CoreContacts {
 
     fun preferredContacts(includeNativeContacts: Boolean): List<app.openbubbles.core.contacts.RawContact> =
         sync?.preferredContacts(includeNativeContacts).orEmpty()
+
+    fun icloud(): List<app.openbubbles.core.contacts.RawContact> =
+        sync?.icloudContacts().orEmpty()
 
     @Volatile
     private var handleIndex: Map<String, Handle>? = null

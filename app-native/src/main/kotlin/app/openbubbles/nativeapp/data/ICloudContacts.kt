@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
 import app.openbubbles.core.contacts.RawContact
+import app.openbubbles.nativeapp.data.contacts.ContactDeviceSync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -664,6 +665,15 @@ object ICloudContactSync {
                                 "(${relink.changedContacts} changed)"
                         },
                 )
+            }.onSuccess {
+                // A fresh CardDAV snapshot is the natural moment to mirror
+                // into the phone's contact store; the 12h worker only covers
+                // drift (permission granted later, missed passes).
+                if (ContactDeviceSync.isEnabled(context)) {
+                    ContactDeviceSync.schedule(context)
+                    runCatching { ContactDeviceSync.syncNow(context) }
+                        .onFailure { Log.w("ICloudContactSync", "device mirror failed: ${it.message}") }
+                }
             }.onFailure { error ->
                 val message = error.message ?: error.javaClass.simpleName
                 prefs.edit { putString("last_error", message) }
