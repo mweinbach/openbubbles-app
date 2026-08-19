@@ -846,6 +846,58 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `send confirm arriving before temp row promotion is applied by outgoing echo`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "racing send",
+            stagingGuid = "temp-confirm-race",
+        )
+
+        // Rust can emit this while the UniFFI send call is still returning,
+        // before Android knows the real UUID for its temp row.
+        ingestor.ingest(UPushMessage.SendConfirm(uuid = "real-confirm-race", error = null), myHandles)
+
+        // Mirror OutgoingTextLifecycle.promoteOutgoingText, then ingest the
+        // local outgoing echo that follows promotion in CoreGraph.
+        staged.guid = "real-confirm-race"
+        staged.stagingGuid = "real-confirm-race"
+        messageBox().put(staged)
+        ingestor.ingest(push(textInst("real-confirm-race", me, "racing send")), myHandles)
+
+        val confirmed = messageByGuid("real-confirm-race")
+        assertNotNull(confirmed)
+        assertNull(confirmed.sendingServiceId)
+        assertEquals(app.openbubbles.core.model.MessageStatus.SENT, messageRepo.statusOf(confirmed))
+    }
+
+    @Test
+    fun `send error arriving before temp row promotion is applied by outgoing echo`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "racing failure",
+            stagingGuid = "temp-error-race",
+        )
+
+        ingestor.ingest(
+            UPushMessage.SendConfirm(uuid = "real-failure-race", error = "delivery rejected"),
+            myHandles,
+        )
+        staged.guid = "real-failure-race"
+        staged.stagingGuid = "real-failure-race"
+        messageBox().put(staged)
+        ingestor.ingest(push(textInst("real-failure-race", me, "racing failure")), myHandles)
+
+        val failed = messageBox().all.single { it.stagingGuid == "real-failure-race" }
+        assertEquals("delivery rejected", failed.errorMessage)
+        assertNull(failed.sendingServiceId)
+        assertEquals(app.openbubbles.core.model.MessageStatus.FAILED, messageRepo.statusOf(failed))
+    }
+
+    @Test
     fun `outgoing stage persists effect and reply metadata atomically`() = runBlocking<Unit> {
         val chat = chatForFixture()
         val staged = messageRepo.stageOutgoingMessage(

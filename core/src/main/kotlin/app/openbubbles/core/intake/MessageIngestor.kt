@@ -94,6 +94,8 @@ class MessageIngestor(
     private val transcriptBackgroundHandler: TranscriptBackgroundHandler? = null,
     private val profileUpdatePort: ProfileUpdatePort? = null,
 ) {
+    private data class PendingSendConfirm(val error: String?)
+
     /**
      * Persistence result used by notification consumers. [isNewIncomingMessage]
      * is true only when this call inserted a previously unseen incoming message
@@ -108,6 +110,7 @@ class MessageIngestor(
     companion object {
         /** How long a typing indicator survives without a refresh (Dart uses 1 minute). */
         private const val TYPING_TIMEOUT_MS = 60_000L
+        private const val MAX_PENDING_SEND_CONFIRMS = 256
         private val RNG = SecureRandom()
         private const val ALPHANUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -123,6 +126,7 @@ class MessageIngestor(
     private val messageBox = store.boxFor(Message::class.java)
     private val attachmentBox = store.boxFor(Attachment::class.java)
     private val mutex = Mutex()
+    private val pendingSendConfirms = LinkedHashMap<String, PendingSendConfirm>()
 
     private val _typing = MutableStateFlow<List<TypingIndicator>>(emptyList())
 
@@ -645,7 +649,16 @@ class MessageIngestor(
     }
 
     private fun handleSendConfirm(uuid: String, error: String?) {
-        val message = findMessageByGuidOrStaging(uuid) ?: return
+        val message = findMessageByGuidOrStaging(uuid)
+        if (message == null) {
+            rememberPendingSendConfirm(uuid, error)
+            return
+        }
+        pendingSendConfirms.remove(uuid)
+        applySendConfirm(message, error)
+    }
+
+    private fun applySendConfirm(message: Message, error: String?) {
         if (error == null) {
             if (message.sendingServiceId == null) return
             message.sendingServiceId = null
@@ -657,6 +670,31 @@ class MessageIngestor(
         // bubble as a failed send.
         if (!message.isFromMe) return
         markFailed(message, error)
+    }
+
+    /**
+     * Rust can report delivery before the UniFFI send call returns and the
+     * Android layer promotes its `temp-…` row to the real UUID. Retain that
+     * unmatched confirmation until the outgoing echo makes the UUID visible.
+     */
+    private fun rememberPendingSendConfirm(uuid: String, error: String?) {
+        pendingSendConfirms.remove(uuid)
+        pendingSendConfirms[uuid] = PendingSendConfirm(error)
+        while (pendingSendConfirms.size > MAX_PENDING_SEND_CONFIRMS) {
+            val iterator = pendingSendConfirms.entries.iterator()
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
+        }
+    }
+
+    private fun applyPendingSendConfirm(message: Message) {
+        val identifiers = listOfNotNull(message.guid, message.stagingGuid).distinct()
+        for (identifier in identifiers) {
+            val pending = pendingSendConfirms.remove(identifier) ?: continue
+            applySendConfirm(message, pending.error)
+            return
+        }
     }
 
     private fun handleSmsConfirmSent(inst: UMessageInst, status: Boolean) {
@@ -896,6 +934,8 @@ class MessageIngestor(
             } catch (_: UniqueViolationException) {
                 return@runInTx // duplicate delivery racing us; nothing to do
             }
+
+            applyPendingSendConfirm(saved)
 
             persistAttachments(mapped.attachments, saved)
 
