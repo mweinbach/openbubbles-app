@@ -16,8 +16,22 @@ legacy BlueBubbles client and does not require a BlueBubbles Mac server.
 - `db/` — ObjectBox entities and the compatibility model.
 - `desktopApp/` — Compose Desktop application, currently targeting Windows.
 - `rust/` — UniFFI-facing native API used by the Kotlin applications.
-- `rustpush/` — Apple protocol implementation, included as a Git submodule.
+- `rustpush/` — Apple protocol implementation, included as a Git submodule
+  (with nested `apple-private-apis` and `open-absinthe` submodules of its own).
+- `telephony_plus/` — Android telephony support, included as a Git submodule
+  (provides the `:android-smsmms` Java MMS stack).
 - `native/` — Gradle root for the Kotlin modules (JDK 21).
+
+Clone with submodules included:
+
+```bash
+git clone --recurse-submodules https://github.com/mweinbach/openbubbles-app.git
+```
+
+If you cloned without the flag, recover with `git submodule update --init --recursive`.
+Most submodule remotes are private GitHub repositories — your SSH key or token must
+be authorized on them. Full submodule map and workflow:
+[docs/rust-backend/foundations/submodules.md](docs/rust-backend/foundations/submodules.md).
 
 See [AGENTS.md](AGENTS.md) for agent/contributor orientation,
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime flows, and
@@ -32,7 +46,8 @@ Required tooling:
 - stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
 - `protoc`
 
-Initialize submodules, provide `native/local.properties` with `sdk.dir`, then run:
+Clone with `--recurse-submodules` (see above), provide `native/local.properties` with
+`sdk.dir`, then run:
 
 ```bash
 cd native

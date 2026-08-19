@@ -16,6 +16,7 @@ compile but are dead surface ([FRB legacy](#frb-legacy)).
 |---|---|
 | [foundations/runtime.md](foundations/runtime.md) | Tokio runtime, sync-vs-async exports, delegates, logging |
 | [foundations/lifecycle.md](foundations/lifecycle.md) | Boot order, live vs poll, teardown, reconnects |
+| [foundations/submodules.md](foundations/submodules.md) | The submodule tree (rustpush, telephony_plus + nested), clone/init, pointer bumps |
 | [foundations/state.md](foundations/state.md) | In-memory `SharedPushState` + every on-disk config file |
 | [messaging/message-model.md](messaging/message-model.md) | `UMessage`/`UPart`/`UMessageInst` variant reference |
 | [messaging/incoming.md](messaging/incoming.md) | Receive loop, pointer queue, durable journal, SendConfirm, re-auth |

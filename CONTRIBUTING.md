@@ -7,7 +7,11 @@ start from [AGENTS.md](AGENTS.md). The executable change loop and evidence hando
 
 ## Setup
 
-1. Clone with submodules or run `git submodule update --init --recursive`.
+1. Clone with submodules (`git clone --recurse-submodules`) or run
+   `git submodule update --init --recursive`. Most submodule remotes are private
+   repositories; see
+   [docs/rust-backend/foundations/submodules.md](docs/rust-backend/foundations/submodules.md)
+   for the full tree, access requirements, and the pointer-bump workflow.
 2. Install JDK 21, the Android SDK/NDK versions listed in `README.md`, stable
    Rust, the Android Rust targets, and `protoc`.
 3. Create `native/local.properties` containing your Android SDK path.

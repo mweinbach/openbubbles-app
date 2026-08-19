@@ -1,6 +1,8 @@
 [submodule "rustpush"]
 	path = rustpush
 	url = https://github.com/mweinbach/rustpush-private.git
+	branch = main
 [submodule "telephony_plus"]
 	path = telephony_plus
 	url = https://github.com/mweinbach/telephony_plus.git
+	branch = main
