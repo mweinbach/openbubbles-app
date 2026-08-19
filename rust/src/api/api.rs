@@ -11,6 +11,7 @@ use keystore::{AesKeystoreKey, EcCurve, EcKeystoreKey, EncryptMode, KeystoreAcce
 use keystore::init_keystore;
 pub use rustpush::{default_provider, ArcAnisetteClient, DefaultAnisetteProvider, IDSUserType, LoginClientInfo};
 use log::{debug, error, info, warn};
+use openssl::sha::sha1;
 use plist::{Data, Dictionary};
 pub use plist::Value;
 use sha2::Digest;
@@ -796,7 +797,9 @@ impl SharedPushState {
             init_keystore(SoftwareKeystore {
                 state: plist::from_file(&keystore).unwrap_or_default(),
                 update_state: Box::new(move |state| {
-                    plist::to_file_xml(&keystore, state).unwrap();
+                    if let Err(error) = atomic_write_plist(&keystore, state) {
+                        log::error!("failed to save keystore state: {error}");
+                    }
                 }),
                 encryptor: SoftwareEncryptor(*b"desktopisinsecureyoushouldn'tber"),
             });
@@ -935,7 +938,9 @@ pub async fn make_shared_streams(path: String, conn: &APSConnection, anisette: &
     let state = plist::from_file(&stream_path).ok()?;
 
     let client = SharedStreamClient::new(state, Box::new(move |update| {
-        plist::to_file_xml(&stream_path, update).unwrap();
+        if let Err(error) = atomic_write_plist(&stream_path, update) {
+            log::error!("failed to save shared streams state: {error}");
+        }
     }), token.clone(), conn.clone(), anisette.clone(), config.config()).await;
 
 
@@ -972,7 +977,9 @@ pub async fn make_passwords(path: String, keychain: &Arc<KeychainClient<DefaultA
     let state: PasswordState = plist::from_file(&path).unwrap_or_default();
 
     PasswordManager::new(keychain.clone(), cloudkit.clone(), client.identity.clone(), conn.clone(), state, Box::new(move |item| {
-        plist::to_file_xml(&path, item).expect("Failed to serialize plist!");
+        if let Err(error) = atomic_write_plist(&path, item) {
+            log::error!("failed to save passwords state: {error}");
+        }
     }), Box::new(|manager, wifi| {
         if !wifi { return }
         tokio::spawn(async move {
@@ -995,7 +1002,9 @@ pub async fn make_facetime(path: String, conn: &APSConnection, client: &Arc<IMCl
     let facetime_path = dir.join("facetime.plist");
     let state: FTState = plist::from_file(&facetime_path).unwrap_or_default();
     Arc::new(FTClient::new(state, Box::new(move |state| {
-        plist::to_file_xml(&facetime_path, state).expect("Failed to serialize plist!");
+        if let Err(error) = atomic_write_plist(&facetime_path, state) {
+            log::error!("failed to save facetime state: {error}");
+        }
     }), conn.clone(), client.identity.clone(), conn.os_config.clone()).await)
 }
 
@@ -1005,7 +1014,9 @@ pub async fn make_statuskit(path: String, provider: &Arc<TokenProvider<DefaultAn
     let path = dir.join("statuskit.plist");
     let state: StatusKitState = plist::from_file(&path).unwrap_or_default();
     StatusKitClient::new(state, Box::new(move |state| {
-        plist::to_file_xml(&path, state).unwrap();
+        if let Err(error) = atomic_write_plist(&path, state) {
+            log::error!("failed to save statuskit state: {error}");
+        }
     }), provider.clone(), conn.clone(), config.config(), client.identity.clone()).await
 }
 
@@ -1112,7 +1123,9 @@ pub async fn make_findmy(path: String, token_provider: &Arc<TokenProvider<Defaul
     Some(Arc::new(FindMyClient::new(conn.clone(), cloudkit.clone(), keychain.clone(), config.config(), Arc::new(FindMyStateManager {
         state: Mutex::new(state),
         update: Box::new(move |state| {
-            fs::write(&id_path, state).expect("Failed to serialize plist!");
+            if let Err(error) = atomic_write(&id_path, &state) {
+                log::error!("failed to save findmy state: {error}");
+            }
         }),
     }), token_provider.clone(), anisette.clone(), client.identity.clone()).await.unwrap()))
 }
@@ -1140,18 +1153,24 @@ fn subscribe_streams<P: AnisetteProvider + Send + Sync + 'static, F: FilePackage
         let mut generated_sub = manager.generated_signal.subscribe();
         let manager_ref = Arc::downgrade(&manager);
         drop(manager);
-        while let Ok(_) = generated_sub.recv().await {
+        loop {
+            match generated_sub.recv().await {
+                // Lagged means signals arrived and were dropped, which is
+                // still a reason to run the diff below.
+                Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {},
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
             // drain any accumulations
             while let Ok(_) = generated_sub.try_recv() { }
 
-            info!("Starting diff");
+            debug!("Starting diff");
             let Some(manager) = manager_ref.upgrade() else { break };
             let new = shared_items(&manager, &mut seen_paths).await;
-            info!("New files {:?}", new);
+            debug!("New files {:?}", new);
             if let Some(packager) = PACKAGER_LOCK.get() {
                 packager.scan_files(new.into_iter().map(|a| a.to_str().expect("Path not str??").to_string()).collect());
             }
-            info!("Diffed");
+            debug!("Diffed");
         }
     });
 }
@@ -1508,13 +1527,13 @@ pub async fn mark_queue_attempt(id: u64, success: bool) -> anyhow::Result<()> {
 
 pub async fn ptr_to_dart(ptr: String) -> Option<PushMessage> {
     let pointer: u64 = ptr.parse().unwrap();
-    info!("using pointer {pointer}");
+    debug!("using pointer {pointer}");
     QUEUED_MESSAGES.lock().await.1.get(&pointer).cloned()
 }
 
 pub async fn complete_msg(ptr: String) {
     let pointer: u64 = ptr.parse().unwrap();
-    info!("finishing pointer {pointer}");
+    debug!("finishing pointer {pointer}");
     QUEUED_MESSAGES.lock().await.1.remove(&pointer);
 }
 
@@ -2076,85 +2095,151 @@ pub async fn approve_circle(state: &Arc<Mutex<Vec<ActiveCircleSession>>>, accoun
     Ok(otp)
 }
 
+/// APS topics each side handler in [recv_wait] can consume. These mirror the
+/// topic gates at the top of the rustpush `handle()` / `receive_message()`
+/// implementations (findmy.rs, sharedstreams.rs, statuskit.rs, passwords.rs,
+/// auth.rs, facetime.rs); a handler given a message outside its set returns
+/// `None`/empty with no side effects, so filtering here before cloning is
+/// behavior-preserving. Must be kept in sync if a rustpush handler ever
+/// widens its topic set.
+struct HandlerTopics {
+    findmy: [[u8; 20]; 3],
+    sharedstreams: [u8; 20],
+    statuskit: [[u8; 20]; 3],
+    passwords: [[u8; 20]; 3],
+    idms: [u8; 20],
+    facetime: [[u8; 20]; 2],
+}
+
+static HANDLER_TOPICS: LazyLock<HandlerTopics> = LazyLock::new(|| HandlerTopics {
+    findmy: [
+        sha1("com.apple.private.alloy.fmf".as_bytes()),
+        sha1("com.apple.private.alloy.fmd".as_bytes()),
+        sha1("com.apple.private.alloy.findmy.itemsharing-crossaccount".as_bytes()),
+    ],
+    sharedstreams: sha1("com.apple.sharedstreams".as_bytes()),
+    statuskit: [
+        sha1("com.apple.icloud.presence.mode.status".as_bytes()),
+        sha1("com.apple.private.alloy.status.keysharing".as_bytes()),
+        sha1("com.apple.private.alloy.status.personal".as_bytes()),
+    ],
+    passwords: [
+        sha1("com.apple.icloud-container.com.apple.security.kcsharing".as_bytes()),
+        sha1("com.apple.icloud-container.com.apple.securityd".as_bytes()),
+        sha1("com.apple.private.alloy.kcsharing.invite".as_bytes()),
+    ],
+    idms: sha1("com.apple.idmsauth".as_bytes()),
+    facetime: [
+        sha1("com.apple.private.alloy.facetime.multi".as_bytes()),
+        sha1("com.apple.private.alloy.facetime.video".as_bytes()),
+    ],
+});
+
 pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -> PollResult {
     if watcher.cancel_poll_recv.try_recv().is_ok() {
         return PollResult::Stop;
     }
     select! {
         msg = watcher.inq_queue.recv() => {
-            let msg = msg.unwrap();
-            info!("Got inq cue");
+            let msg = match msg {
+                Ok(msg) => msg,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!("APS receiver lagged; {skipped} messages were dropped");
+                    return PollResult::Cont(None);
+                },
+                Err(broadcast::error::RecvError::Closed) => return PollResult::Stop,
+            };
+            debug!("Got inq cue");
+            let (topic, has_channel) = match &msg {
+                APSMessage::Notification { topic, channel, .. } => (Some(*topic), channel.is_some()),
+                _ => (None, false),
+            };
+            let topic_in = |topics: &[[u8; 20]]| topic.is_some_and(|t| topics.contains(&t));
             if let Some(icloud) = &state.icloud_services {
                 if let Some(fmfd) = &icloud.fmfd {
-                    match fmfd.handle(msg.clone()).await {
-                        Ok(mut items) => {
-                            if !items.is_empty() {
-                                let item = items.remove(0);
-                                return PollResult::Cont(Some(PushMessage::BeaconShared {
-                                    sender: item.0,
-                                    beacon: item.1,
-                                    attributes: item.2,
-                                }))
+                    if topic_in(&HANDLER_TOPICS.findmy) {
+                        match fmfd.handle(msg.clone()).await {
+                            Ok(mut items) => {
+                                if !items.is_empty() {
+                                    let item = items.remove(0);
+                                    return PollResult::Cont(Some(PushMessage::BeaconShared {
+                                        sender: item.0,
+                                        beacon: item.1,
+                                        attributes: item.2,
+                                    }))
+                                }
+                            },
+                            Err(e) => {
+                                warn!("FMF import error {e}");
                             }
-                        },
-                        Err(e) => {
-                            warn!("FMF import error {e}");
                         }
                     }
                 }
                 if let Some(photostream) = &icloud.sharedstreams {
-                    if let Ok(Some(changes)) = photostream.handle(msg.clone()).await {
-                        handle_photostream(&photostream.client, changes, &state.local_broadcast).await;
+                    if topic == Some(HANDLER_TOPICS.sharedstreams) {
+                        if let Ok(Some(changes)) = photostream.handle(msg.clone()).await {
+                            handle_photostream(&photostream.client, changes, &state.local_broadcast).await;
+                        }
                     }
                 }
-                match icloud.statuskit_client.handle(msg.clone()).await {
-                    Err(e) => {
-                        error!("Statuskit handle error {e}");
-                        return PollResult::Cont(None);
-                    },
-                    Ok(None) => {},
-                    Ok(Some(msg)) => {
-                        return PollResult::Cont(Some(PushMessage::StatusUpdate(msg)))
+                // statuskit also tracks channel liveness on every channel
+                // notification, whatever its topic
+                if has_channel || topic_in(&HANDLER_TOPICS.statuskit) {
+                    match icloud.statuskit_client.handle(msg.clone()).await {
+                        Err(e) => {
+                            error!("Statuskit handle error {e}");
+                            return PollResult::Cont(None);
+                        },
+                        Ok(None) => {},
+                        Ok(Some(msg)) => {
+                            return PollResult::Cont(Some(PushMessage::StatusUpdate(msg)))
+                        }
                     }
                 }
                 if let Some(passwords) = &icloud.passwords {
-                    if let Err(e) = passwords.handle(msg.clone()).await {
-                        info!("error handling passwords {e}");
+                    if topic_in(&HANDLER_TOPICS.passwords) {
+                        if let Err(e) = passwords.handle(msg.clone()).await {
+                            info!("error handling passwords {e}");
+                        }
                     }
                 }
             }
-            match state.idms_client.handle(msg.clone()) {
-                Err(e) => {
-                    error!("IDMS handle error {e}");
-                    return PollResult::Cont(None);
-                },
-                Ok(None) => {},
-                Ok(Some(IdmsMessage::CircleRequest(circle, req))) => {
-                    if let Some(req) = &req {
-                        if !handle_2fa(&state, req).await { return PollResult::Cont(None) }
+            if topic == Some(HANDLER_TOPICS.idms) {
+                match state.idms_client.handle(msg.clone()) {
+                    Err(e) => {
+                        error!("IDMS handle error {e}");
+                        return PollResult::Cont(None);
+                    },
+                    Ok(None) => {},
+                    Ok(Some(IdmsMessage::CircleRequest(circle, req))) => {
+                        if let Some(req) = &req {
+                            if !handle_2fa(&state, req).await { return PollResult::Cont(None) }
+                        }
+                        debug!("Circle here");
+                        handle_circle(&state, &req, &circle).await;
+                        if let Some(req) = req {
+                            return PollResult::Cont(Some(PushMessage::Idms(IdmsMessage::RequestedSignIn(req))))
+                        }
+                    },
+                    Ok(Some(IdmsMessage::RequestedSignIn(s))) => {
+                        if !handle_2fa(&state, &s).await { return PollResult::Cont(None) }
+                        return PollResult::Cont(Some(PushMessage::Idms(IdmsMessage::RequestedSignIn(s))))
+                    },
+                    Ok(Some(msg)) => {
+                        return PollResult::Cont(Some(PushMessage::Idms(msg)))
                     }
-                    debug!("Circle here");
-                    handle_circle(&state, &req, &circle).await;
-                    if let Some(req) = req {
-                        return PollResult::Cont(Some(PushMessage::Idms(IdmsMessage::RequestedSignIn(req))))
-                    }
-                },
-                Ok(Some(IdmsMessage::RequestedSignIn(s))) => {
-                    if !handle_2fa(&state, &s).await { return PollResult::Cont(None) }
-                    return PollResult::Cont(Some(PushMessage::Idms(IdmsMessage::RequestedSignIn(s))))
-                },
-                Ok(Some(msg)) => {
-                    return PollResult::Cont(Some(PushMessage::Idms(msg)))
                 }
             }
-            let ft_msg = state.ft_client.handle(msg.clone()).await;
-            match ft_msg {
-                Ok(Some(msg)) => return PollResult::Cont(Some(PushMessage::FaceTime(msg))),
-                Ok(None) => {},
-                Err(err) => {
-                    // log and ignore for now
-                    error!("ft err {}", err);
-                    return PollResult::Cont(None);
+            if topic_in(&HANDLER_TOPICS.facetime) {
+                let ft_msg = state.ft_client.handle(msg.clone()).await;
+                match ft_msg {
+                    Ok(Some(msg)) => return PollResult::Cont(Some(PushMessage::FaceTime(msg))),
+                    Ok(None) => {},
+                    Err(err) => {
+                        // log and ignore for now
+                        error!("ft err {}", err);
+                        return PollResult::Cont(None);
+                    }
                 }
             }
             let msg = state.client.handle(msg).await;
@@ -2227,7 +2312,11 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
             PollResult::Cont(Some(PushMessage::RegistrationState(regstate)))
         }
         reader = watcher.local_messages.recv() => {
-            PollResult::Cont(Some(reader.unwrap()))
+            match reader {
+                Some(msg) => PollResult::Cont(Some(msg)),
+                // every local sender is gone; nothing can arrive anymore
+                None => PollResult::Stop,
+            }
         },
         _cancel = watcher.cancel_poll_recv.recv() => {
             PollResult::Stop
@@ -2237,7 +2326,7 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
 
 pub async fn send(state: &Arc<IMClient>, local: &Arc<mpsc::Sender<PushMessage>>, mut msg: MessageInst) -> anyhow::Result<bool> {
     let result = state.send(&mut msg).await?;
-    info!("send_finish");
+    debug!("send_finish");
 
     let local = local.clone();
     let uuid = msg.id.clone();
@@ -2294,7 +2383,7 @@ async fn watch_send_progress<P: AsRef<str> + Clone + Send + 'static>(
         Ok(Err(err)) => Some(format!("{err}")),
         Err(join) => Some(format!("send task failed: {join}")),
     };
-    info!("Finished handle {}", uuid);
+    debug!("Finished handle {}", uuid);
     if !delivered {
         let _ = local.send(PushMessage::SendConfirm { uuid, error: maybeerr }).await;
     }
@@ -3204,8 +3293,17 @@ pub async fn verify_2fa(path: String, client: &mut CircleClientSession<DefaultAn
 
     // todo add timeout
     let mut login_state = tokio::time::timeout(Duration::from_secs(30), async {
-        Ok::<_, PushError>(loop {
-            let msg = watcher.recv().await.unwrap();
+        Ok::<_, anyhow::Error>(loop {
+            let msg = match watcher.recv().await {
+                Ok(msg) => msg,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!("2FA APS watcher lagged; {skipped} messages were dropped");
+                    continue;
+                },
+                Err(broadcast::error::RecvError::Closed) => {
+                    return Err(anyhow!("APS channel closed while waiting for 2FA"));
+                },
+            };
             if let Some(test) = idms.handle(msg)? {
                 match test {
                     IdmsMessage::CircleRequest(c, _) => {
