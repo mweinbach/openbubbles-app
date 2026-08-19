@@ -71,7 +71,7 @@ class UpdateInstallActivity : ComponentActivity() {
                 UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission -> {
                     Toast.makeText(
                         this@UpdateInstallActivity,
-                        "Allow \"Install unknown apps\" for OpenBubbles, then tap the update again",
+                        "Allow \"Install unknown apps\" for OpenGarden, then tap the update again",
                         Toast.LENGTH_LONG,
                     ).show()
                     runCatching {

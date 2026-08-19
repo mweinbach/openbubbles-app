@@ -74,7 +74,7 @@ internal fun WelcomeStep(
             BrandBubble()
             Spacer(Modifier.height(40.dp))
             Text(
-                text = "OpenBubbles",
+                text = "OpenGarden",
                 // The expressive emphasized display role — a real Medium weight
                 // instead of synthetic-bold smear from FontWeight.SemiBold.
                 style = MaterialTheme.typography.displaySmallEmphasized,

@@ -47,7 +47,7 @@ fun main() {
     application {
         val state = rememberWindowState(width = 480.dp, height = 900.dp)
         Window(
-            title = "OpenBubbles",
+            title = "OpenGarden",
             state = state,
             onCloseRequest = ::exitApplication,
         ) {

@@ -212,7 +212,7 @@ internal fun PermissionsStep(
                 subtitle = when {
                     smsGranted -> null
                     smsPermissionsGranted && !smsRoleHeld ->
-                        "Choose OpenBubbles as the default SMS app to receive MMS and group media."
+                        "Choose OpenGarden as the default SMS app to receive MMS and group media."
                     smsDenied -> "Not enabled — you can turn it on later in system Settings."
                     else -> null
                 },

@@ -175,7 +175,7 @@ private fun FormStep(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "OpenBubbles connects directly to iMessage using your Apple ID.",
+                text = "OpenGarden connects directly to iMessage using your Apple ID.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

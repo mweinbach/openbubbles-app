@@ -950,7 +950,7 @@ internal fun rememberICloudSection(
                             "This device generated and saved a local iCloud Keychain recovery code: $code. " +
                                 if (joinedWithNearbyApproval) {
                                     "A nearby trusted Apple device approved this device. " +
-                                        "OpenBubbles saved its local recovery code for future recovery. "
+                                        "OpenGarden saved its local recovery code for future recovery. "
                                 } else {
                                     "The join used your trusted Apple device's existing escrow record. "
                                 } +

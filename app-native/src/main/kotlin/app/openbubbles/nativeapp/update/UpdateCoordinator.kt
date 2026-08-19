@@ -258,7 +258,7 @@ object UpdateCoordinator {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_stat_icon)
-            .setContentTitle("OpenBubbles ${manifest.versionName} ready to install")
+            .setContentTitle("OpenGarden ${manifest.versionName} ready to install")
             .setContentText("Tap to update${manifest.notes.take(80).let { if (it.isBlank()) "" else " — $it" }}")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(

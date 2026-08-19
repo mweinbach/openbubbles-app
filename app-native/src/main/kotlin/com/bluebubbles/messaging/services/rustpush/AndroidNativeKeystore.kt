@@ -451,7 +451,7 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
 
         var builder = BiometricPrompt.Builder(promptContext)
             .setTitle(title)
-            .setDescription("iCloud Keychain is used for Find My and Messages in iCloud. OpenBubbles requires user authentication when managing iCloud Keychain for extra security.")
+            .setDescription("iCloud Keychain is used for Find My and Messages in iCloud. OpenGarden requires user authentication when managing iCloud Keychain for extra security.")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)

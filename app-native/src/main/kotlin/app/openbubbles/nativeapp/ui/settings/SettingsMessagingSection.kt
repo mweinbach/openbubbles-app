@@ -357,7 +357,7 @@ internal fun rememberMessagingSection(
                                 supporting = if (isDefaultSmsApp) {
                                     "On — incoming and outgoing SMS stay in this app and in Android's message store"
                                 } else {
-                                    "Off — set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
+                                    "Off — set OpenGarden as the default SMS app so carrier SMS, MMS, and media arrive here"
                                 },
                                 onClick = {
                                     SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)

@@ -579,8 +579,18 @@ class NativePushService : Service(), MsgReceiver {
 
     private fun createChannels() {
         val nm = getSystemService(NotificationManager::class.java) ?: return
+        // IMPORTANCE_MIN keeps the ongoing status notification out of the status bar and
+        // silent. The rest only takes effect on a first install: the platform treats an
+        // already-created channel as user-owned and ignores everything but name and
+        // description on re-creation.
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_STATUS, "Connection status", NotificationManager.IMPORTANCE_MIN)
+            NotificationChannel(CHANNEL_STATUS, "Connection status", NotificationManager.IMPORTANCE_MIN).apply {
+                setShowBadge(false)
+                setSound(null, null)
+                enableLights(false)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
+            }
         )
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH)
@@ -604,12 +614,26 @@ class NativePushService : Service(), MsgReceiver {
             ?.notify(STATUS_NOTIFICATION_ID, statusNotification(text))
     }
 
+    /**
+     * The ongoing "we are connected" notification. A foreground service must post one, so
+     * the goal is the least obtrusive form the platform allows: the status is the title and
+     * there is no content text, which collapses it to a single line, and dropping the
+     * timestamp shortens the header. Deferring publication lets a reconnect that finishes
+     * within ten seconds never render at all. Silence comes from the channel's
+     * IMPORTANCE_MIN; the builder has no say in it above API 26.
+     */
     private fun statusNotification(text: String): Notification =
         Notification.Builder(this, CHANNEL_STATUS)
             .setSmallIcon(app.openbubbles.nativeapp.R.drawable.ic_stat_message)
-            .setContentTitle("OpenBubbles")
-            .setContentText(text)
+            .setContentTitle(text)
             .setOngoing(true)
+            .setShowWhen(false)
+            .setLocalOnly(true)
+            .apply {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_DEFERRED)
+                }
+            }
             .build()
 
     override fun onDestroy() {

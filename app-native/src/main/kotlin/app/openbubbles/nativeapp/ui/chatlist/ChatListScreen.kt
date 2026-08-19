@@ -219,7 +219,7 @@ fun ChatListScreen(
                             text = when {
                                 selecting -> "${selectedIds.size} selected"
                                 kind == ChatListKind.Archive -> "Archived"
-                                else -> "OpenBubbles"
+                                else -> "OpenGarden"
                             },
                             style = MaterialTheme.typography.headlineSmall,
                             maxLines = 1,

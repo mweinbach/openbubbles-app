@@ -222,7 +222,7 @@ class BackupManager(
             ZipFile(stagedZip).use { zf ->
                 // 2. Validate everything before touching the live tree.
                 val manifestEntry = zf.getEntry(MANIFEST_ENTRY)
-                    ?: error("not an OpenBubbles backup (missing $MANIFEST_ENTRY)")
+                    ?: error("not an OpenGarden backup (missing $MANIFEST_ENTRY)")
                 val manifest = zf.getInputStream(manifestEntry).use { input ->
                     val output = ByteArrayOutputStream()
                     input.copyBounded(

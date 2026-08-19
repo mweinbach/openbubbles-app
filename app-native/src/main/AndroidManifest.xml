@@ -57,7 +57,7 @@
          enableOnBackInvokedCallback is simply ignored below 33 (UnusedAttribute). -->
     <application
         android:name="app.openbubbles.nativeapp.OpenBubblesApplication"
-        android:label="OpenBubbles"
+        android:label="iMessage"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.OpenBubblesNative"
@@ -82,6 +82,7 @@
         <activity
             android:name="app.openbubbles.nativeapp.NativeMainActivity"
             android:exported="true"
+            android:label="OpenGarden"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
@@ -170,6 +171,7 @@
              tears it down as soon as anything covers it. -->
         <activity
             android:name="app.openbubbles.nativeapp.update.UpdateInstallActivity"
+            android:label="OpenGarden"
             android:excludeFromRecents="true"
             android:exported="false"
             android:noHistory="true" />
@@ -259,6 +261,7 @@
 
         <activity
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActivity"
+            android:label="OpenGarden"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:exported="false"
             android:resizeableActivity="true"
@@ -287,18 +290,21 @@
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialCreateActivity"
+            android:label="OpenGarden"
             android:taskAffinity=".CredentialCreate"
             android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
             tools:targetApi="34" />
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialGetActivity"
+            android:label="OpenGarden"
             android:taskAffinity=".CredentialGet"
             android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
             tools:targetApi="34" />
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
+            android:label="OpenGarden"
             android:taskAffinity=".CredentialSettings"
             android:theme="@style/Theme.Material3.DayNight.Dialog.Alert" />
 
