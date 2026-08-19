@@ -108,6 +108,9 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     private val activeOperations = mutableMapOf<Long, OperationKind>()
     private var nextOperationId = 0L
     private var latestAlbumsGeneration = 0L
+    private var latestAlbumsErrorGeneration = 0L
+    private var latestSelectionErrorGeneration = 0L
+    private var visibleErrorOwner: ErrorOwner? = null
     private var selectionGeneration = 0L
     private var selectionJob: Job? = null
 
@@ -175,6 +178,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun clearError() {
+        visibleErrorOwner = null
         mutableState.update { it.copy(error = null) }
     }
 
@@ -206,17 +210,23 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
         operation: suspend () -> Unit,
     ): Job {
         val operationId = ++nextOperationId
+        val errorOwner = kind.errorOwner
+        val errorGeneration = nextErrorGeneration(errorOwner)
         activeOperations[operationId] = kind
-        mutableState.update { it.copy(error = null) }
+        clearOwnedError(errorOwner)
         updateOperationFlags()
 
         val job = viewModelScope.launch {
             try {
                 operation()
+                clearOwnedError(errorOwner, errorGeneration)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update { it.copy(error = error.message ?: "Shared Albums failed") }
+                if (isLatestErrorGeneration(errorOwner, errorGeneration)) {
+                    visibleErrorOwner = errorOwner
+                    mutableState.update { it.copy(error = error.message ?: "Shared Albums failed") }
+                }
             }
         }
         job.invokeOnCompletion {
@@ -224,6 +234,24 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
             updateOperationFlags()
         }
         return job
+    }
+
+    private fun nextErrorGeneration(owner: ErrorOwner): Long = when (owner) {
+        ErrorOwner.Albums -> ++latestAlbumsErrorGeneration
+        ErrorOwner.Selection -> ++latestSelectionErrorGeneration
+    }
+
+    private fun isLatestErrorGeneration(owner: ErrorOwner, generation: Long): Boolean = when (owner) {
+        ErrorOwner.Albums -> generation == latestAlbumsErrorGeneration
+        ErrorOwner.Selection -> generation == latestSelectionErrorGeneration
+    }
+
+    private fun clearOwnedError(owner: ErrorOwner, generation: Long? = null) {
+        if (generation != null && !isLatestErrorGeneration(owner, generation)) return
+        if (visibleErrorOwner == owner) {
+            visibleErrorOwner = null
+            mutableState.update { it.copy(error = null) }
+        }
     }
 
     private suspend fun <T> serialized(operation: suspend () -> T): T {
@@ -247,15 +275,21 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
         }
     }
 
+    private enum class ErrorOwner {
+        Albums,
+        Selection,
+    }
+
     private enum class OperationKind(
         val loadsAlbums: Boolean,
         val refreshing: Boolean = false,
         val busy: Boolean = false,
+        val errorOwner: ErrorOwner,
     ) {
-        InitialLoad(loadsAlbums = true),
-        Refresh(loadsAlbums = true, refreshing = true),
-        Action(loadsAlbums = true, busy = true),
-        Selection(loadsAlbums = false, busy = true),
+        InitialLoad(loadsAlbums = true, errorOwner = ErrorOwner.Albums),
+        Refresh(loadsAlbums = true, refreshing = true, errorOwner = ErrorOwner.Albums),
+        Action(loadsAlbums = true, busy = true, errorOwner = ErrorOwner.Albums),
+        Selection(loadsAlbums = false, busy = true, errorOwner = ErrorOwner.Selection),
     }
 
     companion object {

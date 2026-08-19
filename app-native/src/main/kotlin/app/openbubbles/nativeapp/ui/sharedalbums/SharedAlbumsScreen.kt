@@ -76,6 +76,20 @@ fun SharedAlbumsScreen(
                     }
                 },
                 actions = {
+                    if (uiState.refreshing || (uiState.busy && !uiState.assetsLoading)) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .semantics {
+                                    contentDescription = if (uiState.refreshing) {
+                                        "Refreshing shared albums"
+                                    } else {
+                                        "Updating shared albums"
+                                    }
+                                },
+                            strokeWidth = 2.dp,
+                        )
+                    }
                     IconButton(onClick = { showTokenDialog = true }, enabled = !uiState.busy) {
                         Icon(Icons.Filled.AddLink, contentDescription = "Enter invitation code")
                     }
@@ -91,7 +105,12 @@ fun SharedAlbumsScreen(
         },
     ) { padding ->
         if (uiState.loading) {
-            CircularProgressIndicator(modifier = Modifier.padding(padding).padding(32.dp))
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(padding)
+                    .padding(32.dp)
+                    .semantics { contentDescription = "Loading shared albums" },
+            )
         } else {
             SharedAlbumsContent(
                 uiState = uiState,
@@ -160,6 +179,7 @@ private fun SharedAlbumsContent(
                             title = album.name,
                             supporting = album.owner,
                             onClick = { onAccept(album.id) },
+                            enabled = !uiState.busy,
                             index = index,
                             count = invitations.size,
                             icon = Icons.Filled.PhotoAlbum,
@@ -185,6 +205,7 @@ private fun SharedAlbumsContent(
                             title = album.name,
                             supporting = album.syncStatus ?: "${album.assetCount} assets",
                             onClick = { onSelect(album) },
+                            enabled = !uiState.busy,
                             index = index,
                             count = albums.size,
                             icon = if (album.syncing) Icons.Filled.CloudSync else Icons.Filled.PhotoAlbum,
@@ -236,6 +257,7 @@ private fun AlbumDialog(
                     checked = album.syncing,
                     onCheckedChange = { onSetSync(album, it) },
                     supporting = "Downloads album assets to the app's Pictures directory.",
+                    enabled = !busy,
                     index = 0,
                     count = 1,
                     icon = Icons.Filled.Folder,

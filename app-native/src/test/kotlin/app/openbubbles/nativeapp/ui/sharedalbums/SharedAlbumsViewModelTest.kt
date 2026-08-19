@@ -180,6 +180,33 @@ class SharedAlbumsViewModelTest {
             assertFalse(model.uiState.value.busy)
         }
 
+    @Test
+    fun `stale refresh failure cannot outlive a newer successful action`() =
+        runTest(dispatcher) {
+            val port = DeferredSharedAlbumsPort()
+            val model = SharedAlbumsViewModel(port)
+            runCurrent()
+            port.listCalls[0].result.complete(listOf(familyAlbum))
+            runCurrent()
+
+            model.refresh(remote = true)
+            runCurrent()
+            model.acceptToken("invitation")
+            runCurrent()
+            port.listCalls[1].result.completeExceptionally(IllegalStateException("stale refresh failed"))
+            runCurrent()
+
+            assertEquals(null, model.uiState.value.error)
+            port.acceptTokenRelease.complete(Unit)
+            runCurrent()
+            port.listCalls[2].result.complete(listOf(vacationAlbum))
+            runCurrent()
+
+            assertEquals(listOf("Vacation"), model.uiState.value.albums.map { it.name })
+            assertEquals(null, model.uiState.value.error)
+            assertFalse(model.uiState.value.busy)
+        }
+
     private class DeferredSharedAlbumsPort : SharedAlbumsPort {
         data class ListCall(
             val refresh: Boolean,

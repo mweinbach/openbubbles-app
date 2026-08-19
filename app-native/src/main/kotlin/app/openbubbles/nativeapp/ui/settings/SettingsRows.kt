@@ -212,10 +212,12 @@ internal fun SettingsToggleItem(
     count: Int,
     supporting: String? = null,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
 ) {
     ListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
         leadingContent = leadingContent(icon, SettingsRowTone.Neutral),
         supportingContent = supportingContent(supporting, multiline = false),
@@ -223,6 +225,7 @@ internal fun SettingsToggleItem(
             Switch(
                 checked = checked,
                 onCheckedChange = null,
+                enabled = enabled,
                 thumbContent = if (checked) {
                     {
                         Icon(
