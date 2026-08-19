@@ -1,5 +1,9 @@
 # Rust and Kotlin
 
+Quick reference for the Rust/Kotlin boundary. Full backend reference — the complete
+Kotlin-facing API surface, lifecycle/state machines, on-disk formats, rustpush
+internals, and change recipes — is [RUST_BACKEND.md](RUST_BACKEND.md).
+
 ```
 app-native / desktopApp
         │
