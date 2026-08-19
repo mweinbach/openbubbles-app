@@ -78,7 +78,7 @@ import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
-import app.openbubbles.nativeapp.facetime.FaceTimeActivity
+import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -87,7 +87,6 @@ import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
-import android.content.Intent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -184,13 +183,7 @@ fun ChatInfoScreen(
                         ?: error("Could not start FaceTime")
                 }
                 val launch = CoreGraph.faceTimeCaller.start(targetId)
-                context.startActivity(
-                    Intent(context, FaceTimeActivity::class.java)
-                        .putExtra("link", launch.link)
-                        .putExtra("name", launch.displayName)
-                        .putExtra("desc", launch.description)
-                        .putExtra("callUuid", launch.callUuid),
-                )
+                startOutgoingFaceTime(context, launch)
             },
         )
     }

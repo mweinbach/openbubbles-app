@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Self-managed telecom calls (FaceTime); normal install-time permission. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 
     <!-- SIM SMS/MMS: receive + send over the modem; READ_SMS backs MMS ingest
          (provider rows written by the system/default SMS app) and telephony
@@ -253,6 +255,18 @@
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeInCallService"
             android:exported="false"
             android:foregroundServiceType="camera|microphone" />
+
+        <!-- Self-managed telecom endpoint for FaceTime calls. Exported only for
+             the system telecom stack: binding requires the system-signature
+             BIND_TELECOM_CONNECTION_SERVICE permission. -->
+        <service
+            android:name="app.openbubbles.nativeapp.facetime.FaceTimeConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialCreateActivity"

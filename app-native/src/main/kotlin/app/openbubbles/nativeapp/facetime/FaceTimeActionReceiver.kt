@@ -39,6 +39,13 @@ class FaceTimeActionReceiver : BroadcastReceiver() {
             } catch (error: Throwable) {
                 Log.w("FaceTimeAction", "Unable to complete $action for $callUuid", error)
             } finally {
+                // Tear down the telecom connection even when the rust call failed.
+                when (action) {
+                    ACTION_DECLINE ->
+                        FaceTimeCallBridge.onCallEvent(appContext, callUuid, FtCallEvent.LOCAL_DECLINE)
+                    ACTION_END ->
+                        FaceTimeCallBridge.onCallEvent(appContext, callUuid, FtCallEvent.LOCAL_HANG_UP)
+                }
                 appContext.getSystemService(NotificationManager::class.java)
                     ?.cancel(FtConstants.NEW_FACE_TIME_NOTIFICATION_TAG, notificationId)
                 FaceTimeActivity.activeFaceTimeActivity

@@ -1,7 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.content.res.Configuration
@@ -149,7 +148,7 @@ import app.openbubbles.nativeapp.ui.chat.composer.MentionCandidate
 import app.openbubbles.nativeapp.ui.chat.composer.SubjectField
 import app.openbubbles.nativeapp.ui.chat.composer.currentLocationMessage
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
-import app.openbubbles.nativeapp.facetime.FaceTimeActivity
+import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.LocalIsMultiPane
 import app.openbubbles.nativeapp.ui.common.formatConversationTimestamp
@@ -473,13 +472,7 @@ fun ChatScreen(
 
     LaunchedEffect(uiState.faceTimeLaunch) {
         val launch = uiState.faceTimeLaunch ?: return@LaunchedEffect
-        context.startActivity(
-            Intent(context, FaceTimeActivity::class.java)
-                .putExtra("link", launch.link)
-                .putExtra("name", launch.displayName)
-                .putExtra("desc", launch.description)
-                .putExtra("callUuid", launch.callUuid),
-        )
+        startOutgoingFaceTime(context, launch)
         onFaceTimeLaunchConsumed()
     }
 

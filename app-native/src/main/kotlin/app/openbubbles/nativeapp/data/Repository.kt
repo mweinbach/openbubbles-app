@@ -376,6 +376,8 @@ data class FaceTimeLaunch(
     val displayName: String,
     val description: String,
     val callUuid: String,
+    /** Normalized remote addresses, for the telecom connection address. */
+    val participants: List<String> = emptyList(),
 )
 
 /** Validates participants and creates an on-device FaceTime session. */
