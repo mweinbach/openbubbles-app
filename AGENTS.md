@@ -81,6 +81,10 @@ and `native/local.properties` exactly as documented in
 
 ## Skills (load only for that task)
 
+The OpenBubbles skills in `.agents/skills` are canonical and mirrored into `.claude/skills` for
+Claude project discovery. Update the canonical skill only; keep both discovery surfaces pointing
+to the same files.
+
 UI already uses Material 3 Expressive + Navigation3. Do not invent a bottom nav or extra top-bar
 destinations for Find My / Settings (those live in the chat-list profile menu).
 
