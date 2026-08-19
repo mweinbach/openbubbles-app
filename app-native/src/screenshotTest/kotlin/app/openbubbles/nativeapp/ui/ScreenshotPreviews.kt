@@ -617,6 +617,49 @@ fun ChatScreenReplyScreenshot() {
     }
 }
 
+/**
+ * Tapbacks: the pill overlaps the bubble's top corner (leading for incoming,
+ * trailing for outgoing) with the two-dot tail stepping back toward the
+ * bubble. Reactions present at first composition render settled, so the
+ * pop-in spring never varies these goldens.
+ */
+@PreviewTest
+@Preview(name = "chat-tapback", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-tapback-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenTapbackScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Alex Chen",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(
+                    message(1, "we got the permit!!", fromMe = false)
+                        .copy(reactionEmoji = "\u2764\uFE0F"),
+                    message(
+                        2,
+                        "picking up the rental at nine",
+                        fromMe = true,
+                        status = MessageStatus.DELIVERED,
+                    ).copy(reactionEmoji = "\uD83D\uDC4D"),
+                ),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
 @PreviewTest
 @Preview(name = "chat-thread", device = Devices.PHONE, showBackground = true)
 @Preview(name = "chat-thread-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
