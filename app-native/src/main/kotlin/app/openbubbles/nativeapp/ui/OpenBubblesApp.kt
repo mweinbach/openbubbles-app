@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -72,7 +73,6 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import android.app.Activity
 import app.openbubbles.nativeapp.BuildConfig
 import app.openbubbles.nativeapp.MainLaunchAction
 import app.openbubbles.nativeapp.NativeMainActivity
@@ -469,8 +469,9 @@ fun OpenBubblesApp(
         if (startChatGuid == null && startComposeRequest == null && startShareRequest == null) restoreResumeRoute()
     }
 
-    // Explicit route launch, cold or warm. A standalone launch converges on
-    // [route] as the only entry so back exits; redelivery is a no-op.
+    // Explicit route launch, cold or warm. A standalone launch makes the
+    // route the only entry so back exits, and redelivery after process
+    // death converges to the same stack.
     LaunchedEffect(startRouteRequest) {
         val request = startRouteRequest ?: return@LaunchedEffect
         routeToKey(request.route)?.let { key ->
