@@ -166,7 +166,7 @@ class NativePushService : Service(), MsgReceiver {
                 when (decoded) {
                     null -> Unit
                     UPushMessage.ProcessQueue ->
-                        drainMessageJournal(handles, IncomingNotificationSource.LIVE)
+                        drainMessageJournal(handles)
                     UPushMessage.RegistrationState -> handleRegistrationState()
                     else -> ingestAndNotify(decoded, handles, IncomingNotificationSource.LIVE)
                 }
@@ -230,12 +230,14 @@ class NativePushService : Service(), MsgReceiver {
      */
     private suspend fun drainMessageJournal(
         handles: Set<String>,
-        notificationSource: IncomingNotificationSource,
     ) = journalMutex.withLock {
         while (true) {
             val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
             try {
-                ingestAndNotify(entry.message, handles, notificationSource)
+                // Every queued item uses recovery semantics. If a previous
+                // attempt persisted the row but failed before notify(), ingest
+                // deduplication must not permanently suppress the retry.
+                ingestAndNotify(entry.message, handles, IncomingNotificationSource.JOURNAL_RECOVERY)
             } catch (error: Throwable) {
                 Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
                 runCatching {
@@ -389,13 +391,19 @@ class NativePushService : Service(), MsgReceiver {
             activeState = live
 
             // This coroutine runs on Dispatchers.IO, never Rust's Tokio worker.
-            var handlesError: Throwable? = null
             val handles = runCatching { live.getHandles().toSet() }
-                .onFailure {
-                    Log.e(TAG, "failed to load registered handles", it)
-                    handlesError = it
+                .getOrElse { error ->
+                    Log.e(TAG, "failed to load registered handles", error)
+                    activeState = null
+                    stopState(live)
+                    PushStateHolder.clear()
+                    PushStateHolder.reportError(
+                        "Registered handles unavailable: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    updateStatus(DISCONNECTED_STATUS)
+                    scheduleReconnect(generation, "registered handles unavailable")
+                    return@launch
                 }
-                .getOrDefault(emptySet())
             val registration = runCatching { live.getRegstate() }
                 .onFailure { Log.e(TAG, "failed to read restored IDS registration state", it) }
                 .getOrElse { error ->
@@ -426,11 +434,6 @@ class NativePushService : Service(), MsgReceiver {
             if (registration is URegisterState.Failed && registrationRequiresSignIn(registration)) {
                 markAccountSignInRequired(registration)
             } else {
-                handlesError?.let {
-                    PushStateHolder.reportError(
-                        "Registered handles unavailable: ${it.message ?: it.javaClass.simpleName}",
-                    )
-                }
                 updateStatus(
                     when (registration) {
                         is URegisterState.Registered -> CONNECTED_STATUS
@@ -452,7 +455,7 @@ class NativePushService : Service(), MsgReceiver {
             // not persist a separate "notification posted" disposition, so a
             // process death in the tiny interval after notify() but before the
             // platform exposes the active notification remains a bounded race.
-            drainMessageJournal(handles, IncomingNotificationSource.JOURNAL_RECOVERY)
+            drainMessageJournal(handles)
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop", it)
