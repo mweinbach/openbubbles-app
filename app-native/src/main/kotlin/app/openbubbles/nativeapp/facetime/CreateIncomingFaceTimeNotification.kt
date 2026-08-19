@@ -22,7 +22,23 @@ data class FtIncomingCall(
     val poster: String?,
     val callerName: String,
     val callerAvatar: ByteArray?,
+    /** Raw rust handle (`tel:`/`mailto:`) of the caller for the telecom address. */
+    val callerHandle: String? = null,
 )
+
+/**
+ * The one FaceTimeActivity launch shape for an incoming call, shared by the
+ * notification PendingIntents and the telecom answer path.
+ */
+internal fun faceTimeActivityIntent(context: Context, call: FtIncomingCall, answer: Boolean): Intent =
+    Intent(context, FaceTimeActivity::class.java)
+        .putExtra("callUuid", call.callUuid)
+        .putExtra("answer", answer)
+        .putExtra("link", call.link)
+        .putExtra("name", call.name)
+        .putExtra("notificationId", call.notificationId.toString())
+        .putExtra("desc", call.title)
+        .putExtra("poster", call.poster)
 
 object CreateIncomingFaceTimeNotification {
     const val tag = "create-incoming-facetime-notification"
@@ -44,11 +60,6 @@ object CreateIncomingFaceTimeNotification {
         val channelId: String = FaceTimeNotifications.ensureIncomingChannel(context)
         val notificationId: Int = call.notificationId
         val callUuid: String? = call.callUuid
-        val title: String = call.title
-        val link: String? = call.link
-        var username: String = call.name
-
-        var poster: String? = call.poster
 
         // contact details
         val callerName: String = call.callerName
@@ -77,14 +88,7 @@ object CreateIncomingFaceTimeNotification {
         val openSummaryIntent = PendingIntent.getActivity(
             context,
             notificationId + FtConstants.PENDING_INTENT_OPEN_OFFSET,
-            Intent(context, FaceTimeActivity::class.java)
-                .putExtras(extras)
-                .putExtra("answer", false)
-                .putExtra("link", link)
-                .putExtra("name", username)
-                .putExtra("notificationId", notificationId.toString())
-                .putExtra("desc", title)
-                .putExtra("poster", poster),
+            faceTimeActivityIntent(context, call, answer = false),
             PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -92,14 +96,7 @@ object CreateIncomingFaceTimeNotification {
         val answerIntent = PendingIntent.getActivity(
             context,
             notificationId + FtConstants.PENDING_INTENT_ANSWER_OFFSET,
-            Intent(context, FaceTimeActivity::class.java)
-                .putExtras(extras)
-                .putExtra("answer", true)
-                .putExtra("link", link)
-                .putExtra("name", username)
-                .putExtra("notificationId", notificationId.toString())
-                .putExtra("desc", title)
-                .putExtra("poster", poster),
+            faceTimeActivityIntent(context, call, answer = true),
             PendingIntent.FLAG_IMMUTABLE
         )
 

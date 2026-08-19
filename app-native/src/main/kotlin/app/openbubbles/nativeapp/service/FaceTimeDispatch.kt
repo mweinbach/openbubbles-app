@@ -36,6 +36,11 @@ object FaceTimeDispatch {
         if (activeCallGuid == guid) activeCallGuid = null
     }
 
+    /** Bridge hook: a ring expired or failed to present, so allow a re-ring. */
+    fun clearStaleRing(guid: String) {
+        if (ringingCallGuid == guid) ringingCallGuid = null
+    }
+
     suspend fun onPushMessage(context: Context, msg: UPushMessage): Boolean {
         val ft = (msg as? UPushMessage.FaceTime)?.message ?: return false
         when (ft) {
