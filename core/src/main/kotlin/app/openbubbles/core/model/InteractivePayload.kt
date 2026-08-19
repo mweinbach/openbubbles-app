@@ -3,6 +3,7 @@ package app.openbubbles.core.model
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 
 sealed interface InteractivePayload {
     val bundleId: String?
@@ -219,14 +220,25 @@ object InteractivePayloadParser {
         return stringValue(urlObject, "NS.relative")
     }
 
+    // Every caller passes a literal key, so these caches stay bounded. The
+    // parser runs for each balloon message on every transcript projection;
+    // compiling the same patterns each call showed up as pure CPU waste.
+    private val stringPatterns = ConcurrentHashMap<String, Regex>()
+    private val numberPatterns = ConcurrentHashMap<String, Regex>()
+    private val keyPatterns = ConcurrentHashMap<String, Regex>()
+
     private fun stringValue(json: String, key: String): String? {
-        val match = Regex("\\\"${Regex.escape(key)}\\\"\\s*:\\s*\\\"((?:[^\\\"\\\\]|\\\\.)*)\\\"")
-            .find(json) ?: return null
+        val pattern = stringPatterns.getOrPut(key) {
+            Regex("\\\"${Regex.escape(key)}\\\"\\s*:\\s*\\\"((?:[^\\\"\\\\]|\\\\.)*)\\\"")
+        }
+        val match = pattern.find(json) ?: return null
         return unescapeJson(match.groupValues[1])
     }
 
     private fun numberValue(json: String, key: String): Double? =
-        Regex("\\\"${Regex.escape(key)}\\\"\\s*:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)")
+        numberPatterns.getOrPut(key) {
+            Regex("\\\"${Regex.escape(key)}\\\"\\s*:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)")
+        }
             .find(json)
             ?.groupValues
             ?.getOrNull(1)
@@ -237,7 +249,8 @@ object InteractivePayloadParser {
     private fun arrayValue(json: String, key: String): String? = bracketValue(json, key, '[', ']')
 
     private fun bracketValue(json: String, key: String, open: Char, close: Char): String? {
-        val keyMatch = Regex("\\\"${Regex.escape(key)}\\\"\\s*:").find(json) ?: return null
+        val keyPattern = keyPatterns.getOrPut(key) { Regex("\\\"${Regex.escape(key)}\\\"\\s*:") }
+        val keyMatch = keyPattern.find(json) ?: return null
         val start = json.indexOf(open, keyMatch.range.last + 1)
         if (start < 0) return null
         return balancedSlice(json, start, open, close)
