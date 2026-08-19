@@ -730,7 +730,7 @@ impl NativePushState {
 }
 
 // ---------------------------------------------------------------------------
-// Native Settings: iCloud Passwords and Shared Albums
+// Native Settings: iCloud Passwords, personal Photos, and Shared Albums
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, uniffi::Enum)]
@@ -800,6 +800,48 @@ pub struct USharedAlbumAsset {
     pub filename: String,
 }
 
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum UPhotosAccessState {
+    Ready,
+    Indexing,
+    Unavailable,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotosAccess {
+    pub state: UPhotosAccessState,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum UPhotoMediaKind {
+    Image,
+    Video,
+    Unknown,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotoAssetSummary {
+    pub id: String,
+    pub asset_id: String,
+    pub filename: Option<String>,
+    pub media_kind: UPhotoMediaKind,
+    pub live_photo: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub original_size: Option<u64>,
+    pub captured_at_ms: Option<u64>,
+    pub added_at_ms: Option<u64>,
+    pub favorite: bool,
+    pub hidden: bool,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotosPage {
+    pub assets: Vec<UPhotoAssetSummary>,
+    pub next_cursor: Option<String>,
+}
+
 fn native_password_manager(
     state: &SharedPushState,
 ) -> Result<Arc<rustpush::passwords::PasswordManager<DefaultAnisetteProvider>>, UError> {
@@ -840,8 +882,116 @@ fn native_shared_albums(
         .ok_or_else(|| UError::NotReady { reason: "iCloud Shared Albums unavailable".to_string() })
 }
 
+fn native_photos(
+    state: &SharedPushState,
+) -> Result<rustpush::photos::PhotosClient<DefaultAnisetteProvider>, UError> {
+    state
+        .icloud_services
+        .as_ref()
+        .and_then(|services| services.cloudkit_client.clone())
+        .map(rustpush::photos::PhotosClient::new)
+        .ok_or_else(|| UError::NotReady {
+            reason: "iCloud Photos unavailable".to_string(),
+        })
+}
+
+fn photos_protocol_error(action: &str, _error: rustpush::PushError) -> UError {
+    // PushError variants can contain raw CloudKit responses or record data.
+    log::warn!("iCloud Photos {action} failed");
+    UError::Failed {
+        reason: format!("iCloud Photos {action} failed"),
+    }
+}
+
+fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSummary {
+    UPhotoAssetSummary {
+        id: asset.id,
+        asset_id: asset.asset_id,
+        filename: asset.filename,
+        media_kind: match asset.media_kind {
+            rustpush::photos::PhotoMediaKind::Image => UPhotoMediaKind::Image,
+            rustpush::photos::PhotoMediaKind::Video => UPhotoMediaKind::Video,
+            rustpush::photos::PhotoMediaKind::Unknown => UPhotoMediaKind::Unknown,
+        },
+        live_photo: asset.live_photo,
+        width: asset.width,
+        height: asset.height,
+        original_size: asset.original_size,
+        captured_at_ms: asset.captured_at_ms,
+        added_at_ms: asset.added_at_ms,
+        favorite: asset.favorite,
+        hidden: asset.hidden,
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
+    /// Probe the personal iCloud Photos library without downloading media.
+    pub async fn photos_access_state(&self) -> Result<UPhotosAccess, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let access = client
+                .access_state()
+                .await
+                .map_err(|error| photos_protocol_error("access check", error))?;
+            Ok(match access {
+                rustpush::photos::PhotosAccessState::Ready => UPhotosAccess {
+                    state: UPhotosAccessState::Ready,
+                    detail: "Personal iCloud Photos metadata is available".to_string(),
+                },
+                rustpush::photos::PhotosAccessState::Indexing => UPhotosAccess {
+                    state: UPhotosAccessState::Indexing,
+                    detail: "Apple is still preparing this photo library".to_string(),
+                },
+                rustpush::photos::PhotosAccessState::Unavailable => UPhotosAccess {
+                    state: UPhotosAccessState::Unavailable,
+                    detail: "Personal iCloud Photos is not available for this account".to_string(),
+                },
+            })
+        })
+        .await
+    }
+
+    /// Return at most 100 newest personal-library records. `cursor` is the
+    /// previous page's rank and is opaque to Kotlin.
+    pub async fn list_photos_page(
+        &self,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<UPhotosPage, UError> {
+        if !(1..=100).contains(&limit) {
+            return Err(UError::InvalidArgument {
+                reason: "Photos page size must be between 1 and 100".to_string(),
+            });
+        }
+        let offset = cursor
+            .as_deref()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .map_err(|_| UError::InvalidArgument {
+                reason: "Photos cursor is invalid".to_string(),
+            })?;
+        if offset > i64::MAX as u64 {
+            return Err(UError::InvalidArgument {
+                reason: "Photos cursor is invalid".to_string(),
+            });
+        }
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let page = client
+                .list_assets(offset, limit)
+                .await
+                .map_err(|error| photos_protocol_error("metadata query", error))?;
+            Ok(UPhotosPage {
+                assets: page.assets.into_iter().map(u_photo_asset).collect(),
+                next_cursor: page.next_offset.map(|offset| offset.to_string()),
+            })
+        })
+        .await
+    }
+
     /// Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
     /// shared password groups before Kotlin reads the local vault cache.
     pub async fn sync_passwords(&self) -> Result<(), UError> {

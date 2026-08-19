@@ -109,6 +109,7 @@ fun SettingsScreen(
     onOpenArchived: () -> Unit = {},
     onOpenRecentlyDeleted: () -> Unit = {},
     onOpenPasswords: () -> Unit = {},
+    onOpenPhotos: () -> Unit = {},
     onOpenSharedAlbums: () -> Unit = {},
     onOpenSignIn: () -> Unit = {},
     archivedCount: Int = 0,
@@ -151,6 +152,7 @@ fun SettingsScreen(
         },
         onOpenSignIn = onOpenSignIn,
         onOpenPasswords = onOpenPasswords,
+        onOpenPhotos = onOpenPhotos,
         onOpenSharedAlbums = onOpenSharedAlbums,
     )
 

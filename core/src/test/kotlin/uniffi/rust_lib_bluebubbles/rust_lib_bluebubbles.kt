@@ -1535,6 +1535,10 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1756,9 +1760,13 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_password_gr
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_photos_page(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_album_assets(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_albums(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_photos_access_state(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
 ): Short
@@ -2208,10 +2216,14 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_password_groups(`
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_passwords(`ptr`: Pointer,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_photos_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,`limit`: Int,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_album_assets(`ptr`: Pointer,`albumId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_shared_albums(`ptr`: Pointer,`refresh`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_photos_access_state(`ptr`: Pointer,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,
@@ -2934,10 +2946,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_passwords() != 22580.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_photos_page() != 20414.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_album_assets() != 19510.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_list_shared_albums() != 44253.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_photos_access_state() != 50026.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status() != 57426.toShort()) {
@@ -6482,9 +6500,20 @@ public interface NativePushStateInterface {
 
     fun `listPasswords`(`kind`: UVaultItemKind): List<UVaultItem>
 
+    /**
+     * Return at most 100 newest personal-library records. `cursor` is the
+     * previous page's rank and is opaque to Kotlin.
+     */
+    suspend fun `listPhotosPage`(`cursor`: kotlin.String?, `limit`: kotlin.UInt): UPhotosPage
+
     fun `listSharedAlbumAssets`(`albumId`: kotlin.String): List<USharedAlbumAsset>
 
     fun `listSharedAlbums`(`refresh`: kotlin.Boolean): List<USharedAlbum>
+
+    /**
+     * Probe the personal iCloud Photos library without downloading media.
+     */
+    suspend fun `photosAccessState`(): UPhotosAccess
 
     fun `publishStatus`(`guid`: kotlin.String?)
 
@@ -7779,6 +7808,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
+    /**
+     * Return at most 100 newest personal-library records. `cursor` is the
+     * previous page's rank and is opaque to Kotlin.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `listPhotosPage`(`cursor`: kotlin.String?, `limit`: kotlin.UInt) : UPhotosPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_list_photos_page(
+                thisPtr,
+                FfiConverterOptionalString.lower(`cursor`),FfiConverterUInt.lower(`limit`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUPhotosPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
     @Throws(UException::class)override fun `listSharedAlbumAssets`(`albumId`: kotlin.String): List<USharedAlbumAsset> {
             return FfiConverterSequenceTypeUSharedAlbumAsset.lift(
     callWithPointer {
@@ -7803,6 +7857,30 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     )
     }
 
+
+
+    /**
+     * Probe the personal iCloud Photos library without downloading media.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `photosAccessState`() : UPhotosAccess {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_photos_access_state(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUPhotosAccess.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
 
     override fun `publishStatus`(`guid`: kotlin.String?)
         =
@@ -14205,6 +14283,142 @@ public object FfiConverterTypeUPhoneUser: FfiConverterRustBuffer<UPhoneUser> {
 
 
 
+data class UPhotoAssetSummary (
+    var `id`: kotlin.String,
+    var `assetId`: kotlin.String,
+    var `filename`: kotlin.String?,
+    var `mediaKind`: UPhotoMediaKind,
+    var `livePhoto`: kotlin.Boolean,
+    var `width`: kotlin.UInt?,
+    var `height`: kotlin.UInt?,
+    var `originalSize`: kotlin.ULong?,
+    var `capturedAtMs`: kotlin.ULong?,
+    var `addedAtMs`: kotlin.ULong?,
+    var `favorite`: kotlin.Boolean,
+    var `hidden`: kotlin.Boolean
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoAssetSummary> {
+    override fun read(buf: ByteBuffer): UPhotoAssetSummary {
+        return UPhotoAssetSummary(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterTypeUPhotoMediaKind.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhotoAssetSummary) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`assetId`) +
+            FfiConverterOptionalString.allocationSize(value.`filename`) +
+            FfiConverterTypeUPhotoMediaKind.allocationSize(value.`mediaKind`) +
+            FfiConverterBoolean.allocationSize(value.`livePhoto`) +
+            FfiConverterOptionalUInt.allocationSize(value.`width`) +
+            FfiConverterOptionalUInt.allocationSize(value.`height`) +
+            FfiConverterOptionalULong.allocationSize(value.`originalSize`) +
+            FfiConverterOptionalULong.allocationSize(value.`capturedAtMs`) +
+            FfiConverterOptionalULong.allocationSize(value.`addedAtMs`) +
+            FfiConverterBoolean.allocationSize(value.`favorite`) +
+            FfiConverterBoolean.allocationSize(value.`hidden`)
+    )
+
+    override fun write(value: UPhotoAssetSummary, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`assetId`, buf)
+            FfiConverterOptionalString.write(value.`filename`, buf)
+            FfiConverterTypeUPhotoMediaKind.write(value.`mediaKind`, buf)
+            FfiConverterBoolean.write(value.`livePhoto`, buf)
+            FfiConverterOptionalUInt.write(value.`width`, buf)
+            FfiConverterOptionalUInt.write(value.`height`, buf)
+            FfiConverterOptionalULong.write(value.`originalSize`, buf)
+            FfiConverterOptionalULong.write(value.`capturedAtMs`, buf)
+            FfiConverterOptionalULong.write(value.`addedAtMs`, buf)
+            FfiConverterBoolean.write(value.`favorite`, buf)
+            FfiConverterBoolean.write(value.`hidden`, buf)
+    }
+}
+
+
+
+data class UPhotosAccess (
+    var `state`: UPhotosAccessState,
+    var `detail`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotosAccess: FfiConverterRustBuffer<UPhotosAccess> {
+    override fun read(buf: ByteBuffer): UPhotosAccess {
+        return UPhotosAccess(
+            FfiConverterTypeUPhotosAccessState.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhotosAccess) = (
+            FfiConverterTypeUPhotosAccessState.allocationSize(value.`state`) +
+            FfiConverterString.allocationSize(value.`detail`)
+    )
+
+    override fun write(value: UPhotosAccess, buf: ByteBuffer) {
+            FfiConverterTypeUPhotosAccessState.write(value.`state`, buf)
+            FfiConverterString.write(value.`detail`, buf)
+    }
+}
+
+
+
+data class UPhotosPage (
+    var `assets`: List<UPhotoAssetSummary>,
+    var `nextCursor`: kotlin.String?
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotosPage: FfiConverterRustBuffer<UPhotosPage> {
+    override fun read(buf: ByteBuffer): UPhotosPage {
+        return UPhotosPage(
+            FfiConverterSequenceTypeUPhotoAssetSummary.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhotosPage) = (
+            FfiConverterSequenceTypeUPhotoAssetSummary.allocationSize(value.`assets`) +
+            FfiConverterOptionalString.allocationSize(value.`nextCursor`)
+    )
+
+    override fun write(value: UPhotosPage, buf: ByteBuffer) {
+            FfiConverterSequenceTypeUPhotoAssetSummary.write(value.`assets`, buf)
+            FfiConverterOptionalString.write(value.`nextCursor`, buf)
+    }
+}
+
+
+
 /**
  * RGBA color as used by poster backgrounds / text.
  */
@@ -16894,6 +17108,68 @@ public object FfiConverterTypeUPart : FfiConverterRustBuffer<UPart>{
 
 
 
+
+enum class UPhotoMediaKind {
+
+    IMAGE,
+    VIDEO,
+    UNKNOWN;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotoMediaKind: FfiConverterRustBuffer<UPhotoMediaKind> {
+    override fun read(buf: ByteBuffer) = try {
+        UPhotoMediaKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: UPhotoMediaKind) = 4UL
+
+    override fun write(value: UPhotoMediaKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class UPhotosAccessState {
+
+    READY,
+    INDEXING,
+    UNAVAILABLE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotosAccessState: FfiConverterRustBuffer<UPhotosAccessState> {
+    override fun read(buf: ByteBuffer) = try {
+        UPhotosAccessState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: UPhotosAccessState) = 4UL
+
+    override fun write(value: UPhotosAccessState, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 /**
  * Which poster flavor this is, with the cheap display fields inline.
  */
@@ -18854,6 +19130,34 @@ public object FfiConverterSequenceTypeUPhoneUser: FfiConverterRustBuffer<List<UP
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUPhoneUser.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUPhotoAssetSummary: FfiConverterRustBuffer<List<UPhotoAssetSummary>> {
+    override fun read(buf: ByteBuffer): List<UPhotoAssetSummary> {
+        val len = buf.getInt()
+        return List<UPhotoAssetSummary>(len) {
+            FfiConverterTypeUPhotoAssetSummary.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UPhotoAssetSummary>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUPhotoAssetSummary.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UPhotoAssetSummary>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUPhotoAssetSummary.write(it, buf)
         }
     }
 }

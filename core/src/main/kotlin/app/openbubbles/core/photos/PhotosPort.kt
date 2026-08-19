@@ -1,0 +1,134 @@
+package app.openbubbles.core.photos
+
+import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UPhotoMediaKind
+import uniffi.rust_lib_bluebubbles.UPhotosAccessState
+
+enum class PhotosAvailability {
+    Ready,
+    Indexing,
+    Unavailable,
+}
+
+data class PhotosAccess(
+    val availability: PhotosAvailability,
+    val detail: String,
+)
+
+enum class PhotoMediaKind {
+    Image,
+    Video,
+    Unknown,
+}
+
+data class PhotoSummary(
+    val id: String,
+    val assetId: String,
+    val filename: String?,
+    val mediaKind: PhotoMediaKind,
+    val livePhoto: Boolean,
+    val width: Int?,
+    val height: Int?,
+    val originalSize: Long?,
+    val capturedAtMs: Long?,
+    val addedAtMs: Long?,
+    val favorite: Boolean,
+    val hidden: Boolean,
+)
+
+data class PhotosPage(
+    val assets: List<PhotoSummary>,
+    val nextCursor: String?,
+)
+
+/**
+ * Read-only personal iCloud Photos seam. It is page-oriented from day one so
+ * later persistence and incremental sync can be added behind this boundary.
+ */
+interface PhotosPort {
+    suspend fun access(): PhotosAccess
+    suspend fun page(cursor: String?, limit: Int): PhotosPage
+}
+
+class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
+    override suspend fun access(): PhotosAccess {
+        val access = state.photosAccessState()
+        return PhotosAccess(
+            availability = when (access.state) {
+                UPhotosAccessState.READY -> PhotosAvailability.Ready
+                UPhotosAccessState.INDEXING -> PhotosAvailability.Indexing
+                UPhotosAccessState.UNAVAILABLE -> PhotosAvailability.Unavailable
+            },
+            detail = access.detail,
+        )
+    }
+
+    override suspend fun page(cursor: String?, limit: Int): PhotosPage {
+        require(limit in 1..100) { "Photos page size must be between 1 and 100" }
+        val page = state.listPhotosPage(cursor, limit.toUInt())
+        return PhotosPage(
+            assets = page.assets.map { asset ->
+                PhotoSummary(
+                    id = asset.id,
+                    assetId = asset.assetId,
+                    filename = asset.filename,
+                    mediaKind = when (asset.mediaKind) {
+                        UPhotoMediaKind.IMAGE -> PhotoMediaKind.Image
+                        UPhotoMediaKind.VIDEO -> PhotoMediaKind.Video
+                        UPhotoMediaKind.UNKNOWN -> PhotoMediaKind.Unknown
+                    },
+                    livePhoto = asset.livePhoto,
+                    width = asset.width?.toSafeInt(),
+                    height = asset.height?.toSafeInt(),
+                    originalSize = asset.originalSize?.toSafeLong(),
+                    capturedAtMs = asset.capturedAtMs?.toSafeLong(),
+                    addedAtMs = asset.addedAtMs?.toSafeLong(),
+                    favorite = asset.favorite,
+                    hidden = asset.hidden,
+                )
+            },
+            nextCursor = page.nextCursor,
+        )
+    }
+}
+
+private fun ULong.toSafeLong(): Long = coerceAtMost(Long.MAX_VALUE.toULong()).toLong()
+private fun UInt.toSafeInt(): Int = coerceAtMost(Int.MAX_VALUE.toUInt()).toInt()
+
+data class PhotosSnapshot(
+    val access: PhotosAccess,
+    val assets: List<PhotoSummary> = emptyList(),
+    val nextCursor: String? = null,
+)
+
+/** Small orchestration layer shared by Android today and desktop later. */
+class PhotosBrowser(
+    private val port: PhotosPort,
+    private val pageSize: Int = 60,
+) {
+    init {
+        require(pageSize in 1..100) { "Photos page size must be between 1 and 100" }
+    }
+
+    suspend fun initial(): PhotosSnapshot {
+        val access = port.access()
+        if (access.availability != PhotosAvailability.Ready) {
+            return PhotosSnapshot(access = access)
+        }
+        val page = port.page(cursor = null, limit = pageSize)
+        return PhotosSnapshot(
+            access = access,
+            assets = page.assets.distinctBy(PhotoSummary::id),
+            nextCursor = page.nextCursor,
+        )
+    }
+
+    suspend fun next(snapshot: PhotosSnapshot): PhotosSnapshot {
+        val cursor = snapshot.nextCursor ?: return snapshot
+        val page = port.page(cursor = cursor, limit = pageSize)
+        return snapshot.copy(
+            assets = (snapshot.assets + page.assets).distinctBy(PhotoSummary::id),
+            nextCursor = page.nextCursor,
+        )
+    }
+}

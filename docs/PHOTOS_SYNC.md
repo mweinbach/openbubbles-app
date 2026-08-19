@@ -50,9 +50,8 @@ The repository already has most lower-level primitives needed for a Photos proto
 - page/cursor/apply patterns in `core/.../sync/CloudSyncManager.kt` and
   `CloudSyncStateStore.kt`.
 
-The personal Photos protocol is not implemented. A repository search found no client or record
-model for the `com.apple.photos.cloud` container, `PrimarySync`, `CPLMaster`, `CPLAsset`, or CPL
-album/resource relations.
+The first personal Photos protocol slice is now implemented. The production catalog, resource
+downloads, incremental changes, and mutations described below are not.
 
 ## Investigation completed
 
@@ -67,8 +66,37 @@ The 2026-08-19 static audit established that:
 - A read-only implementation is a reasonable first project. Full bidirectional Photos parity is a
   separate multi-month effort.
 
-No personal Photos code, live container probe, sanitized protocol fixture, durable photo catalog,
-background worker, upload, or delete operation has been implemented or validated yet.
+### Implemented first slice (host-verified only)
+
+- `rustpush/src/photos.rs` opens the private `com.apple.photos.cloud` container as the native
+  Photos client, probes `CheckIndexingState` in `PrimarySync`, and performs a metadata-only
+  `CPLAssetAndMasterByAddedDate` query.
+- Pages are capped at 100 photo pairs. Rust joins `CPLAsset` to `CPLMaster`, skips soft-deleted
+  records, and returns only a small summary. Raw records, asset values, download URLs, location,
+  captions, and encryption material stay behind the Rust boundary.
+- `photos_access_state()` and `list_photos_page(cursor, limit)` are async UniFFI exports with
+  regenerated committed Kotlin bindings.
+- `core/photos/PhotosPort.kt` provides the fakeable port and a deduplicating pager. It has tests
+  for indexing behavior, page continuation/deduplication, and the FFI page-size bound.
+- Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It states
+  explicitly that the probe is read-only and downloads/saves no media.
+
+Host evidence on 2026-08-19:
+
+- full `rustpush` library suite: 24 passed, 2 manual-network tests ignored;
+- UniFFI release build, committed Kotlin generation, and binding parity check: passed;
+- `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`, and ObjectBox model parity: passed;
+- Android x86_64/arm64 Rust compilation and `:app-native:assembleDebug`: passed;
+- the new light/dark Photos screenshot goldens: passed and were inspected.
+
+The repository-wide screenshot task still reports 28 unrelated existing baseline mismatches under
+this renderer. Only the two Photos cases were updated; unrelated reference images were left
+untouched.
+
+This does **not** prove that Apple's server accepts the inferred native Photos bundle/container
+pair for an OpenBubbles account session. No live Apple account, normal/ADP comparison, media
+download, durable catalog, incremental change cursor, background worker, upload, or delete has
+been validated. The experimental screen is the next device-test surface for that go/no-go proof.
 
 ## Ownership and proposed architecture
 
@@ -101,10 +129,10 @@ Settings / experimental Photos screen       app-native/
 
 ## Initial UniFFI shape
 
-Names are provisional; keep the first contract narrow.
+The first two names are now committed; keep later additions narrow.
 
-- `photos_access_state()` returns a structured state such as `NeedsLogin`, `ServiceUnavailable`,
-  `NeedsKeychain`, `Indexing`, or `Available`, plus sanitized diagnostic data.
+- `photos_access_state()` returns `Ready`, `Indexing`, or `Unavailable`, plus sanitized detail.
+  Transport/login failures remain typed UniFFI errors rather than being collapsed into access.
 - `list_photos_page(cursor, limit)` returns a bounded page and an opaque next cursor.
 - A photo summary should initially contain only stable product fields: asset/master ID, filename,
   media kind, created/added times, dimensions, duration, favorite/hidden flags, and available
@@ -126,8 +154,9 @@ records, and server response bodies must remain in Rust and must not be logged o
 5. Add a fakeable `PhotosPort` plus deterministic paging/cancellation tests in `:core`.
 6. Add an experimental iCloud Settings entry that reports capability and displays metadata only.
 
-This is the first go/no-go slice. Do not add persistence or scheduled work merely to make a demo
-look like sync.
+The host implementation of this slice is complete. Live container authorization and real-record
+decoding remain the go/no-go gate. Do not add persistence or scheduled work merely to make the
+experimental screen look like sync.
 
 ### Slice 2: explicit resource download
 
