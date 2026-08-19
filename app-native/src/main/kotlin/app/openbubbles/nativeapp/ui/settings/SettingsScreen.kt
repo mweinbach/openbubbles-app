@@ -185,7 +185,7 @@ private enum class SettingsSection(
     val supporting: String,
     val icon: ImageVector,
 ) {
-    Account("Account", "Registration, handles, sign out", Icons.Filled.AccountCircle),
+    Account("Account", "Recovery, profile, sign out", Icons.Filled.AccountCircle),
     ICloud("iCloud", "History, Keychain, contacts", Icons.Filled.Cloud),
     Notifications("Notifications", "Previews, replies, reactions", Icons.Filled.Notifications),
     Messaging("Messaging", "Sending address, archived chats, SMS", Icons.AutoMirrored.Filled.Chat),
@@ -194,6 +194,48 @@ private enum class SettingsSection(
     Storage("Storage & backup", "Attachments and local backup", Icons.Filled.Storage),
     Diagnostics("Diagnostics", "Logs, troubleshoot, iMessage stats", Icons.Filled.ManageHistory),
     About("About", "App version", Icons.Filled.Info),
+}
+
+/**
+ * One derived mode for the Messages-in-iCloud group. The status row's look
+ * and the single contextual action row both follow from it, so the section
+ * can never show conflicting mode-dependent rows at once.
+ */
+internal enum class ICloudSyncMode {
+    /** A history download is running; the only sensible action is stopping it. */
+    Syncing,
+
+    /** Signed out or the push connection is down; nothing to act on here. */
+    NotConnected,
+
+    /** The keychain client is missing or broken on this device; offer repair. */
+    KeychainUnavailable,
+
+    /** Connected but not in the Secure iCloud Keychain yet; offer joining. */
+    NotJoined,
+
+    /** Keychain member with no sync running; offer a manual sync. */
+    Ready,
+
+    /** Membership check still in flight; no action until it resolves. */
+    Checking,
+}
+
+internal fun icloudSyncMode(
+    connected: Boolean,
+    managerAvailable: Boolean,
+    inClique: Boolean?,
+    cliqueError: String?,
+    syncing: Boolean,
+): ICloudSyncMode = when {
+    managerAvailable && syncing -> ICloudSyncMode.Syncing
+    !connected -> ICloudSyncMode.NotConnected
+    // Joining is pointless while the keychain client itself is broken
+    // (isInClique throws "no iCloud Keychain on this state"): offer repair.
+    !managerAvailable || cliqueError != null -> ICloudSyncMode.KeychainUnavailable
+    inClique == false -> ICloudSyncMode.NotJoined
+    inClique == true -> ICloudSyncMode.Ready
+    else -> ICloudSyncMode.Checking
 }
 
 private fun describeRegstate(state: URegisterState): String = when (state) {
@@ -930,21 +972,14 @@ fun SettingsScreen(
                         },
                     )
                 } else {
+                    // Registration and handle details live under Diagnostics →
+                    // iMessage stats; this group keeps only the actionable rows.
                     val error = pushError
-                    val accountRows = buildList {
-                        if (accountConnection != null) add("recovery")
-                        add("registration")
-                        add("handles")
-                        if (error != null && accountConnection == null) add("error")
-                        add("signout")
-                    }
-                    val count = accountRows.size
-                    accountRows.forEachIndexed { index, row ->
-                        when (row) {
-                            "recovery" -> {
-                                val recovery = checkNotNull(accountConnection)
+                    val rows = buildList<SettingsRowContent> {
+                        if (accountConnection != null) {
+                            add { index, count ->
                                 AccountRecoverySettingsItem(
-                                    recovery = recovery,
+                                    recovery = checkNotNull(accountConnection),
                                     index = index,
                                     count = count,
                                     onAction = { action ->
@@ -956,46 +991,23 @@ fun SettingsScreen(
                                     },
                                 )
                             }
-                            "registration" -> {
-                                // Icon + chip tone carry the state at a glance;
-                                // the supporting text keeps the detail.
-                                val reg = registrationState ?: connection?.regstate
-                                val (regIcon, regTone) = when (reg) {
-                                    is URegisterState.Registered ->
-                                        Icons.Filled.CheckCircle to SettingsRowTone.Active
-                                    is URegisterState.Failed ->
-                                        Icons.Filled.ErrorOutline to SettingsRowTone.Error
-                                    else ->
-                                        Icons.Filled.Sync to SettingsRowTone.Neutral
-                                }
+                        }
+                        if (error != null && accountConnection == null) {
+                            add { index, count ->
                                 SettingsInfoItem(
-                                    title = "Registration",
-                                    supporting = reg?.let(::describeRegstate) ?: "Checking…",
+                                    title = "Last push problem",
+                                    supporting = error.orEmpty(),
                                     index = index,
                                     count = count,
-                                    icon = regIcon,
-                                    tone = regTone,
+                                    multiline = true,
+                                    titleColor = MaterialTheme.colorScheme.error,
+                                    icon = Icons.Filled.ErrorOutline,
+                                    tone = SettingsRowTone.Error,
                                 )
                             }
-                            "handles" -> SettingsInfoItem(
-                                title = "Handles",
-                                supporting = connection?.handles?.joinToString("\n") ?: "Checking…",
-                                index = index,
-                                count = count,
-                                multiline = true,
-                                icon = Icons.Filled.AlternateEmail,
-                            )
-                            "error" -> SettingsInfoItem(
-                                title = "Last push problem",
-                                supporting = error.orEmpty(),
-                                index = index,
-                                count = count,
-                                multiline = true,
-                                titleColor = MaterialTheme.colorScheme.error,
-                                icon = Icons.Filled.ErrorOutline,
-                                tone = SettingsRowTone.Error,
-                            )
-                            else -> SettingsActionItem(
+                        }
+                        add { index, count ->
+                            SettingsActionItem(
                                 title = if (signingOut) "Signing out…" else "Sign out",
                                 supporting = "Disconnect this Apple ID on this device",
                                 onClick = { showSignOutConfirmation = true },
@@ -1008,6 +1020,7 @@ fun SettingsScreen(
                             )
                         }
                     }
+                    rows.forEachIndexed { index, row -> row(index, rows.size) }
                 }
             }
 
@@ -1051,16 +1064,15 @@ fun SettingsScreen(
                 )
             }
 
-            if (filter == null || filter == SettingsSection.ICloud) SettingsGroup(
-                title = if (showTitles) "iCloud" else null,
-            ) {
-                val savedRecoveryCode = if (inClique == true) {
-                    context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                        .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
-                } else {
-                    null
-                }
-                val historySupporting = when {
+            if (filter == null || filter == SettingsSection.ICloud) {
+                val syncMode = icloudSyncMode(
+                    connected = pushState != null,
+                    managerAvailable = syncManager != null,
+                    inClique = inClique,
+                    cliqueError = cliqueError,
+                    syncing = syncing,
+                )
+                val statusSupporting = when {
                     syncManager == null -> "Connect to enable syncing messages from iCloud"
                     cliqueError != null -> cliqueError!!
                     inClique == null -> "Checking Secure iCloud Keychain…"
@@ -1081,161 +1093,197 @@ fun SettingsScreen(
                     else ->
                         "${historySyncWindow.description}. Attachment files download only when opened."
                 }
-                val manager = syncManager
-                val recoveryCode = savedRecoveryCode
-                val icloudRows = buildList {
-                    add("passwords")
-                    add("albums")
-                    add("history")
-                    add("limit")
-                    // Join is pointless while the keychain client itself is
-                    // broken (isInClique throws): it fails with "no iCloud
-                    // Keychain on this state". Offer Repair instead.
-                    if (manager != null && inClique == false && cliqueError == null) add("join")
-                    if (manager != null && syncing) add("stop")
-                    if (manager != null && !syncing && inClique == true) add("sync")
-                    if (recoveryCode != null) add("recovery")
-                    // Signed in but the keychain state on this device is
-                    // missing or corrupted: either no sync manager at all, or
-                    // the clique check errors out.
-                    if (pushState != null && (manager == null || cliqueError != null)) add("repair")
-                    if (deviceInfo != null) add("device")
-                    add("contacts")
+                val (statusIcon, statusTone) = when (syncMode) {
+                    ICloudSyncMode.Syncing -> Icons.Filled.CloudSync to SettingsRowTone.Active
+                    ICloudSyncMode.NotConnected -> Icons.Filled.CloudOff to SettingsRowTone.Neutral
+                    ICloudSyncMode.KeychainUnavailable ->
+                        Icons.Filled.ErrorOutline to SettingsRowTone.Error
+                    ICloudSyncMode.NotJoined -> Icons.Filled.Key to SettingsRowTone.Neutral
+                    ICloudSyncMode.Ready -> if (syncSummary?.error != null) {
+                        Icons.Filled.ErrorOutline to SettingsRowTone.Error
+                    } else {
+                        Icons.Filled.CheckCircle to SettingsRowTone.Active
+                    }
+                    ICloudSyncMode.Checking -> Icons.Filled.Sync to SettingsRowTone.Neutral
                 }
-                val count = icloudRows.size
-                icloudRows.forEachIndexed { index, row ->
-                    when (row) {
-                        "passwords" -> SettingsActionItem(
-                            title = "Passwords",
-                            supporting = "Logins, passkeys, verification codes, Wi-Fi, and shared groups",
-                            onClick = onOpenPasswords,
-                            index = index,
-                            count = count,
-                            multiline = true,
-                            icon = Icons.Filled.Password,
-                        )
-                        "albums" -> SettingsActionItem(
-                            title = "Shared Albums",
-                            supporting = "Invitations, album assets, and iCloud Shared Streams sync",
-                            onClick = onOpenSharedAlbums,
-                            index = index,
-                            count = count,
-                            multiline = true,
-                            icon = Icons.Filled.PhotoAlbum,
-                        )
-                        "history" -> SettingsInfoItem(
-                            title = "History sync",
-                            supporting = historySupporting,
-                            index = index,
-                            count = count,
-                            multiline = true,
-                            icon = Icons.Filled.CloudSync,
-                        )
-                        "limit" -> SettingsActionItem(
-                            title = "History download limit",
-                            supporting = historySyncWindow.title +
-                                ". Applies to new downloads; messages already on this device stay here.",
-                            onClick = { showHistorySyncLimitDialog = true },
-                            index = index,
-                            count = count,
-                            enabled = !syncing,
-                            multiline = true,
-                            icon = Icons.Filled.ManageHistory,
-                        )
-                        "join" -> SettingsActionItem(
-                            title = "Set up iCloud Passwords",
-                            supporting = "Approve nearby or recover with a trusted device passcode",
-                            onClick = ::openCliqueJoin,
-                            index = index,
-                            count = count,
-                            enabled = !loadingBottles && !joiningClique && !startingNearbyJoin && !completingNearbyJoin,
-                            busy = loadingBottles || joiningClique || startingNearbyJoin || completingNearbyJoin,
-                            icon = Icons.Filled.Key,
-                        )
-                        "stop" -> SettingsActionItem(
-                            title = "Stop sync",
-                            supporting = "Cancel the history download in progress",
-                            onClick = CloudSyncWiring::cancelHistorySync,
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Stop,
-                        )
-                        "sync" -> SettingsActionItem(
-                            title = "Sync selected history now",
-                            supporting = "Apply ${historySyncWindow.title.lowercase()} to this full history download",
-                            onClick = ::syncAllHistory,
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.CloudDownload,
-                        )
-                        "device" -> {
-                            val info = deviceInfo
-                            SettingsActionItem(
-                                title = "This device in iCloud",
-                                supporting = if (info != null) {
-                                    "${info.name} · Serial ${info.serial}\n" +
-                                        "Tap to copy the serial to match it in your Apple device list"
-                                } else {
-                                    "Loading…"
-                                },
-                                onClick = {
-                                    info?.let {
-                                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                                        clipboard?.setPrimaryClip(
-                                            android.content.ClipData.newPlainText("Device serial", it.serial),
-                                        )
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "Serial ${it.serial} copied",
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                },
+                SettingsGroup(
+                    title = if (showTitles) "Messages in iCloud" else null,
+                ) {
+                    val rows = buildList<SettingsRowContent> {
+                        add { index, count ->
+                            SettingsInfoItem(
+                                title = "Status",
+                                supporting = statusSupporting,
                                 index = index,
                                 count = count,
-                                enabled = info != null,
                                 multiline = true,
-                                icon = Icons.Filled.Laptop,
+                                icon = statusIcon,
+                                tone = statusTone,
                             )
                         }
-                        "repair" -> SettingsActionItem(
-                            title = "Repair iCloud sync",
-                            supporting = if (cliqueError != null) {
-                                "iCloud Keychain unavailable on this device. Reset its iCloud state and sign in again to rebuild it."
-                            } else {
-                                "Reset this device's iCloud state, then sign in again to rebuild it"
-                            },
-                            onClick = { showRepairConfirmation = true },
-                            index = index,
-                            count = count,
-                            enabled = !repairing,
-                            busy = repairing,
-                            multiline = true,
-                            icon = Icons.Filled.Healing,
-                        )
-                        "recovery" -> SettingsActionItem(
-                            title = "Device Keychain code",
-                            supporting = if (revealSavedRecoveryCode) {
-                                recoveryCode.orEmpty()
-                            } else {
-                                "Saved on this device — tap to reveal"
-                            },
-                            onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
-                            index = index,
-                            count = count,
-                            icon = Icons.Filled.Password,
-                        )
-                        else -> SettingsActionItem(
-                            title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
-                            supporting = contactSyncStatusText(contactStatus, pushState != null),
-                            onClick = ::syncICloudContacts,
-                            index = index,
-                            count = count,
-                            enabled = pushState != null && !contactSyncing,
-                            busy = contactSyncing,
-                            icon = Icons.Filled.Contacts,
-                        )
+                        // Exactly one contextual action follows the status.
+                        when (syncMode) {
+                            ICloudSyncMode.Syncing -> add { index, count ->
+                                SettingsActionItem(
+                                    title = "Stop sync",
+                                    supporting = "Cancel the history download in progress",
+                                    onClick = CloudSyncWiring::cancelHistorySync,
+                                    index = index,
+                                    count = count,
+                                    icon = Icons.Filled.Stop,
+                                )
+                            }
+                            ICloudSyncMode.KeychainUnavailable -> add { index, count ->
+                                SettingsActionItem(
+                                    title = "Repair iCloud sync",
+                                    supporting = if (cliqueError != null) {
+                                        "iCloud Keychain unavailable on this device. Reset its iCloud state and sign in again to rebuild it."
+                                    } else {
+                                        "Reset this device's iCloud state, then sign in again to rebuild it"
+                                    },
+                                    onClick = { showRepairConfirmation = true },
+                                    index = index,
+                                    count = count,
+                                    enabled = !repairing,
+                                    busy = repairing,
+                                    multiline = true,
+                                    icon = Icons.Filled.Healing,
+                                )
+                            }
+                            ICloudSyncMode.NotJoined -> add { index, count ->
+                                SettingsActionItem(
+                                    title = "Set up iCloud Passwords",
+                                    supporting = "Approve nearby or recover with a trusted device passcode",
+                                    onClick = ::openCliqueJoin,
+                                    index = index,
+                                    count = count,
+                                    enabled = !loadingBottles && !joiningClique && !startingNearbyJoin && !completingNearbyJoin,
+                                    busy = loadingBottles || joiningClique || startingNearbyJoin || completingNearbyJoin,
+                                    icon = Icons.Filled.Key,
+                                )
+                            }
+                            ICloudSyncMode.Ready -> add { index, count ->
+                                SettingsActionItem(
+                                    title = "Sync selected history now",
+                                    supporting = "Apply ${historySyncWindow.title.lowercase()} to this full history download",
+                                    onClick = ::syncAllHistory,
+                                    index = index,
+                                    count = count,
+                                    icon = Icons.Filled.CloudDownload,
+                                )
+                            }
+                            ICloudSyncMode.NotConnected, ICloudSyncMode.Checking -> Unit
+                        }
+                        add { index, count ->
+                            SettingsActionItem(
+                                title = "History download limit",
+                                supporting = historySyncWindow.title +
+                                    ". Applies to new downloads; messages already on this device stay here.",
+                                onClick = { showHistorySyncLimitDialog = true },
+                                index = index,
+                                count = count,
+                                enabled = !syncing,
+                                multiline = true,
+                                icon = Icons.Filled.ManageHistory,
+                            )
+                        }
                     }
+                    rows.forEachIndexed { index, row -> row(index, rows.size) }
+                }
+                SettingsGroup(
+                    title = if (showTitles) "iCloud services" else null,
+                ) {
+                    val savedRecoveryCode = if (inClique == true) {
+                        context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
+                            .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
+                    } else {
+                        null
+                    }
+                    val rows = buildList<SettingsRowContent> {
+                        add { index, count ->
+                            SettingsActionItem(
+                                title = "Passwords",
+                                supporting = "Logins, passkeys, verification codes, Wi-Fi, and shared groups",
+                                onClick = onOpenPasswords,
+                                index = index,
+                                count = count,
+                                multiline = true,
+                                icon = Icons.Filled.Password,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsActionItem(
+                                title = "Shared Albums",
+                                supporting = "Invitations, album assets, and iCloud Shared Streams sync",
+                                onClick = onOpenSharedAlbums,
+                                index = index,
+                                count = count,
+                                multiline = true,
+                                icon = Icons.Filled.PhotoAlbum,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsActionItem(
+                                title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
+                                supporting = contactSyncStatusText(contactStatus, pushState != null),
+                                onClick = ::syncICloudContacts,
+                                index = index,
+                                count = count,
+                                enabled = pushState != null && !contactSyncing,
+                                busy = contactSyncing,
+                                icon = Icons.Filled.Contacts,
+                            )
+                        }
+                        if (deviceInfo != null) {
+                            add { index, count ->
+                                val info = deviceInfo
+                                SettingsActionItem(
+                                    title = "This device in iCloud",
+                                    supporting = if (info != null) {
+                                        "${info.name} · Serial ${info.serial}\n" +
+                                            "Tap to copy the serial to match it in your Apple device list"
+                                    } else {
+                                        "Loading…"
+                                    },
+                                    onClick = {
+                                        info?.let {
+                                            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                                            clipboard?.setPrimaryClip(
+                                                android.content.ClipData.newPlainText("Device serial", it.serial),
+                                            )
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Serial ${it.serial} copied",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    },
+                                    index = index,
+                                    count = count,
+                                    enabled = info != null,
+                                    multiline = true,
+                                    icon = Icons.Filled.Laptop,
+                                )
+                            }
+                        }
+                        if (savedRecoveryCode != null) {
+                            add { index, count ->
+                                SettingsActionItem(
+                                    title = "Device Keychain code",
+                                    supporting = if (revealSavedRecoveryCode) {
+                                        savedRecoveryCode
+                                    } else {
+                                        "Saved on this device — tap to reveal"
+                                    },
+                                    onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
+                                    index = index,
+                                    count = count,
+                                    icon = Icons.Filled.Password,
+                                )
+                            }
+                        }
+                    }
+                    rows.forEachIndexed { index, row -> row(index, rows.size) }
                 }
             }
 
@@ -1703,8 +1751,16 @@ fun SettingsScreen(
                 }
                 SettingsGroup(title = if (showTitles) "iMessage stats" else null) {
                     val stats = listOf(
-                        "Registration" to (connection?.regstate?.let(::describeRegstate) ?: "Not connected"),
-                        "Registered handles" to registeredHandles.size.toString(),
+                        "Registration" to ((registrationState ?: connection?.regstate)
+                            ?.let(::describeRegstate) ?: "Not connected"),
+                        // The full handle list lives here (it moved out of the
+                        // Account section, which keeps only actionable rows).
+                        "Registered handles" to when {
+                            connection != null ->
+                                connection!!.handles.joinToString("\n").ifBlank { "None" }
+                            pushState != null -> "Checking…"
+                            else -> "Not connected"
+                        },
                         "Secure iCloud clique" to when (inClique) {
                             true -> "Member"
                             false -> "Not joined"
