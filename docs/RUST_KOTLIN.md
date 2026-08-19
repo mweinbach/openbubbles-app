@@ -49,9 +49,8 @@ owns the live `NativePushState`:
    `nativeReady` / `receievedMsg` on a runtime thread **panics/deadlocks** regardless of the
    worker count. The network-transfer exports — sends (including stickers, edits, group
    operations, profiles), attachment up/downloads, and CloudKit sync/deletes — are async
-   (`suspend fun` in Kotlin, driven through a cancellable `drive_ffi` runtime task): they
-   suspend the caller instead of parking a thread, and cancellation aborts the Rust task
-   instead of detaching the transfer.
+   (`suspend fun` in Kotlin, driven through `drive_ffi` on the blocking pool): they suspend
+   the caller instead of parking a thread and are safe to call from any coroutine.
 4. Incoming events are pointers into `QUEUED_MESSAGES` (`ptrToMessage` → ingest → `completeMessage`).
 5. Complete a pointer **only after** `:core` ingest succeeds. Rust re-emits failures (30s, max 5).
 

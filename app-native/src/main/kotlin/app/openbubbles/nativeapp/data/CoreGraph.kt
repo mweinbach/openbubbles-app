@@ -2312,8 +2312,8 @@ internal fun attachmentSendProgressCallback(): UProgressCallback? = null
  * semantics: stage optimistically under a temp guid with placeholder
  * attachment rows (payloads moved into the canonical store layout so the
  * bubbles preview immediately), upload everything through the Rust
- * sendAttachments binding as the parts of one message with progress surfaced
- * via [UploadProgressBoard], promote the row to the Rust staging guid, then
+ * sendAttachments binding as the parts of one message, surface a coarse
+ * indeterminate upload state, promote the row to the Rust staging guid, then
  * ingest the echo.
  */
 internal object CoreAttachmentSender : AttachmentSender {
@@ -2395,8 +2395,7 @@ internal object CoreAttachmentSender : AttachmentSender {
         // The transcript row surfaces the first attachment's entry, so the
         // whole batch (not just the first upload) reports through it.
         val progressGuid = prepared.stagedGuids.first()
-        val grandTotal = prepared.payloads.sumOf { it.length() }
-        UploadProgressBoard.update(progressGuid, 0L to grandTotal)
+        UploadProgressBoard.update(progressGuid, 0L to 0L)
 
         if (pushState == null) {
             CoreGraphStageHolder.messageRepo(store)
