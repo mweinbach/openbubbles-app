@@ -99,13 +99,16 @@ private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = ru
  * The single navigation decision for a [NativeMainActivity] launch intent,
  * shared by onCreate (cold) and onNewIntent (warm) so both apply the same
  * precedence: a tapped notification beats a share payload, which beats an
- * sms/mms compose uri, which beats an explicit route request.
+ * sms/mms compose uri, which beats an explicit route request. A plain MAIN
+ * launch is [OpenHome] (the messaging app), never [None], so a standalone
+ * Passwords stack can hand the task back to messaging.
  */
 sealed interface MainLaunchAction {
     data class OpenChat(val guid: String) : MainLaunchAction
     data class Share(val request: IncomingShareRequest) : MainLaunchAction
     data class Compose(val request: SmsComposeRequest) : MainLaunchAction
     data class OpenRoute(val route: String, val standaloneTask: Boolean) : MainLaunchAction
+    data object OpenHome : MainLaunchAction
     data object None : MainLaunchAction
 }
 
@@ -123,6 +126,7 @@ internal fun decideMainLaunchAction(
     parseIncomingShareRequest(action, mimeType, extraText, streams)?.let { return MainLaunchAction.Share(it) }
     parseSmsComposeRequest(action, dataString, extraText)?.let { return MainLaunchAction.Compose(it) }
     initialRoute?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenRoute(it, standaloneTask) }
+    if (action == Intent.ACTION_MAIN) return MainLaunchAction.OpenHome
     return MainLaunchAction.None
 }
 
@@ -132,6 +136,7 @@ class NativeMainActivity : FragmentActivity() {
     private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
     private var pendingShareRequest: IncomingShareRequest? by mutableStateOf(null)
     private var pendingRouteRequest: MainLaunchAction.OpenRoute? by mutableStateOf(null)
+    private var pendingHomeRequest: Boolean by mutableStateOf(false)
     private var standaloneTask: Boolean by mutableStateOf(false)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
@@ -213,6 +218,8 @@ class NativeMainActivity : FragmentActivity() {
                     onShareRequestConsumed = { pendingShareRequest = null },
                     startRouteRequest = pendingRouteRequest,
                     onRouteRequestConsumed = { pendingRouteRequest = null },
+                    startHomeRequest = pendingHomeRequest,
+                    onHomeRequestConsumed = { pendingHomeRequest = false },
                     standaloneTask = standaloneTask,
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
@@ -294,6 +301,10 @@ class NativeMainActivity : FragmentActivity() {
         pendingComposeRequest = (launch as? MainLaunchAction.Compose)?.request
         pendingRouteRequest = launch as? MainLaunchAction.OpenRoute
         if (pendingRouteRequest?.standaloneTask == true) standaloneTask = true
+        // A main-icon tap in normal mode stays a no-op so the resumed route
+        // survives; in standalone mode it must hand the task back to messaging.
+        pendingHomeRequest = launch is MainLaunchAction.OpenHome && standaloneTask
+        if (pendingHomeRequest) standaloneTask = false
         // Cancel the notification immediately; the conversation's live
         // repository owns its initial 30-row load after navigation.
         pendingChatGuid?.let { guid ->

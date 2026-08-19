@@ -326,6 +326,9 @@ fun OpenBubblesApp(
     /** Explicit launch into a route (credential settings, Passwords icon); consumed once. */
     startRouteRequest: MainLaunchAction.OpenRoute? = null,
     onRouteRequestConsumed: () -> Unit = {},
+    /** Main-icon tap while a standalone launch owns the stack; consumed once. */
+    startHomeRequest: Boolean = false,
+    onHomeRequestConsumed: () -> Unit = {},
     /** Standalone launch: the requested route is the root and back exits the activity. */
     standaloneTask: Boolean = false,
     /** Actual route restored after the hidden Compose tree was released. */
@@ -483,6 +486,15 @@ fun OpenBubblesApp(
             }
         }
         onRouteRequestConsumed()
+    }
+
+    // The main icon must always reach messaging: reset the standalone
+    // Passwords stack to the chat list, converging like the effect above.
+    LaunchedEffect(startHomeRequest) {
+        if (!startHomeRequest) return@LaunchedEffect
+        backStack.add(ChatsKey)
+        while (backStack.size > 1) backStack.removeAt(0)
+        onHomeRequestConsumed()
     }
 
     LaunchedEffect(current) {

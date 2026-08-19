@@ -28,8 +28,24 @@ class MainLaunchActionTest {
     )
 
     @Test
-    fun `plain launcher tap decides nothing`() {
-        assertEquals(MainLaunchAction.None, decide(action = Intent.ACTION_MAIN))
+    fun `plain main tap decides the messaging home`() {
+        assertEquals(MainLaunchAction.OpenHome, decide(action = Intent.ACTION_MAIN))
+    }
+
+    @Test
+    fun `main icon tap while standalone resets to the messaging app`() {
+        assertEquals(
+            MainLaunchAction.OpenHome,
+            decide(action = Intent.ACTION_MAIN, standaloneTask = true),
+        )
+    }
+
+    @Test
+    fun `unparseable view intent still decides nothing`() {
+        assertEquals(
+            MainLaunchAction.None,
+            decide(action = Intent.ACTION_VIEW, dataString = "https://example.com"),
+        )
     }
 
     @Test
