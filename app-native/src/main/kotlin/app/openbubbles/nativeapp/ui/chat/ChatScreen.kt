@@ -12,6 +12,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
@@ -116,6 +117,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -442,6 +445,16 @@ fun ChatScreen(
     }
     val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
+
+    // Tapping a reply quote scrolls to the original and pulses it; the guid
+    // outlives the pulse so a row that composes mid-scroll still flashes.
+    var replyHighlightGuid by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(replyHighlightGuid) {
+        if (replyHighlightGuid != null) {
+            delay(2400)
+            replyHighlightGuid = null
+        }
+    }
 
     // ---- Send screen effects -------------------------------------------------
     // The ViewModel flags the newest unplayed effect; the overlay plays ~700ms
@@ -943,7 +956,24 @@ fun ChatScreen(
                                         messagesByGuid,
                                         senderNames,
                                     ),
-                                    onOpenReplyThread = { onOpenReplyThread(entry.message) },
+                                    onReplyQuoteTap = {
+                                        val target = resolveReplyScrollTarget(
+                                            entries,
+                                            entry.message.replyToGuid,
+                                        )
+                                        if (target == null) {
+                                            // Original not in the loaded window:
+                                            // the thread pane can fetch it.
+                                            onOpenReplyThread(entry.message)
+                                        } else {
+                                            replyHighlightGuid = entry.message.replyToGuid
+                                            scope.launch {
+                                                listState.animateScrollToItem(
+                                                    target + if (isTyping) 1 else 0,
+                                                )
+                                            }
+                                        }
+                                    },
                                     onDownloadSticker = { guid ->
                                         onDownloadAttachment(
                                             AttachmentMeta(
@@ -971,6 +1001,9 @@ fun ChatScreen(
                                             fadeInSpec = itemSpecs.fadeIn,
                                             fadeOutSpec = itemSpecs.fadeOut,
                                             placementSpec = itemSpecs.placement,
+                                        )
+                                        .replyHighlightPulse(
+                                            active = replyHighlightGuid == entry.message.guid,
                                         ),
                                 )
                                 is ConversationEntry.TimeSeparator -> {
@@ -1399,6 +1432,31 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/**
+ * One soft flash behind the original message after scroll-to-original: rise,
+ * hold long enough to be found, fade. Reduce-motion swaps the ramps for cuts
+ * via the theme effects spec.
+ */
+@Composable
+private fun Modifier.replyHighlightPulse(active: Boolean): Modifier {
+    if (!active) return this
+    val color = MaterialTheme.colorScheme.primary
+    val spec = defaultEffectsSpec<Float>()
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        alpha.animateTo(0.18f, spec)
+        delay(650)
+        alpha.animateTo(0f, spec)
+    }
+    return drawBehind {
+        drawRoundRect(
+            color = color,
+            alpha = alpha.value,
+            cornerRadius = CornerRadius(24.dp.toPx()),
         )
     }
 }

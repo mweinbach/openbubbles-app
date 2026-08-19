@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -54,6 +55,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -323,7 +326,8 @@ fun MessageBubble(
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     senderDisplayName: String? = null,
     replyQuote: ReplyQuote? = null,
-    onOpenReplyThread: () -> Unit = {},
+    /** Tap on the quoted original: scroll-to-original or open the thread pane. */
+    onReplyQuoteTap: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
     /** Slide the bubble toward the start edge to begin an inline reply. */
@@ -447,7 +451,7 @@ fun MessageBubble(
                     quote = quote,
                     replyFromMe = message.isFromMe,
                     smsChat = smsChat,
-                    onOpen = onOpenReplyThread,
+                    onOpen = onReplyQuoteTap,
                 )
             }
             interactivePayload?.let { payload ->
@@ -743,9 +747,47 @@ private fun InvisibleInkBubble(
     }
 }
 
+/** Ghost opacity for the quoted original, echoing iOS's dimmed reply quote. */
+private const val ReplyQuoteGhostAlpha = 0.62f
+
+/** Connector canvas footprint between the quote and the reply bubble. */
+private val ReplyConnectorWidth = 22.dp
+private val ReplyConnectorHeight = 8.dp
+
+internal data class ReplyConnectorGeometry(
+    val start: Offset,
+    val control: Offset,
+    val end: Offset,
+)
+
 /**
- * Smaller original-message bubble sitting above a reply, colored like the
- * original sender the way Apple Messages does. Tapping opens the thread.
+ * Quarter-hook between the quote's bottom edge and the reply's rounded top
+ * corner. Quote and reply are flush on the transcript's outer edge; the curve
+ * leaves the quote vertically [startInsetFromOuter] in from that edge and
+ * lands horizontally [endInsetFromOuter] in, aiming into the reply's corner
+ * radius. The control point directly under the start is what keeps the launch
+ * vertical and the landing horizontal.
+ */
+internal fun replyConnectorGeometry(
+    width: Float,
+    height: Float,
+    startInsetFromOuter: Float,
+    endInsetFromOuter: Float,
+    outerEdgeOnRight: Boolean,
+): ReplyConnectorGeometry {
+    fun fromOuter(inset: Float) = if (outerEdgeOnRight) width - inset else inset
+    val start = Offset(fromOuter(startInsetFromOuter), 0f)
+    return ReplyConnectorGeometry(
+        start = start,
+        control = Offset(start.x, height),
+        end = Offset(fromOuter(endInsetFromOuter), height),
+    )
+}
+
+/**
+ * Smaller ghosted original-message bubble sitting above a reply, colored like
+ * the original sender the way Apple Messages does, joined to the reply by a
+ * curved connector. Tapping shows the original message.
  */
 @Composable
 private fun ReplyQuotePreview(
@@ -767,9 +809,9 @@ private fun ReplyQuotePreview(
             contentColor = bubbleContent,
             modifier = Modifier
                 .widthIn(max = 240.dp)
-                .graphicsLayer { alpha = 0.82f }
+                .graphicsLayer { alpha = ReplyQuoteGhostAlpha }
                 .clickable(
-                    onClickLabel = "View reply thread",
+                    onClickLabel = "Show original message",
                     role = Role.Button,
                     onClick = onOpen,
                 ),
@@ -791,16 +833,34 @@ private fun ReplyQuotePreview(
                 )
             }
         }
-        Box(
+        val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+        val connectorColor = MaterialTheme.colorScheme.outlineVariant
+        Canvas(
             modifier = Modifier
-                .padding(
-                    start = if (replyFromMe) 0.dp else 18.dp,
-                    end = if (replyFromMe) 18.dp else 0.dp,
-                )
                 .offset(y = (-1).dp)
-                .size(width = 3.dp, height = 8.dp)
-                .background(bubbleColor.copy(alpha = 0.82f), RoundedCornerShape(1.5.dp)),
-        )
+                .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
+        ) {
+            // The curve runs past the canvas into the stack gap below so it
+            // lands on the reply's top corner; Canvas does not clip.
+            val geometry = replyConnectorGeometry(
+                width = size.width,
+                height = size.height + 4.dp.toPx(),
+                startInsetFromOuter = 16.dp.toPx(),
+                endInsetFromOuter = 5.dp.toPx(),
+                outerEdgeOnRight = replyFromMe == isLtr,
+            )
+            drawPath(
+                path = Path().apply {
+                    moveTo(geometry.start.x, geometry.start.y)
+                    quadraticTo(
+                        geometry.control.x, geometry.control.y,
+                        geometry.end.x, geometry.end.y,
+                    )
+                },
+                color = connectorColor,
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
     }
 }
 
