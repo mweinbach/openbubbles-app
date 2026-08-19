@@ -105,7 +105,14 @@ data class StickerPlacement(
     val downloaded: Boolean,
 )
 
-/** Apple LinkPresentation metadata projected into a platform-friendly card. */
+/**
+ * Apple LinkPresentation metadata projected into a platform-friendly card.
+ *
+ * Equality is structural over the byte payloads: the preview is re-parsed
+ * from the message row on every transcript emission, so reference equality
+ * on the arrays would defeat the "identical content is an identical frame"
+ * deduplication and recompose every link bubble on unrelated writes.
+ */
 data class RichLinkPreview(
     val url: String,
     val displayHost: String,
@@ -115,7 +122,32 @@ data class RichLinkPreview(
     val imageMime: String?,
     val iconBytes: ByteArray?,
     val iconMime: String?,
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is RichLinkPreview) return false
+        return url == other.url &&
+            displayHost == other.displayHost &&
+            title == other.title &&
+            summary == other.summary &&
+            imageMime == other.imageMime &&
+            iconMime == other.iconMime &&
+            imageBytes.contentEquals(other.imageBytes) &&
+            iconBytes.contentEquals(other.iconBytes)
+    }
+
+    override fun hashCode(): Int {
+        var result = url.hashCode()
+        result = 31 * result + displayHost.hashCode()
+        result = 31 * result + (title?.hashCode() ?: 0)
+        result = 31 * result + (summary?.hashCode() ?: 0)
+        result = 31 * result + (imageMime?.hashCode() ?: 0)
+        result = 31 * result + (iconMime?.hashCode() ?: 0)
+        result = 31 * result + imageBytes.contentHashCode()
+        result = 31 * result + iconBytes.contentHashCode()
+        return result
+    }
+}
 
 data class MessageItem(
     val id: Long,
@@ -199,6 +231,9 @@ interface ChatListRepository {
     fun setBlocked(id: Long, blocked: Boolean, archive: Boolean = false) = Unit
     fun clearTranscript(id: Long) = Unit
     fun recentlyDeleted(): List<ChatListItem> = emptyList()
+
+    /** Count for the settings badge; avoids projecting every deleted chat. */
+    fun recentlyDeletedCount(): Int = recentlyDeleted().size
     fun restoreDeleted(id: Long) = Unit
     fun permanentlyDelete(id: Long) = Unit
     fun delete(id: Long)

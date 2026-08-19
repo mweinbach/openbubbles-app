@@ -473,9 +473,12 @@ fn reaction_from_idx(idx: u64, emoji: Option<String>) -> Option<Reaction> {
 }
 
 async fn send_inst_on(state: &SharedPushState, inst: MessageInst) -> Result<UMessageInst, UError> {
-    api::send(&state.client, &state.local_broadcast, inst.clone())
+    // Convert before the send consumes (and mutates) the instance; the
+    // caller-visible value has always been the pre-send snapshot.
+    let converted = conv_inst(&inst);
+    api::send(&state.client, &state.local_broadcast, inst)
         .await
-        .map(|_| conv_inst(&inst))
+        .map(|_| converted)
         .map_err(|e| UError::SendFailed { reason: e.to_string() })
 }
 

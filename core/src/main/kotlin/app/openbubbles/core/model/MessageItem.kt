@@ -36,6 +36,21 @@ enum class MessageKind {
     GROUP_EVENT,
 }
 
+/**
+ * Attachment-row state the transcript renders (download flag, name, size).
+ * Carried on [MessageItem] so it participates in equality: attachment rows
+ * change without their message row changing (a download completing), and
+ * emission deduplication must still treat that as a changed page.
+ */
+data class AttachmentStamp(
+    val id: Long,
+    val downloaded: Boolean,
+    val name: String?,
+    val sizeBytes: Long?,
+    val mime: String?,
+    val uti: String?,
+)
+
 /** One sticker image positioned over a target message bubble. */
 data class StickerPlacement(
     val reactionGuid: String,
@@ -84,6 +99,8 @@ data class MessageItem(
     val hasAttachments: Boolean,
     /** Attachment count (metadata only; transfers are driven elsewhere). */
     val attachmentCount: Int,
+    /** Per-attachment row state; see [AttachmentStamp] for why it is here. */
+    val attachmentStamps: List<AttachmentStamp> = emptyList(),
     /** Non-null when this message is a reply (thread originator guid). */
     val threadOriginatorGuid: String?,
     /** Part index on the thread originator that this reply is attached to. */

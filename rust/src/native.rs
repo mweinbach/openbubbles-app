@@ -1,7 +1,7 @@
 use std::{collections::{BTreeMap, HashMap}, fmt::Debug, fs::{File, OpenOptions}, io::{Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock}, time::{Duration, SystemTime}};
 
 use keystore::software::plist_to_bin;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use openssl::pkey::PKey;
 use rustpush::{GenerateVerificationTokenRequest, MessageInst, get_gateways_for_mccmnc, passwords::{Passkey, PasswordCriteria, PasswordManagerMeta, PasswordRawEntry}};
 use serde::{Deserialize, Serialize};
@@ -457,7 +457,7 @@ impl NativePushState {
                                     }
                                 });
 
-                                info!("emitting pointer {key}");
+                                debug!("emitting pointer {key}");
                                 // The foreign callback crosses into Kotlin over JNA;
                                 // whatever it does must never block the receive loop.
                                 let handler_emit = handler.clone();

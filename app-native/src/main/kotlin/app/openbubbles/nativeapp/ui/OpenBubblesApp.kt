@@ -78,7 +78,9 @@ import app.openbubbles.nativeapp.SmsComposeRequest
 import app.openbubbles.nativeapp.IncomingShareRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
+import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.credentials.CredentialUserAuth
@@ -875,6 +877,11 @@ fun OpenBubblesApp(
                     val archivedModel: ChatListViewModel =
                         viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
                     val listState by archivedModel.uiState.collectAsStateWithLifecycle()
+                    val recentlyDeletedCount by produceState(0) {
+                        value = withContext(Dispatchers.IO) {
+                            AppGraph.chats.recentlyDeletedCount()
+                        }
+                    }
                     SettingsScreen(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
@@ -884,7 +891,7 @@ fun OpenBubblesApp(
                         onOpenSharedAlbums = { navigateTo(SharedAlbumsKey) },
                         onOpenSignIn = { navigateTo(LoginKey) },
                         archivedCount = listState.archived.size,
-                        recentlyDeletedCount = AppGraph.chats.recentlyDeleted().size,
+                        recentlyDeletedCount = recentlyDeletedCount,
                         showBackButton = true,
                     )
                 }
@@ -1039,8 +1046,12 @@ fun OpenBubblesApp(
                 }
 
                 entry<RecentlyDeletedKey>(metadata = overlayMetadata) {
-                    val chats = remember { AppGraph.chats.recentlyDeleted() }
-                    val messages = remember { AppGraph.messages.recentlyDeleted() }
+                    val chats by produceState(emptyList<ChatListItem>()) {
+                        value = withContext(Dispatchers.IO) { AppGraph.chats.recentlyDeleted() }
+                    }
+                    val messages by produceState(emptyList<MessageItem>()) {
+                        value = withContext(Dispatchers.IO) { AppGraph.messages.recentlyDeleted() }
+                    }
                     RecentlyDeletedScreen(
                         chats = chats,
                         messages = messages,
@@ -1057,7 +1068,9 @@ fun OpenBubblesApp(
                 }
 
                 entry<BookmarksKey>(metadata = overlayMetadata) { key ->
-                    val messages = remember(key.chatId) { AppGraph.messages.bookmarked(key.chatId) }
+                    val messages by produceState(emptyList<MessageItem>(), key.chatId) {
+                        value = withContext(Dispatchers.IO) { AppGraph.messages.bookmarked(key.chatId) }
+                    }
                     BookmarkedMessagesScreen(
                         messages = messages,
                         onBack = { popBack() },

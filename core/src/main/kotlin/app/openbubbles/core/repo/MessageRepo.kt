@@ -1,6 +1,7 @@
 package app.openbubbles.core.repo
 
 import app.openbubbles.core.intake.HandleResolver
+import app.openbubbles.core.model.AttachmentStamp
 import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.InteractivePayloadParser
 import app.openbubbles.core.model.MessageKind
@@ -21,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -96,6 +98,11 @@ class MessageRepo(
         )
             .conflate()
             .map { messages(chatId, limit) }
+            // The subscriptions are store-wide, so a write in any other chat
+            // re-runs this page too. MessageItem is a pure DB projection;
+            // dropping identical pages here spares every downstream stage
+            // (UI mapping, enrichment, recomposition) for unrelated writes.
+            .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
 
     /** Invalidates warmed UI projections when transcript display data changes. */
@@ -490,6 +497,20 @@ class MessageRepo(
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
+            attachmentStamps = if (message.hasAttachments) {
+                message.dbAttachments.map { attachment ->
+                    AttachmentStamp(
+                        id = attachment.id,
+                        downloaded = attachment.isDownloaded,
+                        name = attachment.transferName,
+                        sizeBytes = attachment.totalBytes,
+                        mime = attachment.mimeType,
+                        uti = attachment.uti,
+                    )
+                }
+            } else {
+                emptyList()
+            },
             threadOriginatorGuid = message.threadOriginatorGuid,
             threadOriginatorPart = MessageMapper.replyPartIndex(message.threadOriginatorPart),
             threadOriginatorLocator = message.threadOriginatorPart,
