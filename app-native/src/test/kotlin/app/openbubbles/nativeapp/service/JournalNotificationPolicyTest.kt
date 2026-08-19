@@ -21,6 +21,14 @@ class JournalNotificationPolicyTest {
             IncomingNotificationSource.JOURNAL_RECOVERY,
             journalEntryNotificationSource(IncomingNotificationSource.JOURNAL_RECOVERY, priorAttempts = 0),
         )
+        assertEquals(
+            IncomingNotificationSource.JOURNAL_RECOVERY,
+            journalEntryNotificationSource(
+                IncomingNotificationSource.LIVE,
+                priorAttempts = 0,
+                failedInThisProcess = true,
+            ),
+        )
     }
 
     @Test

@@ -12,8 +12,13 @@ internal enum class IncomingNotificationSource {
 internal fun journalEntryNotificationSource(
     drainSource: IncomingNotificationSource,
     priorAttempts: Int,
+    failedInThisProcess: Boolean = false,
 ): IncomingNotificationSource =
-    if (drainSource == IncomingNotificationSource.JOURNAL_RECOVERY || priorAttempts > 0) {
+    if (
+        drainSource == IncomingNotificationSource.JOURNAL_RECOVERY ||
+        priorAttempts > 0 ||
+        failedInThisProcess
+    ) {
         IncomingNotificationSource.JOURNAL_RECOVERY
     } else {
         IncomingNotificationSource.LIVE

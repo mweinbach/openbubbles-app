@@ -69,6 +69,8 @@ class NativePushService : Service(), MsgReceiver {
 
     /** Journal consumption belongs to the service lifecycle, never a global polling loop. */
     private val journalMutex = Mutex()
+    /** Keeps recovery semantics even when persisting Rust's retry counter fails. Guarded by [journalMutex]. */
+    private val journalFailures = mutableSetOf<String>()
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
@@ -241,9 +243,11 @@ class NativePushService : Service(), MsgReceiver {
                 val entrySource = journalEntryNotificationSource(
                     drainSource = drainSource,
                     priorAttempts = entry.attempts.toInt(),
+                    failedInThisProcess = entry.id in journalFailures,
                 )
                 ingestAndNotify(entry.message, handles, entrySource)
             } catch (error: Throwable) {
+                journalFailures += entry.id
                 Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
                 runCatching {
                     runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
@@ -255,6 +259,7 @@ class NativePushService : Service(), MsgReceiver {
             }
             try {
                 runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
+                journalFailures -= entry.id
             } catch (error: Throwable) {
                 Log.e(TAG, "failed to persist journal completion for ${entry.id}", error)
                 delay(journalRetryDelayMs(entry.attempts.toInt()))
