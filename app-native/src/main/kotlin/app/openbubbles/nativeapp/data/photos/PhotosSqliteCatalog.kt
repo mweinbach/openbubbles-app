@@ -1,0 +1,307 @@
+package app.openbubbles.nativeapp.data.photos
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import app.openbubbles.core.photos.CachedPhotos
+import app.openbubbles.core.photos.PhotoMediaKind
+import app.openbubbles.core.photos.PhotoResourceKind
+import app.openbubbles.core.photos.PhotoSummary
+import app.openbubbles.core.photos.PhotoTransfer
+import app.openbubbles.core.photos.PhotoTransferDirection
+import app.openbubbles.core.photos.PhotoTransferState
+import app.openbubbles.core.photos.PhotosCatalog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * Separate, disposable Photos catalog. This deliberately does not touch the
+ * legacy ObjectBox model or its in-place-upgrade path.
+ */
+class PhotosSqliteCatalog(context: Context) :
+    SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION),
+    PhotosCatalog {
+
+    init {
+        setWriteAheadLoggingEnabled(true)
+    }
+
+    override fun onConfigure(database: SQLiteDatabase) {
+        super.onConfigure(database)
+        database.setForeignKeyConstraintsEnabled(true)
+    }
+
+    override fun onCreate(database: SQLiteDatabase) {
+        CREATE_STATEMENTS.forEach(database::execSQL)
+    }
+
+    override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        migrationStatements(oldVersion, newVersion).forEach(database::execSQL)
+    }
+
+    override suspend fun loadMetadata(): CachedPhotos = withContext(Dispatchers.IO) {
+        val database = readableDatabase
+        val assets = database.query(
+            ASSETS_TABLE,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "captured_at_ms DESC, added_at_ms DESC, master_id",
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.photoSummary()) } }
+        val nextCursor = database.query(
+            SYNC_TABLE,
+            arrayOf("next_cursor"),
+            "sync_key = ?",
+            arrayOf(METADATA_SYNC_KEY),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+        CachedPhotos(assets = assets, nextCursor = nextCursor)
+    }
+
+    override suspend fun replaceMetadata(
+        assets: List<PhotoSummary>,
+        nextCursor: String?,
+    ): Unit = withContext(Dispatchers.IO) {
+        val database = writableDatabase
+        database.beginTransaction()
+        try {
+            database.delete(ASSETS_TABLE, null, null)
+            assets.forEach { asset ->
+                database.insertOrThrow(ASSETS_TABLE, null, asset.contentValues())
+            }
+            database.insertWithOnConflict(
+                SYNC_TABLE,
+                null,
+                ContentValues().apply {
+                    put("sync_key", METADATA_SYNC_KEY)
+                    if (nextCursor == null) putNull("next_cursor") else put("next_cursor", nextCursor)
+                    put("updated_at_ms", System.currentTimeMillis())
+                },
+                SQLiteDatabase.CONFLICT_REPLACE,
+            )
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    override suspend fun transfers(): List<PhotoTransfer> = withContext(Dispatchers.IO) {
+        readableDatabase.query(
+            TRANSFERS_TABLE,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "updated_at_ms DESC",
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.photoTransfer()) } }
+    }
+
+    override suspend fun transfer(id: String): PhotoTransfer? = withContext(Dispatchers.IO) {
+        readableDatabase.query(
+            TRANSFERS_TABLE,
+            null,
+            "transfer_id = ?",
+            arrayOf(id),
+            null,
+            null,
+            null,
+            "1",
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.photoTransfer() else null }
+    }
+
+    override suspend fun putTransfer(transfer: PhotoTransfer): Unit = withContext(Dispatchers.IO) {
+        writableDatabase.insertWithOnConflict(
+            TRANSFERS_TABLE,
+            null,
+            transfer.contentValues(),
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    override suspend fun recoverInterruptedTransfers(): Unit = withContext(Dispatchers.IO) {
+        writableDatabase.update(
+            TRANSFERS_TABLE,
+            ContentValues().apply {
+                put("state", PhotoTransferState.Queued.name)
+                put("last_error", "Transfer interrupted by app restart")
+                put("updated_at_ms", System.currentTimeMillis())
+            },
+            "state = ?",
+            arrayOf(PhotoTransferState.Running.name),
+        )
+    }
+
+    private fun PhotoSummary.contentValues() = ContentValues().apply {
+        put("master_id", id)
+        put("asset_id", assetId)
+        putNullable("filename", filename)
+        put("media_kind", mediaKind.name)
+        put("live_photo", livePhoto.asInt())
+        putNullable("width", width)
+        putNullable("height", height)
+        putNullable("original_size", originalSize)
+        putNullable("preview_size", previewSize)
+        putNullable("captured_at_ms", capturedAtMs)
+        putNullable("added_at_ms", addedAtMs)
+        put("favorite", favorite.asInt())
+        put("hidden", hidden.asInt())
+    }
+
+    private fun PhotoTransfer.contentValues() = ContentValues().apply {
+        put("transfer_id", id)
+        putNullable("asset_id", assetId)
+        put("direction", direction.name)
+        put("resource_kind", resourceKind.name)
+        put("local_path", localPath)
+        putNullable("filename", filename)
+        putNullable("mime_type", mimeType)
+        put("state", state.name)
+        put("bytes_done", bytesDone)
+        put("total_bytes", totalBytes)
+        put("attempt_count", attemptCount)
+        putNullable("last_error", lastError)
+        put("created_at_ms", createdAtMs)
+        put("updated_at_ms", updatedAtMs)
+    }
+
+    private fun Cursor.photoSummary() = PhotoSummary(
+        id = string("master_id"),
+        assetId = string("asset_id"),
+        filename = nullableString("filename"),
+        mediaKind = enumValue("media_kind", PhotoMediaKind.Unknown),
+        livePhoto = int("live_photo") != 0,
+        width = nullableInt("width"),
+        height = nullableInt("height"),
+        originalSize = nullableLong("original_size"),
+        previewSize = nullableLong("preview_size"),
+        capturedAtMs = nullableLong("captured_at_ms"),
+        addedAtMs = nullableLong("added_at_ms"),
+        favorite = int("favorite") != 0,
+        hidden = int("hidden") != 0,
+    )
+
+    private fun Cursor.photoTransfer() = PhotoTransfer(
+        id = string("transfer_id"),
+        assetId = nullableString("asset_id"),
+        direction = enumValue("direction", PhotoTransferDirection.Download),
+        resourceKind = enumValue("resource_kind", PhotoResourceKind.Preview),
+        localPath = string("local_path"),
+        filename = nullableString("filename"),
+        mimeType = nullableString("mime_type"),
+        state = enumValue("state", PhotoTransferState.Failed),
+        bytesDone = long("bytes_done"),
+        totalBytes = long("total_bytes"),
+        attemptCount = int("attempt_count"),
+        lastError = nullableString("last_error"),
+        createdAtMs = long("created_at_ms"),
+        updatedAtMs = long("updated_at_ms"),
+    )
+
+    private inline fun <reified T : Enum<T>> Cursor.enumValue(column: String, fallback: T): T =
+        enumValues<T>().firstOrNull { it.name == string(column) } ?: fallback
+
+    private fun Cursor.string(column: String): String = getString(getColumnIndexOrThrow(column))
+    private fun Cursor.nullableString(column: String): String? =
+        getColumnIndexOrThrow(column).let { index -> if (isNull(index)) null else getString(index) }
+    private fun Cursor.int(column: String): Int = getInt(getColumnIndexOrThrow(column))
+    private fun Cursor.long(column: String): Long = getLong(getColumnIndexOrThrow(column))
+    private fun Cursor.nullableInt(column: String): Int? =
+        getColumnIndexOrThrow(column).let { index -> if (isNull(index)) null else getInt(index) }
+    private fun Cursor.nullableLong(column: String): Long? =
+        getColumnIndexOrThrow(column).let { index -> if (isNull(index)) null else getLong(index) }
+
+    private fun Boolean.asInt(): Int = if (this) 1 else 0
+
+    private fun ContentValues.putNullable(key: String, value: String?) {
+        if (value == null) putNull(key) else put(key, value)
+    }
+
+    private fun ContentValues.putNullable(key: String, value: Int?) {
+        if (value == null) putNull(key) else put(key, value)
+    }
+
+    private fun ContentValues.putNullable(key: String, value: Long?) {
+        if (value == null) putNull(key) else put(key, value)
+    }
+
+    companion object {
+        const val DATABASE_NAME = "openbubbles-photos.db"
+        const val DATABASE_VERSION = 1
+
+        private const val ASSETS_TABLE = "photo_assets"
+        private const val SYNC_TABLE = "photo_sync_state"
+        private const val TRANSFERS_TABLE = "photo_transfers"
+        private const val METADATA_SYNC_KEY = "personal_metadata"
+
+        private const val CREATE_ASSETS = """
+            CREATE TABLE photo_assets (
+                master_id TEXT PRIMARY KEY NOT NULL,
+                asset_id TEXT NOT NULL,
+                filename TEXT,
+                media_kind TEXT NOT NULL,
+                live_photo INTEGER NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                original_size INTEGER,
+                preview_size INTEGER,
+                captured_at_ms INTEGER,
+                added_at_ms INTEGER,
+                favorite INTEGER NOT NULL,
+                hidden INTEGER NOT NULL
+            )
+        """
+        private const val CREATE_SYNC_STATE = """
+            CREATE TABLE photo_sync_state (
+                sync_key TEXT PRIMARY KEY NOT NULL,
+                next_cursor TEXT,
+                updated_at_ms INTEGER NOT NULL
+            )
+        """
+        private const val CREATE_TRANSFERS = """
+            CREATE TABLE photo_transfers (
+                transfer_id TEXT PRIMARY KEY NOT NULL,
+                asset_id TEXT,
+                direction TEXT NOT NULL,
+                resource_kind TEXT NOT NULL,
+                local_path TEXT NOT NULL,
+                filename TEXT,
+                mime_type TEXT,
+                state TEXT NOT NULL,
+                bytes_done INTEGER NOT NULL,
+                total_bytes INTEGER NOT NULL,
+                attempt_count INTEGER NOT NULL,
+                last_error TEXT,
+                created_at_ms INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            )
+        """
+        private const val CREATE_TRANSFER_ASSET_INDEX =
+            "CREATE INDEX photo_transfers_asset_idx ON photo_transfers(asset_id)"
+        private const val CREATE_TRANSFER_STATE_INDEX =
+            "CREATE INDEX photo_transfers_state_idx ON photo_transfers(state)"
+
+        internal val CREATE_STATEMENTS = listOf(
+            CREATE_ASSETS.trimIndent(),
+            CREATE_SYNC_STATE.trimIndent(),
+            CREATE_TRANSFERS.trimIndent(),
+            CREATE_TRANSFER_ASSET_INDEX,
+            CREATE_TRANSFER_STATE_INDEX,
+        )
+
+        internal fun migrationStatements(oldVersion: Int, newVersion: Int): List<String> = when {
+            oldVersion == newVersion -> emptyList()
+            else -> error(
+                "Missing Photos catalog migration from version $oldVersion to $newVersion",
+            )
+        }
+    }
+}

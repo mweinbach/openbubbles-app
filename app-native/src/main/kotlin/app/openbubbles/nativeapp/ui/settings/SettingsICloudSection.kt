@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -141,6 +142,7 @@ internal fun rememberICloudSection(
     onCliqueJoined: () -> Unit,
     onOpenSignIn: () -> Unit,
     onOpenPasswords: () -> Unit,
+    onOpenPhotos: () -> Unit,
     onOpenSharedAlbums: () -> Unit,
 ): SettingsSectionSlice {
     val context = LocalContext.current
@@ -568,6 +570,17 @@ internal fun rememberICloudSection(
                                 count = count,
                                 multiline = true,
                                 icon = Icons.Filled.Password,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsActionItem(
+                                title = "Photos (experimental)",
+                                supporting = "Read-only personal library capability and metadata probe",
+                                onClick = onOpenPhotos,
+                                index = index,
+                                count = count,
+                                multiline = true,
+                                icon = Icons.Filled.PhotoLibrary,
                             )
                         }
                         add { index, count ->

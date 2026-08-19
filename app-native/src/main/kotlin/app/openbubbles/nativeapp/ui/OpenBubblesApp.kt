@@ -116,6 +116,8 @@ import app.openbubbles.nativeapp.ui.passwords.VaultGroupDetailViewModel
 import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailScreen
 import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailViewModel
 import app.openbubbles.nativeapp.ui.passwords.VaultItemUi
+import app.openbubbles.nativeapp.ui.photos.PhotosScreen
+import app.openbubbles.nativeapp.ui.photos.PhotosViewModel
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
@@ -149,6 +151,7 @@ object Routes {
     const val LOGIN = "login"
     const val SETTINGS = "settings"
     const val PASSWORDS = "passwords"
+    const val PHOTOS = "photos"
     const val SHARED_ALBUMS = "sharedalbums"
     const val ARCHIVED = "archived"
     const val FIND_MY = "findmy"
@@ -217,6 +220,9 @@ data class VaultGroupKey(val id: String, val name: String) : NavKey
 data object SharedAlbumsKey : NavKey
 
 @Serializable
+data object PhotosKey : NavKey
+
+@Serializable
 data object ArchivedChatsKey : NavKey
 
 @Serializable
@@ -260,6 +266,7 @@ private fun NavKey.toRoute(): String = when (this) {
     is VaultItemKey -> Routes.PASSWORDS
     is VaultGroupKey -> Routes.PASSWORDS
     is SharedAlbumsKey -> Routes.SHARED_ALBUMS
+    is PhotosKey -> Routes.PHOTOS
     is ArchivedChatsKey -> Routes.ARCHIVED
     is RecentlyDeletedKey -> Routes.RECENTLY_DELETED
     is BookmarksKey -> Routes.bookmarks(chatId)
@@ -285,6 +292,7 @@ private fun routeToKey(route: String): NavKey? = when {
     route == Routes.SETTINGS -> SettingsKey
     route == Routes.PASSWORDS -> PasswordsKey
     route == Routes.SHARED_ALBUMS -> SharedAlbumsKey
+    route == Routes.PHOTOS -> PhotosKey
     route == Routes.ARCHIVED -> ArchivedChatsKey
     route == Routes.RECENTLY_DELETED -> RecentlyDeletedKey
     route.startsWith("bookmarks/") -> route.removePrefix("bookmarks/").toLongOrNull()?.let(::BookmarksKey)
@@ -937,6 +945,7 @@ fun OpenBubblesApp(
                         onOpenArchived = { navigateTo(ArchivedChatsKey) },
                         onOpenRecentlyDeleted = { navigateTo(RecentlyDeletedKey) },
                         onOpenPasswords = { navigateTo(PasswordsKey) },
+                        onOpenPhotos = { navigateTo(PhotosKey) },
                         onOpenSharedAlbums = { navigateTo(SharedAlbumsKey) },
                         onOpenSignIn = { navigateTo(LoginKey) },
                         archivedCount = listState.archived.size,
@@ -1073,6 +1082,18 @@ fun OpenBubblesApp(
                             }
                             viewModel.setSync(album, folder)
                         },
+                    )
+                }
+
+                entry<PhotosKey>(metadata = overlayMetadata) {
+                    val viewModel: PhotosViewModel = viewModel(factory = PhotosViewModel.factory())
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    PhotosScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRefresh = viewModel::refresh,
+                        onLoadMore = viewModel::loadMore,
+                        onDownloadPreview = viewModel::downloadPreview,
                     )
                 }
 

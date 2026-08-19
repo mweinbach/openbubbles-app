@@ -730,7 +730,7 @@ impl NativePushState {
 }
 
 // ---------------------------------------------------------------------------
-// Native Settings: iCloud Passwords and Shared Albums
+// Native Settings: iCloud Passwords, personal Photos, and Shared Albums
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, uniffi::Enum)]
@@ -800,6 +800,49 @@ pub struct USharedAlbumAsset {
     pub filename: String,
 }
 
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum UPhotosAccessState {
+    Ready,
+    Indexing,
+    Unavailable,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotosAccess {
+    pub state: UPhotosAccessState,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum UPhotoMediaKind {
+    Image,
+    Video,
+    Unknown,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotoAssetSummary {
+    pub id: String,
+    pub asset_id: String,
+    pub filename: Option<String>,
+    pub media_kind: UPhotoMediaKind,
+    pub live_photo: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub original_size: Option<u64>,
+    pub preview_size: Option<u64>,
+    pub captured_at_ms: Option<u64>,
+    pub added_at_ms: Option<u64>,
+    pub favorite: bool,
+    pub hidden: bool,
+}
+
+#[derive(uniffi::Record)]
+pub struct UPhotosPage {
+    pub assets: Vec<UPhotoAssetSummary>,
+    pub next_cursor: Option<String>,
+}
+
 fn native_password_manager(
     state: &SharedPushState,
 ) -> Result<Arc<rustpush::passwords::PasswordManager<DefaultAnisetteProvider>>, UError> {
@@ -840,8 +883,193 @@ fn native_shared_albums(
         .ok_or_else(|| UError::NotReady { reason: "iCloud Shared Albums unavailable".to_string() })
 }
 
+fn native_photos(
+    state: &SharedPushState,
+) -> Result<rustpush::photos::PhotosClient<DefaultAnisetteProvider>, UError> {
+    let services = state
+        .icloud_services
+        .as_ref()
+        .ok_or_else(|| UError::NotReady {
+            reason: "iCloud Photos unavailable".to_string(),
+        })?;
+    let cloudkit = services.cloudkit_client.clone().ok_or_else(|| UError::NotReady {
+        reason: "iCloud Photos unavailable".to_string(),
+    })?;
+    let keychain = services.keychain.clone().ok_or_else(|| UError::NotReady {
+        reason: "iCloud Photos requires Secure iCloud Keychain".to_string(),
+    })?;
+    Ok(rustpush::photos::PhotosClient::new(cloudkit, keychain))
+}
+
+fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
+    // PushError variants can contain raw CloudKit responses or record data.
+    // Only forward our fixed, byte-free MMCS diagnostics; server-provided
+    // strings and all other protocol values remain redacted.
+    let safe_detail = match error {
+        rustpush::PushError::MMCSGetFailed(Some(detail))
+            if detail == "wrapped MMCS chunk key is missing its asset protection key"
+                || detail == "wrapped MMCS chunk key failed its integrity check"
+                || detail == "encrypted MMCS chunk is missing its resolved key"
+                || detail == "conflicting resolved keys for the same MMCS chunk"
+                || detail.starts_with("unsupported MMCS asset protection key length ")
+                || detail.starts_with("unexpected unwrapped MMCS chunk key length ")
+                || detail.starts_with("unsupported MMCS chunk encryption key prefix ") => Some(detail),
+        _ => None,
+    };
+    let reason = safe_detail
+        .map(|detail| format!("iCloud Photos {action} failed: {detail}"))
+        .unwrap_or_else(|| format!("iCloud Photos {action} failed"));
+    log::warn!("{reason}");
+    UError::Failed {
+        reason,
+    }
+}
+
+fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSummary {
+    UPhotoAssetSummary {
+        id: asset.id,
+        asset_id: asset.asset_id,
+        filename: asset.filename,
+        media_kind: match asset.media_kind {
+            rustpush::photos::PhotoMediaKind::Image => UPhotoMediaKind::Image,
+            rustpush::photos::PhotoMediaKind::Video => UPhotoMediaKind::Video,
+            rustpush::photos::PhotoMediaKind::Unknown => UPhotoMediaKind::Unknown,
+        },
+        live_photo: asset.live_photo,
+        width: asset.width,
+        height: asset.height,
+        original_size: asset.original_size,
+        preview_size: asset.preview_size,
+        captured_at_ms: asset.captured_at_ms,
+        added_at_ms: asset.added_at_ms,
+        favorite: asset.favorite,
+        hidden: asset.hidden,
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
+    /// Probe the personal iCloud Photos library without downloading media.
+    pub async fn photos_access_state(&self) -> Result<UPhotosAccess, UError> {
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let access = client
+                .access_state()
+                .await
+                .map_err(|error| photos_protocol_error("access check", error))?;
+            Ok(match access {
+                rustpush::photos::PhotosAccessState::Ready => UPhotosAccess {
+                    state: UPhotosAccessState::Ready,
+                    detail: "Personal iCloud Photos metadata is available".to_string(),
+                },
+                rustpush::photos::PhotosAccessState::Indexing => UPhotosAccess {
+                    state: UPhotosAccessState::Indexing,
+                    detail: "Apple is still preparing this photo library".to_string(),
+                },
+                rustpush::photos::PhotosAccessState::Unavailable => UPhotosAccess {
+                    state: UPhotosAccessState::Unavailable,
+                    detail: "Personal iCloud Photos is not available for this account".to_string(),
+                },
+            })
+        })
+        .await
+    }
+
+    /// Return at most 100 newest personal-library records. `cursor` is the
+    /// previous page's rank and is opaque to Kotlin.
+    pub async fn list_photos_page(
+        &self,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<UPhotosPage, UError> {
+        if !(1..=100).contains(&limit) {
+            return Err(UError::InvalidArgument {
+                reason: "Photos page size must be between 1 and 100".to_string(),
+            });
+        }
+        let offset = cursor
+            .as_deref()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .map_err(|_| UError::InvalidArgument {
+                reason: "Photos cursor is invalid".to_string(),
+            })?;
+        if offset > i64::MAX as u64 {
+            return Err(UError::InvalidArgument {
+                reason: "Photos cursor is invalid".to_string(),
+            });
+        }
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let page = client
+                .list_assets(offset, limit)
+                .await
+                .map_err(|error| photos_protocol_error("metadata query", error))?;
+            Ok(UPhotosPage {
+                assets: page.assets.into_iter().map(u_photo_asset).collect(),
+                next_cursor: page.next_offset.map(|offset| offset.to_string()),
+            })
+        })
+        .await
+    }
+
+    /// Download one small Photos display rendition to an app-owned staging
+    /// path. Kotlin atomically promotes the completed file and persists the
+    /// transfer; raw CloudKit/MMCS authorization data remains inside Rust.
+    pub async fn download_photo_preview(
+        &self,
+        master_id: String,
+        media_kind: UPhotoMediaKind,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        if master_id.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photo master id is required".to_string(),
+            });
+        }
+        let media_kind = match media_kind {
+            UPhotoMediaKind::Image => rustpush::photos::PhotoMediaKind::Image,
+            UPhotoMediaKind::Video => rustpush::photos::PhotoMediaKind::Video,
+            UPhotoMediaKind::Unknown => {
+                return Err(UError::InvalidArgument {
+                    reason: "Photo media kind is unknown".to_string(),
+                });
+            }
+        };
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let mut file = create_dest(&dest_path)?;
+            client
+                .download_preview(&master_id, media_kind.clone(), &mut file, progress_cb(progress))
+                .await
+                .map_err(|error| photos_protocol_error("preview download", error))?;
+            file.flush().map_err(|error| UError::Failed {
+                reason: format!("failed to flush Photos preview: {error}"),
+            })?;
+            file.rewind().map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos preview: {error}"),
+            })?;
+            let mut header = [0u8; 12];
+            let header_len = file.read(&mut header).map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos preview: {error}"),
+            })?;
+            if !rustpush::photos::valid_preview_header(&media_kind, &header[..header_len]) {
+                return Err(UError::Failed {
+                    reason: "downloaded Photos preview did not match its expected media format".to_string(),
+                });
+            }
+            file.sync_all().map_err(|error| UError::Failed {
+                reason: format!("failed to sync Photos preview: {error}"),
+            })?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
     /// shared password groups before Kotlin reads the local vault cache.
     pub async fn sync_passwords(&self) -> Result<(), UError> {
@@ -2206,7 +2434,7 @@ impl NativePushState {
 // ChangeParticipants/IconChange message — mirrors Dart's
 // `chat.groupVersion = (chat.groupVersion ?? -1) + 1`).
 
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 
 use rustpush::{Attachment, AttachmentType, MMCSFile, TextFormat};
@@ -2253,8 +2481,36 @@ fn create_dest(dest_path: &str) -> Result<std::fs::File, UError> {
                 .map_err(|e| UError::Failed { reason: format!("failed to create directory {}: {e}", prefix.display()) })?;
         }
     }
-    std::fs::File::create(path)
+    // Downloads normally only need a write handle, but Photos verifies the
+    // staged media header before Kotlin promotes it into the durable cache.
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
         .map_err(|e| UError::Failed { reason: format!("failed to create {dest_path}: {e}") })
+}
+
+#[cfg(test)]
+mod download_destination_tests {
+    use super::*;
+
+    #[test]
+    fn staged_download_can_be_rewound_and_read() {
+        let path = std::env::temp_dir().join(format!(
+            "openbubbles-download-dest-{}",
+            std::process::id(),
+        ));
+        let mut file = create_dest(path.to_str().expect("temporary path")).expect("create dest");
+        file.write_all(b"preview").expect("write staged bytes");
+        file.rewind().expect("rewind staged bytes");
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).expect("read staged bytes");
+        drop(file);
+        std::fs::remove_file(path).expect("remove staged file");
+        assert_eq!(bytes, b"preview");
+    }
 }
 
 /// Upload a local file to MMCS as an iMessage attachment (the
