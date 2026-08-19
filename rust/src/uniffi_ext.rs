@@ -498,21 +498,47 @@ async fn send_msg_on(
     send_inst_on(&state, inst).await
 }
 
-/// Runs an async export's work without occupying a runtime worker: the
-/// future is driven to completion from a blocking-pool thread — the same
-/// execution profile the sync exports have (a parked thread polling via
-/// `block_on`), except the parked thread is Rust's, so the Kotlin caller
-/// suspends instead of blocking one of its Dispatchers.IO threads for the
-/// whole network transfer.
+/// A runtime task that is aborted if its owning UniFFI future is dropped.
+///
+/// Tokio's `JoinHandle` detaches on drop. That is unsafe for exports because
+/// cancelling the Kotlin coroutine frees the outer UniFFI `RustFuture`; a
+/// detached transfer could otherwise keep sending and invoking foreign
+/// callbacks after the caller's lifetime ended.
+struct AbortOnDropTask<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDropTask<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    async fn join(mut self) -> Result<T, tokio::task::JoinError> {
+        let result = self.handle.as_mut().expect("task handle missing").await;
+        self.handle.take();
+        result
+    }
+}
+
+impl<T> Drop for AbortOnDropTask<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Runs an async export on the engine runtime without blocking a worker.
+///
+/// Dropping this future aborts the runtime task, so UniFFI cancellation also
+/// drops every value captured by `task`, including foreign callback handles.
 async fn drive_ffi<T, F>(task: F) -> Result<T, UError>
 where
     T: Send + 'static,
     F: std::future::Future<Output = Result<T, UError>> + Send + 'static,
 {
-    // Spawn on RUNTIME's own blocking pool (not the ambient context uniffi's
-    // async wrapper provides) so this never depends on who polls the export.
-    RUNTIME
-        .spawn_blocking(move || RUNTIME.block_on(task))
+    AbortOnDropTask::new(RUNTIME.spawn(task))
+        .join()
         .await
         .unwrap_or_else(|join| Err(UError::Failed { reason: format!("engine task panicked: {join}") }))
 }

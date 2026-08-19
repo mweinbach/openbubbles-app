@@ -62,6 +62,7 @@ import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
 import uniffi.rust_lib_bluebubbles.UPart
+import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UReportMessage
@@ -2276,6 +2277,15 @@ internal object UploadProgressBoard {
 }
 
 /**
+ * Keep attachment-send progress on the coarse Kotlin "Uploading" state.
+ *
+ * UniFFI progress is a synchronous foreign callback from Rust's transfer
+ * executor. It is not needed for correctness, and retaining it would keep the
+ * field-crash path alive even though the send itself remains suspending.
+ */
+internal fun attachmentSendProgressCallback(): UProgressCallback? = null
+
+/**
  * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
  * semantics: stage optimistically under a temp guid with placeholder
  * attachment rows (payloads moved into the canonical store layout so the
@@ -2376,11 +2386,6 @@ internal object CoreAttachmentSender : AttachmentSender {
         graph.launchBackground {
             var failureLookupGuid = prepared.tempGuid
             try {
-                // Rust reports per-file counters that restart at zero for each
-                // upload; fold them into one cumulative (done, total) pair.
-                var completedBefore = 0L
-                var lastDone = 0L
-                var lastTotal = 0L
                 val inst = pushState.sendAttachments(
                     prepared.conversation,
                     prepared.myHandle,
@@ -2390,19 +2395,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                     attachments.map { it.uti },
                     attachments.map { it.name },
                     null, null, null, subject, false,
-                    object : uniffi.rust_lib_bluebubbles.UProgressCallback {
-                        override fun onProgress(done: ULong, total: ULong) {
-                            val doneLong = done.toLong()
-                            val totalLong = total.toLong()
-                            if (doneLong < lastDone) completedBefore += lastTotal
-                            lastDone = doneLong
-                            lastTotal = totalLong
-                            UploadProgressBoard.update(
-                                progressGuid,
-                                (completedBefore + doneLong).coerceAtMost(grandTotal) to grandTotal,
-                            )
-                        }
-                    },
+                    attachmentSendProgressCallback(),
                 )
                 failureLookupGuid = inst.id
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
