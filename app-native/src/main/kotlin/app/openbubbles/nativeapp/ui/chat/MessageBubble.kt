@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,14 +45,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -64,6 +70,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
@@ -80,6 +87,7 @@ import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
@@ -103,6 +111,12 @@ private val SenderAvatarSize = 28.dp
 
 /** Gap between the avatar gutter and the bubble stack. */
 private val SenderAvatarSpacing = 8.dp
+
+/** How far the tapback pill rises above / hangs outside the bubble's top corner. */
+private val ReactionChipOverlap = 14.dp
+
+/** Extra row headroom so the overlapping tapback never crosses the item bounds. */
+private val ReactionRowExtraTopPadding = 12.dp
 
 /**
  * Caps the bubble column at ~78% of the width it is actually given, so
@@ -357,10 +371,17 @@ fun MessageBubble(
         else -> textPart
     }
     val avatarGutter = showAvatarGutter && !message.isFromMe
+    // Pop the tapback only when it lands while the row is on screen; rows that
+    // scroll in already reacted render it settled.
+    val reactionPopsIn = remember(message.id) { message.reactionEmoji == null }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp),
+            .padding(horizontal = 12.dp)
+            .padding(
+                top = if (message.reactionEmoji != null) 3.dp + ReactionRowExtraTopPadding else 3.dp,
+                bottom = 3.dp,
+            ),
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
         // pane sizes its bubbles against that pane rather than the whole display.
@@ -467,8 +488,9 @@ fun MessageBubble(
                         ReactionChip(
                             emoji = emoji,
                             isFromMe = message.isFromMe,
+                            popIn = reactionPopsIn,
                             modifier = Modifier.align(
-                                if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                             ),
                         )
                     }
@@ -494,8 +516,9 @@ fun MessageBubble(
                             ReactionChip(
                                 emoji = emoji,
                                 isFromMe = message.isFromMe,
+                                popIn = reactionPopsIn,
                                 modifier = Modifier.align(
-                                    if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                 ),
                             )
                         }
@@ -515,8 +538,9 @@ fun MessageBubble(
                                 ReactionChip(
                                     emoji = emoji,
                                     isFromMe = message.isFromMe,
+                                    popIn = reactionPopsIn,
                                     modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                     ),
                                 )
                             }
@@ -563,8 +587,9 @@ fun MessageBubble(
                                 ReactionChip(
                                     emoji = emoji,
                                     isFromMe = message.isFromMe,
+                                    popIn = reactionPopsIn,
                                     modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                     ),
                                 )
                             }
@@ -779,16 +804,72 @@ private fun ReplyQuotePreview(
     }
 }
 
+/**
+ * Physical x-direction from the tapback pill toward the bubble it reacts to.
+ * The pill hangs off the bubble's outer top corner (start for incoming, end
+ * for outgoing), so the tail always steps back toward the bubble body: right
+ * for an LTR incoming bubble, left for LTR outgoing, mirrored under RTL.
+ */
+internal fun reactionTailDirection(isFromMe: Boolean, isLtr: Boolean): Float =
+    if (isFromMe == isLtr) -1f else 1f
+
+/**
+ * iOS-style tapback: a pill overlapping the bubble's top corner with a
+ * two-dot thought-bubble tail descending toward the bubble, popping in on a
+ * spatial spring when the reaction lands while visible.
+ */
 @Composable
-private fun ReactionChip(emoji: String, isFromMe: Boolean, modifier: Modifier = Modifier) {
+private fun ReactionChip(
+    emoji: String,
+    isFromMe: Boolean,
+    modifier: Modifier = Modifier,
+    popIn: Boolean = false,
+) {
+    val popSpec = fastSpatialSpec<Float>()
+    val scale = remember { Animatable(if (popIn) 0.4f else 1f) }
+    LaunchedEffect(Unit) {
+        if (scale.value != 1f) scale.animateTo(1f, popSpec)
+    }
+    val towardBubble = reactionTailDirection(
+        isFromMe = isFromMe,
+        isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr,
+    )
+    val fill = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outlineVariant
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.offset(
-            x = if (isFromMe) 7.dp else (-7).dp,
-            y = 7.dp,
-        ),
+        color = fill,
+        border = BorderStroke(1.dp, outline),
+        modifier = modifier
+            .offset(
+                x = if (isFromMe) ReactionChipOverlap else -ReactionChipOverlap,
+                y = -ReactionChipOverlap,
+            )
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                // Grow out of the tail corner, like iOS.
+                transformOrigin = TransformOrigin(if (towardBubble > 0f) 0.8f else 0.2f, 1f)
+            }
+            .drawBehind {
+                // Two-dot tail: a larger dot tangent under the pill's inner
+                // edge, a smaller one below it, stepping toward the bubble.
+                val strokeWidth = 1.dp.toPx()
+                val bigRadius = 2.5.dp.toPx()
+                val smallRadius = 1.5.dp.toPx()
+                val big = Offset(
+                    size.width / 2f + towardBubble * (size.width / 2f - bigRadius),
+                    size.height - bigRadius / 2f,
+                )
+                val small = Offset(
+                    size.width / 2f + towardBubble * (size.width / 2f + smallRadius),
+                    size.height + smallRadius * 1.5f,
+                )
+                drawCircle(fill, bigRadius, big)
+                drawCircle(outline, bigRadius, big, style = Stroke(strokeWidth))
+                drawCircle(fill, smallRadius, small)
+                drawCircle(outline, smallRadius, small, style = Stroke(strokeWidth))
+            },
     ) {
         Text(
             text = emoji,
