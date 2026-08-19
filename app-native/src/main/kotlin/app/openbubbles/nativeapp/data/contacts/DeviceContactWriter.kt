@@ -177,11 +177,22 @@ object DeviceContactWriter {
             batch.clear()
         }
 
-        // A raw contact's ops must land in one batch: inserts reference the
-        // RawContacts op by back-reference index.
         fun add(ops: List<ContentProviderOperation>) {
             if (ops.isEmpty()) return
             if (batch.size + ops.size > MAX_OPS_PER_BATCH) flush()
+            batch += ops
+            changed++
+        }
+
+        // Data rows point at their RawContacts op through a batch-relative
+        // back reference, so an insert is rebuilt against index 0 whenever
+        // appending it would overflow and force a flush first.
+        fun addInsert(contact: RawContact) {
+            var ops = insertOps(contact, rawContactIndex = batch.size)
+            if (batch.size + ops.size > MAX_OPS_PER_BATCH) {
+                flush()
+                ops = insertOps(contact, rawContactIndex = 0)
+            }
             batch += ops
             changed++
         }
@@ -201,10 +212,10 @@ object DeviceContactWriter {
         }
         plan.actions.forEach { action ->
             when (action) {
-                is MergeAction.Insert -> add(insertOps(action.contact))
+                is MergeAction.Insert -> addInsert(action.contact)
                 is MergeAction.Update -> {
                     val current = existing[action.contact.id]
-                    if (current == null) add(insertOps(action.contact))
+                    if (current == null) addInsert(action.contact)
                     else add(updateOps(action.contact, current))
                 }
                 is MergeAction.Skip, is MergeAction.AwaitDecision -> {}
@@ -214,7 +225,7 @@ object DeviceContactWriter {
         return changed
     }
 
-    private fun insertOps(contact: RawContact): List<ContentProviderOperation> {
+    private fun insertOps(contact: RawContact, rawContactIndex: Int): List<ContentProviderOperation> {
         val ops = ArrayList<ContentProviderOperation>()
         val photo = loadPhoto(contact.avatarPath)
         ops += ContentProviderOperation.newInsert(syncAdapterUri(RawContacts.CONTENT_URI))
@@ -223,7 +234,6 @@ object DeviceContactWriter {
             .withValue(RawContacts.SOURCE_ID, contact.id)
             .withValue(RawContacts.SYNC1, photo?.hash)
             .build()
-        val rawContactIndex = 0
         nameValues(contact)?.let { values ->
             ops += ContentProviderOperation.newInsert(syncAdapterUri(Data.CONTENT_URI))
                 .withValueBackReference(Data.RAW_CONTACT_ID, rawContactIndex)

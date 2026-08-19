@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +31,9 @@ import app.openbubbles.core.contacts.ConflictDecision
 import app.openbubbles.core.contacts.ContactConflict
 import app.openbubbles.nativeapp.data.contacts.ContactDeviceSync
 import app.openbubbles.nativeapp.data.contacts.DeviceContactWriter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Opt-in and conflict review for the "save iCloud contacts to phone"
@@ -41,11 +44,22 @@ import kotlinx.coroutines.launch
 internal fun ContactsToPhoneDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var enabled by remember { mutableStateOf(ContactDeviceSync.isEnabled(context)) }
-    var conflicts by remember { mutableStateOf(ContactDeviceSync.pendingConflicts(context)) }
+    var enabled by remember { mutableStateOf(false) }
+    var conflicts by remember { mutableStateOf(emptyList<ContactConflict>()) }
 
-    fun runSync() {
-        scope.launch {
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            enabled = ContactDeviceSync.isEnabled(context)
+            conflicts = ContactDeviceSync.pendingConflicts(context)
+        }
+    }
+
+    // Flip the switch immediately; prefs, WorkManager, and the provider
+    // pass are binder work that would stall the tap frame if run inline.
+    fun enableAndSync() {
+        enabled = true
+        scope.launch(Dispatchers.IO) {
+            ContactDeviceSync.setEnabled(context, true)
             runCatching { ContactDeviceSync.syncNow(context) }
             conflicts = ContactDeviceSync.pendingConflicts(context)
         }
@@ -54,32 +68,29 @@ internal fun ContactsToPhoneDialog(onDismiss: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) {
-            ContactDeviceSync.setEnabled(context, true)
-            enabled = true
-            runSync()
-        }
+        if (granted) enableAndSync()
     }
 
     fun onToggle(wanted: Boolean) {
         when {
             !wanted -> {
-                ContactDeviceSync.setEnabled(context, false)
                 enabled = false
+                scope.launch(Dispatchers.IO) { ContactDeviceSync.setEnabled(context, false) }
             }
-            DeviceContactWriter.hasPermission(context) -> {
-                ContactDeviceSync.setEnabled(context, true)
-                enabled = true
-                runSync()
-            }
+            DeviceContactWriter.hasPermission(context) -> enableAndSync()
             else -> permissionLauncher.launch(Manifest.permission.WRITE_CONTACTS)
         }
     }
 
     fun decide(conflict: ContactConflict, decision: ConflictDecision) {
-        ContactDeviceSync.recordDecision(context, conflict.icloudId, decision)
         conflicts = conflicts.filterNot { it.icloudId == conflict.icloudId }
-        if (decision == ConflictDecision.USE_ICLOUD) runSync()
+        scope.launch(Dispatchers.IO) {
+            ContactDeviceSync.recordDecision(context, conflict.icloudId, decision)
+            if (decision == ConflictDecision.USE_ICLOUD) {
+                runCatching { ContactDeviceSync.syncNow(context) }
+            }
+            conflicts = ContactDeviceSync.pendingConflicts(context)
+        }
     }
 
     AlertDialog(
