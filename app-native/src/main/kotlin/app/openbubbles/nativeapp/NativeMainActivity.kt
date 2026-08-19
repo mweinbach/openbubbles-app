@@ -131,6 +131,8 @@ class NativeMainActivity : FragmentActivity() {
     private var resumeRoute: String? = null
     private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
     private var pendingShareRequest: IncomingShareRequest? by mutableStateOf(null)
+    private var pendingRouteRequest: MainLaunchAction.OpenRoute? by mutableStateOf(null)
+    private var standaloneTask: Boolean by mutableStateOf(false)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
 
@@ -170,7 +172,13 @@ class NativeMainActivity : FragmentActivity() {
 
         debugLines = listOf(Hello.greeting())
         resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
-            ?: intent?.getStringExtra(EXTRA_INITIAL_ROUTE)?.takeIf { it.isNotBlank() }
+        if (savedInstanceState != null) {
+            // The launch intent is redelivered after process death, but the
+            // saved route already reflects any navigation since; only a fresh
+            // launch may re-request its initial route.
+            pendingRouteRequest = null
+            standaloneTask = savedInstanceState.getBoolean(STATE_STANDALONE, standaloneTask)
+        }
         pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
             IncomingShareRequest(
                 text = savedInstanceState.getString(STATE_SHARE_TEXT),
@@ -184,6 +192,7 @@ class NativeMainActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         resumeRoute?.let { outState.putString(STATE_RESUME_ROUTE, it) }
+        outState.putBoolean(STATE_STANDALONE, standaloneTask)
         pendingShareRequest?.let { request ->
             outState.putString(STATE_SHARE_TEXT, request.text)
             outState.putStringArrayList(STATE_SHARE_STREAMS, ArrayList(request.streams))
@@ -201,6 +210,9 @@ class NativeMainActivity : FragmentActivity() {
                     onComposeRequestConsumed = { pendingComposeRequest = null },
                     startShareRequest = pendingShareRequest,
                     onShareRequestConsumed = { pendingShareRequest = null },
+                    startRouteRequest = pendingRouteRequest,
+                    onRouteRequestConsumed = { pendingRouteRequest = null },
+                    standaloneTask = standaloneTask,
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
                 )
@@ -259,12 +271,6 @@ class NativeMainActivity : FragmentActivity() {
     }
 
     private fun readPendingIntent(intent: Intent?) {
-        pendingChatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID)?.takeIf { it.isNotBlank() }
-        pendingComposeRequest = parseSmsComposeRequest(
-            action = intent?.action,
-            dataString = intent?.dataString,
-            extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
-        )
         @Suppress("DEPRECATION")
         val streams = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString())
@@ -272,13 +278,21 @@ class NativeMainActivity : FragmentActivity() {
                 .orEmpty().map(Uri::toString)
             else -> emptyList()
         }
-        pendingShareRequest = parseIncomingShareRequest(
+        val launch = decideMainLaunchAction(
             action = intent?.action,
+            dataString = intent?.dataString,
             mimeType = intent?.type,
             extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
             streams = streams,
+            chatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID),
+            initialRoute = intent?.getStringExtra(EXTRA_INITIAL_ROUTE),
+            standaloneTask = intent?.getBooleanExtra(EXTRA_STANDALONE_TASK, false) ?: false,
         )
-        if (pendingShareRequest != null) pendingComposeRequest = null
+        pendingChatGuid = (launch as? MainLaunchAction.OpenChat)?.guid
+        pendingShareRequest = (launch as? MainLaunchAction.Share)?.request
+        pendingComposeRequest = (launch as? MainLaunchAction.Compose)?.request
+        pendingRouteRequest = launch as? MainLaunchAction.OpenRoute
+        if (pendingRouteRequest?.standaloneTask == true) standaloneTask = true
         // Cancel the notification immediately; the conversation's live
         // repository owns its initial 30-row load after navigation.
         pendingChatGuid?.let { guid ->
@@ -301,16 +315,25 @@ class NativeMainActivity : FragmentActivity() {
 
         /**
          * Deep-link extra carrying an initial [Routes] value (e.g. the
-         * credential-provider settings shortcut opening [Routes.PASSWORDS]).
-         * Seeds [resumeRoute] on a cold start when there is no saved route.
+         * credential-provider settings shortcut or the standalone Passwords
+         * launcher opening [Routes.PASSWORDS]). Applied on cold and warm
+         * launches via [decideMainLaunchAction].
          */
         const val EXTRA_INITIAL_ROUTE = "initial_route"
+
+        /**
+         * With [EXTRA_INITIAL_ROUTE]: the launch behaves like its own app.
+         * The route becomes the back-stack root and back exits the activity
+         * instead of revealing the messaging surfaces underneath.
+         */
+        const val EXTRA_STANDALONE_TASK = "standalone_task"
 
         /** Keeps quick app switches warm but releases UI during longer background periods. */
         internal const val BACKGROUND_UI_RELEASE_MS = 60_000L
 
         /** Survives fold / unfold activity recreation so the open chat is restored. */
         internal const val STATE_RESUME_ROUTE = "resume_route"
+        private const val STATE_STANDALONE = "standalone_task_state"
         private const val STATE_SHARE_TEXT = "share_text"
         private const val STATE_SHARE_STREAMS = "share_streams"
         private const val STATE_SHARE_MIME = "share_mime"
