@@ -7,3 +7,13 @@ Android builds `rust/` directly with Cargo + the pinned NDK via
 
 Flutter documents under `docs/DECISIONS.md`, `docs/COMMON_TASKS.md`, `docs/MESSAGE_*_FLOW.md`,
 `docs/models.md`, and historical `.claude/rules` files are not the implementation architecture.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (mweinbach/openbubbles-app) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
