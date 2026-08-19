@@ -124,8 +124,10 @@ private val AppShapes = Shapes(
 /**
  * App theme: dynamic color on Android 12+ (unless the user disabled it in
  * Settings → Appearance), blue-seeded Material 3 palettes otherwise,
- * light/dark driven by the system setting.
+ * light/dark driven by the user's theme mode (the system setting by default).
  *
+ * @param darkTheme the system dark setting; the user's theme-mode preference
+ *   resolves against it (SYSTEM follows it, LIGHT/DARK override it).
  * @param dynamicColor overrides the user's dynamic-color preference; tests and
  *   screenshot fixtures should pass an explicit value for determinism.
  */
@@ -141,12 +143,14 @@ fun OpenBubblesTheme(
     SideEffect { AppearancePrefs.init(context) }
     val dynamicColorPref by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
     val useDynamicColor = dynamicColor ?: dynamicColorPref
-    val colorScheme = remember(darkTheme, useDynamicColor, context) {
+    val themeMode by AppearancePrefs.themeModeFlow.collectAsStateWithLifecycle()
+    val useDarkTheme = themeMode.resolvesToDark(systemDark = darkTheme)
+    val colorScheme = remember(useDarkTheme, useDynamicColor, context) {
         when {
             useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             }
-            darkTheme -> DarkColors
+            useDarkTheme -> DarkColors
             else -> LightColors
         }
     }
