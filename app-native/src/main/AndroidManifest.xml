@@ -102,6 +102,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Second launcher icon opening straight into Passwords. A trampoline
+             into the singleTask NativeMainActivity (same task by design: a
+             separate taskAffinity cannot move a singleTask target, so the
+             standalone feel comes from back-stack seeding, not Recents).
+             Reads nothing from its incoming intent. Theme.NoDisplay requires
+             the unconditional finish() in onCreate. -->
+        <activity
+            android:name="app.openbubbles.nativeapp.PasswordsLauncherActivity"
+            android:exported="true"
+            android:label="Passwords"
+            android:icon="@mipmap/ic_launcher_passwords"
+            android:roundIcon="@mipmap/ic_launcher_passwords"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name="app.openbubbles.nativeapp.service.NativePushService"
             android:exported="false"

@@ -141,10 +141,11 @@ class NativeMainActivity : FragmentActivity() {
         enableEdgeToEdge()
         AppearancePrefs.init(this)
 
-        // Notification deep link. Always read the extra: process death is
-        // exactly the case where savedInstanceState != null, and OpenBubblesApp
-        // consumes the guid idempotently (it navigates only when the chat is
-        // not already on the restored stack, then clears the static).
+        // Launch action (notification deep link, share, compose, route).
+        // Always read the extras: process death is exactly the case where
+        // savedInstanceState != null, and OpenBubblesApp consumes the guid
+        // idempotently (it navigates only when the chat is not already on
+        // the restored stack, then clears the static).
         readPendingIntent(intent)
 
         // Boot the Rust runtime (state dirs + keystore) before any UI can
