@@ -471,10 +471,22 @@ class ChatRepo(
         }
 
         val canonical = group.minBy { it.chat.id }
-        val newest = group.maxWithOrNull(
-            compareBy<ContactChatProjection> { it.item.date?.time ?: Long.MIN_VALUE }
-                .thenBy { it.chat.id },
-        ) ?: canonical
+        val byRecency = group.sortedWith(
+            compareByDescending<ContactChatProjection> { it.item.date?.time ?: Long.MIN_VALUE }
+                .thenByDescending { it.chat.id },
+        )
+        val newest = byRecency.first()
+        // A synced wallpaper binds to whichever protocol chat the update
+        // resolved to, which may be neither the newest nor the canonical
+        // member. The highest version wins across the whole group (so a
+        // newer removal on one member beats an older poster on another);
+        // legacy posters without a version fall back to recency. Path and
+        // version must come from the same member or the store's version
+        // check would compare mismatched rows.
+        val syncedBackground = group
+            .filter { it.item.transcriptBackgroundVersion != null }
+            .maxByOrNull { it.item.transcriptBackgroundVersion!! }
+            ?: byRecency.firstOrNull { it.item.transcriptBackgroundPath != null }
         val identity = canonical.contactInfo
         return canonical.item.copy(
             title = identity?.name?.takeIf(String::isNotBlank) ?: canonical.item.title,
@@ -486,12 +498,9 @@ class ChatRepo(
             muted = group.all { it.item.muted },
             archived = group.all { it.item.archived },
             avatarPath = newest.item.avatarPath ?: identity?.avatar,
-            customBackgroundPath = newest.item.customBackgroundPath
-                ?: canonical.item.customBackgroundPath,
-            transcriptBackgroundPath = newest.item.transcriptBackgroundPath
-                ?: canonical.item.transcriptBackgroundPath,
-            transcriptBackgroundVersion = newest.item.transcriptBackgroundVersion
-                ?: canonical.item.transcriptBackgroundVersion,
+            customBackgroundPath = byRecency.firstNotNullOfOrNull { it.item.customBackgroundPath },
+            transcriptBackgroundPath = syncedBackground?.item?.transcriptBackgroundPath,
+            transcriptBackgroundVersion = syncedBackground?.item?.transcriptBackgroundVersion,
             memberChatIds = group.map { it.chat.id }.distinct().sorted(),
             preferredChatId = newest.chat.id,
             // The newest member carries the latest routing state; overrides
