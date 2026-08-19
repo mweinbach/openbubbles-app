@@ -1,6 +1,7 @@
 package app.openbubbles.core.repo
 
 import app.openbubbles.core.intake.HandleResolver
+import app.openbubbles.core.model.AttachmentStamp
 import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.InteractivePayloadParser
 import app.openbubbles.core.model.MessageKind
@@ -496,6 +497,20 @@ class MessageRepo(
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
+            attachmentStamps = if (message.hasAttachments) {
+                message.dbAttachments.map { attachment ->
+                    AttachmentStamp(
+                        id = attachment.id,
+                        downloaded = attachment.isDownloaded,
+                        name = attachment.transferName,
+                        sizeBytes = attachment.totalBytes,
+                        mime = attachment.mimeType,
+                        uti = attachment.uti,
+                    )
+                }
+            } else {
+                emptyList()
+            },
             threadOriginatorGuid = message.threadOriginatorGuid,
             threadOriginatorPart = MessageMapper.replyPartIndex(message.threadOriginatorPart),
             threadOriginatorLocator = message.threadOriginatorPart,

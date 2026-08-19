@@ -2,6 +2,7 @@ package app.openbubbles.core.repo
 
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.contacts.RawContact
+import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
@@ -12,13 +13,17 @@ import java.nio.file.Files
 import java.util.Date
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -152,6 +157,46 @@ class MessageRepoPagingTest {
         message(other, "noise in another conversation", 5_000L)
 
         assertEquals(before, repo.messages(chat.id, limit = 10))
+    }
+
+    /**
+     * The dedupe must never swallow attachment-row-only changes: a download
+     * completing flips Attachment.isDownloaded without touching the message
+     * row, and the open transcript still has to refresh that bubble.
+     */
+    @Test
+    fun `attachment-only download completion re-emits the transcript page`() = runBlocking<Unit> {
+        val messageBox = store.boxFor(Message::class.java)
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val newest = messageBox.all.maxBy { it.dateCreated.time }
+        val attachment = Attachment().apply {
+            guid = "att-pending"
+            transferName = "photo.jpg"
+            isDownloaded = false
+            this.message.target = newest
+        }
+        attachmentBox.put(attachment)
+        messageBox.put(newest.apply { hasAttachments = true })
+
+        val initial = repo.messages(chat.id, limit = 10)
+        assertFalse(initial.first { it.guid == newest.guid }.attachmentStamps.single().downloaded)
+
+        // Conflation may fold signals together, so collect into a channel and
+        // wait until a page reflects the write instead of counting emissions.
+        val pages = Channel<List<app.openbubbles.core.model.MessageItem>>(Channel.UNLIMITED)
+        val collector = launch { repo.observeMessages(chat.id, limit = 10).collect { pages.send(it) } }
+        try {
+            withTimeout(10_000) {
+                pages.receive()
+                attachmentBox.put(attachmentBox.get(attachment.id).apply { isDownloaded = true })
+                var page = pages.receive()
+                while (!page.first { it.guid == newest.guid }.attachmentStamps.single().downloaded) {
+                    page = pages.receive()
+                }
+            }
+        } finally {
+            collector.cancel()
+        }
     }
 
     @Test

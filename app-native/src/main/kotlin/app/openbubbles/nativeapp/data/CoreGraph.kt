@@ -331,6 +331,16 @@ object CoreGraph {
     fun relatedDirectChatIds(chatId: Long): List<Long> =
         chatRepo?.relatedDirectChatIds(chatId).orEmpty().ifEmpty { listOf(chatId) }
 
+    /**
+     * Contact relinks rewrite chat-handle relations without changing any row
+     * count, which is the one write shape the related-chats cache probe
+     * cannot see synchronously; callers that just relinked invalidate here
+     * so the very next grouping read is correct.
+     */
+    fun invalidateRelatedChats() {
+        chatRepo?.invalidateRelatedChats()
+    }
+
     internal fun messageNotificationIdentity(
         chat: Chat,
         senderAddress: String? = null,
@@ -1023,6 +1033,7 @@ private object CoreContacts {
         sync?.upsertContacts(raw)
         handleIndex = null // force rebuild so fresh linkages resolve
         displayInfoIndex = null
+        CoreGraph.invalidateRelatedChats()
     }
 
     fun remove(nativeContactIds: Collection<String>): Int {
@@ -1030,6 +1041,7 @@ private object CoreContacts {
         if (removed > 0) {
             handleIndex = null
             displayInfoIndex = null
+            CoreGraph.invalidateRelatedChats()
         }
         return removed
     }
@@ -1040,6 +1052,7 @@ private object CoreContacts {
         // was already correct, so always rebuild the address lookup too.
         handleIndex = null
         displayInfoIndex = null
+        CoreGraph.invalidateRelatedChats()
         return result
     }
 
