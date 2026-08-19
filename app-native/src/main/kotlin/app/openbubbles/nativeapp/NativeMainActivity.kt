@@ -95,11 +95,49 @@ private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = ru
     URLDecoder.decode(encoded, StandardCharsets.UTF_8.name())
 }.getOrDefault(value)
 
+/**
+ * The single navigation decision for a [NativeMainActivity] launch intent,
+ * shared by onCreate (cold) and onNewIntent (warm) so both apply the same
+ * precedence: a tapped notification beats a share payload, which beats an
+ * sms/mms compose uri, which beats an explicit route request. A plain MAIN
+ * launch is [OpenHome] (the messaging app), never [None], so a standalone
+ * Passwords stack can hand the task back to messaging.
+ */
+sealed interface MainLaunchAction {
+    data class OpenChat(val guid: String) : MainLaunchAction
+    data class Share(val request: IncomingShareRequest) : MainLaunchAction
+    data class Compose(val request: SmsComposeRequest) : MainLaunchAction
+    data class OpenRoute(val route: String, val standaloneTask: Boolean) : MainLaunchAction
+    data object OpenHome : MainLaunchAction
+    data object None : MainLaunchAction
+}
+
+internal fun decideMainLaunchAction(
+    action: String?,
+    dataString: String?,
+    mimeType: String?,
+    extraText: String?,
+    streams: List<String>,
+    chatGuid: String?,
+    initialRoute: String?,
+    standaloneTask: Boolean,
+): MainLaunchAction {
+    chatGuid?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenChat(it) }
+    parseIncomingShareRequest(action, mimeType, extraText, streams)?.let { return MainLaunchAction.Share(it) }
+    parseSmsComposeRequest(action, dataString, extraText)?.let { return MainLaunchAction.Compose(it) }
+    initialRoute?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenRoute(it, standaloneTask) }
+    if (action == Intent.ACTION_MAIN) return MainLaunchAction.OpenHome
+    return MainLaunchAction.None
+}
+
 class NativeMainActivity : FragmentActivity() {
     private var debugLines: List<String> by mutableStateOf(emptyList())
     private var resumeRoute: String? = null
     private var pendingComposeRequest: SmsComposeRequest? by mutableStateOf(null)
     private var pendingShareRequest: IncomingShareRequest? by mutableStateOf(null)
+    private var pendingRouteRequest: MainLaunchAction.OpenRoute? by mutableStateOf(null)
+    private var pendingHomeRequest: Boolean by mutableStateOf(false)
+    private var standaloneTask: Boolean by mutableStateOf(false)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
 
@@ -108,10 +146,11 @@ class NativeMainActivity : FragmentActivity() {
         enableEdgeToEdge()
         AppearancePrefs.init(this)
 
-        // Notification deep link. Always read the extra: process death is
-        // exactly the case where savedInstanceState != null, and OpenBubblesApp
-        // consumes the guid idempotently (it navigates only when the chat is
-        // not already on the restored stack, then clears the static).
+        // Launch action (notification deep link, share, compose, route).
+        // Always read the extras: process death is exactly the case where
+        // savedInstanceState != null, and OpenBubblesApp consumes the guid
+        // idempotently (it navigates only when the chat is not already on
+        // the restored stack, then clears the static).
         readPendingIntent(intent)
 
         // Boot the Rust runtime (state dirs + keystore) before any UI can
@@ -139,7 +178,13 @@ class NativeMainActivity : FragmentActivity() {
 
         debugLines = listOf(Hello.greeting())
         resumeRoute = savedInstanceState?.getString(STATE_RESUME_ROUTE)
-            ?: intent?.getStringExtra(EXTRA_INITIAL_ROUTE)?.takeIf { it.isNotBlank() }
+        if (savedInstanceState != null) {
+            // The launch intent is redelivered after process death, but the
+            // saved route already reflects any navigation since; only a fresh
+            // launch may re-request its initial route.
+            pendingRouteRequest = null
+            standaloneTask = savedInstanceState.getBoolean(STATE_STANDALONE, standaloneTask)
+        }
         pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
             IncomingShareRequest(
                 text = savedInstanceState.getString(STATE_SHARE_TEXT),
@@ -153,6 +198,7 @@ class NativeMainActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         resumeRoute?.let { outState.putString(STATE_RESUME_ROUTE, it) }
+        outState.putBoolean(STATE_STANDALONE, standaloneTask)
         pendingShareRequest?.let { request ->
             outState.putString(STATE_SHARE_TEXT, request.text)
             outState.putStringArrayList(STATE_SHARE_STREAMS, ArrayList(request.streams))
@@ -170,6 +216,11 @@ class NativeMainActivity : FragmentActivity() {
                     onComposeRequestConsumed = { pendingComposeRequest = null },
                     startShareRequest = pendingShareRequest,
                     onShareRequestConsumed = { pendingShareRequest = null },
+                    startRouteRequest = pendingRouteRequest,
+                    onRouteRequestConsumed = { pendingRouteRequest = null },
+                    startHomeRequest = pendingHomeRequest,
+                    onHomeRequestConsumed = { pendingHomeRequest = false },
+                    standaloneTask = standaloneTask,
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
                 )
@@ -228,12 +279,6 @@ class NativeMainActivity : FragmentActivity() {
     }
 
     private fun readPendingIntent(intent: Intent?) {
-        pendingChatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID)?.takeIf { it.isNotBlank() }
-        pendingComposeRequest = parseSmsComposeRequest(
-            action = intent?.action,
-            dataString = intent?.dataString,
-            extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
-        )
         @Suppress("DEPRECATION")
         val streams = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString())
@@ -241,13 +286,25 @@ class NativeMainActivity : FragmentActivity() {
                 .orEmpty().map(Uri::toString)
             else -> emptyList()
         }
-        pendingShareRequest = parseIncomingShareRequest(
+        val launch = decideMainLaunchAction(
             action = intent?.action,
+            dataString = intent?.dataString,
             mimeType = intent?.type,
             extraText = intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
             streams = streams,
+            chatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID),
+            initialRoute = intent?.getStringExtra(EXTRA_INITIAL_ROUTE),
+            standaloneTask = intent?.getBooleanExtra(EXTRA_STANDALONE_TASK, false) ?: false,
         )
-        if (pendingShareRequest != null) pendingComposeRequest = null
+        pendingChatGuid = (launch as? MainLaunchAction.OpenChat)?.guid
+        pendingShareRequest = (launch as? MainLaunchAction.Share)?.request
+        pendingComposeRequest = (launch as? MainLaunchAction.Compose)?.request
+        pendingRouteRequest = launch as? MainLaunchAction.OpenRoute
+        if (pendingRouteRequest?.standaloneTask == true) standaloneTask = true
+        // A main-icon tap in normal mode stays a no-op so the resumed route
+        // survives; in standalone mode it must hand the task back to messaging.
+        pendingHomeRequest = launch is MainLaunchAction.OpenHome && standaloneTask
+        if (pendingHomeRequest) standaloneTask = false
         // Cancel the notification immediately; the conversation's live
         // repository owns its initial 30-row load after navigation.
         pendingChatGuid?.let { guid ->
@@ -270,16 +327,25 @@ class NativeMainActivity : FragmentActivity() {
 
         /**
          * Deep-link extra carrying an initial [Routes] value (e.g. the
-         * credential-provider settings shortcut opening [Routes.PASSWORDS]).
-         * Seeds [resumeRoute] on a cold start when there is no saved route.
+         * credential-provider settings shortcut or the standalone Passwords
+         * launcher opening [Routes.PASSWORDS]). Applied on cold and warm
+         * launches via [decideMainLaunchAction].
          */
         const val EXTRA_INITIAL_ROUTE = "initial_route"
+
+        /**
+         * With [EXTRA_INITIAL_ROUTE]: the launch behaves like its own app.
+         * The route becomes the back-stack root and back exits the activity
+         * instead of revealing the messaging surfaces underneath.
+         */
+        const val EXTRA_STANDALONE_TASK = "standalone_task"
 
         /** Keeps quick app switches warm but releases UI during longer background periods. */
         internal const val BACKGROUND_UI_RELEASE_MS = 60_000L
 
         /** Survives fold / unfold activity recreation so the open chat is restored. */
         internal const val STATE_RESUME_ROUTE = "resume_route"
+        private const val STATE_STANDALONE = "standalone_task_state"
         private const val STATE_SHARE_TEXT = "share_text"
         private const val STATE_SHARE_STREAMS = "share_streams"
         private const val STATE_SHARE_MIME = "share_mime"

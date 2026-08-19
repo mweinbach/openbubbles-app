@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -73,6 +74,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.openbubbles.nativeapp.BuildConfig
+import app.openbubbles.nativeapp.MainLaunchAction
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.SmsComposeRequest
 import app.openbubbles.nativeapp.IncomingShareRequest
@@ -323,10 +325,19 @@ fun OpenBubblesApp(
     onComposeRequestConsumed: () -> Unit = {},
     startShareRequest: IncomingShareRequest? = null,
     onShareRequestConsumed: () -> Unit = {},
+    /** Explicit launch into a route (credential settings, Passwords icon); consumed once. */
+    startRouteRequest: MainLaunchAction.OpenRoute? = null,
+    onRouteRequestConsumed: () -> Unit = {},
+    /** Main-icon tap while a standalone launch owns the stack; consumed once. */
+    startHomeRequest: Boolean = false,
+    onHomeRequestConsumed: () -> Unit = {},
+    /** Standalone launch: the requested route is the root and back exits the activity. */
+    standaloneTask: Boolean = false,
     /** Actual route restored after the hidden Compose tree was released. */
     resumeRoute: String? = null,
     onRouteChanged: (String?) -> Unit = {},
 ) {
+    val hostActivity = LocalContext.current as? Activity
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
@@ -357,7 +368,13 @@ fun OpenBubblesApp(
     }
 
     fun popBack() {
-        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        if (backStack.size > 1) {
+            backStack.removeAt(backStack.lastIndex)
+        } else if (standaloneTask) {
+            // The standalone Passwords icon seeded this root; leaving it is
+            // leaving the "app", not a hop back into messaging.
+            hostActivity?.finish()
+        }
     }
 
     /**
@@ -455,6 +472,31 @@ fun OpenBubblesApp(
 
     LaunchedEffect(resumeRoute, startChatGuid, startComposeRequest) {
         if (startChatGuid == null && startComposeRequest == null && startShareRequest == null) restoreResumeRoute()
+    }
+
+    // Explicit route launch, cold or warm. A standalone launch makes the
+    // route the only entry so back exits, and redelivery after process
+    // death converges to the same stack.
+    LaunchedEffect(startRouteRequest) {
+        val request = startRouteRequest ?: return@LaunchedEffect
+        routeToKey(request.route)?.let { key ->
+            if (request.standaloneTask) {
+                backStack.add(key)
+                while (backStack.size > 1) backStack.removeAt(0)
+            } else if (backStack.lastOrNull() != key) {
+                backStack.add(key)
+            }
+        }
+        onRouteRequestConsumed()
+    }
+
+    // The main icon must always reach messaging: reset the standalone
+    // Passwords stack to the chat list, converging like the effect above.
+    LaunchedEffect(startHomeRequest) {
+        if (!startHomeRequest) return@LaunchedEffect
+        backStack.add(ChatsKey)
+        while (backStack.size > 1) backStack.removeAt(0)
+        onHomeRequestConsumed()
     }
 
     LaunchedEffect(current) {
