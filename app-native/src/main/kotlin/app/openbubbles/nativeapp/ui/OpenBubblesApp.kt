@@ -105,6 +105,12 @@ import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.passwords.PasswordsScreen
 import app.openbubbles.nativeapp.ui.passwords.PasswordsViewModel
+import app.openbubbles.nativeapp.ui.passwords.VaultCategory
+import app.openbubbles.nativeapp.ui.passwords.VaultGroupDetailScreen
+import app.openbubbles.nativeapp.ui.passwords.VaultGroupDetailViewModel
+import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailScreen
+import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailViewModel
+import app.openbubbles.nativeapp.ui.passwords.VaultItemUi
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
@@ -183,6 +189,25 @@ data object SettingsKey : NavKey
 @Serializable
 data object PasswordsKey : NavKey
 
+/**
+ * One vault item opened as its own page. Carries the list row's snapshot so
+ * the page renders instantly; the secret itself is only fetched on-page
+ * behind user authentication.
+ */
+@Serializable
+data class VaultItemKey(
+    val id: String,
+    val category: VaultCategory,
+    val title: String,
+    val username: String? = null,
+    val groupId: String? = null,
+    val modifiedAtMs: Long? = null,
+) : NavKey
+
+/** One shared-password group opened as its own page. */
+@Serializable
+data class VaultGroupKey(val id: String, val name: String) : NavKey
+
 @Serializable
 data object SharedAlbumsKey : NavKey
 
@@ -226,6 +251,9 @@ private fun NavKey.toRoute(): String = when (this) {
     is ChatKey -> Routes.chat(chatId)
     is SettingsKey -> Routes.SETTINGS
     is PasswordsKey -> Routes.PASSWORDS
+    // Secrets never persist across process death; resume on the vault list.
+    is VaultItemKey -> Routes.PASSWORDS
+    is VaultGroupKey -> Routes.PASSWORDS
     is SharedAlbumsKey -> Routes.SHARED_ALBUMS
     is ArchivedChatsKey -> Routes.ARCHIVED
     is RecentlyDeletedKey -> Routes.RECENTLY_DELETED
@@ -872,19 +900,60 @@ fun OpenBubblesApp(
                         onOpenICloudSettings = { popBack() },
                         onCategory = viewModel::setCategory,
                         onQuery = viewModel::setQuery,
-                        onSelect = viewModel::select,
-                        onReveal = {
+                        onSelect = { item ->
+                            navigateTo(
+                                VaultItemKey(
+                                    id = item.id,
+                                    category = item.category,
+                                    title = item.title,
+                                    username = item.username,
+                                    groupId = item.groupId,
+                                    modifiedAtMs = item.modifiedAtMs,
+                                ),
+                            )
+                        },
+                        onOpenGroup = { group -> navigateTo(VaultGroupKey(group.id, group.name)) },
+                        onPrepareCreatePassword = viewModel::prepareCreatePassword,
+                        onCreatePassword = viewModel::createPassword,
+                        onCreateGroup = viewModel::createGroup,
+                        onAcceptInvite = viewModel::acceptInvite,
+                        onDeclineInvite = viewModel::declineInvite,
+                    )
+                }
+
+                entry<VaultItemKey>(metadata = overlayMetadata) { key ->
+                    val item = remember(key) {
+                        VaultItemUi(
+                            id = key.id,
+                            category = key.category,
+                            title = key.title,
+                            username = key.username,
+                            groupId = key.groupId,
+                            modifiedAtMs = key.modifiedAtMs,
+                        )
+                    }
+                    val viewModel: VaultItemDetailViewModel =
+                        viewModel(factory = VaultItemDetailViewModel.factory(item))
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val context = LocalContext.current
+                    VaultItemDetailScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRequestReveal = {
                             val activity = context as? androidx.fragment.app.FragmentActivity
                             if (activity != null) {
                                 CredentialUserAuth.authenticate(
                                     activity = activity,
                                     title = "Reveal iCloud Password",
                                     subtitle = "Authenticate to reveal or copy this secret",
-                                    onSuccess = viewModel::revealSelected,
+                                    onSuccess = viewModel::reveal,
                                     onFailure = {},
                                 )
                             }
                         },
+                        // Verification codes roll over on-page after the user
+                        // already authenticated for the first reveal.
+                        onRefreshCode = viewModel::reveal,
                         onCopy = { value ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("iCloud Password", value))
@@ -896,23 +965,29 @@ fun OpenBubblesApp(
                                     activity = activity,
                                     title = "Delete iCloud item",
                                     subtitle = "Authenticate to delete this item from all your devices",
-                                    onSuccess = viewModel::deleteSelected,
+                                    onSuccess = viewModel::delete,
                                     onFailure = {},
                                 )
                             } else {
-                                viewModel.deleteSelected()
+                                viewModel.delete()
                             }
                         },
                         onAddTotp = viewModel::addTotp,
-                        onPrepareCreatePassword = viewModel::prepareCreatePassword,
-                        onCreatePassword = viewModel::createPassword,
-                        onCreateGroup = viewModel::createGroup,
-                        onRenameGroup = viewModel::renameGroup,
-                        onDeleteGroup = viewModel::deleteGroup,
-                        onInviteGroupMember = viewModel::inviteGroupMember,
-                        onRemoveGroupMember = viewModel::removeGroupMember,
-                        onAcceptInvite = viewModel::acceptInvite,
-                        onDeclineInvite = viewModel::declineInvite,
+                    )
+                }
+
+                entry<VaultGroupKey>(metadata = overlayMetadata) { key ->
+                    val viewModel: VaultGroupDetailViewModel = viewModel(
+                        factory = VaultGroupDetailViewModel.factory(key.id, key.name),
+                    )
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    VaultGroupDetailScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRename = viewModel::rename,
+                        onInviteMember = viewModel::inviteMember,
+                        onRemoveMember = viewModel::removeMember,
+                        onDeleteOrLeave = viewModel::deleteOrLeave,
                     )
                 }
 
