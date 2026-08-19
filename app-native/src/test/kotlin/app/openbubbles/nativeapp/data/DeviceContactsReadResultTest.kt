@@ -41,4 +41,21 @@ class DeviceContactsReadResultTest {
         assertEquals(firstReadId, laterReadId)
         assertEquals("${ContactSync.DEVICE_CONTACT_PREFIX}alice.lookup", firstReadId)
     }
+
+    @Test
+    fun `provider snapshot must keep the same identities and revisions`() {
+        val original = listOf(
+            ContactProviderRevision("1", "alice.lookup", 10),
+            ContactProviderRevision("2", "bob.lookup", 20),
+        )
+
+        assertTrue(providerSnapshotIsStable(original, original.reversed()))
+        assertFalse(
+            providerSnapshotIsStable(
+                original,
+                original.map { if (it.rowId == "2") it.copy(updatedAtMillis = 21) else it },
+            ),
+        )
+        assertFalse(providerSnapshotIsStable(original, original.dropLast(1)))
+    }
 }

@@ -68,7 +68,8 @@ internal fun cardDavAvatarUpdate(
         if (!hasImageMagic(inline)) return AvatarUpdate.Keep
         return persist(inline)?.absolutePath?.let(AvatarUpdate::Set) ?: AvatarUpdate.Keep
     }
-    val uri = parsed.photoUri ?: return AvatarUpdate.Clear
+    val uri = parsed.photoUri
+        ?: return if (parsed.photoDeclared) AvatarUpdate.Keep else AvatarUpdate.Clear
     val downloaded = download(uri)?.takeIf(::hasImageMagic) ?: return AvatarUpdate.Keep
     return persist(downloaded)?.absolutePath?.let(AvatarUpdate::Set) ?: AvatarUpdate.Keep
 }
@@ -127,6 +128,7 @@ internal data class ParsedVCard(
     val photoUri: String? = null,
     val nickname: String? = null,
     val company: String? = null,
+    val photoDeclared: Boolean = photo != null || photoUri != null,
 )
 
 /** Minimal vCard 3/4 parser for the fields used by handle resolution. */
@@ -138,6 +140,7 @@ internal object ICloudVCardParser {
         var lastName: String? = null
         var photo: ByteArray? = null
         var photoUri: String? = null
+        var photoDeclared = false
         var nickname: String? = null
         var company: String? = null
         val addresses = LinkedHashSet<String>()
@@ -175,6 +178,7 @@ internal object ICloudVCardParser {
                     .takeIf(String::isNotEmpty)
                     ?.let(addresses::add)
                 "PHOTO" -> {
+                    photoDeclared = true
                     val value = raw.trim().trim('"', '\'')
                     when {
                         value.startsWith("data:", ignoreCase = true) ->
@@ -205,6 +209,7 @@ internal object ICloudVCardParser {
             photoUri = photoUri,
             nickname = nickname,
             company = company,
+            photoDeclared = photoDeclared,
         )
     }
 

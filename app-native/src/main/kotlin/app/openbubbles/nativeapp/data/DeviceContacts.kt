@@ -38,6 +38,17 @@ internal inline fun DeviceContactsReadResult.applySuccessfulSnapshot(
 internal fun stableAndroidContactId(lookupKey: String): String =
     ContactSync.DEVICE_CONTACT_PREFIX + lookupKey
 
+internal data class ContactProviderRevision(
+    val rowId: String,
+    val lookupKey: String,
+    val updatedAtMillis: Long,
+)
+
+internal fun providerSnapshotIsStable(
+    before: Collection<ContactProviderRevision>,
+    after: Collection<ContactProviderRevision>,
+): Boolean = before.toSet() == after.toSet()
+
 /**
  * Reads the device contacts provider into [RawContact] rows for
  * [app.openbubbles.core.contacts.ContactSync]. Avatars are referenced by
@@ -60,9 +71,45 @@ object DeviceContacts {
     }
 
     private fun readLocked(context: Context): DeviceContactSnapshot {
+        repeat(2) {
+            val rows = readContactRows(context)
+            val addressesById = readAddresses(context)
+            val revisionsAfterAddresses = readContactRows(context).map(ContactProviderRow::revision)
+            if (providerSnapshotIsStable(rows.map(ContactProviderRow::revision), revisionsAfterAddresses)) {
+                return buildSnapshot(rows, addressesById)
+            }
+        }
+        error("ContactsProvider changed while reading contacts")
+    }
+
+    private fun buildSnapshot(
+        rows: List<ContactProviderRow>,
+        addressesById: Map<String, List<String>>,
+    ): DeviceContactSnapshot {
         val out = mutableListOf<RawContact>()
         val legacyIds = LinkedHashMap<String, String>()
-        val addressesById = readAddresses(context)
+        rows.forEach { row ->
+            val addresses = addressesById[row.rowId].orEmpty()
+            if (addresses.isEmpty()) return@forEach // unreachable over iMessage/SMS anyway
+            val id = stableAndroidContactId(row.lookupKey)
+            val (first, last) = splitName(row.name)
+            out += RawContact(
+                id = id,
+                displayName = row.name,
+                firstName = first,
+                lastName = last,
+                avatarUpdate = row.photo?.let(AvatarUpdate::Set) ?: AvatarUpdate.Clear,
+                addresses = addresses,
+            )
+            legacyIds[id] = row.rowId
+        }
+        return DeviceContactSnapshot(
+            contacts = out,
+            legacyNativeIds = legacyIds,
+        )
+    }
+
+    private fun readContactRows(context: Context): List<ContactProviderRow> {
         val cursor = context.contentResolver.query(
             ContactsContract.Contacts.CONTENT_URI,
             arrayOf(
@@ -71,38 +118,32 @@ object DeviceContacts {
                 ContactsContract.Contacts.DISPLAY_NAME,
                 ContactsContract.Contacts.PHOTO_URI,
                 ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
-                ContactsContract.Contacts.IN_VISIBLE_GROUP,
+                ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
             ),
             null, null, null,
         ) ?: error("ContactsProvider returned no contacts cursor")
-        cursor.use {
-            while (cursor.moveToNext()) {
-                val rowId = cursor.getString(0)
-                    ?: error("ContactsProvider returned a contact without _ID")
-                val addresses = addressesById[rowId].orEmpty()
-                if (addresses.isEmpty()) continue // unreachable over iMessage/SMS anyway
-                val lookupKey = cursor.getString(1)?.takeIf(String::isNotBlank)
-                    ?: error("ContactsProvider returned addressable contact $rowId without LOOKUP_KEY")
-                val id = stableAndroidContactId(lookupKey)
-                val name = cursor.getString(2)
-                val photo = cursor.getString(3)?.takeIf { it.isNotBlank() }
-                    ?: cursor.getString(4)?.takeIf { it.isNotBlank() }
-                val (first, last) = splitName(name)
-                out += RawContact(
-                    id = id,
-                    displayName = name,
-                    firstName = first,
-                    lastName = last,
-                    avatarUpdate = photo?.let(AvatarUpdate::Set) ?: AvatarUpdate.Clear,
-                    addresses = addresses,
-                )
-                legacyIds[id] = rowId
+        return cursor.use {
+            buildList {
+                while (cursor.moveToNext()) {
+                    val rowId = cursor.getString(0)
+                        ?: error("ContactsProvider returned a contact without _ID")
+                    val lookupKey = cursor.getString(1)?.takeIf(String::isNotBlank)
+                        ?: error("ContactsProvider returned contact $rowId without LOOKUP_KEY")
+                    val name = cursor.getString(2)
+                    val photo = cursor.getString(3)?.takeIf { it.isNotBlank() }
+                        ?: cursor.getString(4)?.takeIf { it.isNotBlank() }
+                    add(
+                        ContactProviderRow(
+                            rowId = rowId,
+                            lookupKey = lookupKey,
+                            name = name,
+                            photo = photo,
+                            updatedAtMillis = cursor.getLong(5),
+                        ),
+                    )
+                }
             }
         }
-        return DeviceContactSnapshot(
-            contacts = out,
-            legacyNativeIds = legacyIds,
-        )
     }
 
     private fun readAddresses(context: Context): Map<String, List<String>> {
@@ -149,5 +190,16 @@ object DeviceContacts {
                 displayName.substring(0, idx) to displayName.substring(idx + 1)
             }
         }
+    }
+
+    private data class ContactProviderRow(
+        val rowId: String,
+        val lookupKey: String,
+        val name: String?,
+        val photo: String?,
+        val updatedAtMillis: Long,
+    ) {
+        fun revision(): ContactProviderRevision =
+            ContactProviderRevision(rowId, lookupKey, updatedAtMillis)
     }
 }

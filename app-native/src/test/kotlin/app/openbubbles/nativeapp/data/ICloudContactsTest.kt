@@ -161,6 +161,21 @@ class ICloudContactsTest {
         assertIs<AvatarUpdate.Keep>(
             cardDavAvatarUpdate(remote, download = { null }, persist = { error("download failed") }),
         )
+
+        val malformed = ICloudVCardParser.parse(
+            """
+                BEGIN:VCARD
+                VERSION:3.0
+                FN:Malformed Photo
+                EMAIL:broken@example.com
+                PHOTO;ENCODING=BASE64:not-base64
+                END:VCARD
+            """.trimIndent(),
+        )
+        assertTrue(malformed.photoDeclared)
+        assertIs<AvatarUpdate.Keep>(
+            cardDavAvatarUpdate(malformed, download = { error("no URI") }, persist = { error("no bytes") }),
+        )
     }
 
     @Test
