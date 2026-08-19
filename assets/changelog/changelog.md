@@ -2,6 +2,15 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v3.2.13
+
+### Fixes
+
+- Outgoing messages no longer remain stuck on Sending… after Apple has
+  accepted and delivered them. Delivery confirmations that arrive before the
+  temporary local message receives its permanent identifier are retained and
+  applied as soon as the outgoing echo is stored.
+
 ## v3.2.12
 
 ### Enhancements
