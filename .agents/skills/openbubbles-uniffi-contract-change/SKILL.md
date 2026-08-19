@@ -5,7 +5,7 @@ description: Safely evolve a Kotlin-visible Rust UniFFI API, enum, callback, eve
 
 # OpenBubbles UniFFI Contract Change
 
-Read [../../../docs/RUST_KOTLIN.md](../../../docs/RUST_KOTLIN.md) and [../../../docs/DEVELOPMENT.md](../../../docs/DEVELOPMENT.md) before editing. The runtime/deadlock rules, sync-vs-async selection, and the full mirrored-type conventions are in [../../../docs/RUST_BACKEND.md](../../../docs/RUST_BACKEND.md) §2, §6, §13.1.
+Read [../../../docs/RUST_KOTLIN.md](../../../docs/RUST_KOTLIN.md) and [../../../docs/DEVELOPMENT.md](../../../docs/DEVELOPMENT.md) before editing. The runtime/deadlock rules are in [../../../docs/rust-backend/foundations/runtime.md](../../../docs/rust-backend/foundations/runtime.md), the send/attachment surface in [../../../docs/rust-backend/messaging/outgoing.md](../../../docs/rust-backend/messaging/outgoing.md), and the mirroring conventions and binding-regeneration recipe in [../../../docs/rust-backend/changes.md](../../../docs/rust-backend/changes.md).
 
 ## Change the owned contract
 
