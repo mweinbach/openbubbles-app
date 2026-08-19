@@ -71,6 +71,8 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VideoCall
@@ -100,6 +102,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -135,12 +138,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
+import app.openbubbles.nativeapp.data.ScheduledSendWhen
+import app.openbubbles.nativeapp.data.scheduledSendEpochMs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
@@ -394,6 +400,9 @@ fun ChatScreen(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     attachmentFile: (String) -> File? = { null },
+    onPollVote: (MessageItem, String) -> Unit = { _, _ -> },
+    onCreatePoll: (String, List<String>) -> Unit = { _, _ -> },
+    onScheduleSend: (Long) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -404,6 +413,12 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
+    var showPollDialog by remember { mutableStateOf(false) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var pollQuestion by remember { mutableStateOf("") }
+    var pollOptionA by remember { mutableStateOf("") }
+    var pollOptionB by remember { mutableStateOf("") }
+    var pollOptionC by remember { mutableStateOf("") }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var pendingSticker by remember { mutableStateOf<OutgoingAttachment?>(null) }
 
@@ -426,6 +441,7 @@ fun ChatScreen(
     val itemSpecs = rememberItemAnimationSpecs()
     val smsChat = uiState.chat?.isSms == true
     val showSubjectLine = remember(context) { MessagingPrefs(context).sendSubjectLines }
+    val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
     val mentionCandidates by produceState<List<MentionCandidate>>(
         initialValue = emptyList(),
         uiState.chat?.id,
@@ -527,6 +543,9 @@ fun ChatScreen(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = PhotoPickerMaxItems),
     ) { uris -> stageAttachments(uris) }
     val pickFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri -> stageAttachments(listOfNotNull(uri)) }
+    val pickGif = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> stageAttachments(listOfNotNull(uri)) }
     var captureFile by remember { mutableStateOf<File?>(null) }
@@ -812,6 +831,15 @@ fun ChatScreen(
                         )
                     },
                     onPickFile = { pickFile.launch("*/*") },
+                    onPickGif = { pickGif.launch("image/gif") },
+                    onCreatePoll = if (smsChat) null else {{
+                        pollQuestion = ""
+                        pollOptionA = ""
+                        pollOptionB = ""
+                        pollOptionC = ""
+                        showPollDialog = true
+                    }},
+                    onScheduleSend = if (smsChat) null else {{ showScheduleDialog = true }},
                     onCameraPhoto = { requestCapture(false) },
                     onCameraVideo = { requestCapture(true) },
                     onShareLocation = {
@@ -1000,6 +1028,11 @@ fun ChatScreen(
                                     } else {
                                         null
                                     },
+                                    onPollVote = if (smsChat) {
+                                        null
+                                    } else {
+                                        { optionId -> onPollVote(entry.message, optionId) }
+                                    },
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .animateItem(
                                             fadeInSpec = itemSpecs.fadeIn,
@@ -1011,7 +1044,10 @@ fun ChatScreen(
                                         ),
                                 )
                                 is ConversationEntry.TimeSeparator -> {
-                                    val timestamp = formatConversationTimestamp(entry.epochMillis)
+                                    val timestamp = formatConversationTimestamp(
+                                        entry.epochMillis,
+                                        use24Hour = use24Hour,
+                                    )
                                     TimeSeparatorRow(
                                         day = timestamp.day,
                                         time = timestamp.time,
@@ -1201,6 +1237,84 @@ fun ChatScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmUnsend = null }) { Text("Cancel") }
+            },
+        )
+    }
+    if (showPollDialog) {
+        AlertDialog(
+            onDismissRequest = { showPollDialog = false },
+            title = { Text("New poll") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = pollQuestion,
+                        onValueChange = { pollQuestion = it },
+                        label = { Text("Question") },
+                    )
+                    TextField(
+                        value = pollOptionA,
+                        onValueChange = { pollOptionA = it },
+                        label = { Text("Option 1") },
+                    )
+                    TextField(
+                        value = pollOptionB,
+                        onValueChange = { pollOptionB = it },
+                        label = { Text("Option 2") },
+                    )
+                    TextField(
+                        value = pollOptionC,
+                        onValueChange = { pollOptionC = it },
+                        label = { Text("Option 3 (optional)") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val options = listOf(pollOptionA, pollOptionB, pollOptionC)
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                        if (pollQuestion.isNotBlank() && options.size >= 2) {
+                            showPollDialog = false
+                            onCreatePoll(pollQuestion.trim(), options)
+                        }
+                    },
+                ) { Text("Send") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPollDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+    if (showScheduleDialog) {
+        AlertDialog(
+            onDismissRequest = { showScheduleDialog = false },
+            title = { Text("Send later") },
+            text = { Text("Apple delivers the message at the time you pick.") },
+            confirmButton = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            showScheduleDialog = false
+                            onScheduleSend(scheduledSendEpochMs(ScheduledSendWhen.IN_ONE_HOUR))
+                        },
+                    ) { Text("In 1 hour") }
+                    TextButton(
+                        onClick = {
+                            showScheduleDialog = false
+                            onScheduleSend(scheduledSendEpochMs(ScheduledSendWhen.TONIGHT))
+                        },
+                    ) { Text("Tonight") }
+                    TextButton(
+                        onClick = {
+                            showScheduleDialog = false
+                            onScheduleSend(scheduledSendEpochMs(ScheduledSendWhen.TOMORROW_MORNING))
+                        },
+                    ) { Text("Tomorrow morning") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showScheduleDialog = false }) { Text("Cancel") }
             },
         )
     }
@@ -1666,6 +1780,9 @@ private fun MessageInputBar(
     onSend: () -> Unit,
     onPickMedia: () -> Unit,
     onPickFile: () -> Unit,
+    onPickGif: () -> Unit = {},
+    onCreatePoll: (() -> Unit)? = null,
+    onScheduleSend: (() -> Unit)? = null,
     onRecordAudio: () -> Unit,
     onCameraPhoto: () -> Unit = {},
     onCameraVideo: () -> Unit = {},
@@ -1881,6 +1998,9 @@ private fun MessageInputBar(
                             AttachMenuButton(
                                 onPickMedia = onPickMedia,
                                 onPickFile = onPickFile,
+                                onPickGif = onPickGif,
+                                onCreatePoll = onCreatePoll,
+                                onScheduleSend = onScheduleSend,
                                 onRecordAudio = onRecordAudio,
                                 onCameraPhoto = onCameraPhoto,
                                 onCameraVideo = onCameraVideo,
@@ -1944,6 +2064,9 @@ private fun MessageInputBar(
 private fun AttachMenuButton(
     onPickMedia: () -> Unit,
     onPickFile: () -> Unit,
+    onPickGif: () -> Unit,
+    onCreatePoll: (() -> Unit)?,
+    onScheduleSend: (() -> Unit)?,
     onRecordAudio: () -> Unit,
     onCameraPhoto: () -> Unit,
     onCameraVideo: () -> Unit,
@@ -2008,6 +2131,34 @@ private fun AttachMenuButton(
                     onPickFile()
                 },
             )
+            DropdownMenuItem(
+                text = { Text("GIF") },
+                leadingIcon = { Icon(Icons.Filled.Photo, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onPickGif()
+                },
+            )
+            if (onCreatePoll != null) {
+                DropdownMenuItem(
+                    text = { Text("Poll") },
+                    leadingIcon = { Icon(Icons.Filled.Poll, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onCreatePoll()
+                    },
+                )
+            }
+            if (onScheduleSend != null) {
+                DropdownMenuItem(
+                    text = { Text("Send later") },
+                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onScheduleSend()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Audio message") },
                 leadingIcon = { Icon(Icons.Filled.Mic, contentDescription = null) },

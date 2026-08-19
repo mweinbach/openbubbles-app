@@ -23,6 +23,13 @@ class DateFormattingTest {
     }
 
     @Test
+    fun `24-hour clock uses HH mm`() {
+        val label = formatConversationTimestamp(daysBefore(0), zone, now, use24Hour = true)
+        assertEquals(ConversationTimestamp(day = "Today", time = "09:41"), label)
+        assertEquals("15:30", formatListTimestamp(now, zone, now, use24Hour = true))
+    }
+
+    @Test
     fun `previous day labels Yesterday`() {
         val label = formatConversationTimestamp(daysBefore(1), zone, now)
         assertEquals(ConversationTimestamp(day = "Yesterday", time = "9:41 AM"), label)

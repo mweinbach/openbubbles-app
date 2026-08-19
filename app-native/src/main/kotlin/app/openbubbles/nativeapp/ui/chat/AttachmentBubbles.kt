@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
+import app.openbubbles.core.contacts.TranscriptVCardParser
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
@@ -158,8 +159,17 @@ fun AttachmentContent(
             modifier = modifier,
             shape = effectiveShape,
         )
-        AttachmentMediaKind.FILE -> if (attachment.isImage) {
-            ImageAttachmentBubble(
+        AttachmentMediaKind.FILE -> when {
+            AttachmentMedia.isVCard(attachment.mime, attachment.uti, attachment.name) ->
+                VCardAttachmentCard(
+                    attachment = attachment,
+                    attachmentFile = attachmentFile,
+                    onOpenAttachment = onOpenAttachment,
+                    onDownloadAttachment = onDownloadAttachment,
+                    modifier = modifier,
+                    shape = effectiveShape,
+                )
+            attachment.isImage -> ImageAttachmentBubble(
                 attachment = attachment,
                 attachmentFile = attachmentFile,
                 onOpenAttachment = onOpenAttachment,
@@ -167,8 +177,7 @@ fun AttachmentContent(
                 modifier = modifier,
                 shape = effectiveShape,
             )
-        } else {
-            FileAttachmentRow(
+            else -> FileAttachmentRow(
                 attachment = attachment,
                 attachmentFile = attachmentFile,
                 onOpenAttachment = onOpenAttachment,
@@ -467,6 +476,60 @@ private fun PdfAttachmentBubble(
 }
 
 /** Generic file row: tap opens local files; missing payloads can download. */
+@Composable
+private fun VCardAttachmentCard(
+    attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onDownloadAttachment: (AttachmentMeta) -> Unit,
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = AttachmentShape,
+) {
+    val file = remember(attachment.guid, attachment.downloaded) {
+        attachmentFile(attachment.guid)
+    }
+    val card = remember(file, attachment.guid) {
+        file?.takeIf { it.isFile }?.let { parsed ->
+            runCatching { TranscriptVCardParser.parse(parsed.readText()) }.getOrNull()
+        }
+    }
+    if (card == null) {
+        FileAttachmentRow(
+            attachment = attachment,
+            attachmentFile = attachmentFile,
+            onOpenAttachment = onOpenAttachment,
+            onDownloadAttachment = onDownloadAttachment,
+            modifier = modifier,
+            shape = shape,
+        )
+        return
+    }
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+            .widthIn(max = ImageBubbleMaxWidth)
+            .clickable { onOpenAttachment(attachment.guid) },
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(text = card.displayName, style = MaterialTheme.typography.titleMedium)
+            card.organization?.let { organization ->
+                Text(
+                    text = organization,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            card.phones.take(2).forEach { phone ->
+                Text(text = phone, style = MaterialTheme.typography.bodyMedium)
+            }
+            card.emails.take(2).forEach { email ->
+                Text(text = email, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
 @Composable
 private fun FileAttachmentRow(
     attachment: AttachmentMeta,

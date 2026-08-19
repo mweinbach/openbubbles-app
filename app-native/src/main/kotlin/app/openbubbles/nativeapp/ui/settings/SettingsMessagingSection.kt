@@ -16,13 +16,17 @@ import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -143,7 +147,8 @@ internal fun rememberMessagingSection(
                 var hidePreviews by remember { mutableStateOf(notifPrefs.hidePreviews) }
                 var replyEnabled by remember { mutableStateOf(notifPrefs.replyEnabled) }
                 var notifyReactions by remember { mutableStateOf(notifPrefs.notifyReactions) }
-                val notifCount = if (offerFullScreenCalls) 4 else 3
+                var quickTapback by remember { mutableStateOf(notifPrefs.quickTapbackEnabled) }
+                val notifCount = if (offerFullScreenCalls) 5 else 4
                 SettingsToggleItem(
                     title = "Hide message previews",
                     supporting = "Show \"iMessage\" instead of message content on notifications",
@@ -180,6 +185,18 @@ internal fun rememberMessagingSection(
                     count = notifCount,
                     icon = Icons.Filled.EmojiEmotions,
                 )
+                SettingsToggleItem(
+                    title = "Quick tapback",
+                    supporting = "React with a heart from the notification",
+                    checked = quickTapback,
+                    onCheckedChange = { enabled ->
+                        quickTapback = enabled
+                        notifPrefs.quickTapbackEnabled = enabled
+                    },
+                    index = 3,
+                    count = notifCount,
+                    icon = Icons.Filled.Favorite,
+                )
                 if (offerFullScreenCalls) {
                     SettingsActionItem(
                         title = "Full-screen FaceTime alerts",
@@ -191,7 +208,7 @@ internal fun rememberMessagingSection(
                                 )
                             }
                         },
-                        index = 3,
+                        index = 4,
                         count = notifCount,
                         multiline = true,
                         icon = Icons.Filled.Videocam,
@@ -218,6 +235,18 @@ internal fun rememberMessagingSection(
                     }
                     var sendSubjectLines by remember {
                         mutableStateOf(messagingPrefs.sendSubjectLines)
+                    }
+                    var wifiOnlyAutoDownload by remember {
+                        mutableStateOf(messagingPrefs.wifiOnlyAutoDownload)
+                    }
+                    var autoSaveMedia by remember {
+                        mutableStateOf(messagingPrefs.autoSaveMedia)
+                    }
+                    var replaceEmoticons by remember {
+                        mutableStateOf(messagingPrefs.replaceEmoticons)
+                    }
+                    var showAvatarsInDirectChats by remember {
+                        mutableStateOf(messagingPrefs.showAvatarsInDirectChats)
                     }
                     val rows = buildList<SettingsRowContent> {
                         add { index, count ->
@@ -319,6 +348,62 @@ internal fun rememberMessagingSection(
                                 index = index,
                                 count = count,
                                 icon = Icons.Filled.DownloadForOffline,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsToggleItem(
+                                title = "Wi-Fi only auto-download",
+                                supporting = "Wait for an unmetered connection before fetching media",
+                                checked = wifiOnlyAutoDownload,
+                                onCheckedChange = { enabled ->
+                                    wifiOnlyAutoDownload = enabled
+                                    messagingPrefs.wifiOnlyAutoDownload = enabled
+                                },
+                                index = index,
+                                count = count,
+                                icon = Icons.Filled.Wifi,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsToggleItem(
+                                title = "Auto-save media",
+                                supporting = "Copy downloaded photos and videos into Downloads",
+                                checked = autoSaveMedia,
+                                onCheckedChange = { enabled ->
+                                    autoSaveMedia = enabled
+                                    messagingPrefs.autoSaveMedia = enabled
+                                },
+                                index = index,
+                                count = count,
+                                icon = Icons.Filled.SaveAlt,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsToggleItem(
+                                title = "Replace emoticons",
+                                supporting = "Turn :) and similar shortcuts into emoji when you send",
+                                checked = replaceEmoticons,
+                                onCheckedChange = { enabled ->
+                                    replaceEmoticons = enabled
+                                    messagingPrefs.replaceEmoticons = enabled
+                                },
+                                index = index,
+                                count = count,
+                                icon = Icons.Filled.EmojiEmotions,
+                            )
+                        }
+                        add { index, count ->
+                            SettingsToggleItem(
+                                title = "Avatars in direct chats",
+                                supporting = "Show contact photos next to one-on-one conversations",
+                                checked = showAvatarsInDirectChats,
+                                onCheckedChange = { enabled ->
+                                    showAvatarsInDirectChats = enabled
+                                    messagingPrefs.showAvatarsInDirectChats = enabled
+                                },
+                                index = index,
+                                count = count,
+                                icon = Icons.Filled.Face,
                             )
                         }
                         add { index, count ->

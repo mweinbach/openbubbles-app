@@ -1,0 +1,11 @@
+ts	decision	why	alternative_rejected
+2026-08-19	Kotlin-first helpers before UniFFI	Sequence verifiable units; core tests compile without rustpush FairPlay	One giant UniFFI-first commit
+2026-08-19	New send_app and send_scheduled_text UniFFI methods	Laziness; do not change send_text signatures	Adding scheduled_ms onto send_text
+2026-08-19	Unknown-sender heuristic from title vs handle	No extra store reads on every list map	Contact lookup in coreChatToUi
+2026-08-19	geo: intents instead of a map SDK	Experience on Android without API keys	OSM or Google Maps SDK
+2026-08-19	Decline live iOS extensions	No plugin runtime on Android	Game Pigeon play / Apple Pay send
+2026-08-19	Direct UniFFI Find My calls	Subtract reflection after bindings exist	Keep reflection adapter
+2026-08-19	Default Sender.sendApp/sendScheduled throw	RecordingSender stays compiling; CoreSender overrides	Changing every test fake
+2026-08-19	App lock uses device credential	No second PIN store	Custom PIN in SharedPreferences
+2026-08-19	Wi-Fi-only auto-download via NOT_METERED	Matches Android metered flag	SSID/wifi-only ConnectivityManager type
+2026-08-19	Scheduled send via Apple ScheduleMode	Matches iMessage scheduled delivery	WorkManager local-only send

@@ -114,7 +114,7 @@ class FindMyViewModel(
     }
 
     companion object {
-        /** Production factory: bridges the live Rust push state reflectively. */
+        /** Production factory: bridges the live Rust push state. */
         fun factory(): ViewModelProvider.Factory = factory(RustFindMyPort { PushStateHolder.state })
 
         /** Injection factory (previews/tests use [FakeFindMyPort]). */

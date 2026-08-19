@@ -335,6 +335,35 @@ private fun ContactPosterHeader(
     }
 }
 
+@Composable
+internal fun SharedChatGalleries(
+    sharedContent: List<SharedContentPreview>,
+    attachmentFile: (String) -> File?,
+    onOpenAttachment: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
+    val photos = sharedContent.filter { it.isImage && it.attachmentGuid != null }
+    val otherShared = sharedContent.filterNot { it.isImage && it.attachmentGuid != null }
+    SharedPhotosSection(
+        photos = photos,
+        attachmentFile = attachmentFile,
+        onOpenAttachment = onOpenAttachment,
+    )
+    if (otherShared.isNotEmpty()) {
+        ContactSection("Shared") {
+            otherShared.forEach { item ->
+                SharedContentRow(
+                    item = item,
+                    onClick = {
+                        item.attachmentGuid?.let(onOpenAttachment)
+                        item.url?.let(onOpenUrl)
+                    },
+                )
+            }
+        }
+    }
+}
+
 /**
  * Recent images from the conversation as a scrolling thumbnail strip, the
  * "photos" row of an iPhone contact preview. Tiles without a local copy (not

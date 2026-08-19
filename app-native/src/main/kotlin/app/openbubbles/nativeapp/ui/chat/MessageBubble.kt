@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +78,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.ui.chat.interactive.InteractiveBalloon
 import app.openbubbles.nativeapp.data.MessageItem
@@ -84,18 +86,20 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.StickerPlacement
 import app.openbubbles.nativeapp.data.displayTextForRichLink
+import app.openbubbles.nativeapp.ui.effects.BubbleEffect
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
+import app.openbubbles.nativeapp.ui.common.formatClockTime
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
-import java.text.DateFormat
-import java.util.Date
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -340,6 +344,7 @@ fun MessageBubble(
     onSwipeReply: ((Long) -> Unit)? = null,
     /** True when this conversation is carrier SMS — outgoing bubbles go green. */
     smsChat: Boolean = false,
+    onPollVote: ((String) -> Unit)? = null,
 ) {
     when {
         message.isGroupEvent -> {
@@ -369,6 +374,7 @@ fun MessageBubble(
     val showTextBubble =
         (displayText.isNotBlank() || !message.subject.isNullOrBlank()) && interactivePayload == null
     val invisibleInk = isInvisibleInk(message.expressiveSendStyleId)
+    val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
     val embedRichLink = richLink != null && showTextBubble && !invisibleInk
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
@@ -464,6 +470,7 @@ fun MessageBubble(
                 InteractiveBalloon(
                     payload = payload,
                     onLongPress = onLongPressPart?.let { callback -> { callback(textPart) } },
+                    onPollVote = onPollVote,
                 )
             }
             attachments.forEachIndexed { index, attachment ->
@@ -571,6 +578,11 @@ fun MessageBubble(
                             )
                         } else {
                             val (bubbleColor, bubbleContent) = bubbleColors(message.isFromMe, smsChat)
+                            val bubbleEffect = BubbleEffect.fromId(message.expressiveSendStyleId)
+                            BubbleEffectLayer(
+                                effect = bubbleEffect,
+                                fromMe = message.isFromMe,
+                            ) {
                             Surface(
                                 shape = shape,
                                 color = bubbleColor,
@@ -590,6 +602,7 @@ fun MessageBubble(
                                         Text(text = displayText, style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
+                            }
                             }
                         }
                         if (attachments.isEmpty()) {
@@ -618,7 +631,7 @@ fun MessageBubble(
             if (showDeliveryTimestamp && message.isFromMe) {
                 deliveryTimestamp(message)?.let { timestamp ->
                     Text(
-                        text = "${timestamp.label} ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp.epochMs))}",
+                        text = "${timestamp.label} ${formatClockTime(timestamp.epochMs, use24Hour = use24Hour)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 6.dp),
@@ -666,6 +679,73 @@ private fun MessageSubject(subject: String?) {
  * text renders blurred until tapped, then reveals for 3s and re-hides.
  */
 @OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BubbleEffectLayer(
+    effect: BubbleEffect?,
+    fromMe: Boolean,
+    content: @Composable () -> Unit,
+) {
+    if (effect == null || effect == BubbleEffect.INVISIBLE_INK) {
+        content()
+        return
+    }
+    val reduceMotion = LocalReduceMotion.current
+    val progress = remember(effect) { Animatable(if (reduceMotion) 1f else 0f) }
+    LaunchedEffect(effect, reduceMotion) {
+        if (reduceMotion) {
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        progress.snapTo(0f)
+        progress.animateTo(
+            1f,
+            animationSpec = when (effect) {
+                BubbleEffect.SLAM, BubbleEffect.LOUD -> fastSpatialSpec()
+                else -> defaultSpatialSpec()
+            },
+        )
+    }
+    val originX = if (fromMe) 1f else 0f
+    Box {
+        if (effect == BubbleEffect.ECHO && !reduceMotion) {
+            listOf(0.28f, 0.16f).forEachIndexed { index, ghost ->
+                val spread = (index + 1) * 8f * (1f - progress.value)
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = ghost
+                        translationX = if (fromMe) spread else -spread
+                        scaleX = 1f + 0.06f * (index + 1)
+                        scaleY = scaleX
+                        transformOrigin = TransformOrigin(originX, 1f)
+                    },
+                ) { content() }
+            }
+        }
+        Box(
+            modifier = Modifier.graphicsLayer {
+                val remaining = 1f - progress.value
+                when (effect) {
+                    BubbleEffect.SLAM -> {
+                        scaleX = 1f + 0.4f * remaining
+                        scaleY = 1f + 0.4f * remaining
+                        translationY = 28f * remaining
+                    }
+                    BubbleEffect.LOUD -> {
+                        scaleX = 1f + 0.65f * remaining
+                        scaleY = 1f + 0.65f * remaining
+                    }
+                    BubbleEffect.GENTLE -> {
+                        scaleX = 0.82f + 0.18f * progress.value
+                        scaleY = scaleX
+                    }
+                    else -> Unit
+                }
+                transformOrigin = TransformOrigin(originX, 1f)
+            },
+        ) { content() }
+    }
+}
+
 @Composable
 private fun CombinedTextAndLinkBubble(
     text: String,

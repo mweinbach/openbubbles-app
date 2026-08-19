@@ -87,5 +87,12 @@ fun isAutoDownloadEligible(
     return size <= maxBytes
 }
 
+/** Wi-Fi-only auto-download waits on a metered (typically cellular) path. */
+fun shouldAutoDownloadOnCurrentNetwork(
+    eligible: Boolean,
+    wifiOnly: Boolean,
+    unmetered: Boolean,
+): Boolean = eligible && (!wifiOnly || unmetered)
+
 internal fun knownAutoDownloadSize(totalBytes: Long?): Long? =
     totalBytes?.takeIf { it > 0L }

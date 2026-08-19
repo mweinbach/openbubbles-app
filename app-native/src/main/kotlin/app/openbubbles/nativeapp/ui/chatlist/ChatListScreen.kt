@@ -64,6 +64,11 @@ import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -88,7 +93,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
@@ -382,6 +389,11 @@ fun ChatListScreen(
                 },
                 selectedChatId = if (selecting) null else selectedChatId,
                 checkedIds = selectedIds,
+                swipeEnabled = !selecting,
+                onSwipeArchive = { chat ->
+                    if (kind == ChatListKind.Archive) onUnarchive(listOf(chat.id))
+                    else onArchive(listOf(chat.id))
+                },
                 header = header,
                 footer = footer,
                 onVisibleChatsChanged = onVisibleChatsChanged,
@@ -466,6 +478,7 @@ fun ChatListScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatSections(
     uiState: ChatListUiState,
@@ -476,18 +489,26 @@ private fun ChatSections(
     onChatLongClick: (ChatListItem) -> Unit,
     selectedChatId: Long?,
     checkedIds: Set<Long>,
+    swipeEnabled: Boolean,
+    onSwipeArchive: (ChatListItem) -> Unit,
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
+    val filterUnknown = remember { MessagingPrefs(LocalContext.current).filterUnknownSenders }
     val itemSpecs = rememberItemAnimationSpecs()
-    val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
+    val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind, filterUnknown) {
+        fun visible(chats: List<ChatListItem>) =
+            if (filterUnknown) chats.filterNot { it.unknownSender } else chats
         when (kind) {
-            ChatListKind.Inbox -> uiState.pinned.map { it.id } + uiState.chats.map { it.id }
-            ChatListKind.Archive -> uiState.archived.map { it.id }
+            ChatListKind.Inbox -> visible(uiState.pinned).map { it.id } + visible(uiState.chats).map { it.id }
+            ChatListKind.Archive -> visible(uiState.archived).map { it.id }
         }
     }
-    val pinnedIds = remember(uiState.pinned) { uiState.pinned.map { it.id } }
+    val pinnedChats = remember(uiState.pinned, filterUnknown) {
+        if (filterUnknown) uiState.pinned.filterNot { it.unknownSender } else uiState.pinned
+    }
+    val pinnedIds = remember(pinnedChats) { pinnedChats.map { it.id } }
 
     LaunchedEffect(orderedIds) {
         onVisibleChatsChanged(visibleTranscriptPrefetchIds(orderedIds, emptyList()))
@@ -522,10 +543,10 @@ private fun ChatSections(
         item(key = "header") {
             Column(modifier = Modifier.widthIn(max = ListContentMaxWidth).fillMaxWidth()) { header() }
         }
-        if (kind == ChatListKind.Inbox && uiState.pinned.isNotEmpty()) {
+        if (kind == ChatListKind.Inbox && pinnedChats.isNotEmpty()) {
             item(key = "pinned-grid", contentType = "pinned-grid") {
                 PinnedChatsGrid(
-                    chats = uiState.pinned,
+                    chats = pinnedChats,
                     onChatClick = onChatClick,
                     onChatLongClick = onChatLongClick,
                     selectedChatId = selectedChatId,
@@ -541,26 +562,74 @@ private fun ChatSections(
                 )
             }
         }
-        val rows = if (kind == ChatListKind.Archive) uiState.archived else uiState.chats
+        val rows = (if (kind == ChatListKind.Archive) uiState.archived else uiState.chats)
+            .let { chats -> if (filterUnknown) chats.filterNot { it.unknownSender } else chats }
         if (rows.isNotEmpty()) {
             items(
                 items = rows,
                 key = { "chat-${it.id}" },
                 contentType = { "conversation" },
             ) { chat ->
-                ChatListRow(
-                    chat = chat,
-                    onClick = onChatClick,
-                    onLongClick = onChatLongClick,
-                    selected = chat.id == selectedChatId || chat.id in checkedIds,
-                    checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
-                        .animateItem(
-                            fadeInSpec = itemSpecs.fadeIn,
-                            fadeOutSpec = itemSpecs.fadeOut,
-                            placementSpec = itemSpecs.placement,
-                        ),
-                )
+                val rowModifier = Modifier.widthIn(max = ListContentMaxWidth)
+                    .animateItem(
+                        fadeInSpec = itemSpecs.fadeIn,
+                        fadeOutSpec = itemSpecs.fadeOut,
+                        placementSpec = itemSpecs.placement,
+                    )
+                if (!swipeEnabled) {
+                    ChatListRow(
+                        chat = chat,
+                        onClick = onChatClick,
+                        onLongClick = onChatLongClick,
+                        selected = chat.id == selectedChatId || chat.id in checkedIds,
+                        checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
+                        modifier = rowModifier,
+                    )
+                } else {
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { value ->
+                            if (value == SwipeToDismissBoxValue.EndToStart) {
+                                onSwipeArchive(chat)
+                                true
+                            } else {
+                                false
+                            }
+                        },
+                    )
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        backgroundContent = {
+                            val archive = kind == ChatListKind.Archive
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .padding(horizontal = 24.dp),
+                                contentAlignment = Alignment.CenterEnd,
+                            ) {
+                                Icon(
+                                    imageVector = if (archive) {
+                                        Icons.Filled.Unarchive
+                                    } else {
+                                        Icons.Filled.Archive
+                                    },
+                                    contentDescription = if (archive) "Unarchive" else "Archive",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        },
+                        enableDismissFromStartToEnd = false,
+                        modifier = rowModifier,
+                    ) {
+                        ChatListRow(
+                            chat = chat,
+                            onClick = onChatClick,
+                            onLongClick = onChatLongClick,
+                            selected = chat.id == selectedChatId || chat.id in checkedIds,
+                            checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
+                        )
+                    }
+                }
             }
         }
         item(key = "footer") {
@@ -688,6 +757,13 @@ fun ChatListRow(
     checked: Boolean? = null,
 ) {
     val unread = chat.unread > 0
+    val context = LocalContext.current
+    val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
+    val showDmAvatars = remember { MessagingPrefs(context).showAvatarsInDirectChats }
+    val avatarPath = when {
+        !chat.isGroup && !showDmAvatars -> null
+        else -> chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress)
+    }
     val secondaryText = if (selected) {
         MaterialTheme.colorScheme.onSecondaryContainer
     } else {
@@ -717,7 +793,7 @@ fun ChatListRow(
                     title = chat.title,
                     avatarColor = chat.avatarColor,
                     size = 56.dp,
-                    avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
+                    avatarPath = avatarPath,
                 )
                 SelectionCheck(checked = checked, size = 56.dp)
             }
@@ -745,7 +821,7 @@ fun ChatListRow(
                         )
                     }
                     Text(
-                        text = formatListTimestamp(chat.date),
+                        text = formatListTimestamp(chat.date, use24Hour = use24Hour),
                         style = MaterialTheme.typography.labelMedium,
                         color = secondaryText,
                         modifier = Modifier.padding(start = 8.dp),

@@ -49,6 +49,7 @@ fun InteractiveBalloon(
     payload: InteractivePayload,
     onLongPress: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onPollVote: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val openAction = when (payload) {
@@ -68,6 +69,9 @@ fun InteractiveBalloon(
         else -> payload.url?.asOpenAction(context)
     }
     val interaction = when {
+        payload is InteractivePayload.Poll && onLongPress != null ->
+            Modifier.combinedClickable(onClick = {}, onLongClick = onLongPress)
+        payload is InteractivePayload.Poll -> Modifier
         openAction != null || onLongPress != null -> Modifier.combinedClickable(
             onClick = { openAction?.invoke() },
             onLongClick = onLongPress,
@@ -82,7 +86,7 @@ fun InteractiveBalloon(
             .then(interaction),
     ) {
         when (payload) {
-            is InteractivePayload.Poll -> PollCard(payload)
+            is InteractivePayload.Poll -> PollCard(payload, onPollVote)
             is InteractivePayload.LiveLocation -> LiveLocationCard(payload, openAction != null)
             is InteractivePayload.Supported -> SupportedCard(payload, openAction != null)
             is InteractivePayload.Unsupported -> UnsupportedCard(payload, openAction != null)
@@ -91,7 +95,7 @@ fun InteractiveBalloon(
 }
 
 @Composable
-private fun PollCard(payload: InteractivePayload.Poll) {
+private fun PollCard(payload: InteractivePayload.Poll, onVote: ((String) -> Unit)?) {
     val maxVotes = max(1, payload.options.maxOfOrNull { it.voteCount } ?: 0)
     Column(modifier = Modifier.padding(16.dp)) {
         CardHeader(Icons.Filled.Poll, payload.question, payload.caption ?: "Polls")
@@ -120,8 +124,11 @@ private fun PollCard(payload: InteractivePayload.Poll) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = {}, enabled = false) {
-                    Text("Vote unavailable")
+                OutlinedButton(
+                    onClick = { onVote?.invoke(option.id) },
+                    enabled = onVote != null,
+                ) {
+                    Text(if (onVote != null) "Vote" else "Vote unavailable")
                 }
             }
         }

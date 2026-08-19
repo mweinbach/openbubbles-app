@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.openbubbles.core.model.PollPayload
+import app.openbubbles.core.text.EmoticonReplacement
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
@@ -16,6 +19,7 @@ import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingMention
 import app.openbubbles.nativeapp.data.ReadReceiptSender
@@ -452,6 +456,7 @@ class ChatViewModel(
             return
         }
         if (text.isEmpty() || textSendInProgress.value) return
+        val outgoing = outgoingText(text)
         val effectId = PendingSendEffect.effectId
         val editing = editingMessage.value
         val reply = replyingTo.value
@@ -466,17 +471,17 @@ class ChatViewModel(
                 val chatItem = chat.value ?: chat.filterNotNull().first()
                 val targetChatId = chatItem.preferredChatId
                 when {
-                    chatItem.isSms -> smsSender.send(targetChatId, text, subjectValue)
+                    chatItem.isSms -> smsSender.send(targetChatId, outgoing, subjectValue)
                     reply != null -> sender.sendReply(
                         sourceChatId(reply.message),
-                        text,
+                        outgoing,
                         reply.rootGuid,
                         reply.partLocator,
                         subjectValue,
                         mentionValues,
                     )
-                    effectId == null -> sender.send(targetChatId, text, subjectValue, mentionValues)
-                    else -> sender.sendWithEffect(targetChatId, text, effectId, subjectValue, mentionValues)
+                    effectId == null -> sender.send(targetChatId, outgoing, subjectValue, mentionValues)
+                    else -> sender.sendWithEffect(targetChatId, outgoing, effectId, subjectValue, mentionValues)
                 }
             }.onSuccess { accepted ->
                 if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
@@ -542,7 +547,7 @@ class ChatViewModel(
         attachmentSendInProgress.value = true
         viewModelScope.launch {
             runCatching {
-                val value = caption.ifEmpty { null }
+                val value = outgoingText(caption).ifEmpty { null }
                 val chatItem = chat.value ?: chat.filterNotNull().first()
                 val targetChatId = chatItem.preferredChatId
                 if (chatItem.isSms) {
@@ -658,6 +663,72 @@ class ChatViewModel(
         replyingTo.value = null
         editingMessage.value = message
         input.value = message.text
+    }
+
+    fun voteOnPoll(message: MessageItem, optionId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val chatItem = chat.value ?: chat.filterNotNull().first()
+                val json = PollPayload.voteItemJson(optionId, myHandle(chatItem))
+                sender.sendApp(
+                    chatId = sourceChatId(message),
+                    bundleId = PollPayload.POLLS_BUNDLE_ID,
+                    appName = PollPayload.POLLS_APP_NAME,
+                    url = PollPayload.dataUrl(json),
+                    session = message.guid,
+                    ldText = "Poll",
+                )
+            }.onFailure { failure ->
+                actionError.value = failure.message ?: "Could not vote"
+            }
+        }
+    }
+
+    fun createPoll(question: String, options: List<String>) {
+        val cleaned = options.map { it.trim() }.filter { it.isNotEmpty() }
+        if (question.isBlank() || cleaned.size < 2) return
+        viewModelScope.launch {
+            runCatching {
+                val chatItem = chat.value ?: chat.filterNotNull().first()
+                sender.sendApp(
+                    chatId = chatItem.preferredChatId,
+                    bundleId = PollPayload.POLLS_BUNDLE_ID,
+                    appName = PollPayload.POLLS_APP_NAME,
+                    url = PollPayload.dataUrl(PollPayload.createItemJson(question.trim(), cleaned)),
+                    ldText = question.trim(),
+                )
+            }.onFailure { failure ->
+                actionError.value = failure.message ?: "Could not send poll"
+            }
+        }
+    }
+
+    fun sendScheduled(scheduledMs: Long) {
+        val text = outgoingText(input.value.trim())
+        if (text.isEmpty() || textSendInProgress.value) return
+        val subjectValue = subject.value.trim().takeIf { it.isNotEmpty() }
+        val effectId = PendingSendEffect.effectId
+        val sendRevision = composerRevision
+        textSendInProgress.value = true
+        viewModelScope.launch {
+            runCatching {
+                val chatItem = chat.value ?: chat.filterNotNull().first()
+                sender.sendScheduled(
+                    chatItem.preferredChatId,
+                    text,
+                    scheduledMs,
+                    effectId,
+                    subjectValue,
+                )
+            }.onSuccess { accepted ->
+                if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null
+                queueOutgoingSend(OutgoingSendEvent(accepted.messageId, effectId))
+                settleComposerAfterSend(sendRevision)
+            }.onFailure { failure ->
+                actionError.value = failure.message ?: "Could not schedule message"
+            }
+            textSendInProgress.value = false
+        }
     }
 
     fun cancelComposerAction() {
@@ -908,6 +979,18 @@ class ChatViewModel(
             }
         }
     }
+
+    private fun outgoingText(text: String): String {
+        if (text.isEmpty()) return text
+        val ctx = AppContext.current ?: return text
+        return if (MessagingPrefs(ctx).replaceEmoticons) EmoticonReplacement.apply(text) else text
+    }
+
+    private fun myHandle(chatItem: ChatListItem): String =
+        chatItem.senderOverride
+            ?: chatItem.receivedOnHandle
+            ?: AppContext.current?.let { MessagingPrefs(it).defaultSendingHandle }
+            ?: ""
 
     override fun onCleared() {
         messageRepository.release(chatId)

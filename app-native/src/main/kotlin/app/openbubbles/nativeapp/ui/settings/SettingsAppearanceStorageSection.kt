@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -119,7 +120,7 @@ internal fun rememberAppearanceStorageSection(
                     supporting = themeMode.title,
                     onClick = { showThemeModeDialog = true },
                     index = 0,
-                    count = 2,
+                    count = 3,
                     icon = Icons.Filled.DarkMode,
                 )
                 SettingsToggleItem(
@@ -127,16 +128,29 @@ internal fun rememberAppearanceStorageSection(
                     supporting = "Colors follow your wallpaper (Material You)",
                     checked = dynamicColor,
                     onCheckedChange = { enabled ->
-                        // The pref write re-themes the whole app; emitting it
-                        // off the tap frame keeps the switch animation smooth.
                         dynamicColor = enabled
                         scope.launch(Dispatchers.Default) {
                             AppearancePrefs.dynamicColor = enabled
                         }
                     },
                     index = 1,
-                    count = 2,
+                    count = 3,
                     icon = Icons.Filled.Palette,
+                )
+                var use24Hour by remember {
+                    mutableStateOf(AppearancePrefs.use24HourTime)
+                }
+                SettingsToggleItem(
+                    title = "24-hour time",
+                    supporting = "Show timestamps as 15:30 instead of 3:30 PM",
+                    checked = use24Hour,
+                    onCheckedChange = { enabled ->
+                        use24Hour = enabled
+                        AppearancePrefs.use24HourTime = enabled
+                    },
+                    index = 2,
+                    count = 3,
+                    icon = Icons.Filled.Schedule,
                 )
             }
 

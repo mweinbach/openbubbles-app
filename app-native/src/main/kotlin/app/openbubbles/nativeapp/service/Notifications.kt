@@ -53,6 +53,7 @@ object Notifications {
     const val EXTRA_CHAT_ID = "chat_id"
     const val EXTRA_MESSAGE_GUID = "message_guid"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
+    const val EXTRA_TAPBACK_INDEX = "tapback_index"
     const val EXTRA_CANCEL_NOTIFICATIONS = "cancel_notifications"
 
     /**
@@ -66,6 +67,8 @@ object Notifications {
 
     /** RemoteInput key for the inline-reply action (Flutter parity: "text_reply"). */
     const val KEY_TEXT_REPLY = "text_reply"
+
+    private val TAPBACK_LABELS = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
 
     private const val CHANNEL_PREFIX = "chat_"
 
@@ -255,6 +258,27 @@ object Notifications {
                 )
                 .build()
             builder.addAction(replyAction)
+        }
+
+        if (prefs.quickTapbackEnabled && messageGuid != null) {
+            val tapbackIndex = prefs.quickTapbackIndex
+            val tapbackIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode + 4,
+                Intent(context, TapbackReceiver::class.java)
+                    .putExtra(EXTRA_CHAT_ID, chatId)
+                    .putExtra(EXTRA_CHAT_GUID, chatGuid)
+                    .putExtra(EXTRA_MESSAGE_GUID, messageGuid)
+                    .putExtra(EXTRA_TAPBACK_INDEX, tapbackIndex)
+                    .putExtra(EXTRA_NOTIFICATION_ID, notificationId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val tapbackLabel = TAPBACK_LABELS.getOrElse(tapbackIndex) { TAPBACK_LABELS.first() }
+            builder.addAction(
+                NotificationCompat.Action.Builder(0, tapbackLabel, tapbackIntent)
+                    .setShowsUserInterface(false)
+                    .build(),
+            )
         }
 
         nm.notify(notificationId, builder.build())

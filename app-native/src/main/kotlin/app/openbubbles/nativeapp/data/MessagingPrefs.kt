@@ -109,6 +109,36 @@ class MessagingPrefs(context: Context) {
             prefs.edit { putLong(KEY_AUTO_DOWNLOAD_MAX_BYTES, value) }
         }
 
+    var wifiOnlyAutoDownload: Boolean
+        get() = prefs.getBoolean(KEY_WIFI_ONLY_AUTO_DOWNLOAD, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_WIFI_ONLY_AUTO_DOWNLOAD, value) }
+        }
+
+    var autoSaveMedia: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_SAVE_MEDIA, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_AUTO_SAVE_MEDIA, value) }
+        }
+
+    var filterUnknownSenders: Boolean
+        get() = prefs.getBoolean(KEY_FILTER_UNKNOWN_SENDERS, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_FILTER_UNKNOWN_SENDERS, value) }
+        }
+
+    var showAvatarsInDirectChats: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_AVATARS_IN_DIRECT_CHATS, true)
+        set(value) {
+            prefs.edit { putBoolean(KEY_SHOW_AVATARS_IN_DIRECT_CHATS, value) }
+        }
+
+    var replaceEmoticons: Boolean
+        get() = prefs.getBoolean(KEY_REPLACE_EMOTICONS, true)
+        set(value) {
+            prefs.edit { putBoolean(KEY_REPLACE_EMOTICONS, value) }
+        }
+
     companion object {
         /** Sentinel for [autoDownloadMaxBytes]: every supported payload auto-downloads. */
         const val AUTO_DOWNLOAD_UNLIMITED: Long = -1L
@@ -128,5 +158,10 @@ class MessagingPrefs(context: Context) {
         private const val KEY_SHARE_FOCUS_STATUS = "share_focus_status"
         private const val KEY_SEND_SUBJECT_LINES = "send_subject_lines"
         private const val KEY_AUTO_DOWNLOAD_MAX_BYTES = "auto_download_max_bytes"
+        private const val KEY_WIFI_ONLY_AUTO_DOWNLOAD = "wifi_only_auto_download"
+        private const val KEY_AUTO_SAVE_MEDIA = "auto_save_media"
+        private const val KEY_FILTER_UNKNOWN_SENDERS = "filter_unknown_senders"
+        private const val KEY_SHOW_AVATARS_IN_DIRECT_CHATS = "show_avatars_in_direct_chats"
+        private const val KEY_REPLACE_EMOTICONS = "replace_emoticons"
     }
 }

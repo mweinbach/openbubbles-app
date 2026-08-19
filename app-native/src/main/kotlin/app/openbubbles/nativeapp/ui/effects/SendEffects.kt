@@ -107,7 +107,8 @@ data class SendEffectOption(val id: String, val label: String, val icon: String)
 object SendEffectCatalog {
     val invisibleInk = SendEffectOption(INVISIBLE_INK_EFFECT_ID, "Invisible Ink", "◍")
     val options: List<SendEffectOption> =
-        SendScreenEffect.entries.map { SendEffectOption(it.effectId, it.label, it.icon) } + invisibleInk
+        BubbleEffect.entries.map { SendEffectOption(it.id, it.label, it.icon) } +
+            SendScreenEffect.entries.map { SendEffectOption(it.effectId, it.label, it.icon) }
 
     fun byId(id: String?): SendEffectOption? = options.firstOrNull { it.id == id }
 }

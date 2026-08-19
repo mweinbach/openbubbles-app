@@ -238,6 +238,7 @@ private fun DeviceRow(device: FmDeviceUi, shape: RoundedCornerShape) {
             location = device.location,
             batteryPercent = device.batteryPercent,
             batteryStatus = device.batteryStatus,
+            suffix = if (device.lostModeEnabled) "Lost Mode" else null,
         ),
         clickable = device.location != null,
         onClick = device.location?.let { point -> { openInMaps(context, device.name, point) } },

@@ -58,6 +58,8 @@ data class ChatListItem(
     val autoSendTypingIndicators: Boolean = false,
     val blocked: Boolean = false,
     val guid: String = id.toString(),
+    /** True when a direct chat's title is still the raw handle. */
+    val unknownSender: Boolean = false,
 )
 
 /** Display metadata for an attachment shown in the transcript. */
@@ -338,6 +340,23 @@ interface Sender {
         subject: String?,
         mentions: List<OutgoingMention>,
     ): OutgoingTextSend = sendWithEffect(chatId, text, effectId)
+
+    suspend fun sendApp(
+        chatId: Long,
+        bundleId: String,
+        appName: String,
+        url: String,
+        session: String? = null,
+        ldText: String? = null,
+    ): OutgoingTextSend = error("App balloons are not supported")
+
+    suspend fun sendScheduled(
+        chatId: Long,
+        text: String,
+        scheduledMs: Long,
+        effectId: String? = null,
+        subject: String? = null,
+    ): OutgoingTextSend = error("Scheduled send is not supported")
 }
 
 data class StickerTransform(

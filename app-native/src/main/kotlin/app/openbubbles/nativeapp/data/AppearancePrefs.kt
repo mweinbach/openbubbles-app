@@ -51,11 +51,13 @@ object AppearancePrefs {
     private const val PREFS_NAME = "appearance_prefs"
     private const val KEY_DYNAMIC_COLOR = "dynamic_color"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_USE_24_HOUR_TIME = "use_24_hour_time"
 
     private var prefs: SharedPreferences? = null
 
     private val _dynamicColor = MutableStateFlow(true)
     private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    private val _use24HourTime = MutableStateFlow(false)
 
     /** Wallpaper-derived (Material You) color; on by default, as before. */
     val dynamicColorFlow: StateFlow<Boolean> = _dynamicColor.asStateFlow()
@@ -63,12 +65,15 @@ object AppearancePrefs {
     /** Light/dark override; follows the system setting by default. */
     val themeModeFlow: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    val use24HourTimeFlow: StateFlow<Boolean> = _use24HourTime.asStateFlow()
+
     @Synchronized
     fun init(context: Context) {
         if (prefs != null) return
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _dynamicColor.value = prefs?.getBoolean(KEY_DYNAMIC_COLOR, true) ?: true
         _themeMode.value = ThemeMode.fromPersistedValue(prefs?.getString(KEY_THEME_MODE, null))
+        _use24HourTime.value = prefs?.getBoolean(KEY_USE_24_HOUR_TIME, false) ?: false
     }
 
     var dynamicColor: Boolean
@@ -83,5 +88,12 @@ object AppearancePrefs {
         set(value) {
             prefs?.edit { putString(KEY_THEME_MODE, value.persistedValue) }
             _themeMode.value = value
+        }
+
+    var use24HourTime: Boolean
+        get() = prefs?.getBoolean(KEY_USE_24_HOUR_TIME, false) ?: false
+        set(value) {
+            prefs?.edit { putBoolean(KEY_USE_24_HOUR_TIME, value) }
+            _use24HourTime.value = value
         }
 }

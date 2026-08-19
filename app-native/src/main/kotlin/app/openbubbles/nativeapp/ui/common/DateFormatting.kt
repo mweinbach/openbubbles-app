@@ -7,9 +7,13 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 private val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
+private val timeFormat24 = DateTimeFormatter.ofPattern("HH:mm")
 private val shortDateFormat = DateTimeFormatter.ofPattern("M/d/yy")
 private val dayFormat = DateTimeFormatter.ofPattern("MMMM d")
 private val dayWithYearFormat = DateTimeFormatter.ofPattern("MMMM d, yyyy")
+
+private fun clockFormat(use24Hour: Boolean): DateTimeFormatter =
+    if (use24Hour) timeFormat24 else timeFormat
 
 /**
  * Chat-list timestamp: time today, "Yesterday", weekday inside the last week,
@@ -19,12 +23,14 @@ fun formatListTimestamp(
     epochMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
     nowMillis: Long = System.currentTimeMillis(),
+    use24Hour: Boolean = false,
 ): String {
     val dateTime = Instant.ofEpochMilli(epochMillis).atZone(zone)
     val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
     val date = dateTime.toLocalDate()
+    val clock = clockFormat(use24Hour)
     return when {
-        date == nowDate -> timeFormat.format(dateTime)
+        date == nowDate -> clock.format(dateTime)
         date == nowDate.minusDays(1) -> "Yesterday"
         ChronoUnit.DAYS.between(date, nowDate) < 7 -> date.dayOfWeek.name.lowercase()
             .replaceFirstChar { it.uppercase() }
@@ -45,6 +51,7 @@ fun formatConversationTimestamp(
     epochMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
     nowMillis: Long = System.currentTimeMillis(),
+    use24Hour: Boolean = false,
 ): ConversationTimestamp {
     val dateTime = Instant.ofEpochMilli(epochMillis).atZone(zone)
     val date = dateTime.toLocalDate()
@@ -57,8 +64,14 @@ fun formatConversationTimestamp(
         date.year == nowDate.year -> dayFormat.format(date)
         else -> dayWithYearFormat.format(date)
     }
-    return ConversationTimestamp(day = day, time = timeFormat.format(dateTime))
+    return ConversationTimestamp(day = day, time = clockFormat(use24Hour).format(dateTime))
 }
+
+fun formatClockTime(
+    epochMillis: Long,
+    zone: ZoneId = ZoneId.systemDefault(),
+    use24Hour: Boolean = false,
+): String = clockFormat(use24Hour).format(Instant.ofEpochMilli(epochMillis).atZone(zone))
 
 /** Local calendar day for a timestamp, used to detect day boundaries. */
 fun localDay(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): LocalDate =

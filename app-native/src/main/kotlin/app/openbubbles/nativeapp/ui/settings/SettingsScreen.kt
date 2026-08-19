@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -86,6 +87,7 @@ internal enum class SettingsSection(
     ICloud("iCloud", "History, Keychain, contacts", Icons.Filled.Cloud),
     Notifications("Notifications", "Previews, replies, reactions", Icons.Filled.Notifications),
     Messaging("Messaging", "Sending address, archived chats, SMS", Icons.AutoMirrored.Filled.Chat),
+    Privacy("Privacy", "App lock and unknown senders", Icons.Filled.Lock),
     Power("Power", "Battery saver", Icons.Filled.PowerSettingsNew),
     Appearance("Appearance", "Theme and color", Icons.Filled.Palette),
     Storage("Storage & backup", "Attachments and local backup", Icons.Filled.Storage),
@@ -175,6 +177,7 @@ fun SettingsScreen(
         onOpenArchived = onOpenArchived,
         onOpenRecentlyDeleted = onOpenRecentlyDeleted,
     )
+    val privacySection = rememberPrivacySection()
 
     // Compact: collapsing headline. Medium+ (foldable inner, tablet): the
     // Messages pattern — title sits next to back so the list gets the height.
@@ -250,6 +253,8 @@ fun SettingsScreen(
                 icloudSection.groups(filter, showTitles)
 
                 messagingSection.groups(filter, showTitles)
+
+                privacySection.groups(filter, showTitles)
 
                 if (filter == null) SettingsGroup(
                     title = if (showTitles) "Location" else null,
@@ -351,6 +356,8 @@ fun SettingsScreen(
     icloudSection.dialogs()
 
     messagingSection.dialogs()
+
+    privacySection.dialogs()
 
     appearanceStorageSection.dialogs()
 

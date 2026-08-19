@@ -109,6 +109,14 @@ class AutoDownloadTest {
     }
 
     @Test
+    fun `wifi-only skips metered networks`() {
+        assertTrue(shouldAutoDownloadOnCurrentNetwork(eligible = true, wifiOnly = true, unmetered = true))
+        assertFalse(shouldAutoDownloadOnCurrentNetwork(eligible = true, wifiOnly = true, unmetered = false))
+        assertTrue(shouldAutoDownloadOnCurrentNetwork(eligible = true, wifiOnly = false, unmetered = false))
+        assertFalse(shouldAutoDownloadOnCurrentNetwork(eligible = false, wifiOnly = false, unmetered = true))
+    }
+
+    @Test
     fun `nullable database size normalizes without unboxing`() {
         assertEquals(null, knownAutoDownloadSize(null))
         assertEquals(null, knownAutoDownloadSize(0L))

@@ -8,16 +8,20 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import app.openbubbles.nativeapp.credentials.CredentialUserAuth
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.SecurityPrefs
 import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
+import app.openbubbles.nativeapp.ui.lock.AppLockScreen
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.core.Hello
 import kotlinx.coroutines.Job
@@ -141,6 +145,8 @@ class NativeMainActivity : FragmentActivity() {
     private var standaloneTask: Boolean by mutableStateOf(false)
     private var uiDetached = false
     private var uiReleaseJob: Job? = null
+    private var sessionUnlocked by mutableStateOf(false)
+    private var lockMessage by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -185,6 +191,7 @@ class NativeMainActivity : FragmentActivity() {
             // launch may re-request its initial route.
             pendingRouteRequest = null
             standaloneTask = savedInstanceState.getBoolean(STATE_STANDALONE, standaloneTask)
+            sessionUnlocked = savedInstanceState.getBoolean(STATE_APP_UNLOCKED, false)
         }
         pendingShareRequest = savedInstanceState?.getStringArrayList(STATE_SHARE_STREAMS)?.let { streams ->
             IncomingShareRequest(
@@ -200,6 +207,9 @@ class NativeMainActivity : FragmentActivity() {
         super.onSaveInstanceState(outState)
         resumeRoute?.let { outState.putString(STATE_RESUME_ROUTE, it) }
         outState.putBoolean(STATE_STANDALONE, standaloneTask)
+        if (isChangingConfigurations) {
+            outState.putBoolean(STATE_APP_UNLOCKED, sessionUnlocked)
+        }
         pendingShareRequest?.let { request ->
             outState.putString(STATE_SHARE_TEXT, request.text)
             outState.putStringArrayList(STATE_SHARE_STREAMS, ArrayList(request.streams))
@@ -210,7 +220,15 @@ class NativeMainActivity : FragmentActivity() {
     private fun renderUi() {
         setContent {
             OpenBubblesTheme {
-                OpenBubblesApp(
+                val lockEnabled = SecurityPrefs(this@NativeMainActivity).appLockEnabled
+                if (lockEnabled && !sessionUnlocked) {
+                    LaunchedEffect(Unit) { promptAppLock() }
+                    AppLockScreen(
+                        message = lockMessage,
+                        onUnlock = { promptAppLock() },
+                    )
+                } else {
+                    OpenBubblesApp(
                     debugLines = debugLines,
                     startChatGuid = pendingChatGuid,
                     startComposeRequest = pendingComposeRequest,
@@ -224,10 +242,26 @@ class NativeMainActivity : FragmentActivity() {
                     standaloneTask = standaloneTask,
                     resumeRoute = resumeRoute,
                     onRouteChanged = { resumeRoute = it },
-                )
+                    )
+                }
             }
         }
         uiDetached = false
+    }
+
+    private fun promptAppLock() {
+        CredentialUserAuth.authenticate(
+            activity = this,
+            title = "Unlock OpenGarden",
+            subtitle = "Confirm it's you",
+            onSuccess = {
+                lockMessage = null
+                sessionUnlocked = true
+            },
+            onFailure = { reason ->
+                lockMessage = reason ?: "Unlock to open messages."
+            },
+        )
     }
 
     override fun onStart() {
@@ -243,6 +277,7 @@ class NativeMainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         if (isChangingConfigurations) return
+        sessionUnlocked = false
         uiReleaseJob?.cancel()
         uiReleaseJob = lifecycleScope.launch {
             delay(BACKGROUND_UI_RELEASE_MS)
@@ -348,6 +383,7 @@ class NativeMainActivity : FragmentActivity() {
         /** Survives fold / unfold activity recreation so the open chat is restored. */
         internal const val STATE_RESUME_ROUTE = "resume_route"
         private const val STATE_STANDALONE = "standalone_task_state"
+        private const val STATE_APP_UNLOCKED = "app_lock_unlocked"
         private const val STATE_SHARE_TEXT = "share_text"
         private const val STATE_SHARE_STREAMS = "share_streams"
         private const val STATE_SHARE_MIME = "share_mime"

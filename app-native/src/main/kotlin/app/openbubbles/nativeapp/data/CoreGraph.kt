@@ -552,14 +552,18 @@ object CoreGraph {
     fun autoDownloadForChat(chatId: Long) {
         val manager = attachmentManager ?: return
         val context = AppContext.current ?: return
-        val maxBytes = MessagingPrefs(context).autoDownloadMaxBytes
+        val prefs = MessagingPrefs(context)
+        val maxBytes = prefs.autoDownloadMaxBytes
         if (maxBytes == 0L) return
+        val wifiOnly = prefs.wifiOnlyAutoDownload
+        val unmetered = isUnmeteredNetwork(context)
+        val autoSave = prefs.autoSaveMedia
         scope.launch(Dispatchers.IO) {
             manager.pendingFor(chatId)
                 .asSequence()
                 .filter { !it.isOutgoing }
                 .filter { attachment ->
-                    isAutoDownloadEligible(
+                    val eligible = isAutoDownloadEligible(
                         mime = attachment.mimeType,
                         totalBytes = knownAutoDownloadSize(attachment.totalBytes),
                         hasTransferMetadata = attachment.metadata?.containsKey("rustpush") == true ||
@@ -568,11 +572,22 @@ object CoreGraph {
                         uti = attachment.uti,
                         name = attachment.transferName,
                     )
+                    shouldAutoDownloadOnCurrentNetwork(eligible, wifiOnly, unmetered)
                 }
                 .forEach { attachment ->
                     launch {
                         runCatching {
                             manager.download(attachment).collect { /* terminal is enough here */ }
+                            if (autoSave) {
+                                val file = manager.localFile(attachment) ?: return@runCatching
+                                saveDownloadedMediaIfEligible(
+                                    context = context,
+                                    file = file,
+                                    mime = attachment.mimeType,
+                                    name = attachment.transferName,
+                                    uti = attachment.uti,
+                                )
+                            }
                         }
                     }
                 }
@@ -843,6 +858,11 @@ private fun coreChatToUi(item: app.openbubbles.core.model.ChatListItem) = ChatLi
     autoSendTypingIndicators = item.autoSendTypingIndicators,
     blocked = item.blocked,
     guid = item.guid,
+    unknownSender = app.openbubbles.core.model.isUnknownDirectSender(
+        item.isGroup,
+        item.title,
+        item.avatarAddress,
+    ),
 )
 
 private val TAPBACK_EMOJI = mapOf(
@@ -1671,6 +1691,36 @@ private object CoreSender : Sender {
         mentions = mentions,
     )
 
+    override suspend fun sendApp(
+        chatId: Long,
+        bundleId: String,
+        appName: String,
+        url: String,
+        session: String?,
+        ldText: String?,
+    ): OutgoingTextSend = sendInternal(
+        chatId = chatId,
+        text = ldText.orEmpty(),
+        effectId = null,
+        replyGuid = null,
+        app = AppSend(bundleId, appName, url, session, ldText),
+    )
+
+    override suspend fun sendScheduled(
+        chatId: Long,
+        text: String,
+        scheduledMs: Long,
+        effectId: String?,
+        subject: String?,
+    ): OutgoingTextSend = sendInternal(
+        chatId = chatId,
+        text = text,
+        effectId = effectId,
+        replyGuid = null,
+        subject = subject,
+        scheduledMs = scheduledMs,
+    )
+
     private suspend fun sendInternal(
         chatId: Long,
         text: String,
@@ -1679,6 +1729,8 @@ private object CoreSender : Sender {
         replyPartLocator: String? = null,
         subject: String? = null,
         mentions: List<OutgoingMention> = emptyList(),
+        scheduledMs: Long? = null,
+        app: AppSend? = null,
     ): OutgoingTextSend {
         val graph = CoreGraph
         val store = graph.store ?: error("store unavailable")
@@ -1718,8 +1770,27 @@ private object CoreSender : Sender {
                     val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
                     val conversation = sendConversation(store, chat, myHandle)
                     maybeShareProfile(pushState, chat, conversation, myHandle)
-                    val inst = if (mentions.isEmpty()) {
-                        pushState.sendText(
+                    val inst = when {
+                        app != null -> pushState.sendApp(
+                            conversation,
+                            myHandle,
+                            app.bundleId,
+                            app.appName,
+                            app.url,
+                            app.session,
+                            app.ldText,
+                        )
+                        scheduledMs != null -> pushState.sendScheduledText(
+                            conversation,
+                            myHandle,
+                            text,
+                            replyGuid,
+                            replyPartLocator,
+                            effectId,
+                            subject,
+                            scheduledMs.toULong(),
+                        )
+                        mentions.isEmpty() -> pushState.sendText(
                             conversation,
                             myHandle,
                             text,
@@ -1728,8 +1799,7 @@ private object CoreSender : Sender {
                             effectId,
                             subject,
                         )
-                    } else {
-                        pushState.sendParts(
+                        else -> pushState.sendParts(
                             conversation,
                             myHandle,
                             outgoingMessageParts(text, mentions),
@@ -1756,6 +1826,14 @@ private object CoreSender : Sender {
         return accepted
     }
 }
+
+private data class AppSend(
+    val bundleId: String,
+    val appName: String,
+    val url: String,
+    val session: String?,
+    val ldText: String?,
+)
 
 private suspend fun maybeShareProfile(
     state: NativePushState,

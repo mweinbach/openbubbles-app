@@ -40,10 +40,26 @@ class NotifPrefs(context: Context) {
             prefs.edit { putBoolean(KEY_NOTIFY_REACTIONS, value) }
         }
 
+    /** Offer a one-tap tapback action on incoming-message notifications. */
+    var quickTapbackEnabled: Boolean
+        get() = prefs.getBoolean(KEY_QUICK_TAPBACK_ENABLED, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_QUICK_TAPBACK_ENABLED, value) }
+        }
+
+    /** Standard tapback index 0–5 (heart, like, dislike, laugh, emphasize, question). */
+    var quickTapbackIndex: Int
+        get() = prefs.getInt(KEY_QUICK_TAPBACK_INDEX, 0).coerceIn(0, 5)
+        set(value) {
+            prefs.edit { putInt(KEY_QUICK_TAPBACK_INDEX, value.coerceIn(0, 5)) }
+        }
+
     private companion object {
         const val PREFS_NAME = "notification_prefs"
         const val KEY_HIDE_PREVIEWS = "hide_previews"
         const val KEY_REPLY_ENABLED = "reply_enabled"
         const val KEY_NOTIFY_REACTIONS = "notify_reactions"
+        const val KEY_QUICK_TAPBACK_ENABLED = "quick_tapback_enabled"
+        const val KEY_QUICK_TAPBACK_INDEX = "quick_tapback_index"
     }
 }

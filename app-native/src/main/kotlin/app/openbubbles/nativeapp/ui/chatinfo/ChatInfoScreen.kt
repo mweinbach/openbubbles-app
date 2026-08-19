@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -348,6 +349,15 @@ fun ChatInfoScreen(
                     onClear = { launchAction(onClearBackground) },
                 )
                 chat?.let { ChatLocalOptions(it, onOpenBookmarks = onOpenBookmarks) }
+                if (isGroup && chat != null) {
+                    val uriHandler = LocalUriHandler.current
+                    SharedChatGalleries(
+                        sharedContent = rememberSharedContent(chat.id),
+                        attachmentFile = attachmentFile,
+                        onOpenAttachment = onOpenAttachment,
+                        onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                    )
+                }
                 if (participants.isNotEmpty()) {
                     Text(
                         text = "PARTICIPANTS",
