@@ -28,11 +28,19 @@ data class VaultItemUi(
     val groupId: String? = null,
 )
 
+data class VaultGroupMemberUi(
+    val name: String?,
+    val handle: String,
+    val joined: Boolean,
+    val currentUser: Boolean,
+)
+
 data class VaultGroupUi(
     val id: String,
     val name: String,
     val owner: Boolean,
     val memberCount: Int,
+    val members: List<VaultGroupMemberUi> = emptyList(),
 )
 
 data class VaultInviteUi(val id: String, val groupName: String, val inviter: String)
@@ -75,10 +83,13 @@ interface PasswordsPort {
     suspend fun listInvites(): List<VaultInviteUi>
     suspend fun reveal(item: VaultItemUi): Pair<String, Long?>
     suspend fun createPassword(site: String, username: String, password: String, groupId: String?)
+    suspend fun addTotp(item: VaultItemUi, setup: String)
     suspend fun deleteItem(item: VaultItemUi)
     suspend fun createGroup(name: String)
     suspend fun renameGroup(id: String, name: String)
     suspend fun deleteGroup(id: String)
+    suspend fun inviteGroupMember(id: String, handle: String)
+    suspend fun removeGroupMember(id: String, handle: String)
     suspend fun acceptInvite(id: String)
     suspend fun declineInvite(id: String)
 }
@@ -106,7 +117,20 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
 
     override suspend fun listGroups(): List<VaultGroupUi> = withContext(Dispatchers.IO) {
         state().listPasswordGroups().map {
-            VaultGroupUi(it.id, it.name, it.owner, it.memberCount.toInt())
+            VaultGroupUi(
+                id = it.id,
+                name = it.name,
+                owner = it.owner,
+                memberCount = it.memberCount.toInt(),
+                members = it.members.map { member ->
+                    VaultGroupMemberUi(
+                        name = member.name,
+                        handle = member.handle,
+                        joined = member.joined,
+                        currentUser = member.currentUser,
+                    )
+                },
+            )
         }
     }
 
@@ -131,6 +155,10 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
     override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) =
         withContext(Dispatchers.IO) { state().createPassword(site, username, password, groupId) }
 
+    override suspend fun addTotp(item: VaultItemUi, setup: String) {
+        state().addPasswordTotp(item.title, item.username.orEmpty(), setup, item.groupId)
+    }
+
     override suspend fun deleteItem(item: VaultItemUi) = withContext(Dispatchers.IO) {
         state().deletePassword(item.id, item.category.itemKind(), item.groupId)
     }
@@ -144,6 +172,14 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
 
     override suspend fun deleteGroup(id: String) =
         withContext(Dispatchers.IO) { state().deletePasswordGroup(id) }
+
+    override suspend fun inviteGroupMember(id: String, handle: String) {
+        state().invitePasswordGroupMember(id, handle)
+    }
+
+    override suspend fun removeGroupMember(id: String, handle: String) {
+        state().removePasswordGroupMember(id, handle)
+    }
 
     override suspend fun acceptInvite(id: String) =
         withContext(Dispatchers.IO) { state().acceptPasswordGroupInvite(id) }
@@ -164,6 +200,9 @@ class FakePasswordsPort(
     val itemListRequests = mutableListOf<VaultCategory>()
     var groupListCount: Int = 0
     var inviteListCount: Int = 0
+    val totpSetups = mutableListOf<Pair<VaultItemUi, String>>()
+    val groupInvites = mutableListOf<Pair<String, String>>()
+    val groupRemovals = mutableListOf<Pair<String, String>>()
 
     override suspend fun isInClique() = inClique
     override suspend fun sync() {
@@ -186,6 +225,10 @@ class FakePasswordsPort(
     override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) {
         items = items + VaultItemUi("created", VaultCategory.Passwords, site, username, groupId)
     }
+    override suspend fun addTotp(item: VaultItemUi, setup: String) {
+        totpSetups += item to setup
+        items = items + VaultItemUi("code-${item.id}", VaultCategory.Codes, item.title, item.username, item.groupId)
+    }
     override suspend fun deleteItem(item: VaultItemUi) {
         items = items.filterNot { it.id == item.id && it.category == item.category }
     }
@@ -197,6 +240,24 @@ class FakePasswordsPort(
     }
     override suspend fun deleteGroup(id: String) {
         groups = groups.filterNot { it.id == id }
+    }
+    override suspend fun inviteGroupMember(id: String, handle: String) {
+        groupInvites += id to handle
+        groups = groups.map { group ->
+            if (group.id != id) group else group.copy(
+                memberCount = group.memberCount + 1,
+                members = group.members + VaultGroupMemberUi(null, handle, false, false),
+            )
+        }
+    }
+    override suspend fun removeGroupMember(id: String, handle: String) {
+        groupRemovals += id to handle
+        groups = groups.map { group ->
+            if (group.id != id) group else group.copy(
+                memberCount = (group.memberCount - 1).coerceAtLeast(0),
+                members = group.members.filterNot { it.handle == handle },
+            )
+        }
     }
     override suspend fun acceptInvite(id: String) {
         invites = invites.filterNot { it.id == id }
@@ -303,6 +364,11 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
         refreshAfterWrite(VaultCategory.Passwords)
     }
 
+    fun addTotp(item: VaultItemUi, setup: String) = runAction {
+        port.addTotp(item, setup.trim())
+        refreshAfterWrite(VaultCategory.Codes)
+    }
+
     fun deleteSelected() {
         val item = mutableState.value.selected ?: return
         runAction {
@@ -326,6 +392,16 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
 
     fun deleteGroup(id: String) = runAction {
         port.deleteGroup(id)
+        refreshAfterWrite(VaultCategory.Groups)
+    }
+
+    fun inviteGroupMember(id: String, handle: String) = runAction {
+        port.inviteGroupMember(id, handle.trim())
+        refreshAfterWrite(VaultCategory.Groups)
+    }
+
+    fun removeGroupMember(id: String, handle: String) = runAction {
+        port.removeGroupMember(id, handle)
         refreshAfterWrite(VaultCategory.Groups)
     }
 

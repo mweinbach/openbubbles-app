@@ -117,6 +117,21 @@ class PasswordsViewModelTest {
     }
 
     @Test
+    fun `adding a verification code records setup and opens codes`() = runTest(dispatcher) {
+        val password = VaultItemUi("password", VaultCategory.Passwords, "example.com", "alice")
+        val port = FakePasswordsPort(items = listOf(password))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+
+        model.addTotp(password, "JBSW Y3DP EHPK 3PXP")
+        advanceUntilIdle()
+
+        assertEquals(listOf(password to "JBSW Y3DP EHPK 3PXP"), port.totpSetups)
+        assertEquals(VaultCategory.Codes, model.uiState.value.category)
+        assertEquals(listOf("code-password"), model.uiState.value.items.map { it.id })
+    }
+
+    @Test
     fun `renaming a group updates its name`() = runTest(dispatcher) {
         val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2)))
         val model = PasswordsViewModel(port)
@@ -142,6 +157,40 @@ class PasswordsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<String>(), model.uiState.value.groups.map { it.id })
+    }
+
+    @Test
+    fun `inviting a group member refreshes pending membership`() = runTest(dispatcher) {
+        val owner = VaultGroupMemberUi("Alice", "mailto:alice@example.com", true, true)
+        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 1, listOf(owner))))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        model.setCategory(VaultCategory.Groups)
+        advanceUntilIdle()
+
+        model.inviteGroupMember("family", "bob@example.com")
+        advanceUntilIdle()
+
+        assertEquals(listOf("family" to "bob@example.com"), port.groupInvites)
+        assertEquals(2, model.uiState.value.groups.single().memberCount)
+        assertEquals(false, model.uiState.value.groups.single().members.last().joined)
+    }
+
+    @Test
+    fun `removing a group member refreshes membership`() = runTest(dispatcher) {
+        val owner = VaultGroupMemberUi("Alice", "mailto:alice@example.com", true, true)
+        val member = VaultGroupMemberUi("Bob", "mailto:bob@example.com", true, false)
+        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2, listOf(owner, member))))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        model.setCategory(VaultCategory.Groups)
+        advanceUntilIdle()
+
+        model.removeGroupMember("family", member.handle)
+        advanceUntilIdle()
+
+        assertEquals(listOf("family" to member.handle), port.groupRemovals)
+        assertEquals(listOf(owner), model.uiState.value.groups.single().members)
     }
 
     @Test

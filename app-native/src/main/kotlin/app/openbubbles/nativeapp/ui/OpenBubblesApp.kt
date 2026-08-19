@@ -903,11 +903,14 @@ fun OpenBubblesApp(
                                 viewModel.deleteSelected()
                             }
                         },
+                        onAddTotp = viewModel::addTotp,
                         onPrepareCreatePassword = viewModel::prepareCreatePassword,
                         onCreatePassword = viewModel::createPassword,
                         onCreateGroup = viewModel::createGroup,
                         onRenameGroup = viewModel::renameGroup,
                         onDeleteGroup = viewModel::deleteGroup,
+                        onInviteGroupMember = viewModel::inviteGroupMember,
+                        onRemoveGroupMember = viewModel::removeGroupMember,
                         onAcceptInvite = viewModel::acceptInvite,
                         onDeclineInvite = viewModel::declineInvite,
                     )

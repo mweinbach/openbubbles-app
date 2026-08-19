@@ -86,6 +86,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun QrScannerSheet(
     onResult: (bytes: ByteArray?, text: String?) -> Unit,
     onClose: () -> Unit,
+    instruction: String = "Scan the pairing code on your Mac",
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -181,7 +182,7 @@ fun QrScannerSheet(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    text = "Camera access is needed to scan the pairing code from your Mac.",
+                    text = "Camera access is needed to scan a QR code.",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -197,7 +198,7 @@ fun QrScannerSheet(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    text = "The camera could not be started. Close this screen and try again, or enter the pairing code another way.",
+                    text = "The camera could not be started. Close this screen and try again, or enter the code another way.",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -236,6 +237,7 @@ fun QrScannerSheet(
                         torchOn = torchOn,
                         onToggleTorch = { torchOn = !torchOn },
                         onClose = onClose,
+                        instruction = instruction,
                     )
                 } else {
                     Column(Modifier.fillMaxSize()) {
@@ -254,6 +256,7 @@ fun QrScannerSheet(
                             torchOn = torchOn,
                             onToggleTorch = { torchOn = !torchOn },
                             onClose = onClose,
+                            instruction = instruction,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
@@ -314,11 +317,12 @@ private fun ScanOverlay(
     torchOn: Boolean,
     onToggleTorch: () -> Unit,
     onClose: () -> Unit,
+    instruction: String,
 ) {
     Box(Modifier.fillMaxSize()) {
         ScanFinder()
         Text(
-            text = "Scan the pairing code on your Mac",
+            text = instruction,
             color = Color.White,
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
@@ -394,6 +398,7 @@ private fun ScanControls(
     torchOn: Boolean,
     onToggleTorch: () -> Unit,
     onClose: () -> Unit,
+    instruction: String,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -404,7 +409,7 @@ private fun ScanControls(
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
     ) {
         Text(
-            text = "Scan the pairing code on your Mac",
+            text = instruction,
             color = Color.White,
             style = MaterialTheme.typography.titleMedium,
         )

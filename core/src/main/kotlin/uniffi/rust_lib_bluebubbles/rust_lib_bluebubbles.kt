@@ -1523,6 +1523,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1644,6 +1650,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_al
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album_token(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_add_password_totp(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_cancel_facetime(
@@ -1720,6 +1728,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_state(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_viable_bottles(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_invite_password_group_member(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_join_clique_with_bottle(
@@ -1749,6 +1759,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_following(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_password_group_member(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat(
 ): Short
@@ -2084,6 +2096,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album(`p
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_accept_shared_album_token(`ptr`: Pointer,`token`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_add_password_totp(`ptr`: Pointer,`site`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,`setup`: RustBuffer.ByValue,`groupId`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_approve_let_me_in(`ptr`: Pointer,`sharedSecret`: RustBuffer.ByValue,`pseud`: RustBuffer.ByValue,`requestor`: RustBuffer.ByValue,`nickname`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`delegationUuid`: RustBuffer.ByValue,`usage`: RustBuffer.ByValue,`approvedGroup`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_cancel_facetime(`ptr`: Pointer,`guid`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2160,6 +2174,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_state(`ptr`: Point
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_get_viable_bottles(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_invite_password_group_member(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_is_in_clique(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_join_clique_with_bottle(`ptr`: Pointer,`escrowData`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`devicePassword`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -2189,6 +2205,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`:
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_group_icon(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`groupVersion`: Long,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_password_group_member(`ptr`: Pointer,`groupId`: RustBuffer.ByValue,`handle`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rename_chat(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,
 ): Long
@@ -2748,6 +2766,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_accept_shared_album_token() != 54148.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_add_password_totp() != 38489.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_approve_let_me_in() != 16891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2862,6 +2883,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_get_viable_bottles() != 57624.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_invite_password_group_member() != 44384.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_is_in_clique() != 14793.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2905,6 +2929,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_group_icon() != 63447.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_remove_password_group_member() != 36298.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_rename_chat() != 18530.toShort()) {
@@ -6182,6 +6209,8 @@ public interface NativePushStateInterface {
 
     fun `acceptSharedAlbumToken`(`token`: kotlin.String)
 
+    suspend fun `addPasswordTotp`(`site`: kotlin.String, `username`: kotlin.String, `setup`: kotlin.String, `groupId`: kotlin.String?)
+
     /**
      * Approve a knock-to-join request (answer_ft_request).
      */
@@ -6382,6 +6411,8 @@ public interface NativePushStateInterface {
      */
     fun `getViableBottles`(): List<UViableBottle>
 
+    suspend fun `invitePasswordGroupMember`(`groupId`: kotlin.String, `handle`: kotlin.String)
+
     /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
@@ -6440,6 +6471,8 @@ public interface NativePushStateInterface {
      * attached file.
      */
     suspend fun `removeGroupIcon`(`conversation`: UConversation, `sender`: kotlin.String, `groupVersion`: kotlin.ULong): UMessageInst
+
+    suspend fun `removePasswordGroupMember`(`groupId`: kotlin.String, `handle`: kotlin.String)
 
     /**
      * Rename a group chat (Dart `renameChat`).
@@ -6796,6 +6829,28 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     }
 
 
+
+
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `addPasswordTotp`(`site`: kotlin.String, `username`: kotlin.String, `setup`: kotlin.String, `groupId`: kotlin.String?) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_add_password_totp(
+                thisPtr,
+                FfiConverterString.lower(`site`),FfiConverterString.lower(`username`),FfiConverterString.lower(`setup`),FfiConverterOptionalString.lower(`groupId`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
 
 
     /**
@@ -7484,6 +7539,28 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
 
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `invitePasswordGroupMember`(`groupId`: kotlin.String, `handle`: kotlin.String) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_invite_password_group_member(
+                thisPtr,
+                FfiConverterString.lower(`groupId`),FfiConverterString.lower(`handle`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
     /**
      * Circle membership check — the Dart sync loop skipped (and disabled
      * cloud syncing) when the device fell out of the iCloud clique.
@@ -7719,6 +7796,28 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeUMessageInst.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `removePasswordGroupMember`(`groupId`: kotlin.String, `handle`: kotlin.String) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_remove_password_group_member(
+                thisPtr,
+                FfiConverterString.lower(`groupId`),FfiConverterString.lower(`handle`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
         // Error FFI converter
         UException.ErrorHandler,
     )
@@ -14514,7 +14613,8 @@ data class UVaultGroup (
     var `id`: kotlin.String,
     var `name`: kotlin.String,
     var `owner`: kotlin.Boolean,
-    var `memberCount`: kotlin.ULong
+    var `memberCount`: kotlin.ULong,
+    var `members`: List<UVaultGroupMember>
 ) {
 
     companion object
@@ -14530,6 +14630,7 @@ public object FfiConverterTypeUVaultGroup: FfiConverterRustBuffer<UVaultGroup> {
             FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterSequenceTypeUVaultGroupMember.read(buf),
         )
     }
 
@@ -14537,7 +14638,8 @@ public object FfiConverterTypeUVaultGroup: FfiConverterRustBuffer<UVaultGroup> {
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`name`) +
             FfiConverterBoolean.allocationSize(value.`owner`) +
-            FfiConverterULong.allocationSize(value.`memberCount`)
+            FfiConverterULong.allocationSize(value.`memberCount`) +
+            FfiConverterSequenceTypeUVaultGroupMember.allocationSize(value.`members`)
     )
 
     override fun write(value: UVaultGroup, buf: ByteBuffer) {
@@ -14545,6 +14647,47 @@ public object FfiConverterTypeUVaultGroup: FfiConverterRustBuffer<UVaultGroup> {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterBoolean.write(value.`owner`, buf)
             FfiConverterULong.write(value.`memberCount`, buf)
+            FfiConverterSequenceTypeUVaultGroupMember.write(value.`members`, buf)
+    }
+}
+
+
+
+data class UVaultGroupMember (
+    var `name`: kotlin.String?,
+    var `handle`: kotlin.String,
+    var `joined`: kotlin.Boolean,
+    var `currentUser`: kotlin.Boolean
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUVaultGroupMember: FfiConverterRustBuffer<UVaultGroupMember> {
+    override fun read(buf: ByteBuffer): UVaultGroupMember {
+        return UVaultGroupMember(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UVaultGroupMember) = (
+            FfiConverterOptionalString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`handle`) +
+            FfiConverterBoolean.allocationSize(value.`joined`) +
+            FfiConverterBoolean.allocationSize(value.`currentUser`)
+    )
+
+    override fun write(value: UVaultGroupMember, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`name`, buf)
+            FfiConverterString.write(value.`handle`, buf)
+            FfiConverterBoolean.write(value.`joined`, buf)
+            FfiConverterBoolean.write(value.`currentUser`, buf)
     }
 }
 
@@ -18813,6 +18956,34 @@ public object FfiConverterSequenceTypeUVaultGroup: FfiConverterRustBuffer<List<U
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUVaultGroup.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeUVaultGroupMember: FfiConverterRustBuffer<List<UVaultGroupMember>> {
+    override fun read(buf: ByteBuffer): List<UVaultGroupMember> {
+        val len = buf.getInt()
+        return List<UVaultGroupMember>(len) {
+            FfiConverterTypeUVaultGroupMember.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UVaultGroupMember>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeUVaultGroupMember.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UVaultGroupMember>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeUVaultGroupMember.write(it, buf)
         }
     }
 }

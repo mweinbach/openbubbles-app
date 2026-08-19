@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.ui.login.QrScannerSheet
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
 import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
@@ -90,11 +93,14 @@ fun PasswordsScreen(
     onReveal: () -> Unit,
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
+    onAddTotp: (VaultItemUi, String) -> Unit,
     onPrepareCreatePassword: () -> Unit,
     onCreatePassword: (String, String, String, String?) -> Unit,
     onCreateGroup: (String) -> Unit,
     onRenameGroup: (String, String) -> Unit,
     onDeleteGroup: (String) -> Unit,
+    onInviteGroupMember: (String, String) -> Unit,
+    onRemoveGroupMember: (String, String) -> Unit,
     onAcceptInvite: (String) -> Unit,
     onDeclineInvite: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -103,7 +109,24 @@ fun PasswordsScreen(
     var showCreateGroup by remember { mutableStateOf(false) }
     var groupActions by remember { mutableStateOf<VaultGroupUi?>(null) }
     var renameGroupTarget by remember { mutableStateOf<VaultGroupUi?>(null) }
+    var addMemberTarget by remember { mutableStateOf<VaultGroupUi?>(null) }
+    var removeMemberTarget by remember { mutableStateOf<Pair<VaultGroupUi, VaultGroupMemberUi>?>(null) }
     var inviteActions by remember { mutableStateOf<VaultInviteUi?>(null) }
+    var totpTarget by remember { mutableStateOf<VaultItemUi?>(null) }
+    var totpInput by remember { mutableStateOf("") }
+    var scanningTotp by remember { mutableStateOf(false) }
+    if (scanningTotp) {
+        QrScannerSheet(
+            onResult = { bytes, text ->
+                scanningTotp = false
+                val setup = text ?: bytes?.toString(Charsets.UTF_8)
+                if (!setup.isNullOrBlank()) totpInput = setup
+            },
+            onClose = { scanningTotp = false },
+            instruction = "Scan a verification-code QR",
+        )
+        return
+    }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -164,13 +187,42 @@ fun PasswordsScreen(
             onReveal = onReveal,
             onCopy = onCopy,
             onDelete = onDelete,
+            onAddCode = if (item.category == VaultCategory.Passwords && !item.username.isNullOrBlank()) {
+                {
+                    totpTarget = item
+                    totpInput = ""
+                    onSelect(null)
+                }
+            } else {
+                null
+            },
             onDismiss = { onSelect(null) },
+        )
+    }
+    totpTarget?.let { item ->
+        TotpSetupDialog(
+            item = item,
+            setup = totpInput,
+            busy = uiState.busy,
+            onSetupChange = { totpInput = it },
+            onScan = { scanningTotp = true },
+            onDismiss = {
+                totpTarget = null
+                totpInput = ""
+            },
+            onSubmit = {
+                onAddTotp(item, totpInput)
+                totpTarget = null
+                totpInput = ""
+            },
         )
     }
     groupActions?.let { group ->
         GroupActionsDialog(
             group = group,
             busy = uiState.busy,
+            onAddMember = { addMemberTarget = group; groupActions = null },
+            onRemoveMember = { member -> removeMemberTarget = group to member; groupActions = null },
             onRename = { renameGroupTarget = group; groupActions = null },
             onDelete = { onDeleteGroup(group.id); groupActions = null },
             onDismiss = { groupActions = null },
@@ -187,6 +239,31 @@ fun PasswordsScreen(
             onSubmit = {
                 onRenameGroup(group.id, it)
                 renameGroupTarget = null
+            },
+        )
+    }
+    addMemberTarget?.let { group ->
+        TextEntryDialog(
+            title = "Invite to ${group.name}",
+            label = "Email or phone number",
+            confirmLabel = "Invite",
+            busy = uiState.busy,
+            onDismiss = { addMemberTarget = null },
+            onSubmit = {
+                onInviteGroupMember(group.id, it)
+                addMemberTarget = null
+            },
+        )
+    }
+    removeMemberTarget?.let { (group, member) ->
+        RemoveGroupMemberDialog(
+            group = group,
+            member = member,
+            busy = uiState.busy,
+            onDismiss = { removeMemberTarget = null },
+            onRemove = {
+                onRemoveGroupMember(group.id, member.handle)
+                removeMemberTarget = null
             },
         )
     }
@@ -591,6 +668,7 @@ private fun CredentialDialog(
     onReveal: () -> Unit,
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
+    onAddCode: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     var confirmDelete by remember(item.id) { mutableStateOf(false) }
@@ -613,6 +691,13 @@ private fun CredentialDialog(
                         TextButton(onClick = { onCopy(secret) }) {
                             Icon(Icons.Filled.ContentCopy, contentDescription = null)
                             Text("Copy")
+                        }
+                    }
+                    onAddCode?.let {
+                        TextButton(onClick = it, enabled = !busy) {
+                            Icon(Icons.Filled.Security, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Set up verification code")
                         }
                     }
                     TextButton(
@@ -650,9 +735,51 @@ private fun CredentialDialog(
 }
 
 @Composable
+private fun TotpSetupDialog(
+    item: VaultItemUi,
+    setup: String,
+    busy: Boolean,
+    onSetupChange: (String) -> Unit,
+    onScan: () -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Set up verification code") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Add a code for ${item.title} • ${item.username.orEmpty()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                TextButton(onClick = onScan, enabled = !busy) {
+                    Icon(Icons.Filled.Security, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Scan QR code")
+                }
+                OutlinedTextField(
+                    value = setup,
+                    onValueChange = onSetupChange,
+                    label = { Text("Setup key or otpauth URI") },
+                    supportingText = { Text("Paste the Base32 setup key if scanning is unavailable.") },
+                    minLines = 2,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSubmit, enabled = !busy && setup.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun GroupActionsDialog(
     group: VaultGroupUi,
     busy: Boolean,
+    onAddMember: () -> Unit,
+    onRemoveMember: (VaultGroupMemberUi) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -672,12 +799,47 @@ private fun GroupActionsDialog(
                     },
                 )
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
                         "${group.memberCount} members${if (group.owner) " • Owner" else ""}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    group.members.forEach { member ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(member.displayName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    member.supportingText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (group.owner && !member.currentUser) {
+                                IconButton(
+                                    onClick = { onRemoveMember(member) },
+                                    enabled = !busy,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "Remove ${member.displayName}",
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (group.owner) {
+                        TextButton(onClick = onAddMember, enabled = !busy) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add member")
+                        }
                         TextButton(onClick = onRename, enabled = !busy) {
                             Icon(Icons.Filled.Edit, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
@@ -714,6 +876,29 @@ private fun GroupActionsDialog(
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },
+    )
+}
+
+@Composable
+private fun RemoveGroupMemberDialog(
+    group: VaultGroupUi,
+    member: VaultGroupMemberUi,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remove ${member.displayName}?") },
+        text = { Text("They will lose access to passwords shared in \"${group.name}\".") },
+        confirmButton = {
+            TextButton(
+                onClick = onRemove,
+                enabled = !busy,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Remove") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -835,6 +1020,20 @@ private val VaultCategory.icon get() = when (this) {
     VaultCategory.Groups -> Icons.Filled.Badge
 }
 
+private val VaultGroupMemberUi.displayName: String
+    get() = name?.takeIf { it.isNotBlank() } ?: handle.removePrefix("mailto:").removePrefix("tel:")
+
+private val VaultGroupMemberUi.supportingText: String
+    get() {
+        val address = handle.removePrefix("mailto:").removePrefix("tel:")
+        val state = when {
+            currentUser -> "You"
+            joined -> "Member"
+            else -> "Invited"
+        }
+        return if (displayName == address) state else "$address • $state"
+    }
+
 @Preview(name = "phone", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
@@ -848,9 +1047,11 @@ private fun PasswordsPreview() {
                 categoryCounts = mapOf(VaultCategory.Passwords to 1),
             ),
             onBack = {}, onRefresh = {}, onOpenICloudSettings = {}, onCategory = {}, onQuery = {},
-            onSelect = {}, onReveal = {}, onCopy = {}, onDelete = {}, onPrepareCreatePassword = {},
+            onSelect = {}, onReveal = {}, onCopy = {}, onDelete = {}, onAddTotp = { _, _ -> },
+            onPrepareCreatePassword = {},
             onCreatePassword = { _, _, _, _ -> },
             onCreateGroup = {}, onRenameGroup = { _, _ -> }, onDeleteGroup = {},
+            onInviteGroupMember = { _, _ -> }, onRemoveGroupMember = { _, _ -> },
             onAcceptInvite = {}, onDeclineInvite = {},
         )
     }

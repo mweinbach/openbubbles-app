@@ -755,11 +755,20 @@ pub struct UVaultSecret {
 }
 
 #[derive(uniffi::Record)]
+pub struct UVaultGroupMember {
+    pub name: Option<String>,
+    pub handle: String,
+    pub joined: bool,
+    pub current_user: bool,
+}
+
+#[derive(uniffi::Record)]
 pub struct UVaultGroup {
     pub id: String,
     pub name: String,
     pub owner: bool,
     pub member_count: u64,
+    pub members: Vec<UVaultGroupMember>,
 }
 
 #[derive(uniffi::Record)]
@@ -798,6 +807,26 @@ fn native_password_manager(
         .ok_or_else(|| UError::NotReady { reason: "iCloud Passwords unavailable".to_string() })
 }
 
+fn normalize_password_share_handle(handle: &str) -> Result<String, UError> {
+    let handle = handle.trim();
+    if handle.is_empty() {
+        return Err(UError::InvalidArgument { reason: "an email address or phone number is required".to_string() });
+    }
+    if handle.starts_with("mailto:") || handle.starts_with("tel:") {
+        return Ok(handle.to_string());
+    }
+    if handle.contains('@') {
+        return Ok(format!("mailto:{handle}"));
+    }
+    if handle.chars().all(|character| character.is_ascii_digit() || matches!(character, '+' | ' ' | '-' | '(' | ')')) {
+        let number = handle.chars().filter(|character| character.is_ascii_digit() || *character == '+').collect::<String>();
+        if number.chars().any(|character| character.is_ascii_digit()) {
+            return Ok(format!("tel:{number}"));
+        }
+    }
+    Err(UError::InvalidArgument { reason: "enter a valid email address or phone number".to_string() })
+}
+
 fn native_shared_albums(
     state: &SharedPushState,
 ) -> Result<rustpush::sharedstreams::SyncManager<DefaultAnisetteProvider, api::MyFilePackager>, UError> {
@@ -821,6 +850,85 @@ impl NativePushState {
                 .map_err(|error| UError::Failed {
                     reason: format!("failed to sync iCloud Passwords: {error}"),
                 })
+        }).await
+    }
+
+    pub async fn add_password_totp(
+        &self,
+        site: String,
+        username: String,
+        setup: String,
+        group_id: Option<String>,
+    ) -> Result<(), UError> {
+        let site = site.trim().to_string();
+        let username = username.trim().to_string();
+        if site.is_empty() || username.is_empty() {
+            return Err(UError::InvalidArgument { reason: "website and username are required".to_string() });
+        }
+        let totp = rustpush::passwords::parse_totp_setup(&setup, &site, &username)
+            .map_err(|error| UError::InvalidArgument { reason: error.to_string() })?;
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let manager = native_password_manager(&state)?;
+            let criteria = rustpush::passwords::PasswordCriteria { site, account: username };
+            manager.set_password_totp(&criteria, totp, group_id).await.map_err(|error| UError::Failed {
+                reason: format!("failed to save verification code: {error}"),
+            })
+        }).await
+    }
+
+    pub async fn invite_password_group_member(&self, group_id: String, handle: String) -> Result<(), UError> {
+        let handle = normalize_password_share_handle(&handle)?;
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let manager = native_password_manager(&state)?;
+            let (_, groups, _) = api::get_groups(&manager).await.map_err(|error| UError::Failed {
+                reason: format!("failed to load password group: {error}"),
+            })?;
+            let group = groups.get(&group_id).ok_or_else(|| UError::InvalidArgument {
+                reason: "password group no longer exists".to_string(),
+            })?;
+            if !group.is_owner {
+                return Err(UError::InvalidArgument { reason: "only the group owner can invite members".to_string() });
+            }
+            if group.members.iter().any(|member| member.handle == handle) {
+                return Err(UError::InvalidArgument { reason: "that person is already in this group".to_string() });
+            }
+            let available = api::query_handle(&manager, handle.clone()).await.map_err(|error| UError::Failed {
+                reason: format!("failed to verify password-sharing recipient: {error}"),
+            })?;
+            if !available {
+                return Err(UError::InvalidArgument { reason: "that address cannot receive iCloud Passwords invitations".to_string() });
+            }
+            api::invite_user(&manager, group_id, handle).await.map_err(|error| UError::Failed {
+                reason: format!("failed to invite password group member: {error}"),
+            })
+        }).await
+    }
+
+    pub async fn remove_password_group_member(&self, group_id: String, handle: String) -> Result<(), UError> {
+        let handle = normalize_password_share_handle(&handle)?;
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let manager = native_password_manager(&state)?;
+            let (current_user_id, groups, _) = api::get_groups(&manager).await.map_err(|error| UError::Failed {
+                reason: format!("failed to load password group: {error}"),
+            })?;
+            let group = groups.get(&group_id).ok_or_else(|| UError::InvalidArgument {
+                reason: "password group no longer exists".to_string(),
+            })?;
+            if !group.is_owner {
+                return Err(UError::InvalidArgument { reason: "only the group owner can remove members".to_string() });
+            }
+            let member = group.members.iter().find(|member| member.handle == handle).ok_or_else(|| UError::InvalidArgument {
+                reason: "password group member no longer exists".to_string(),
+            })?;
+            if member.user_id.as_deref() == Some(current_user_id.as_str()) {
+                return Err(UError::InvalidArgument { reason: "the owner cannot be removed from the group".to_string() });
+            }
+            api::remove_user(&manager, group_id, handle).await.map_err(|error| UError::Failed {
+                reason: format!("failed to remove password group member: {error}"),
+            })
         }).await
     }
 }
@@ -973,14 +1081,24 @@ impl NativePushState {
 
     pub fn list_password_groups(&self) -> Result<Vec<UVaultGroup>, UError> {
         let manager = native_password_manager(self.shared())?;
-        let (_, groups, _) = RUNTIME.block_on(api::get_groups(&manager)).map_err(|error| UError::Failed {
+        let (current_user_id, groups, _) = RUNTIME.block_on(api::get_groups(&manager)).map_err(|error| UError::Failed {
             reason: format!("failed to list password groups: {error}"),
         })?;
-        let mut result = groups.into_iter().map(|(id, group)| UVaultGroup {
-            id,
-            name: group.display_name,
-            owner: group.is_owner,
-            member_count: group.members.len() as u64,
+        let mut result = groups.into_iter().map(|(id, group)| {
+            let mut members = group.members.into_iter().map(|member| UVaultGroupMember {
+                name: member.name,
+                handle: member.handle,
+                joined: member.is_joined,
+                current_user: member.user_id.as_deref() == Some(current_user_id.as_str()),
+            }).collect::<Vec<_>>();
+            members.sort_by_key(|member| (!member.current_user, member.name.clone().unwrap_or_else(|| member.handle.clone()).to_lowercase()));
+            UVaultGroup {
+                id,
+                name: group.display_name,
+                owner: group.is_owner,
+                member_count: members.len() as u64,
+                members,
+            }
         }).collect::<Vec<_>>();
         result.sort_by_key(|group| group.name.to_lowercase());
         Ok(result)
