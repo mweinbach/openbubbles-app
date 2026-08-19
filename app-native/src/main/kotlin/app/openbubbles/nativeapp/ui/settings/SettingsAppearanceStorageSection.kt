@@ -141,94 +141,93 @@ internal fun rememberAppearanceStorageSection(
             }
 
             if (filter == null || filter == SettingsSection.Storage) {
-            SettingsGroup(
-                title = if (showTitles) "Storage & backup" else null,
-            ) {
-                val cacheLabel = cacheBytes
-                    ?.let { formatBytes(it).ifEmpty { "Empty" } }
-                    ?: "Calculating…"
-                val backupErrorText = backupError
-                val backupStageText = backupStage
-                val storageRows = buildList {
-                    add("attachments")
-                    add("clear")
-                    add("export")
-                    add("restore")
-                    if (backupStageText != null) add("working")
-                    if (backupErrorText != null) add("error")
-                }
-                val storageCount = storageRows.size
-                storageRows.forEachIndexed { storageIndex, row ->
-                    when (row) {
-                        "attachments" -> SettingsInfoItem(
-                            title = "Attachments on disk",
-                            supporting = cacheLabel,
-                            index = storageIndex,
-                            count = storageCount,
-                            icon = Icons.Filled.Folder,
-                        )
-                        "clear" -> SettingsActionItem(
-                            title = "Clear attachment cache",
-                            supporting = "Removes downloaded files; they can be fetched again",
-                            onClick = {
-                                scope.launch {
-                                    withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
-                                    onCacheBytes(withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() })
-                                }
-                            },
-                            index = storageIndex,
-                            count = storageCount,
-                            enabled = (cacheBytes ?: 0L) > 0L,
-                            icon = Icons.Filled.DeleteSweep,
-                        )
-                        "export" -> SettingsActionItem(
-                            title = "Export backup",
-                            supporting = "Save a zip of this device's messages and attachments",
-                            onClick = { exportLauncher.launch(backupFileName()) },
-                            index = storageIndex,
-                            count = storageCount,
-                            enabled = !backupBusy,
-                            busy = backupBusy && backupStageText != null,
-                            icon = Icons.Filled.Upload,
-                        )
-                        "restore" -> SettingsActionItem(
-                            title = "Restore backup",
-                            supporting = "Replace this device's data from a zip; the app restarts afterwards",
-                            onClick = {
-                                restoreLauncher.launch(
-                                    arrayOf(
-                                        "application/zip",
-                                        "application/x-zip-compressed",
-                                        "application/octet-stream",
-                                    ),
-                                )
-                            },
-                            index = storageIndex,
-                            count = storageCount,
-                            enabled = !backupBusy,
-                            icon = Icons.Filled.Restore,
-                        )
-                        "working" -> SettingsInfoItem(
-                            title = "Working…",
-                            supporting = backupStageText,
-                            index = storageIndex,
-                            count = storageCount,
-                            icon = Icons.Filled.HourglassTop,
-                        )
-                        else -> SettingsInfoItem(
-                            title = "Backup error",
-                            supporting = backupErrorText,
-                            index = storageIndex,
-                            count = storageCount,
-                            multiline = true,
-                            titleColor = MaterialTheme.colorScheme.error,
-                            icon = Icons.Filled.ErrorOutline,
-                            tone = SettingsRowTone.Error,
-                        )
+                SettingsGroup(
+                    title = if (showTitles) "Storage & backup" else null,
+                ) {
+                    val cacheLabel = cacheBytes
+                        ?.let { formatBytes(it).ifEmpty { "Empty" } }
+                        ?: "Calculating…"
+                    val backupErrorText = backupError
+                    val backupStageText = backupStage
+                    val storageRows = buildList {
+                        add("attachments")
+                        add("clear")
+                        add("export")
+                        add("restore")
+                        if (backupStageText != null) add("working")
+                        if (backupErrorText != null) add("error")
+                    }
+                    val storageCount = storageRows.size
+                    storageRows.forEachIndexed { storageIndex, row ->
+                        when (row) {
+                            "attachments" -> SettingsInfoItem(
+                                title = "Attachments on disk",
+                                supporting = cacheLabel,
+                                index = storageIndex,
+                                count = storageCount,
+                                icon = Icons.Filled.Folder,
+                            )
+                            "clear" -> SettingsActionItem(
+                                title = "Clear attachment cache",
+                                supporting = "Removes downloaded files; they can be fetched again",
+                                onClick = {
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) { AppGraph.clearAttachmentCache() }
+                                        onCacheBytes(withContext(Dispatchers.IO) { AppGraph.attachmentsCacheBytes() })
+                                    }
+                                },
+                                index = storageIndex,
+                                count = storageCount,
+                                enabled = (cacheBytes ?: 0L) > 0L,
+                                icon = Icons.Filled.DeleteSweep,
+                            )
+                            "export" -> SettingsActionItem(
+                                title = "Export backup",
+                                supporting = "Save a zip of this device's messages and attachments",
+                                onClick = { exportLauncher.launch(backupFileName()) },
+                                index = storageIndex,
+                                count = storageCount,
+                                enabled = !backupBusy,
+                                busy = backupBusy && backupStageText != null,
+                                icon = Icons.Filled.Upload,
+                            )
+                            "restore" -> SettingsActionItem(
+                                title = "Restore backup",
+                                supporting = "Replace this device's data from a zip; the app restarts afterwards",
+                                onClick = {
+                                    restoreLauncher.launch(
+                                        arrayOf(
+                                            "application/zip",
+                                            "application/x-zip-compressed",
+                                            "application/octet-stream",
+                                        ),
+                                    )
+                                },
+                                index = storageIndex,
+                                count = storageCount,
+                                enabled = !backupBusy,
+                                icon = Icons.Filled.Restore,
+                            )
+                            "working" -> SettingsInfoItem(
+                                title = "Working…",
+                                supporting = backupStageText,
+                                index = storageIndex,
+                                count = storageCount,
+                                icon = Icons.Filled.HourglassTop,
+                            )
+                            else -> SettingsInfoItem(
+                                title = "Backup error",
+                                supporting = backupErrorText,
+                                index = storageIndex,
+                                count = storageCount,
+                                multiline = true,
+                                titleColor = MaterialTheme.colorScheme.error,
+                                icon = Icons.Filled.ErrorOutline,
+                                tone = SettingsRowTone.Error,
+                            )
+                        }
                     }
                 }
-            }
-
             }
         },
         dialogs = {

@@ -238,36 +238,36 @@ fun SettingsScreen(
             showTitles: Boolean,
             modifier: Modifier = Modifier,
         ) {
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
-        ) {
-            accountSection.groups(filter, showTitles)
-
-            icloudSection.groups(filter, showTitles)
-
-            messagingSection.groups(filter, showTitles)
-
-            if (filter == null) SettingsGroup(
-                title = if (showTitles) "Location" else null,
+            Column(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
             ) {
-                SettingsActionItem(
-                    title = "Find My",
-                    supporting = "Devices, friends and items",
-                    onClick = onOpenFindMy,
-                    index = 0,
-                    count = 1,
-                    icon = Icons.Filled.LocationOn,
-                )
+                accountSection.groups(filter, showTitles)
+
+                icloudSection.groups(filter, showTitles)
+
+                messagingSection.groups(filter, showTitles)
+
+                if (filter == null) SettingsGroup(
+                    title = if (showTitles) "Location" else null,
+                ) {
+                    SettingsActionItem(
+                        title = "Find My",
+                        supporting = "Devices, friends and items",
+                        onClick = onOpenFindMy,
+                        index = 0,
+                        count = 1,
+                        icon = Icons.Filled.LocationOn,
+                    )
+                }
+
+                appearanceStorageSection.groups(filter, showTitles)
+
+                diagnosticsAboutSection.groups(filter, showTitles)
             }
-
-            appearanceStorageSection.groups(filter, showTitles)
-
-            diagnosticsAboutSection.groups(filter, showTitles)
-        }
         }
 
         if (isMediumWidth) {
