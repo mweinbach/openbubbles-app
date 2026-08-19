@@ -81,6 +81,7 @@ import app.openbubbles.nativeapp.IncomingShareRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
@@ -701,7 +702,13 @@ fun OpenBubblesApp(
                         onOpenSearch = { openSearch() },
                         onVisibleChatsChanged = { ids ->
                             transcriptPrefetchJob?.cancel()
+                            val visibleAddresses = state.chats
+                                .filter { it.id in ids.toHashSet() }
+                                .mapNotNull { it.avatarAddress }
                             transcriptPrefetchJob = prefetchScope.launch {
+                                // Contacts first: cheap, and a row tapped
+                                // right away gets a warm header.
+                                ContactDisplayWarmCache.warm(visibleAddresses)
                                 AppGraph.messages.prefetch(ids)
                             }
                         },

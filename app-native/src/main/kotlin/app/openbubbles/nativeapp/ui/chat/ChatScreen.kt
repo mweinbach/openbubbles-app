@@ -11,6 +11,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
@@ -115,6 +116,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -141,6 +144,8 @@ import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.StickerTransform
+import app.openbubbles.nativeapp.data.ContactDisplay
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
 import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
@@ -442,6 +447,16 @@ fun ChatScreen(
     val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
+    // Tapping a reply quote scrolls to the original and pulses it; the guid
+    // outlives the pulse so a row that composes mid-scroll still flashes.
+    var replyHighlightGuid by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(replyHighlightGuid) {
+        if (replyHighlightGuid != null) {
+            delay(2400)
+            replyHighlightGuid = null
+        }
+    }
+
     // ---- Send screen effects -------------------------------------------------
     // The ViewModel flags the newest unplayed effect; the overlay plays ~700ms
     // after the message renders (matches the Dart send-animation delay). Users
@@ -619,7 +634,8 @@ fun ChatScreen(
     }
 
     // Contact names for group sender labels and "<name> unsent a message"
-    // rows (best effort).
+    // rows (best effort). Rows peek ContactDisplayWarmCache while this map
+    // fills, so warm names paint on the first frame.
     val senderNames = remember { mutableStateMapOf<String, String>() }
     LaunchedEffect(uiState.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
@@ -629,7 +645,12 @@ fun ChatScreen(
             .distinct()
         val names = withContext(Dispatchers.IO) {
             addresses.mapNotNull { address ->
-                resolver(address)?.first?.let { address to it }
+                val resolved = resolver(address)
+                ContactDisplayWarmCache.put(
+                    address,
+                    ContactDisplay(resolved?.first, resolved?.second),
+                )
+                resolved?.first?.let { address to it }
             }
         }
         names.forEach { (address, name) ->
@@ -894,10 +915,15 @@ fun ChatScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
-                            item(key = "typing-indicator") {
+                            item(key = "typing-indicator", contentType = "typing-indicator") {
                                 TypingIndicatorRow(
                                     senderAddress = uiState.typingSenders.first(),
-                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
+                                        .animateItem(
+                                            fadeInSpec = itemSpecs.fadeIn,
+                                            fadeOutSpec = itemSpecs.fadeOut,
+                                            placementSpec = itemSpecs.placement,
+                                        ),
                                 )
                             }
                         }
@@ -925,13 +951,33 @@ fun ChatScreen(
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
-                                    senderDisplayName = entry.message.senderAddress?.let { senderNames[it] },
+                                    senderDisplayName = entry.message.senderAddress?.let {
+                                        senderNames[it]
+                                            ?: ContactDisplayWarmCache.peek(it)?.displayName
+                                    },
                                     replyQuote = resolveReplyQuote(
                                         entry.message,
                                         messagesByGuid,
                                         senderNames,
                                     ),
-                                    onOpenReplyThread = { onOpenReplyThread(entry.message) },
+                                    onReplyQuoteTap = {
+                                        val target = resolveReplyScrollTarget(
+                                            entries,
+                                            entry.message.replyToGuid,
+                                        )
+                                        if (target == null) {
+                                            // Original not in the loaded window:
+                                            // the thread pane can fetch it.
+                                            onOpenReplyThread(entry.message)
+                                        } else {
+                                            replyHighlightGuid = entry.message.replyToGuid
+                                            scope.launch {
+                                                listState.animateScrollToItem(
+                                                    target + if (isTyping) 1 else 0,
+                                                )
+                                            }
+                                        }
+                                    },
                                     onDownloadSticker = { guid ->
                                         onDownloadAttachment(
                                             AttachmentMeta(
@@ -959,6 +1005,9 @@ fun ChatScreen(
                                             fadeInSpec = itemSpecs.fadeIn,
                                             fadeOutSpec = itemSpecs.fadeOut,
                                             placementSpec = itemSpecs.placement,
+                                        )
+                                        .replyHighlightPulse(
+                                            active = replyHighlightGuid == entry.message.guid,
                                         ),
                                 )
                                 is ConversationEntry.TimeSeparator -> {
@@ -977,7 +1026,7 @@ fun ChatScreen(
                             }
                         }
                         if (uiState.loadingOlder) {
-                            item(key = "loading-older") {
+                            item(key = "loading-older", contentType = "loading-older") {
                                 Box(
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .fillMaxWidth().padding(12.dp),
@@ -1392,6 +1441,31 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
 }
 
 /**
+ * One soft flash behind the original message after scroll-to-original: rise,
+ * hold long enough to be found, fade. Reduce-motion swaps the ramps for cuts
+ * via the theme effects spec.
+ */
+@Composable
+private fun Modifier.replyHighlightPulse(active: Boolean): Modifier {
+    if (!active) return this
+    val color = MaterialTheme.colorScheme.primary
+    val spec = defaultEffectsSpec<Float>()
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        alpha.animateTo(0.18f, spec)
+        delay(650)
+        alpha.animateTo(0f, spec)
+    }
+    return drawBehind {
+        drawRoundRect(
+            color = color,
+            alpha = alpha.value,
+            cornerRadius = CornerRadius(24.dp.toPx()),
+        )
+    }
+}
+
+/**
  * Animated "•••" bubble shown at the bottom of the transcript while a
  * participant is typing (dots fade in sequence via an infinite transition).
  */
@@ -1399,7 +1473,10 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
 fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
     val name = senderAddress?.let { address ->
         produceState<String?>(null, address) {
-            value = runCatching { UiContacts.contactNames?.invoke(address)?.first }.getOrNull()
+            // Resolving can rebuild the whole handle index; never on main.
+            value = withContext(Dispatchers.IO) {
+                runCatching { UiContacts.contactNames?.invoke(address)?.first }.getOrNull()
+            }
         }.value
     }
     Row(

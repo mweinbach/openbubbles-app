@@ -6,6 +6,7 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -105,6 +106,58 @@ class ReplyUiTest {
     fun `empty query results still keep the tapped message`() {
         val source = message(guid = "child", replyToGuid = "root")
         assertEquals(listOf("child"), ensureThreadContains(emptyList(), source).map { it.guid })
+    }
+
+    @Test
+    fun `scroll target resolves the original message entry`() {
+        val root = message(id = 1, guid = "root")
+        val mid = message(id = 2, guid = "mid")
+        val reply = message(id = 3, guid = "child", replyToGuid = "root")
+        val entries = buildConversationEntries(listOf(root, mid, reply))
+        val target = resolveReplyScrollTarget(entries, "root")
+        assertEquals(
+            "root",
+            (entries[assertNotNull(target)] as ConversationEntry.Message).message.guid,
+        )
+    }
+
+    @Test
+    fun `scroll target is null when the original is outside the window`() {
+        val entries = buildConversationEntries(
+            listOf(message(id = 3, guid = "child", replyToGuid = "root")),
+        )
+        assertNull(resolveReplyScrollTarget(entries, "root"))
+        assertNull(resolveReplyScrollTarget(entries, null))
+    }
+
+    @Test
+    fun `connector launches vertically and lands horizontally`() {
+        val geometry = replyConnectorGeometry(
+            width = 60f,
+            height = 30f,
+            startInsetFromOuter = 40f,
+            endInsetFromOuter = 12f,
+            outerEdgeOnRight = true,
+        )
+        assertEquals(geometry.start.x, geometry.control.x)
+        assertEquals(geometry.end.y, geometry.control.y)
+        assertEquals(0f, geometry.start.y)
+        assertEquals(30f, geometry.end.y)
+        assertEquals(20f, geometry.start.x)
+        assertEquals(48f, geometry.end.x)
+    }
+
+    @Test
+    fun `connector mirrors when the outer edge is on the left`() {
+        val geometry = replyConnectorGeometry(
+            width = 60f,
+            height = 30f,
+            startInsetFromOuter = 40f,
+            endInsetFromOuter = 12f,
+            outerEdgeOnRight = false,
+        )
+        assertEquals(40f, geometry.start.x)
+        assertEquals(12f, geometry.end.x)
     }
 
     @Test

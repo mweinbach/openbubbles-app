@@ -20,6 +20,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.openbubbles.nativeapp.data.ContactDisplay
+import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.UiContacts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,21 +37,28 @@ fun initialsFor(title: String): String {
 }
 
 /**
- * Resolves a contact photo URI for a handle address through [UiContacts].
- * Returns null when no resolver is set, the address is unknown, or the
- * contact has no photo — callers keep the initials fallback.
+ * Resolves a contact photo URI for a handle address through [UiContacts],
+ * seeded synchronously from [ContactDisplayWarmCache] so warm avatars render
+ * on the first frame. Returns null when no resolver is set, the address is
+ * unknown, or the contact has no photo — callers keep the initials fallback.
  */
 @Composable
 fun rememberContactAvatarPath(address: String?): String? {
     val generation by UiContacts.avatarGeneration.collectAsState()
-    return produceState<String?>(initialValue = null, address, generation) {
+    return produceState<String?>(
+        initialValue = ContactDisplayWarmCache.peek(address)?.avatarPath,
+        address,
+        generation,
+    ) {
         if (address == null) {
             value = null
             return@produceState
         }
-        value = withContext(Dispatchers.IO) {
-            runCatching { UiContacts.contactNames?.invoke(address)?.second }.getOrNull()
+        val resolved = withContext(Dispatchers.IO) {
+            runCatching { UiContacts.contactNames?.invoke(address) }.getOrNull()
         }
+        ContactDisplayWarmCache.put(address, ContactDisplay(resolved?.first, resolved?.second))
+        value = resolved?.second
     }.value
 }
 

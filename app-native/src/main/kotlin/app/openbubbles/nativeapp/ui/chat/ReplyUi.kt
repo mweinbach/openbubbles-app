@@ -61,6 +61,20 @@ fun resolveReplyQuote(
     )
 }
 
+/**
+ * Index of the transcript entry rendering the reply's original message, or
+ * null when the original is outside the loaded window — callers fall back to
+ * the reply thread pane so the tap never no-ops.
+ */
+internal fun resolveReplyScrollTarget(
+    entries: List<ConversationEntry>,
+    replyToGuid: String?,
+): Int? {
+    val guid = replyToGuid ?: return null
+    val index = entries.indexOfFirst { it is ConversationEntry.Message && it.message.guid == guid }
+    return index.takeIf { it >= 0 }
+}
+
 internal fun belongsToReplyThread(message: MessageItem, rootGuid: String, part: Long): Boolean {
     if (message.guid == rootGuid) return true
     if (message.replyToGuid != rootGuid) return false

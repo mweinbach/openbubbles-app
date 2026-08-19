@@ -1,8 +1,10 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import android.content.res.Configuration
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -44,14 +46,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -64,6 +73,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
@@ -80,6 +90,7 @@ import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
@@ -103,6 +114,18 @@ private val SenderAvatarSize = 28.dp
 
 /** Gap between the avatar gutter and the bubble stack. */
 private val SenderAvatarSpacing = 8.dp
+
+/** How far the tapback pill rises above the bubble's top edge. */
+private val ReactionChipRise = 14.dp
+
+/**
+ * How far the pill hangs outside the bubble's outer edge — under the 12dp
+ * transcript gutter so a bubble at the screen edge never clips the pill.
+ */
+private val ReactionChipOverhang = 10.dp
+
+/** Extra row headroom so the overlapping tapback never crosses the item bounds. */
+private val ReactionRowExtraTopPadding = 12.dp
 
 /**
  * Caps the bubble column at ~78% of the width it is actually given, so
@@ -309,7 +332,8 @@ fun MessageBubble(
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     senderDisplayName: String? = null,
     replyQuote: ReplyQuote? = null,
-    onOpenReplyThread: () -> Unit = {},
+    /** Tap on the quoted original: scroll-to-original or open the thread pane. */
+    onReplyQuoteTap: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
     /** Slide the bubble toward the start edge to begin an inline reply. */
@@ -357,10 +381,17 @@ fun MessageBubble(
         else -> textPart
     }
     val avatarGutter = showAvatarGutter && !message.isFromMe
+    // Pop the tapback only when it lands while the row is on screen; rows that
+    // scroll in already reacted render it settled.
+    val reactionPopsIn = remember(message.id) { message.reactionEmoji == null }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp),
+            .padding(horizontal = 12.dp)
+            .padding(
+                top = if (message.reactionEmoji != null) 3.dp + ReactionRowExtraTopPadding else 3.dp,
+                bottom = 3.dp,
+            ),
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
         // pane sizes its bubbles against that pane rather than the whole display.
@@ -426,7 +457,7 @@ fun MessageBubble(
                     quote = quote,
                     replyFromMe = message.isFromMe,
                     smsChat = smsChat,
-                    onOpen = onOpenReplyThread,
+                    onOpen = onReplyQuoteTap,
                 )
             }
             interactivePayload?.let { payload ->
@@ -467,8 +498,9 @@ fun MessageBubble(
                         ReactionChip(
                             emoji = emoji,
                             isFromMe = message.isFromMe,
+                            popIn = reactionPopsIn,
                             modifier = Modifier.align(
-                                if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                             ),
                         )
                     }
@@ -494,8 +526,9 @@ fun MessageBubble(
                             ReactionChip(
                                 emoji = emoji,
                                 isFromMe = message.isFromMe,
+                                popIn = reactionPopsIn,
                                 modifier = Modifier.align(
-                                    if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                 ),
                             )
                         }
@@ -515,8 +548,9 @@ fun MessageBubble(
                                 ReactionChip(
                                     emoji = emoji,
                                     isFromMe = message.isFromMe,
+                                    popIn = reactionPopsIn,
                                     modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                     ),
                                 )
                             }
@@ -563,8 +597,9 @@ fun MessageBubble(
                                 ReactionChip(
                                     emoji = emoji,
                                     isFromMe = message.isFromMe,
+                                    popIn = reactionPopsIn,
                                     modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
                                     ),
                                 )
                             }
@@ -718,9 +753,47 @@ private fun InvisibleInkBubble(
     }
 }
 
+/** Ghost opacity for the quoted original, echoing iOS's dimmed reply quote. */
+private const val ReplyQuoteGhostAlpha = 0.62f
+
+/** Connector canvas footprint between the quote and the reply bubble. */
+private val ReplyConnectorWidth = 22.dp
+private val ReplyConnectorHeight = 8.dp
+
+internal data class ReplyConnectorGeometry(
+    val start: Offset,
+    val control: Offset,
+    val end: Offset,
+)
+
 /**
- * Smaller original-message bubble sitting above a reply, colored like the
- * original sender the way Apple Messages does. Tapping opens the thread.
+ * Quarter-hook between the quote's bottom edge and the reply's rounded top
+ * corner. Quote and reply are flush on the transcript's outer edge; the curve
+ * leaves the quote vertically [startInsetFromOuter] in from that edge and
+ * lands horizontally [endInsetFromOuter] in, aiming into the reply's corner
+ * radius. The control point directly under the start is what keeps the launch
+ * vertical and the landing horizontal.
+ */
+internal fun replyConnectorGeometry(
+    width: Float,
+    height: Float,
+    startInsetFromOuter: Float,
+    endInsetFromOuter: Float,
+    outerEdgeOnRight: Boolean,
+): ReplyConnectorGeometry {
+    fun fromOuter(inset: Float) = if (outerEdgeOnRight) width - inset else inset
+    val start = Offset(fromOuter(startInsetFromOuter), 0f)
+    return ReplyConnectorGeometry(
+        start = start,
+        control = Offset(start.x, height),
+        end = Offset(fromOuter(endInsetFromOuter), height),
+    )
+}
+
+/**
+ * Smaller ghosted original-message bubble sitting above a reply, colored like
+ * the original sender the way Apple Messages does, joined to the reply by a
+ * curved connector. Tapping shows the original message.
  */
 @Composable
 private fun ReplyQuotePreview(
@@ -742,9 +815,9 @@ private fun ReplyQuotePreview(
             contentColor = bubbleContent,
             modifier = Modifier
                 .widthIn(max = 240.dp)
-                .graphicsLayer { alpha = 0.82f }
+                .graphicsLayer { alpha = ReplyQuoteGhostAlpha }
                 .clickable(
-                    onClickLabel = "View reply thread",
+                    onClickLabel = "Show original message",
                     role = Role.Button,
                     onClick = onOpen,
                 ),
@@ -766,29 +839,103 @@ private fun ReplyQuotePreview(
                 )
             }
         }
-        Box(
+        val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+        val connectorColor = MaterialTheme.colorScheme.outlineVariant
+        Canvas(
             modifier = Modifier
-                .padding(
-                    start = if (replyFromMe) 0.dp else 18.dp,
-                    end = if (replyFromMe) 18.dp else 0.dp,
-                )
                 .offset(y = (-1).dp)
-                .size(width = 3.dp, height = 8.dp)
-                .background(bubbleColor.copy(alpha = 0.82f), RoundedCornerShape(1.5.dp)),
-        )
+                .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
+        ) {
+            // The curve runs past the canvas into the stack gap below so it
+            // lands on the reply's top corner; Canvas does not clip.
+            val geometry = replyConnectorGeometry(
+                width = size.width,
+                height = size.height + 4.dp.toPx(),
+                startInsetFromOuter = 16.dp.toPx(),
+                endInsetFromOuter = 5.dp.toPx(),
+                outerEdgeOnRight = replyFromMe == isLtr,
+            )
+            drawPath(
+                path = Path().apply {
+                    moveTo(geometry.start.x, geometry.start.y)
+                    quadraticTo(
+                        geometry.control.x, geometry.control.y,
+                        geometry.end.x, geometry.end.y,
+                    )
+                },
+                color = connectorColor,
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
     }
 }
 
+/**
+ * Physical x-direction from the tapback pill toward the bubble it reacts to.
+ * The pill hangs off the bubble's outer top corner (start for incoming, end
+ * for outgoing), so the tail always steps back toward the bubble body: right
+ * for an LTR incoming bubble, left for LTR outgoing, mirrored under RTL.
+ */
+internal fun reactionTailDirection(isFromMe: Boolean, isLtr: Boolean): Float =
+    if (isFromMe == isLtr) -1f else 1f
+
+/**
+ * iOS-style tapback: a pill overlapping the bubble's top corner with a
+ * two-dot thought-bubble tail descending toward the bubble, popping in on a
+ * spatial spring when the reaction lands while visible.
+ */
 @Composable
-private fun ReactionChip(emoji: String, isFromMe: Boolean, modifier: Modifier = Modifier) {
+private fun ReactionChip(
+    emoji: String,
+    isFromMe: Boolean,
+    modifier: Modifier = Modifier,
+    popIn: Boolean = false,
+) {
+    val popSpec = fastSpatialSpec<Float>()
+    val scale = remember { Animatable(if (popIn) 0.4f else 1f) }
+    LaunchedEffect(Unit) {
+        if (scale.value != 1f) scale.animateTo(1f, popSpec)
+    }
+    val towardBubble = reactionTailDirection(
+        isFromMe = isFromMe,
+        isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr,
+    )
+    val fill = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outlineVariant
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.offset(
-            x = if (isFromMe) 7.dp else (-7).dp,
-            y = 7.dp,
-        ),
+        color = fill,
+        border = BorderStroke(1.dp, outline),
+        modifier = modifier
+            .offset(
+                x = if (isFromMe) ReactionChipOverhang else -ReactionChipOverhang,
+                y = -ReactionChipRise,
+            )
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                // Grow out of the tail corner, like iOS.
+                transformOrigin = TransformOrigin(if (towardBubble > 0f) 0.8f else 0.2f, 1f)
+            }
+            .drawBehind {
+                // Two-dot tail: a larger dot tangent under the pill's inner
+                // edge, a smaller one below it, stepping toward the bubble.
+                val strokeWidth = 1.dp.toPx()
+                val bigRadius = 2.5.dp.toPx()
+                val smallRadius = 1.5.dp.toPx()
+                val big = Offset(
+                    size.width / 2f + towardBubble * (size.width / 2f - bigRadius),
+                    size.height - bigRadius / 2f,
+                )
+                val small = Offset(
+                    size.width / 2f + towardBubble * (size.width / 2f + smallRadius),
+                    size.height + smallRadius * 1.5f,
+                )
+                drawCircle(fill, bigRadius, big)
+                drawCircle(outline, bigRadius, big, style = Stroke(strokeWidth))
+                drawCircle(fill, smallRadius, small)
+                drawCircle(outline, smallRadius, small, style = Stroke(strokeWidth))
+            },
     ) {
         Text(
             text = emoji,
