@@ -1989,6 +1989,7 @@ private object CoreFaceTimeCaller : FaceTimeCaller {
             displayName = normalizedSender,
             description = description,
             callUuid = callUuid,
+            participants = participantAddresses,
         )
     }
 }

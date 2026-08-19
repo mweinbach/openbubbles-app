@@ -10,7 +10,25 @@ import android.telecom.DisconnectCause
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.util.Log
+import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.service.FaceTimeDispatch
+
+/** One launch shape for an outgoing call: telecom announcement + call activity. */
+internal fun startOutgoingFaceTime(context: Context, launch: FaceTimeLaunch) {
+    FaceTimeCallBridge.onOutgoingCallPlaced(
+        context,
+        callUuid = launch.callUuid,
+        peerHandle = launch.participants.singleOrNull(),
+        displayName = launch.description,
+    )
+    context.startActivity(
+        Intent(context, FaceTimeActivity::class.java)
+            .putExtra("link", launch.link)
+            .putExtra("name", launch.displayName)
+            .putExtra("desc", launch.description)
+            .putExtra("callUuid", launch.callUuid),
+    )
+}
 
 /**
  * Single owner of the "telecom or notification-only" decision and of live
