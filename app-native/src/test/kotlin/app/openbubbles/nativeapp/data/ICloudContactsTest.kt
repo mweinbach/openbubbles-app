@@ -27,6 +27,48 @@ class ICloudContactsTest {
     }
 
     @Test
+    fun `parses nickname and organization`() {
+        val parsed = ICloudVCardParser.parse(
+            """
+                BEGIN:VCARD
+                VERSION:3.0
+                PRODID:-//Apple Inc.//iCloud Web Address Book 2508B33//EN
+                N:Appleseed;Johnny;;;
+                FN:Johnny Appleseed
+                NICKNAME:John,JJ
+                ORG:Apple Inc.;Software Engineering
+                item1.EMAIL;TYPE=INTERNET;TYPE=HOME;TYPE=pref:johnny@icloud.com
+                TEL;TYPE=CELL;TYPE=VOICE;TYPE=pref:+1 (555) 867-5309
+                REV:2024-06-01T00:00:00Z
+                END:VCARD
+            """.trimIndent(),
+        )
+
+        assertEquals("John", parsed.nickname)
+        assertEquals("Apple Inc.", parsed.company)
+        assertEquals("Johnny Appleseed", parsed.displayName)
+        assertEquals(listOf("johnny@icloud.com", "+1 (555) 867-5309"), parsed.addresses)
+    }
+
+    @Test
+    fun `blank nickname and org components stay null`() {
+        val parsed = ICloudVCardParser.parse(
+            """
+                BEGIN:VCARD
+                VERSION:4.0
+                FN:No Extras
+                NICKNAME:
+                ORG:;Engineering
+                EMAIL:plain@example.com
+                END:VCARD
+            """.trimIndent(),
+        )
+
+        assertEquals(null, parsed.nickname)
+        assertEquals(null, parsed.company)
+    }
+
+    @Test
     fun `unfolds and decodes text and inline photos`() {
         val parsed = ICloudVCardParser.parse(
             "BEGIN:VCARD\r\n" +

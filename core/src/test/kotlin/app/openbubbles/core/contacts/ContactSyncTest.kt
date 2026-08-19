@@ -98,6 +98,44 @@ class ContactSyncTest {
         assertEquals("/avatars/c2-new.png", contactByNativeId("c2")?.avatarPath)
     }
 
+    @Test
+    fun `icloud upsert owns nickname and company including their removal`() {
+        sync.upsertContacts(
+            listOf(
+                raw("icloud:card1", addresses = listOf("nick@icloud.com"))
+                    .copy(nickname = "Nicky", company = "Apple"),
+            ),
+        )
+        val stored = contactByNativeId("icloud:card1")
+        assertEquals("Nicky", stored?.nickname)
+        assertEquals("Apple", stored?.company)
+
+        val exported = sync.icloudContacts().single()
+        assertEquals("icloud:card1", exported.id)
+        assertEquals("Nicky", exported.nickname)
+        assertEquals("Apple", exported.company)
+        assertEquals(listOf("nick@icloud.com"), exported.addresses)
+
+        sync.upsertContacts(listOf(raw("icloud:card1", addresses = listOf("nick@icloud.com"))))
+        assertNull(contactByNativeId("icloud:card1")?.nickname)
+        assertNull(contactByNativeId("icloud:card1")?.company)
+    }
+
+    @Test
+    fun `device upsert keeps a legacy nickname it does not carry`() {
+        val legacy = ContactV2().apply {
+            nativeContactId = "42"
+            nickname = "Mom"
+            addresses = listOf("+15551230000")
+        }
+        store.boxFor(ContactV2::class.java).put(legacy)
+
+        sync.upsertContacts(listOf(raw("42", displayName = "Jane Doe", addresses = listOf("+15551230000"))))
+
+        assertEquals("Mom", contactByNativeId("42")?.nickname)
+        assertTrue(sync.icloudContacts().isEmpty())
+    }
+
     // ------------------------------------------------------------------
     // Handle matching
     // ------------------------------------------------------------------

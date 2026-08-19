@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Optional "save iCloud contacts to phone" mirror; requested at
+         runtime only when the user enables that toggle. -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -175,6 +178,20 @@
             android:name="app.openbubbles.nativeapp.facetime.FaceTimeActionReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <!-- Stub authenticator backing the local iCloud-contacts account;
+             only the system AccountManager binds authenticator services. -->
+        <service
+            android:name="app.openbubbles.nativeapp.data.contacts.ICloudContactsAccountService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/icloud_contacts_authenticator" />
+        </service>
 
         <!-- SIM SMS/MMS receive + send-status (blocks adapted from the Flutter
              app's SMSReceiver registration; data-SMS/OTP receivers stay with
