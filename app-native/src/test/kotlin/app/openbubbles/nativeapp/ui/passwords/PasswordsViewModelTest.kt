@@ -4,7 +4,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -101,99 +100,6 @@ class PasswordsViewModelTest {
     }
 
     @Test
-    fun `deleting the selected item removes it and clears the selection`() = runTest(dispatcher) {
-        val keep = VaultItemUi("keep", VaultCategory.Passwords, "keep.example", "alice")
-        val drop = VaultItemUi("drop", VaultCategory.Passwords, "drop.example", "bob")
-        val port = FakePasswordsPort(items = listOf(keep, drop))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-
-        model.select(drop)
-        model.deleteSelected()
-        advanceUntilIdle()
-
-        assertEquals(listOf("keep"), model.uiState.value.items.map { it.id })
-        assertNull(model.uiState.value.selected)
-    }
-
-    @Test
-    fun `adding a verification code records setup and opens codes`() = runTest(dispatcher) {
-        val password = VaultItemUi("password", VaultCategory.Passwords, "example.com", "alice")
-        val port = FakePasswordsPort(items = listOf(password))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-
-        model.addTotp(password, "JBSW Y3DP EHPK 3PXP")
-        advanceUntilIdle()
-
-        assertEquals(listOf(password to "JBSW Y3DP EHPK 3PXP"), port.totpSetups)
-        assertEquals(VaultCategory.Codes, model.uiState.value.category)
-        assertEquals(listOf("code-password"), model.uiState.value.items.map { it.id })
-    }
-
-    @Test
-    fun `renaming a group updates its name`() = runTest(dispatcher) {
-        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2)))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-        model.setCategory(VaultCategory.Groups)
-        advanceUntilIdle()
-
-        model.renameGroup("family", "Household")
-        advanceUntilIdle()
-
-        assertEquals(listOf("Household"), model.uiState.value.groups.map { it.name })
-    }
-
-    @Test
-    fun `deleting a group removes it`() = runTest(dispatcher) {
-        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2)))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-        model.setCategory(VaultCategory.Groups)
-        advanceUntilIdle()
-
-        model.deleteGroup("family")
-        advanceUntilIdle()
-
-        assertEquals(emptyList<String>(), model.uiState.value.groups.map { it.id })
-    }
-
-    @Test
-    fun `inviting a group member refreshes pending membership`() = runTest(dispatcher) {
-        val owner = VaultGroupMemberUi("Alice", "mailto:alice@example.com", true, true)
-        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 1, listOf(owner))))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-        model.setCategory(VaultCategory.Groups)
-        advanceUntilIdle()
-
-        model.inviteGroupMember("family", "bob@example.com")
-        advanceUntilIdle()
-
-        assertEquals(listOf("family" to "bob@example.com"), port.groupInvites)
-        assertEquals(2, model.uiState.value.groups.single().memberCount)
-        assertEquals(false, model.uiState.value.groups.single().members.last().joined)
-    }
-
-    @Test
-    fun `removing a group member refreshes membership`() = runTest(dispatcher) {
-        val owner = VaultGroupMemberUi("Alice", "mailto:alice@example.com", true, true)
-        val member = VaultGroupMemberUi("Bob", "mailto:bob@example.com", true, false)
-        val port = FakePasswordsPort(groups = listOf(VaultGroupUi("family", "Family", true, 2, listOf(owner, member))))
-        val model = PasswordsViewModel(port)
-        advanceUntilIdle()
-        model.setCategory(VaultCategory.Groups)
-        advanceUntilIdle()
-
-        model.removeGroupMember("family", member.handle)
-        advanceUntilIdle()
-
-        assertEquals(listOf("family" to member.handle), port.groupRemovals)
-        assertEquals(listOf(owner), model.uiState.value.groups.single().members)
-    }
-
-    @Test
     fun `declining an invite removes it`() = runTest(dispatcher) {
         val port = FakePasswordsPort(invites = listOf(VaultInviteUi("inv", "Family", "alice@example.com")))
         val model = PasswordsViewModel(port)
@@ -205,5 +111,22 @@ class PasswordsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<String>(), model.uiState.value.invites.map { it.id })
+    }
+
+    @Test
+    fun `an edit-bus bump reloads the visible category`() = runTest(dispatcher) {
+        val item = VaultItemUi("1", VaultCategory.Passwords, "example.com", "alice")
+        val port = FakePasswordsPort(items = listOf(item))
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+        assertEquals(listOf(item), model.uiState.value.items)
+
+        // A detail page deleted the item and announced the change.
+        port.items = emptyList()
+        VaultEditBus.notifyChanged()
+        advanceUntilIdle()
+
+        assertEquals(emptyList<VaultItemUi>(), model.uiState.value.items)
+        assertEquals(0, model.uiState.value.categoryCounts[VaultCategory.Passwords])
     }
 }

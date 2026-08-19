@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,6 +27,7 @@ data class VaultItemUi(
     val title: String,
     val username: String? = null,
     val groupId: String? = null,
+    val modifiedAtMs: Long? = null,
 )
 
 data class VaultGroupMemberUi(
@@ -45,6 +47,20 @@ data class VaultGroupUi(
 
 data class VaultInviteUi(val id: String, val groupName: String, val inviter: String)
 
+/**
+ * Cross-page change signal. Item and group detail pages mutate the vault
+ * (delete, TOTP add, group edits) from their own nav entries, so the list's
+ * ViewModel never sees those writes; a bump tells any live [PasswordsViewModel]
+ * to reload what it is currently showing.
+ */
+object VaultEditBus {
+    private val mutableRevisions = MutableStateFlow(0)
+    val revisions: StateFlow<Int> = mutableRevisions.asStateFlow()
+    fun notifyChanged() {
+        mutableRevisions.update { it + 1 }
+    }
+}
+
 data class PasswordsUiState(
     val loading: Boolean = true,
     val inClique: Boolean? = null,
@@ -56,9 +72,6 @@ data class PasswordsUiState(
     val groups: List<VaultGroupUi> = emptyList(),
     val invites: List<VaultInviteUi> = emptyList(),
     val groupsLoaded: Boolean = false,
-    val selected: VaultItemUi? = null,
-    val revealedSecret: String? = null,
-    val secretExpiresAtSeconds: Long? = null,
     val busy: Boolean = false,
     val error: String? = null,
 )
@@ -111,6 +124,7 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
                 title = item.title,
                 username = item.username,
                 groupId = item.groupId,
+                modifiedAtMs = item.modifiedAtMs.toLong().takeIf { it > 0 },
             )
         }
     }
@@ -272,7 +286,22 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
     val uiState: StateFlow<PasswordsUiState> = mutableState.asStateFlow()
     private var categoryLoadJob: Job? = null
 
-    init { refresh() }
+    init {
+        refresh()
+        viewModelScope.launch {
+            VaultEditBus.revisions.drop(1).collect {
+                try {
+                    reloadAfterExternalEdit()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    mutableState.update {
+                        it.copy(categoryLoading = false, error = error.message ?: "iCloud Passwords failed")
+                    }
+                }
+            }
+        }
+    }
 
     fun refresh() {
         categoryLoadJob?.cancel()
@@ -320,9 +349,6 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
                 category = category,
                 query = "",
                 items = emptyList(),
-                selected = null,
-                revealedSecret = null,
-                secretExpiresAtSeconds = null,
                 categoryLoading = true,
                 error = null,
             )
@@ -347,61 +373,13 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
 
     fun setQuery(query: String) = mutableState.update { it.copy(query = query) }
 
-    fun select(item: VaultItemUi?) = mutableState.update {
-        it.copy(selected = item, revealedSecret = null, secretExpiresAtSeconds = null, error = null)
-    }
-
-    fun revealSelected() {
-        val item = mutableState.value.selected ?: return
-        runAction { 
-            val (secret, expiry) = port.reveal(item)
-            mutableState.update { it.copy(revealedSecret = secret, secretExpiresAtSeconds = expiry) }
-        }
-    }
-
     fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction {
         port.createPassword(site.trim(), username.trim(), password, groupId)
         refreshAfterWrite(VaultCategory.Passwords)
     }
 
-    fun addTotp(item: VaultItemUi, setup: String) = runAction {
-        port.addTotp(item, setup.trim())
-        refreshAfterWrite(VaultCategory.Codes)
-    }
-
-    fun deleteSelected() {
-        val item = mutableState.value.selected ?: return
-        runAction {
-            port.deleteItem(item)
-            mutableState.update {
-                it.copy(selected = null, revealedSecret = null, secretExpiresAtSeconds = null)
-            }
-            refreshAfterWrite(item.category)
-        }
-    }
-
     fun createGroup(name: String) = runAction {
         port.createGroup(name.trim())
-        refreshAfterWrite(VaultCategory.Groups)
-    }
-
-    fun renameGroup(id: String, name: String) = runAction {
-        port.renameGroup(id, name.trim())
-        refreshAfterWrite(VaultCategory.Groups)
-    }
-
-    fun deleteGroup(id: String) = runAction {
-        port.deleteGroup(id)
-        refreshAfterWrite(VaultCategory.Groups)
-    }
-
-    fun inviteGroupMember(id: String, handle: String) = runAction {
-        port.inviteGroupMember(id, handle.trim())
-        refreshAfterWrite(VaultCategory.Groups)
-    }
-
-    fun removeGroupMember(id: String, handle: String) = runAction {
-        port.removeGroupMember(id, handle)
         refreshAfterWrite(VaultCategory.Groups)
     }
 
@@ -429,6 +407,13 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
                 )
             }
         }
+    }
+
+    /** A detail page changed the vault; re-fetch whatever is on screen. */
+    private suspend fun reloadAfterExternalEdit() {
+        if (mutableState.value.inClique != true) return
+        mutableState.update { it.copy(categoryLoading = true, groupsLoaded = false) }
+        loadCategoryContent(mutableState.value.category)
     }
 
     private suspend fun loadCategoryContent(category: VaultCategory) {
@@ -466,9 +451,6 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
                 category = category,
                 query = "",
                 items = emptyList(),
-                selected = null,
-                revealedSecret = null,
-                secretExpiresAtSeconds = null,
                 categoryLoading = true,
             )
         }
@@ -504,7 +486,7 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
     }
 }
 
-private fun VaultCategory.itemKind(): UVaultItemKind = when (this) {
+internal fun VaultCategory.itemKind(): UVaultItemKind = when (this) {
     VaultCategory.Passwords -> UVaultItemKind.PASSWORD
     VaultCategory.Passkeys -> UVaultItemKind.PASSKEY
     VaultCategory.Codes -> UVaultItemKind.CODE
