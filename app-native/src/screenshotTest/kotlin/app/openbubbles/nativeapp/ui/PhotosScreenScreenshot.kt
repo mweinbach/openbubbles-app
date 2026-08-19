@@ -43,6 +43,7 @@ fun PhotosScreenScreenshot() {
                             width = 4032,
                             height = 3024,
                             originalSize = 4_200_000,
+                            previewSize = 102_000,
                             capturedAtMs = null,
                             addedAtMs = null,
                             favorite = true,
@@ -57,6 +58,7 @@ fun PhotosScreenScreenshot() {
                             width = 1920,
                             height = 1080,
                             originalSize = 38_700_000,
+                            previewSize = 1_200_000,
                             capturedAtMs = null,
                             addedAtMs = null,
                             favorite = false,
@@ -69,6 +71,7 @@ fun PhotosScreenScreenshot() {
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
+            onDownloadPreview = {},
         )
     }
 }

@@ -10,8 +10,10 @@ The first product target is an experimental, read-only iCloud Photos browser and
 
 1. detect whether the signed-in account exposes the personal Photos library;
 2. page recent asset metadata without downloading the whole library;
-3. explicitly download an original image, video, or complete Live Photo pair;
-4. prove incremental changes before adding a durable catalog or background work.
+3. explicitly download a small preview, then an original image, video, or complete Live Photo
+   pair;
+4. persist metadata and transfer intent without treating missing local data as a cloud deletion;
+5. prove incremental changes before adding background work.
 
 Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. Upload,
 remote deletion, album mutation, edits, favorites, hidden state, and Shared Photo Library writes
@@ -50,8 +52,9 @@ The repository already has most lower-level primitives needed for a Photos proto
 - page/cursor/apply patterns in `core/.../sync/CloudSyncManager.kt` and
   `CloudSyncStateStore.kt`.
 
-The first personal Photos protocol slice is now implemented. The production catalog, resource
-downloads, incremental changes, and mutations described below are not.
+The access/metadata slice and the host-side preview/catalog foundation are now implemented.
+Original resources, Live Photo pair downloads, incremental changes, background work, and remote
+mutations described below are not.
 
 ## Investigation completed
 
@@ -79,24 +82,51 @@ The 2026-08-19 static audit established that:
 - `core/photos/PhotosPort.kt` provides the fakeable port and a deduplicating pager. It has tests
   for indexing behavior, page continuation/deduplication, and the FFI page-size bound.
 - Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It states
-  explicitly that the probe is read-only and downloads/saves no media.
+  explicitly that the library is experimental and read-only.
+
+### Implemented setup slice (awaiting live preview proof)
+
+- Metadata queries now ask for the presence and size of `resJPEGThumbRes` for images and
+  `resVidSmallRes` for videos while still using `NO_ASSETS`; listing never downloads media.
+- `download_photo_preview(master_id, media_kind, destination, progress)` is an async UniFFI call.
+  Rust fetches exactly one selected asset field, keeps CloudKit/MMCS authorization material behind
+  the FFI boundary, streams byte progress, flushes, and fsyncs the staging file.
+- `PhotoTransferCoordinator` creates deterministic app-owned preview paths, writes to `.part`,
+  atomically promotes successful files, removes failures, coalesces same-asset requests, and
+  persists queued/running/succeeded/failed state for clean retries.
+- Android now owns a separate WAL-enabled `openbubbles-photos.db`. Metadata plus its next cursor
+  commit in one transaction; transfer rows include direction, resource kind, local path, progress,
+  attempts, error, and timestamps. Interrupted `Running` rows recover to `Queued` at startup. The
+  v1 SQL signature is pinned by a unit test, and a version bump fails until an explicit migration
+  is supplied.
+- Cached metadata and completed preview state restore before a live refresh. The experimental
+  Photos rows expose explicit preview downloads and progress; no automatic download is started.
+- Upload source files can be validated and recorded as durable `Blocked` plans. There is no remote
+  upload UniFFI method and no CPL write is attempted until a live device proves the required
+  records, assets, change tags, and commit order.
+
+The database is intentionally an Android implementation behind the Android-free `PhotosCatalog`
+contract. It does not add entities to `db/objectbox-model.json` and cannot move or rewrite the
+legacy message store.
 
 Host evidence on 2026-08-19:
 
-- full `rustpush` library suite: 24 passed, 2 manual-network tests ignored;
+- full `rustpush` library suite after the preview slice: 26 passed, 2 manual-network tests ignored;
 - UniFFI release build, committed Kotlin generation, and binding parity check: passed;
 - `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`, and ObjectBox model parity: passed;
 - Android x86_64/arm64 Rust compilation and `:app-native:assembleDebug`: passed;
-- the new light/dark Photos screenshot goldens: passed and were inspected.
+- the updated light/dark Photos screenshot goldens: passed and were inspected;
+- debug APK SHA-256:
+  `bec4f1890589a5c37f1bcfc5f7df14186f6c8e14ce4ad625dd335c7955d28fd5`.
 
 The repository-wide screenshot task still reports 28 unrelated existing baseline mismatches under
 this renderer. Only the two Photos cases were updated; unrelated reference images were left
 untouched.
 
 This does **not** prove that Apple's server accepts the inferred native Photos bundle/container
-pair for an OpenBubbles account session. No live Apple account, normal/ADP comparison, media
-download, durable catalog, incremental change cursor, background worker, upload, or delete has
-been validated. The experimental screen is the next device-test surface for that go/no-go proof.
+pair for an OpenBubbles account session. No live Apple account, normal/ADP comparison, preview or
+original download, incremental change cursor, background worker, upload, or delete has been
+validated. The experimental screen is the next device-test surface for that go/no-go proof.
 
 ## Ownership and proposed architecture
 
@@ -137,8 +167,10 @@ The first two names are now committed; keep later additions narrow.
 - A photo summary should initially contain only stable product fields: asset/master ID, filename,
   media kind, created/added times, dimensions, duration, favorite/hidden flags, and available
   resource kinds.
-- A later `download_photo_resource(asset_id, resource_kind, destination)` performs an explicit
-  atomic download and returns verified size/checksum information.
+- `download_photo_preview(master_id, media_kind, destination, progress)` is committed for the
+  small image/video display rendition. Kotlin owns atomic promotion and durable state.
+- A later `download_photo_resource(asset_id, resource_kind, destination)` will cover originals and
+  Live Photo pairs and return verified size/checksum information.
 
 CloudKit authentication tokens, signed download URLs, change tags, encryption material, raw
 records, and server response bodies must remain in Rust and must not be logged or cross UniFFI.
@@ -160,17 +192,21 @@ experimental screen look like sync.
 
 ### Slice 2: explicit resource download
 
-1. Download an original still image and video to app-owned temporary storage.
-2. Support and verify both components of a Live Photo.
-3. Atomically promote completed files; clean up partial files on cancellation/failure.
-4. Add an explicit "Save to device" MediaStore export. Exported gallery files are user-owned
+1. Download a small image/video preview to app-owned temporary storage. Host implementation is
+   complete; live proof is pending.
+2. Download an original still image and video.
+3. Support and verify both components of a Live Photo.
+4. Atomically promote completed files; clean up partial files on cancellation/failure. The shared
+   coordinator is implemented for previews.
+5. Add an explicit "Save to device" MediaStore export. Exported gallery files are user-owned
    copies, not the sync root.
 
 ### Slice 3: durable read-only mirror
 
-1. Finalize a separate photo catalog schema after real CPL fixtures establish stable identifiers
-   and relationships.
-2. Persist opaque cursors only after a page has been applied successfully.
+1. Evolve the versioned separate photo catalog after real CPL fixtures establish stable
+   identifiers and relationships. Schema v1 now holds bounded metadata snapshots and transfers.
+2. Persist opaque cursors only after a page has been applied successfully. The v1 snapshot+cursor
+   transaction implements this rule; incremental page application is still pending.
 3. Make record application idempotent and model tombstones separately from local cache eviction.
 4. Add thumbnail/original caches with quotas, resumable transfers, and storage-pressure behavior.
 5. Preserve gallery exports when cloud records disappear unless the user explicitly requests
@@ -186,7 +222,8 @@ experimental screen look like sync.
 
 ### Slice 5: mutations
 
-Only start after read-only sync has a durable device test record:
+Only start remote execution after read-only sync has a durable device test record. Local upload
+planning rows exist now so UI/process work can be restored, but they intentionally remain blocked:
 
 - uploads and resource packaging;
 - album creation/membership changes;

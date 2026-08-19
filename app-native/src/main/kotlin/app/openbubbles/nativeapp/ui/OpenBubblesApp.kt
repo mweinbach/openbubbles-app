@@ -1093,6 +1093,7 @@ fun OpenBubblesApp(
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
+                        onDownloadPreview = viewModel::downloadPreview,
                     )
                 }
 

@@ -830,6 +830,7 @@ pub struct UPhotoAssetSummary {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub original_size: Option<u64>,
+    pub preview_size: Option<u64>,
     pub captured_at_ms: Option<u64>,
     pub added_at_ms: Option<u64>,
     pub favorite: bool,
@@ -917,6 +918,7 @@ fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSumma
         width: asset.width,
         height: asset.height,
         original_size: asset.original_size,
+        preview_size: asset.preview_size,
         captured_at_ms: asset.captured_at_ms,
         added_at_ms: asset.added_at_ms,
         favorite: asset.favorite,
@@ -988,6 +990,49 @@ impl NativePushState {
                 assets: page.assets.into_iter().map(u_photo_asset).collect(),
                 next_cursor: page.next_offset.map(|offset| offset.to_string()),
             })
+        })
+        .await
+    }
+
+    /// Download one small Photos display rendition to an app-owned staging
+    /// path. Kotlin atomically promotes the completed file and persists the
+    /// transfer; raw CloudKit/MMCS authorization data remains inside Rust.
+    pub async fn download_photo_preview(
+        &self,
+        master_id: String,
+        media_kind: UPhotoMediaKind,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        if master_id.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photo master id is required".to_string(),
+            });
+        }
+        let media_kind = match media_kind {
+            UPhotoMediaKind::Image => rustpush::photos::PhotoMediaKind::Image,
+            UPhotoMediaKind::Video => rustpush::photos::PhotoMediaKind::Video,
+            UPhotoMediaKind::Unknown => {
+                return Err(UError::InvalidArgument {
+                    reason: "Photo media kind is unknown".to_string(),
+                });
+            }
+        };
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let mut file = create_dest(&dest_path)?;
+            client
+                .download_preview(&master_id, media_kind, &mut file, progress_cb(progress))
+                .await
+                .map_err(|error| photos_protocol_error("preview download", error))?;
+            file.flush().map_err(|error| UError::Failed {
+                reason: format!("failed to flush Photos preview: {error}"),
+            })?;
+            file.sync_all().map_err(|error| UError::Failed {
+                reason: format!("failed to sync Photos preview: {error}"),
+            })?;
+            Ok(())
         })
         .await
     }

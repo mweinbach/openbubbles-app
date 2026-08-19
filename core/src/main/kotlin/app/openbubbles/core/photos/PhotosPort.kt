@@ -3,6 +3,7 @@ package app.openbubbles.core.photos
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UPhotoMediaKind
 import uniffi.rust_lib_bluebubbles.UPhotosAccessState
+import uniffi.rust_lib_bluebubbles.UProgressCallback
 
 enum class PhotosAvailability {
     Ready,
@@ -30,6 +31,7 @@ data class PhotoSummary(
     val width: Int?,
     val height: Int?,
     val originalSize: Long?,
+    val previewSize: Long? = null,
     val capturedAtMs: Long?,
     val addedAtMs: Long?,
     val favorite: Boolean,
@@ -48,6 +50,12 @@ data class PhotosPage(
 interface PhotosPort {
     suspend fun access(): PhotosAccess
     suspend fun page(cursor: String?, limit: Int): PhotosPage
+
+    suspend fun downloadPreview(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = Result.failure(UnsupportedOperationException("Photos preview downloads are unavailable"))
 }
 
 class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
@@ -81,6 +89,7 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
                     width = asset.width?.toSafeInt(),
                     height = asset.height?.toSafeInt(),
                     originalSize = asset.originalSize?.toSafeLong(),
+                    previewSize = asset.previewSize?.toSafeLong(),
                     capturedAtMs = asset.capturedAtMs?.toSafeLong(),
                     addedAtMs = asset.addedAtMs?.toSafeLong(),
                     favorite = asset.favorite,
@@ -88,6 +97,28 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
                 )
             },
             nextCursor = page.nextCursor,
+        )
+    }
+
+    override suspend fun downloadPreview(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = runCatching {
+        val mediaKind = when (asset.mediaKind) {
+            PhotoMediaKind.Image -> UPhotoMediaKind.IMAGE
+            PhotoMediaKind.Video -> UPhotoMediaKind.VIDEO
+            PhotoMediaKind.Unknown -> UPhotoMediaKind.UNKNOWN
+        }
+        state.downloadPhotoPreview(
+            masterId = asset.id,
+            mediaKind = mediaKind,
+            destPath = destPath,
+            progress = object : UProgressCallback {
+                override fun onProgress(done: ULong, total: ULong) {
+                    onProgress(done.toSafeLong(), total.toSafeLong())
+                }
+            },
         )
     }
 }

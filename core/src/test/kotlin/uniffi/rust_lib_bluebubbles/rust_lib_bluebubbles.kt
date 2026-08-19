@@ -1539,6 +1539,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1707,6 +1709,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_a
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_preview(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message(
 ): Short
@@ -2163,6 +2167,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachm
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_photo_preview(`ptr`: Pointer,`masterId`: RustBuffer.ByValue,`mediaKind`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_edit_message(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`toUuid`: RustBuffer.ByValue,`editPart`: Long,`newParts`: RustBuffer.ByValue,
 ): Long
@@ -2866,6 +2872,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 33762.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_preview() != 45860.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_edit_message() != 1213.toShort()) {
@@ -6379,6 +6388,13 @@ public interface NativePushStateInterface {
     suspend fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
 
     /**
+     * Download one small Photos display rendition to an app-owned staging
+     * path. Kotlin atomically promotes the completed file and persists the
+     * transfer; raw CloudKit/MMCS authorization data remains inside Rust.
+     */
+    suspend fun `downloadPhotoPreview`(`masterId`: kotlin.String, `mediaKind`: UPhotoMediaKind, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+
+    /**
      * Edit a previously-sent message part (Dart `edit`). `to_uuid` is the
      * original message GUID, `edit_part` the part index being replaced,
      * `new_parts` the full replacement part list (text/mention parts with
@@ -7364,6 +7380,33 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(
                 thisPtr,
                 FfiConverterString.lower(`mmcsXml`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
+     * Download one small Photos display rendition to an app-owned staging
+     * path. Kotlin atomically promotes the completed file and persists the
+     * transfer; raw CloudKit/MMCS authorization data remains inside Rust.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `downloadPhotoPreview`(`masterId`: kotlin.String, `mediaKind`: UPhotoMediaKind, `destPath`: kotlin.String, `progress`: UProgressCallback?) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_photo_preview(
+                thisPtr,
+                FfiConverterString.lower(`masterId`),FfiConverterTypeUPhotoMediaKind.lower(`mediaKind`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
@@ -14292,6 +14335,7 @@ data class UPhotoAssetSummary (
     var `width`: kotlin.UInt?,
     var `height`: kotlin.UInt?,
     var `originalSize`: kotlin.ULong?,
+    var `previewSize`: kotlin.ULong?,
     var `capturedAtMs`: kotlin.ULong?,
     var `addedAtMs`: kotlin.ULong?,
     var `favorite`: kotlin.Boolean,
@@ -14317,6 +14361,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalULong.read(buf),
             FfiConverterOptionalULong.read(buf),
             FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
         )
@@ -14331,6 +14376,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalUInt.allocationSize(value.`width`) +
             FfiConverterOptionalUInt.allocationSize(value.`height`) +
             FfiConverterOptionalULong.allocationSize(value.`originalSize`) +
+            FfiConverterOptionalULong.allocationSize(value.`previewSize`) +
             FfiConverterOptionalULong.allocationSize(value.`capturedAtMs`) +
             FfiConverterOptionalULong.allocationSize(value.`addedAtMs`) +
             FfiConverterBoolean.allocationSize(value.`favorite`) +
@@ -14346,6 +14392,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalUInt.write(value.`width`, buf)
             FfiConverterOptionalUInt.write(value.`height`, buf)
             FfiConverterOptionalULong.write(value.`originalSize`, buf)
+            FfiConverterOptionalULong.write(value.`previewSize`, buf)
             FfiConverterOptionalULong.write(value.`capturedAtMs`, buf)
             FfiConverterOptionalULong.write(value.`addedAtMs`, buf)
             FfiConverterBoolean.write(value.`favorite`, buf)
