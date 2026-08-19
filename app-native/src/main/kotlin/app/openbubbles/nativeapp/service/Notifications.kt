@@ -377,7 +377,7 @@ object Notifications {
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle("Reply not sent")
-            .setContentText("Tap to open OpenBubbles and try again")
+            .setContentText("Tap to open OpenGarden and try again")
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -702,7 +702,7 @@ object Notifications {
         contentIntent: PendingIntent,
     ): Notification = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(SMALL_ICON)
-        .setContentTitle("OpenBubbles")
+        .setContentTitle("OpenGarden")
         .setContentText("New message")
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setAutoCancel(true)
@@ -847,7 +847,7 @@ internal fun conversationShortcutSpec(
     chatGuid: String,
 ): ConversationShortcutSpec = ConversationShortcutSpec(
     id = identity.conversationId,
-    shortLabel = title.ifBlank { "OpenBubbles" },
+    shortLabel = title.ifBlank { "OpenGarden" },
     locusId = identity.conversationId,
     chatGuid = chatGuid,
 )

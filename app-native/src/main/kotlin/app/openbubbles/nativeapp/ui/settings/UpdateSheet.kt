@@ -235,7 +235,7 @@ internal fun UpdateSheetContent(
 
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "OpenBubbles checks for updates about twice a day in the background " +
+            text = "OpenGarden checks for updates about twice a day in the background " +
                 "and when you open the app.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -200,7 +200,7 @@ class NotificationPreviewTest {
             chatGuid = "guid",
         )
 
-        assertEquals("OpenBubbles", spec.shortLabel)
+        assertEquals("OpenGarden", spec.shortLabel)
     }
 
     @Test

@@ -157,7 +157,7 @@ internal fun rememberDiagnosticsAboutSection(
             when (installResult) {
                 UpdateCoordinator.InstallNowResult.NothingPending -> updateRefresh++
                 UpdateCoordinator.InstallNowResult.NeedsUnknownSourcesPermission -> {
-                    updateStatus = "Allow \"Install unknown apps\" for OpenBubbles, then tap Install again"
+                    updateStatus = "Allow \"Install unknown apps\" for OpenGarden, then tap Install again"
                     runCatching {
                         context.startActivity(
                             app.openbubbles.nativeapp.update.ApkInstaller.unknownSourcesIntent(context)
@@ -275,7 +275,7 @@ internal fun rememberDiagnosticsAboutSection(
             if (filter == null || filter == SettingsSection.About) {
                 SettingsGroup(title = if (showTitles) "About" else null) {
                     SettingsInfoItem(
-                        title = "OpenBubbles",
+                        title = "OpenGarden",
                         supporting = "Version ${versionName ?: "unknown"}",
                         index = 0,
                         count = 2,
@@ -354,6 +354,6 @@ private fun shareDiagnosticLogs(context: android.content.Context): Boolean = run
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Share OpenBubbles logs"))
+    context.startActivity(Intent.createChooser(intent, "Share OpenGarden logs"))
     true
 }.getOrDefault(false)

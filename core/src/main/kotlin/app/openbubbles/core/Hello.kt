@@ -13,7 +13,7 @@ package app.openbubbles.core
  * exact same two strings as before.
  */
 object Hello {
-    fun greeting(): String = "OpenBubbles native — Rust + Kotlin on ${platformName()}"
+    fun greeting(): String = "OpenGarden native — Rust + Kotlin on ${platformName()}"
 
     private fun platformName(): String =
         if (runCatching { Class.forName("android.os.Build") }.isSuccess) "Android" else "desktop JVM"

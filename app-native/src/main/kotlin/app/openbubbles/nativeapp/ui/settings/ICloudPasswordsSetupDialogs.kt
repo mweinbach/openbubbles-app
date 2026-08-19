@@ -29,7 +29,7 @@ internal fun escrowRecoveryFailure(message: String?): String {
         detail.contains("unimplemented escrow format 1", ignoreCase = true) ||
         detail.contains("legacy escrow", ignoreCase = true)
     ) {
-        "Apple only returned a legacy recovery record that OpenBubbles cannot use. " +
+        "Apple only returned a legacy recovery record that OpenGarden cannot use. " +
             "Use nearby-device approval instead; encrypted iCloud data was not reset."
     } else {
         detail.ifEmpty { "Unable to fetch trusted devices" }
@@ -111,7 +111,7 @@ internal fun NearbyICloudApprovalDialog(
                     }
                     sessionActive -> {
                         Text(
-                            "On a signed-in Apple device, approve the OpenBubbles sign-in request. " +
+                            "On a signed-in Apple device, approve the OpenGarden sign-in request. " +
                                 "Keep both devices nearby with Bluetooth on, then enter the six-digit code it shows.",
                             style = MaterialTheme.typography.bodyMedium,
                         )

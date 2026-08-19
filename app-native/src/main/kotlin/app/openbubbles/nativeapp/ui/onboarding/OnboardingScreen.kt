@@ -239,7 +239,7 @@ private fun ConnectStep(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "OpenBubbles signs in to Apple directly from this device. " +
+                text = "OpenGarden signs in to Apple directly from this device. " +
                     "Your credentials stay here — nothing passes through other servers.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
