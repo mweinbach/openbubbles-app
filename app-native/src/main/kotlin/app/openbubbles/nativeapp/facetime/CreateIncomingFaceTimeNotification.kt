@@ -134,7 +134,7 @@ object CreateIncomingFaceTimeNotification {
         notificationBuilder.setFullScreenIntent(openSummaryIntent, true)
         val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
         // clear after 30 seconds in case we didn't get an event from the server
-        notificationBuilder.setTimeoutAfter(30000)
+        notificationBuilder.setTimeoutAfter(FACETIME_RING_TIMEOUT_MS)
 
         val notification = notificationBuilder.build()
         // loop ringtone
