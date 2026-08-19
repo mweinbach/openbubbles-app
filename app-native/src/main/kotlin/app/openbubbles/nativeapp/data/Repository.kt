@@ -231,6 +231,9 @@ interface ChatListRepository {
     fun setBlocked(id: Long, blocked: Boolean, archive: Boolean = false) = Unit
     fun clearTranscript(id: Long) = Unit
     fun recentlyDeleted(): List<ChatListItem> = emptyList()
+
+    /** Count for the settings badge; avoids projecting every deleted chat. */
+    fun recentlyDeletedCount(): Int = recentlyDeleted().size
     fun restoreDeleted(id: Long) = Unit
     fun permanentlyDelete(id: Long) = Unit
     fun delete(id: Long)

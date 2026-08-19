@@ -1197,6 +1197,12 @@ private class CoreChatListRepository(
             .getOrElse { emptyList() }
     }
 
+    override fun recentlyDeletedCount(): Int {
+        val st = CoreGraph.store ?: return 0
+        if (st.isClosed) return 0
+        return runCatching { repo.recentlyDeletedCount().toInt() }.getOrDefault(0)
+    }
+
     override fun restoreDeleted(id: Long) = repo.restoreDeleted(id)
 
     override fun permanentlyDelete(id: Long) = repo.permanentlyDelete(id)

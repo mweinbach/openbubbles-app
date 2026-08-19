@@ -101,6 +101,10 @@ class ChatRepo(
         )
     }
 
+    /** Count of recoverably deleted conversations (badge use; no projection). */
+    fun recentlyDeletedCount(): Long =
+        chatBox.query().notNull(Chat_.dateDeleted).build().use { it.count() }
+
     /** Recoverably deleted conversations, newest deletion first. */
     fun recentlyDeleted(limit: Int = 0): List<ChatListItem> {
         val found = chatBox.query()
