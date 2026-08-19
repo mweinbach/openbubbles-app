@@ -33,7 +33,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
@@ -81,6 +88,10 @@ import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
+import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
+import app.openbubbles.nativeapp.ui.settings.SettingsGroup
+import app.openbubbles.nativeapp.ui.settings.SettingsRowContent
+import app.openbubbles.nativeapp.ui.settings.SettingsToggleItem
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -906,58 +917,90 @@ private fun ChatLocalOptions(
     onOpenBookmarks: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+    SettingsGroup(
+        title = "Options",
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = "OPTIONS",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        TextButton(onClick = { AppGraph.chats.setLockChatName(chat.id, !chat.lockChatName) }) {
-            Text(if (chat.lockChatName) "Unlock chat name" else "Lock chat name")
-        }
-        TextButton(onClick = { AppGraph.chats.setLockChatIcon(chat.id, !chat.lockChatIcon) }) {
-            Text(if (chat.lockChatIcon) "Unlock chat icon" else "Lock chat icon")
-        }
-        TextButton(
-            onClick = { AppGraph.chats.setAutoSendTypingIndicators(chat.id, !chat.autoSendTypingIndicators) },
-        ) {
-            Text(
-                if (chat.autoSendTypingIndicators) {
-                    "Stop sending typing indicators"
-                } else {
-                    "Send typing indicators in this chat"
-                },
-            )
-        }
-        TextButton(
-            onClick = { AppGraph.chats.setAutoSendReadReceipts(chat.id, !chat.autoSendReadReceipts) },
-        ) {
-            Text(
-                if (chat.autoSendReadReceipts) {
-                    "Don't send read receipts in this chat"
-                } else {
-                    "Send read receipts in this chat"
-                },
-            )
-        }
-        TextButton(onClick = onOpenBookmarks) {
-            Text("Bookmarks")
-        }
-        TextButton(
-            onClick = { scope.launch { AppGraph.chats.clearTranscript(chat.id) } },
-        ) {
-            Text("Clear transcript")
-        }
-        if (chat.blocked) {
-            TextButton(onClick = { AppGraph.chats.setBlocked(chat.id, blocked = false) }) {
-                Text("Unblock sender")
+        val rows = buildList<SettingsRowContent> {
+            add { index, count ->
+                SettingsToggleItem(
+                    title = "Lock chat name",
+                    supporting = "Keep this conversation's name when other devices rename it",
+                    checked = chat.lockChatName,
+                    onCheckedChange = { AppGraph.chats.setLockChatName(chat.id, it) },
+                    index = index,
+                    count = count,
+                    icon = Icons.AutoMirrored.Filled.Label,
+                )
+            }
+            add { index, count ->
+                SettingsToggleItem(
+                    title = "Lock chat icon",
+                    supporting = "Keep this conversation's photo when other devices change it",
+                    checked = chat.lockChatIcon,
+                    onCheckedChange = { AppGraph.chats.setLockChatIcon(chat.id, it) },
+                    index = index,
+                    count = count,
+                    icon = Icons.Filled.Image,
+                )
+            }
+            add { index, count ->
+                SettingsToggleItem(
+                    title = "Send typing indicators",
+                    supporting = "Send them in this conversation even when the Messaging setting is off",
+                    checked = chat.autoSendTypingIndicators,
+                    onCheckedChange = { AppGraph.chats.setAutoSendTypingIndicators(chat.id, it) },
+                    index = index,
+                    count = count,
+                    icon = Icons.Filled.Keyboard,
+                )
+            }
+            add { index, count ->
+                SettingsToggleItem(
+                    title = "Send read receipts",
+                    supporting = "Send them in this conversation even when the Messaging setting is off",
+                    checked = chat.autoSendReadReceipts,
+                    onCheckedChange = { AppGraph.chats.setAutoSendReadReceipts(chat.id, it) },
+                    index = index,
+                    count = count,
+                    icon = Icons.Filled.DoneAll,
+                )
+            }
+            add { index, count ->
+                SettingsActionItem(
+                    title = "Bookmarks",
+                    supporting = "Messages saved from this conversation",
+                    onClick = onOpenBookmarks,
+                    index = index,
+                    count = count,
+                    icon = Icons.Filled.Bookmark,
+                )
+            }
+            add { index, count ->
+                SettingsActionItem(
+                    title = "Clear transcript",
+                    supporting = "Remove this conversation's messages from this device",
+                    onClick = { scope.launch { AppGraph.chats.clearTranscript(chat.id) } },
+                    index = index,
+                    count = count,
+                    destructive = true,
+                    icon = Icons.Filled.DeleteSweep,
+                )
+            }
+            if (chat.blocked) {
+                add { index, count ->
+                    SettingsActionItem(
+                        title = "Unblock sender",
+                        supporting = "Receive messages from this conversation again",
+                        onClick = { AppGraph.chats.setBlocked(chat.id, blocked = false) },
+                        index = index,
+                        count = count,
+                        icon = Icons.Filled.Block,
+                    )
+                }
             }
         }
+        rows.forEachIndexed { index, row -> row(index, rows.size) }
     }
 }
 

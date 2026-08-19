@@ -35,6 +35,13 @@ import androidx.compose.ui.unit.dp
 /** Space between titled preference groups. */
 internal val SettingsGroupSpacing = 20.dp
 
+/**
+ * One row of a [SettingsGroup], invoked with its segmented position. Groups
+ * build a list of these and derive `count` from the list size, so a row added
+ * or removed can never leave a stale hardcoded count behind.
+ */
+internal typealias SettingsRowContent = @Composable (index: Int, count: Int) -> Unit
+
 /** Category rail on foldable / tablet. */
 internal val SettingsListPaneWidth = 300.dp
 
