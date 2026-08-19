@@ -53,7 +53,7 @@ class PasswordsViewModelTest {
     }
 
     @Test
-    fun `initial refresh shows cached category then refreshes it after sync`() = runTest(dispatcher) {
+    fun `initial refresh loads everything, syncs, then reloads`() = runTest(dispatcher) {
         val synced = VaultItemUi("remote", VaultCategory.Passwords, "example.com", "alice")
         val port = FakePasswordsPort(syncedItems = listOf(synced))
 
@@ -62,13 +62,14 @@ class PasswordsViewModelTest {
 
         assertEquals(1, port.syncCount)
         assertEquals(listOf(synced), model.uiState.value.items)
-        assertEquals(listOf(VaultCategory.Passwords, VaultCategory.Passwords), port.itemListRequests)
-        assertEquals(0, port.groupListCount)
-        assertEquals(0, port.inviteListCount)
+        // Two eager rounds over the four item categories: cold, then post-sync.
+        assertEquals(8, port.itemListRequests.size)
+        assertEquals(2, port.groupListCount)
+        assertEquals(2, port.inviteListCount)
     }
 
     @Test
-    fun `categories load on demand instead of loading the entire vault`() = runTest(dispatcher) {
+    fun `every category is loaded up front and switching never refetches`() = runTest(dispatcher) {
         val password = VaultItemUi("password", VaultCategory.Passwords, "example.com", "alice")
         val wifi = VaultItemUi("wifi", VaultCategory.Wifi, "Home Wi-Fi")
         val port = FakePasswordsPort(
@@ -78,25 +79,48 @@ class PasswordsViewModelTest {
         val model = PasswordsViewModel(port)
         advanceUntilIdle()
 
-        assertEquals(listOf(VaultCategory.Passwords, VaultCategory.Passwords), port.itemListRequests)
-        assertEquals(listOf(password), model.uiState.value.items)
+        assertEquals(
+            mapOf(
+                VaultCategory.Passwords to 1,
+                VaultCategory.Passkeys to 0,
+                VaultCategory.Codes to 0,
+                VaultCategory.Wifi to 1,
+                VaultCategory.Groups to 1,
+            ),
+            model.uiState.value.categoryCounts,
+        )
 
+        val listCallsBefore = port.itemListRequests.size
+        val groupCallsBefore = port.groupListCount
         model.setCategory(VaultCategory.Wifi)
         advanceUntilIdle()
 
-        assertEquals(
-            listOf(VaultCategory.Passwords, VaultCategory.Passwords, VaultCategory.Wifi),
-            port.itemListRequests,
-        )
-        assertEquals(listOf(wifi), model.uiState.value.items)
-        assertEquals(0, port.groupListCount)
+        assertEquals(listCallsBefore, port.itemListRequests.size)
+        assertEquals(false, model.uiState.value.categoryLoading)
+        assertEquals(listOf(wifi), filterVaultItems(model.uiState.value.items, VaultCategory.Wifi, ""))
 
         model.setCategory(VaultCategory.Groups)
         advanceUntilIdle()
 
-        assertEquals(1, port.groupListCount)
-        assertEquals(1, port.inviteListCount)
-        assertEquals(1, model.uiState.value.categoryCounts[VaultCategory.Groups])
+        assertEquals(groupCallsBefore, port.groupListCount)
+        assertEquals(listOf("family"), model.uiState.value.groups.map { it.id })
+    }
+
+    @Test
+    fun `a warm cache paints the screen before any port call`() = runTest(dispatcher) {
+        val cache = VaultCacheStore()
+        val item = VaultItemUi("1", VaultCategory.Passwords, "example.com", "alice")
+        val port = FakePasswordsPort(items = listOf(item))
+        val first = PasswordsViewModel(port, cache)
+        advanceUntilIdle()
+        assertEquals(listOf(item), first.uiState.value.items)
+
+        // Reopening the screen: state is seeded synchronously from the cache,
+        // before the background refresh has run at all.
+        val second = PasswordsViewModel(port, cache)
+        assertEquals(false, second.uiState.value.loading)
+        assertEquals(listOf(item), second.uiState.value.items)
+        assertEquals(false, second.uiState.value.categoryLoading)
     }
 
     @Test

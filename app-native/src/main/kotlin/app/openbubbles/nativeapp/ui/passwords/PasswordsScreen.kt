@@ -718,6 +718,7 @@ private fun PasswordsPreview() {
                 loading = false,
                 inClique = true,
                 items = listOf(VaultItemUi("1", VaultCategory.Passwords, "example.com", "person@example.com")),
+                loadedCategories = setOf(VaultCategory.Passwords),
                 categoryCounts = mapOf(VaultCategory.Passwords to 1),
             ),
             onBack = {}, onRefresh = {}, onOpenICloudSettings = {}, onCategory = {}, onQuery = {},

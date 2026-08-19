@@ -6,14 +6,19 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.PushStateHolder
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
@@ -61,20 +66,49 @@ object VaultEditBus {
     }
 }
 
+/**
+ * Process-lifetime cache of vault listings (metadata only — never secrets),
+ * so reopening the Passwords screen paints instantly while a background
+ * refresh runs. Kept strictly in memory: it dies with the process and is
+ * cleared when the account leaves the keychain clique.
+ */
+class VaultCacheStore {
+    @Volatile var inClique: Boolean? = null
+    @Volatile var itemsByCategory: Map<VaultCategory, List<VaultItemUi>> = emptyMap()
+    @Volatile var groups: List<VaultGroupUi>? = null
+    @Volatile var invites: List<VaultInviteUi>? = null
+
+    fun clear() {
+        inClique = null
+        itemsByCategory = emptyMap()
+        groups = null
+        invites = null
+    }
+
+    companion object {
+        /** Shared across screen opens; test constructors default to a fresh store. */
+        val shared = VaultCacheStore()
+    }
+}
+
 data class PasswordsUiState(
     val loading: Boolean = true,
     val inClique: Boolean? = null,
     val category: VaultCategory = VaultCategory.Passwords,
     val query: String = "",
+    /** Every loaded item across all categories; the list filters by [category]. */
     val items: List<VaultItemUi> = emptyList(),
+    val loadedCategories: Set<VaultCategory> = emptySet(),
     val categoryCounts: Map<VaultCategory, Int> = emptyMap(),
-    val categoryLoading: Boolean = false,
     val groups: List<VaultGroupUi> = emptyList(),
     val invites: List<VaultInviteUi> = emptyList(),
     val groupsLoaded: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
-)
+) {
+    /** The shown category has not produced content yet. */
+    val categoryLoading: Boolean get() = category !in loadedCategories
+}
 
 internal fun filterVaultItems(
     items: List<VaultItemUi>,
@@ -281,22 +315,27 @@ class FakePasswordsPort(
     }
 }
 
-class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
+class PasswordsViewModel(
+    private val port: PasswordsPort,
+    private val cache: VaultCacheStore = VaultCacheStore(),
+) : ViewModel() {
     private val mutableState = MutableStateFlow(PasswordsUiState())
     val uiState: StateFlow<PasswordsUiState> = mutableState.asStateFlow()
-    private var categoryLoadJob: Job? = null
+    private var refreshJob: Job? = null
 
     init {
+        seedFromCache()
         refresh()
         viewModelScope.launch {
             VaultEditBus.revisions.drop(1).collect {
+                if (mutableState.value.inClique != true) return@collect
                 try {
-                    reloadAfterExternalEdit()
+                    loadEverything()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
                     mutableState.update {
-                        it.copy(categoryLoading = false, error = error.message ?: "iCloud Passwords failed")
+                        it.copy(error = error.message ?: "iCloud Passwords failed")
                     }
                 }
             }
@@ -304,67 +343,67 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
     }
 
     fun refresh() {
-        categoryLoadJob?.cancel()
-        runAction(showLoading = true) {
-            val category = mutableState.value.category
-            val inClique = port.isInClique()
-            if (!inClique) {
-                mutableState.update {
-                    it.copy(
-                        loading = false,
-                        inClique = false,
-                        items = emptyList(),
-                        categoryCounts = emptyMap(),
-                        categoryLoading = false,
-                        groups = emptyList(),
-                        invites = emptyList(),
-                        groupsLoaded = false,
-                    )
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            // Cached content stays on screen; the full-screen spinner only
+            // appears when there is nothing at all to show yet.
+            val hasContent = mutableState.value.loadedCategories.isNotEmpty()
+            mutableState.update { it.copy(loading = !hasContent, busy = true, error = null) }
+            try {
+                val inClique = port.isInClique()
+                if (!inClique) {
+                    cache.clear()
+                    mutableState.update {
+                        it.copy(
+                            loading = false,
+                            inClique = false,
+                            items = emptyList(),
+                            loadedCategories = emptySet(),
+                            categoryCounts = emptyMap(),
+                            groups = emptyList(),
+                            invites = emptyList(),
+                            groupsLoaded = false,
+                        )
+                    }
+                    return@launch
                 }
-                return@runAction
+                cache.inClique = true
+                mutableState.update { it.copy(inClique = true, loading = false) }
+                loadEverything()
+                port.sync()
+                loadEverything()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update { it.copy(error = error.message ?: "iCloud Passwords failed") }
+            } finally {
+                // A newer refresh may already be running; only the live one
+                // clears the progress flags.
+                if (coroutineContext.isActive) {
+                    mutableState.update { it.copy(loading = false, busy = false) }
+                }
             }
-            mutableState.update {
-                it.copy(
-                    inClique = true,
-                    items = emptyList(),
-                    categoryCounts = emptyMap(),
-                    categoryLoading = true,
-                    groups = emptyList(),
-                    invites = emptyList(),
-                    groupsLoaded = false,
-                )
-            }
-            loadCategoryContent(category)
-            mutableState.update { it.copy(loading = false, busy = true) }
-            port.sync()
-            loadCategoryContent(mutableState.value.category)
         }
     }
 
     fun setCategory(category: VaultCategory) {
-        if (category == mutableState.value.category && !mutableState.value.categoryLoading) return
-        categoryLoadJob?.cancel()
-        mutableState.update {
-            it.copy(
-                category = category,
-                query = "",
-                items = emptyList(),
-                categoryLoading = true,
-                error = null,
-            )
-        }
-        categoryLoadJob = viewModelScope.launch {
-            try {
-                loadCategoryContent(category)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                if (mutableState.value.category == category) {
+        val alreadyLoaded = category in mutableState.value.loadedCategories
+        mutableState.update { it.copy(category = category, query = "") }
+        // Everything is loaded eagerly, so switching is normally instant; this
+        // fallback covers a category whose eager load failed earlier.
+        if (!alreadyLoaded && refreshJob?.isActive != true && mutableState.value.inClique == true) {
+            viewModelScope.launch {
+                try {
+                    if (category == VaultCategory.Groups) {
+                        applyGroups(port.listGroups(), port.listInvites())
+                    } else {
+                        applyItems(category, port.listItems(category))
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
                     mutableState.update {
-                        it.copy(
-                            categoryLoading = false,
-                            error = error.message ?: "iCloud Passwords failed",
-                        )
+                        it.copy(error = error.message ?: "iCloud Passwords failed")
                     }
                 }
             }
@@ -398,88 +437,103 @@ class PasswordsViewModel(private val port: PasswordsPort) : ViewModel() {
     fun prepareCreatePassword() {
         if (mutableState.value.groupsLoaded) return
         runAction {
-            val groups = port.listGroups()
-            mutableState.update {
-                it.copy(
-                    groups = groups,
-                    groupsLoaded = true,
-                    categoryCounts = it.categoryCounts + (VaultCategory.Groups to groups.size),
-                )
-            }
+            applyGroups(port.listGroups(), port.listInvites())
         }
     }
 
-    /** A detail page changed the vault; re-fetch whatever is on screen. */
-    private suspend fun reloadAfterExternalEdit() {
-        if (mutableState.value.inClique != true) return
-        mutableState.update { it.copy(categoryLoading = true, groupsLoaded = false) }
-        loadCategoryContent(mutableState.value.category)
+    /** Paint the last known vault immediately; [refresh] revalidates behind it. */
+    private fun seedFromCache() {
+        if (cache.inClique != true) return
+        val cachedItems = cache.itemsByCategory
+        val cachedGroups = cache.groups
+        if (cachedItems.isEmpty() && cachedGroups == null) return
+        mutableState.update { state ->
+            state.copy(
+                loading = false,
+                inClique = true,
+                items = cachedItems.values.flatten(),
+                loadedCategories = cachedItems.keys +
+                    if (cachedGroups != null) setOf(VaultCategory.Groups) else emptySet(),
+                categoryCounts = cachedItems.mapValues { it.value.size } +
+                    (cachedGroups?.let { mapOf(VaultCategory.Groups to it.size) } ?: emptyMap()),
+                groups = cachedGroups ?: emptyList(),
+                invites = cache.invites ?: emptyList(),
+                groupsLoaded = cachedGroups != null,
+            )
+        }
     }
 
-    private suspend fun loadCategoryContent(category: VaultCategory) {
-        if (category == VaultCategory.Groups) {
-            val groups = port.listGroups()
-            val invites = port.listInvites()
-            if (mutableState.value.category == category) {
-                mutableState.update {
-                    it.copy(
-                        groups = groups,
-                        invites = invites,
-                        groupsLoaded = true,
-                        categoryCounts = it.categoryCounts + (category to groups.size),
-                        categoryLoading = false,
-                    )
-                }
-            }
-        } else {
-            val items = port.listItems(category)
-            if (mutableState.value.category == category) {
-                mutableState.update {
-                    it.copy(
-                        items = items,
-                        categoryCounts = it.categoryCounts + (category to items.size),
-                        categoryLoading = false,
-                    )
-                }
-            }
+    /**
+     * Fetch every category in parallel so counts and lists are all present
+     * without tapping through, updating the screen as each one lands.
+     */
+    private suspend fun loadEverything() = coroutineScope {
+        val loads = ITEM_CATEGORIES.map { category ->
+            async { applyItems(category, port.listItems(category)) }
+        } + async { applyGroups(port.listGroups(), port.listInvites()) }
+        loads.awaitAll()
+    }
+
+    private fun applyItems(category: VaultCategory, items: List<VaultItemUi>) {
+        cache.itemsByCategory = cache.itemsByCategory + (category to items)
+        mutableState.update { state ->
+            state.copy(
+                items = state.items.filterNot { it.category == category } + items,
+                loadedCategories = state.loadedCategories + category,
+                categoryCounts = state.categoryCounts + (category to items.size),
+            )
+        }
+    }
+
+    private fun applyGroups(groups: List<VaultGroupUi>, invites: List<VaultInviteUi>) {
+        cache.groups = groups
+        cache.invites = invites
+        mutableState.update { state ->
+            state.copy(
+                groups = groups,
+                invites = invites,
+                groupsLoaded = true,
+                loadedCategories = state.loadedCategories + VaultCategory.Groups,
+                categoryCounts = state.categoryCounts + (VaultCategory.Groups to groups.size),
+            )
         }
     }
 
     private suspend fun refreshAfterWrite(category: VaultCategory) {
-        mutableState.update {
-            it.copy(
-                category = category,
-                query = "",
-                items = emptyList(),
-                categoryLoading = true,
-            )
-        }
-        loadCategoryContent(category)
+        mutableState.update { it.copy(category = category, query = "") }
+        loadEverything()
     }
 
-    private fun runAction(showLoading: Boolean = false, action: suspend () -> Unit) {
+    private fun runAction(action: suspend () -> Unit) {
         viewModelScope.launch {
-            mutableState.update { it.copy(loading = if (showLoading) true else it.loading, busy = !showLoading, error = null) }
+            mutableState.update { it.copy(busy = true, error = null) }
             try {
                 action()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 mutableState.update {
-                    it.copy(
-                        loading = false,
-                        categoryLoading = false,
-                        error = error.message ?: "iCloud Passwords failed",
-                    )
+                    it.copy(error = error.message ?: "iCloud Passwords failed")
                 }
             } finally {
-                mutableState.update { it.copy(loading = false, busy = false) }
+                mutableState.update { it.copy(busy = false) }
             }
         }
     }
 
     companion object {
-        fun factory(): ViewModelProvider.Factory = factory(RustPasswordsPort { PushStateHolder.state })
+        private val ITEM_CATEGORIES = listOf(
+            VaultCategory.Passwords,
+            VaultCategory.Passkeys,
+            VaultCategory.Codes,
+            VaultCategory.Wifi,
+        )
+
+        fun factory(): ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                PasswordsViewModel(RustPasswordsPort { PushStateHolder.state }, VaultCacheStore.shared)
+            }
+        }
         fun factory(port: PasswordsPort): ViewModelProvider.Factory = viewModelFactory {
             initializer { PasswordsViewModel(port) }
         }
