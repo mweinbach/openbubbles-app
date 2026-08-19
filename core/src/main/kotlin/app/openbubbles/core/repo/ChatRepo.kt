@@ -62,11 +62,43 @@ class ChatRepo(
             val contactInfo = contactSync.displayInfoByHandleId()
             val contactIds = contactSync.contactIdsByHandleId()
             val addressInfo = contactSync.displayInfoByMatchKey()
+            val lookups = batchProjectionLookups(found)
             // Project while the query and its creator thread are still alive;
             // relation reads in toItem must not escape to a collector thread.
-            val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo)
+            val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo, lookups)
             if (limit > 0) grouped.take(limit) else grouped
         }
+    }
+
+    /**
+     * Message rows the list projection needs, fetched once per emission
+     * instead of per chat: last-read dates for unread counting and target
+     * texts for reaction snippets. `observeChats` re-projects on every DB
+     * write, so per-chat guid queries here multiply across the whole table.
+     */
+    private class ProjectionLookups(
+        val lastReadDateByGuid: Map<String, java.util.Date?>,
+        val reactionTargetTextByGuid: Map<String, String?>,
+    )
+
+    private fun batchProjectionLookups(chats: List<Chat>): ProjectionLookups {
+        val lastReadGuids = chats
+            .filter { it.hasUnreadMessage }
+            .mapNotNull { it.lastReadMessageGuid }
+        val reactionGuids = chats
+            .mapNotNull { it.dbLatestMessage.target }
+            .filter { it.associatedMessageGuid != null && it.associatedMessageType != null }
+            .mapNotNull { it.associatedMessageGuid }
+        val wanted = (lastReadGuids + reactionGuids).distinct()
+        if (wanted.isEmpty()) return ProjectionLookups(emptyMap(), emptyMap())
+        val rows = messageBox.query()
+            .`in`(Message_.guid, wanted.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.find() }
+            .associateBy { it.guid }
+        return ProjectionLookups(
+            lastReadDateByGuid = lastReadGuids.distinct().associateWith { rows[it]?.dateCreated },
+            reactionTargetTextByGuid = reactionGuids.distinct().associateWith { rows[it]?.text },
+        )
     }
 
     /** Recoverably deleted conversations, newest deletion first. */
@@ -359,12 +391,18 @@ class ChatRepo(
      * last-read message (all incoming messages when nothing was read yet).
      * Zero once the chat-level unread flag is cleared.
      */
-    fun unreadCount(chat: Chat): Int {
+    fun unreadCount(chat: Chat): Int = unreadCount(chat, lookups = null)
+
+    private fun unreadCount(chat: Chat, lookups: ProjectionLookups?): Int {
         if (!chat.hasUnreadMessage) return 0
         val lastReadDate = chat.lastReadMessageGuid?.let { guid ->
-            messageBox.query()
-                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }?.dateCreated
+            if (lookups != null) {
+                lookups.lastReadDateByGuid[guid]
+            } else {
+                messageBox.query()
+                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }?.dateCreated
+            }
         }
         val builder = messageBox.query()
             .equal(Message_.chatId, chat.id)
@@ -390,6 +428,7 @@ class ChatRepo(
         chat: Chat,
         contactInfo: Map<Long, HandleDisplayInfo>,
         addressInfo: Map<String, HandleDisplayInfo>,
+        lookups: ProjectionLookups? = null,
     ): ChatListItem {
         val latest = chat.dbLatestMessage.target
         val others = otherHandles(chat)
@@ -402,10 +441,10 @@ class ChatRepo(
             id = chat.id,
             guid = chat.guid,
             title = deriveTitle(chat, contactInfo, addressInfo),
-            snippet = latest?.let { snippet(it, isGroup, contactInfo, addressInfo) },
+            snippet = latest?.let { snippet(it, isGroup, contactInfo, addressInfo, lookups) },
             date = latest?.dateCreated ?: chat.dbOnlyLatestMessageDate,
             hasUnread = chat.hasUnreadMessage,
-            unreadCount = unreadCount(chat),
+            unreadCount = unreadCount(chat, lookups),
             pinned = chat.isPinned,
             muted = ChatMute.shouldMute(chat),
             notifsSilenced = chat.notifsSilenced,
@@ -445,6 +484,7 @@ class ChatRepo(
         contactInfo: Map<Long, HandleDisplayInfo>,
         contactIds: Map<Long, Long>,
         addressInfo: Map<String, HandleDisplayInfo>,
+        lookups: ProjectionLookups? = null,
     ): List<ChatListItem> {
         val grouped = linkedMapOf<String, MutableList<ContactChatProjection>>()
         chats.forEach { chat ->
@@ -453,7 +493,7 @@ class ChatRepo(
             val key = contactId?.let { "contact:$it" } ?: "chat:${chat.id}"
             grouped.getOrPut(key) { mutableListOf() } += ContactChatProjection(
                 chat = chat,
-                item = toItem(chat, contactInfo, addressInfo),
+                item = toItem(chat, contactInfo, addressInfo, lookups),
                 contactInfo = identity?.info,
             )
         }
@@ -575,12 +615,13 @@ class ChatRepo(
         isGroup: Boolean,
         contactInfo: Map<Long, HandleDisplayInfo>,
         addressInfo: Map<String, HandleDisplayInfo>,
+        lookups: ProjectionLookups? = null,
     ): String {
         if (message.itemType != null && message.itemType > 0) {
             return groupEventText(message, contactInfo, addressInfo)
         }
         if (message.associatedMessageGuid != null && message.associatedMessageType != null) {
-            return reactionSnippet(message, contactInfo, addressInfo)
+            return reactionSnippet(message, contactInfo, addressInfo, lookups)
         }
         val body = when {
             !message.text.isNullOrBlank() -> message.text
@@ -598,6 +639,7 @@ class ChatRepo(
         message: Message,
         contactInfo: Map<Long, HandleDisplayInfo>,
         addressInfo: Map<String, HandleDisplayInfo>,
+        lookups: ProjectionLookups? = null,
     ): String {
         val rawType = message.associatedMessageType ?: return "Reaction"
         val removed = rawType.startsWith("-")
@@ -614,12 +656,15 @@ class ChatRepo(
         }
         val actor = snippetActor(message, contactInfo, addressInfo)
         val targetText = message.associatedMessageGuid?.let { guid ->
-            messageBox.query()
-                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
-                ?.text
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
+            val raw = if (lookups != null) {
+                lookups.reactionTargetTextByGuid[guid]
+            } else {
+                messageBox.query()
+                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                    .build().use { it.findFirst() }
+                    ?.text
+            }
+            raw?.trim()?.takeIf { it.isNotEmpty() }
         } ?: "a message"
         return if (removed) {
             "$actor removed a reaction from “$targetText”"
