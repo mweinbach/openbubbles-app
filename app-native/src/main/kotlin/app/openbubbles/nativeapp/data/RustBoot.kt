@@ -43,7 +43,7 @@ object RustBoot {
         try {
             purgeLegacyAuthLogs(context, File(dir))
             uniffiEnsureInitialized()
-            start(dir, SimpleFilePackager(), BootWifiCallback())
+            start(dir, SimpleFilePackager(context.applicationContext), BootWifiCallback())
             val keystore = AndroidNativeKeystore(context.applicationContext)
             setupKeystore(dir, keystore)
             nativeKeystore = keystore
