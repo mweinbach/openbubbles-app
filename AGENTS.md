@@ -94,6 +94,7 @@ destinations for Find My / Settings (those live in the chat-list profile menu).
 |---|---|
 | Device says connected but login/receive state disagrees | [openbubbles-live-flow-triage](.agents/skills/openbubbles-live-flow-triage/SKILL.md) |
 | Outgoing message is stuck, duplicated, or has wrong status | [openbubbles-send-lifecycle](.agents/skills/openbubbles-send-lifecycle/SKILL.md) |
+| Personal iCloud Photos metadata, protected downloads, catalog, or live proof | [openbubbles-photos-sync](.agents/skills/openbubbles-photos-sync/SKILL.md) |
 | Kotlin-visible Rust API/event/type changes | [openbubbles-uniffi-contract-change](.agents/skills/openbubbles-uniffi-contract-change/SKILL.md) |
 | Native `.so`, 16 KiB, ELF/RELRO, or provenance issue | [openbubbles-native-library-compat](.agents/skills/openbubbles-native-library-compat/SKILL.md) |
 | Any Compose / visual change | [.agents/skills/m3-expressive/SKILL.md](.agents/skills/m3-expressive/SKILL.md) then the specialist it routes to |

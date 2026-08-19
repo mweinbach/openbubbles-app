@@ -4,6 +4,11 @@ Status snapshot: 2026-08-19. This document is the implementation anchor for pers
 Photos work. It does not describe the existing Shared Albums feature, except where that code can
 be reused.
 
+Agents changing or diagnosing this path must also load
+[openbubbles-photos-sync](../.agents/skills/openbubbles-photos-sync/SKILL.md). The skill is the
+operational runbook for ownership, safety, verification, and hardware evidence; this document
+remains the product boundary, implementation status, protocol findings, and roadmap.
+
 ## Product boundary
 
 The first product target is an experimental, read-only iCloud Photos browser and downloader:
