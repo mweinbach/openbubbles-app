@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.Healing
 import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.Contacts
@@ -304,6 +305,7 @@ fun SettingsScreen(
     var showDefaultSendingHandleDialog by remember { mutableStateOf(false) }
     var historySyncWindow by remember { mutableStateOf(historySyncPreferences.window) }
     var showHistorySyncLimitDialog by remember { mutableStateOf(false) }
+    var showContactsToPhoneDialog by remember { mutableStateOf(false) }
     var autoDownloadLimit by remember {
         mutableStateOf(AutoDownloadLimit.fromPersistedValue(messagingPrefs.autoDownloadMaxBytes))
     }
@@ -1097,6 +1099,7 @@ fun SettingsScreen(
                     if (pushState != null && (manager == null || cliqueError != null)) add("repair")
                     if (deviceInfo != null) add("device")
                     add("contacts")
+                    add("contacts_phone")
                 }
                 val count = icloudRows.size
                 icloudRows.forEachIndexed { index, row ->
@@ -1220,6 +1223,15 @@ fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = Icons.Filled.Password,
+                        )
+                        "contacts_phone" -> SettingsActionItem(
+                            title = "Save contacts to phone",
+                            supporting = "Keep iCloud contacts in this phone's contact list and review differences",
+                            onClick = { showContactsToPhoneDialog = true },
+                            index = index,
+                            count = count,
+                            multiline = true,
+                            icon = Icons.Filled.ContactPhone,
                         )
                         else -> SettingsActionItem(
                             title = if (contactSyncing) "Syncing iCloud contacts…" else "iCloud contacts",
@@ -2084,6 +2096,10 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+
+    if (showContactsToPhoneDialog) {
+        ContactsToPhoneDialog(onDismiss = { showContactsToPhoneDialog = false })
     }
 
     if (showHistorySyncLimitDialog) {
