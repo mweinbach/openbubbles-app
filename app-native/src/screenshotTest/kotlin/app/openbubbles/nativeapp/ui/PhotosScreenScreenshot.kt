@@ -72,6 +72,8 @@ fun PhotosScreenScreenshot() {
             onRefresh = {},
             onLoadMore = {},
             onDownloadPreview = {},
+            onChooseUpload = {},
+            onUpload = {},
         )
     }
 }

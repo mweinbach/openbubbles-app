@@ -6,6 +6,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.activity.compose.LocalActivity
@@ -1088,12 +1091,21 @@ fun OpenBubblesApp(
                 entry<PhotosKey>(metadata = overlayMetadata) {
                     val viewModel: PhotosViewModel = viewModel(factory = PhotosViewModel.factory())
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val pickPhotoForUpload = rememberLauncherForActivityResult(
+                        ActivityResultContracts.PickVisualMedia(),
+                    ) { uri -> uri?.let(viewModel::planUpload) }
                     PhotosScreen(
                         uiState = state,
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
                         onDownloadPreview = viewModel::downloadPreview,
+                        onChooseUpload = {
+                            pickPhotoForUpload.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        },
+                        onUpload = viewModel::upload,
                     )
                 }
 

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,6 +60,8 @@ fun PhotosScreen(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onDownloadPreview: (PhotoSummary) -> Unit,
+    onChooseUpload: () -> Unit,
+    onUpload: (PhotoTransfer) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -97,6 +100,8 @@ fun PhotosScreen(
                 uiState = uiState,
                 onLoadMore = onLoadMore,
                 onDownloadPreview = onDownloadPreview,
+                onChooseUpload = onChooseUpload,
+                onUpload = onUpload,
                 modifier = Modifier.padding(padding),
             )
         }
@@ -118,6 +123,8 @@ private fun PhotosContent(
     uiState: PhotosUiState,
     onLoadMore: () -> Unit,
     onDownloadPreview: (PhotoSummary) -> Unit,
+    onChooseUpload: () -> Unit,
+    onUpload: (PhotoTransfer) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val snapshot = uiState.snapshot ?: return
@@ -127,14 +134,14 @@ private fun PhotosContent(
         verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
     ) {
         item {
-            SettingsGroup(title = "Read-only access") {
+            SettingsGroup(title = "Library access") {
                 SettingsInfoItem(
                     title = accessTitle(snapshot.access),
                     supporting = snapshot.access.detail +
                         if (uiState.showingCachedMetadata) {
                             ". A live refresh will replace this saved snapshot."
                         } else {
-                            ". Previews download only when tapped and are saved in the app's separate Photos cache."
+                            ". Previews download only when tapped. Uploads are staged privately and run only after confirmation."
                         },
                     index = 0,
                     count = 1,
@@ -197,15 +204,44 @@ private fun PhotosContent(
             }
         }
         item {
-            SettingsGroup(title = "Transfer setup") {
-                SettingsInfoItem(
-                    title = "Durable transfer queue ready",
-                    supporting = "Preview downloads can retry cleanly after interruption. Upload plans can be persisted, but Apple Photos writes stay blocked until the live device proves the record contract.",
+            val count = 1 + uiState.uploadPlans.size + if (uiState.uploadError != null) 1 else 0
+            SettingsGroup(title = "Upload to iCloud") {
+                SettingsActionItem(
+                    title = "Choose a photo",
+                    supporting = "Choose a JPEG, prepare its small preview, and copy both into private durable staging.",
+                    onClick = onChooseUpload,
+                    enabled = snapshot.access.availability == PhotosAvailability.Ready && !uiState.planningUpload,
+                    busy = uiState.planningUpload,
                     index = 0,
-                    count = 1,
+                    count = count,
                     multiline = true,
-                    icon = Icons.Filled.CloudSync,
+                    icon = Icons.Filled.Upload,
                 )
+                uiState.uploadPlans.forEachIndexed { index, transfer ->
+                    SettingsActionItem(
+                        title = transfer.filename ?: "Staged photo",
+                        supporting = uploadSupporting(transfer),
+                        onClick = { onUpload(transfer) },
+                        enabled = transfer.state == PhotoTransferState.Queued ||
+                            transfer.state == PhotoTransferState.Failed,
+                        busy = transfer.state == PhotoTransferState.Running,
+                        index = index + 1,
+                        count = count,
+                        multiline = true,
+                        icon = Icons.Filled.CloudSync,
+                    )
+                }
+                uiState.uploadError?.let { error ->
+                    SettingsInfoItem(
+                        title = "Photo could not be staged",
+                        supporting = error,
+                        index = count - 1,
+                        count = count,
+                        multiline = true,
+                        icon = Icons.Filled.CloudOff,
+                        tone = SettingsRowTone.Error,
+                    )
+                }
             }
         }
         if (snapshot.nextCursor != null) {
@@ -272,6 +308,20 @@ private fun progressLabel(transfer: PhotoTransfer): String = when {
     else -> "Downloading preview"
 }
 
+private fun uploadSupporting(transfer: PhotoTransfer): String = buildList {
+    add(
+        when (transfer.state) {
+            PhotoTransferState.Queued -> "Ready — tap to upload"
+            PhotoTransferState.Running -> "Encrypting and uploading"
+            PhotoTransferState.Succeeded -> "Uploaded to iCloud Photos"
+            PhotoTransferState.Failed -> "Upload failed — tap to retry" +
+                transfer.lastError?.let { ": $it" }.orEmpty()
+            PhotoTransferState.Blocked -> transfer.lastError ?: "Upload blocked"
+        },
+    )
+    add(formatBytes(transfer.totalBytes))
+}.joinToString(" · ")
+
 private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
     bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
@@ -314,6 +364,8 @@ private fun PhotosPreview() {
             onRefresh = {},
             onLoadMore = {},
             onDownloadPreview = {},
+            onChooseUpload = {},
+            onUpload = {},
         )
     }
 }

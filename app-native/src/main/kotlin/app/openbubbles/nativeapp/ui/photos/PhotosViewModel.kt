@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.net.Uri
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -20,6 +21,8 @@ import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.UniffiPhotosPort
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.photos.PhotosSqliteCatalog
+import app.openbubbles.nativeapp.data.photos.PickedPhotoUpload
+import app.openbubbles.nativeapp.data.photos.preparePhotoUploadCandidate
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -36,6 +39,9 @@ data class PhotosUiState(
     val loadingMore: Boolean = false,
     val snapshot: PhotosSnapshot? = null,
     val transfers: Map<String, PhotoTransfer> = emptyMap(),
+    val uploadPlans: List<PhotoTransfer> = emptyList(),
+    val planningUpload: Boolean = false,
+    val uploadError: String? = null,
     val showingCachedMetadata: Boolean = false,
     val error: String? = null,
 )
@@ -54,12 +60,27 @@ private class LivePhotosPort(
         destPath: String,
         onProgress: (Long, Long) -> Unit,
     ) = port().downloadPreview(asset, destPath, onProgress)
+
+    override suspend fun uploadJpeg(
+        originalPath: String,
+        previewPath: String,
+        filename: String,
+        capturedAtMs: Long?,
+        orientation: Int,
+    ) = port().uploadJpeg(
+        originalPath = originalPath,
+        previewPath = previewPath,
+        filename = filename,
+        capturedAtMs = capturedAtMs,
+        orientation = orientation,
+    )
 }
 
 class PhotosViewModel(
     private val browser: PhotosBrowser,
     private val catalog: PhotosCatalog,
     private val transfers: PhotoTransferCoordinator,
+    private val prepareUpload: suspend (Uri) -> PickedPhotoUpload,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(PhotosUiState())
     val uiState: StateFlow<PhotosUiState> = mutableState.asStateFlow()
@@ -77,9 +98,11 @@ class PhotosViewModel(
     private suspend fun bootstrap() {
         catalog.recoverInterruptedTransfers()
         val cached = catalog.loadMetadata()
-        val restoredTransfers = catalog.transfers()
+        val allTransfers = catalog.transfers()
+        val restoredTransfers = allTransfers
             .filter { it.direction == PhotoTransferDirection.Download && it.assetId != null }
             .associateBy { checkNotNull(it.assetId) }
+        val restoredUploads = allTransfers.filter { it.direction == PhotoTransferDirection.Upload }
         if (cached.assets.isNotEmpty()) {
             mutableState.update {
                 it.copy(
@@ -93,11 +116,14 @@ class PhotosViewModel(
                         nextCursor = cached.nextCursor,
                     ),
                     transfers = restoredTransfers,
+                    uploadPlans = restoredUploads,
                     showingCachedMetadata = true,
                 )
             }
-        } else if (restoredTransfers.isNotEmpty()) {
-            mutableState.update { it.copy(transfers = restoredTransfers) }
+        } else if (restoredTransfers.isNotEmpty() || restoredUploads.isNotEmpty()) {
+            mutableState.update {
+                it.copy(transfers = restoredTransfers, uploadPlans = restoredUploads)
+            }
         }
         refreshRemote()
     }
@@ -175,6 +201,65 @@ class PhotosViewModel(
         }
     }
 
+    fun planUpload(uri: Uri) {
+        if (mutableState.value.planningUpload) return
+        viewModelScope.launch {
+            mutableState.update { it.copy(planningUpload = true, uploadError = null) }
+            var candidate: PickedPhotoUpload? = null
+            try {
+                candidate = prepareUpload(uri)
+                val transfer = transfers.planUpload(
+                    sourcePath = candidate.file.absolutePath,
+                    previewPath = candidate.previewFile.absolutePath,
+                    filename = candidate.filename,
+                    mimeType = candidate.mimeType,
+                    orientation = candidate.orientation,
+                    capturedAtMs = candidate.capturedAtMs,
+                )
+                mutableState.update { state ->
+                    state.copy(
+                        uploadPlans = (listOf(transfer) + state.uploadPlans)
+                            .distinctBy(PhotoTransfer::id),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update {
+                    it.copy(uploadError = error.message ?: "Could not stage the selected photo")
+                }
+            } finally {
+                candidate?.file?.delete()
+                candidate?.previewFile?.delete()
+                mutableState.update { it.copy(planningUpload = false) }
+            }
+        }
+    }
+
+    fun upload(transfer: PhotoTransfer) {
+        if (transfer.state == PhotoTransferState.Running || transfer.state == PhotoTransferState.Succeeded) {
+            return
+        }
+        viewModelScope.launch {
+            val completed = transfers.upload(transfer) { updated ->
+                mutableState.update { state ->
+                    state.copy(
+                        uploadPlans = state.uploadPlans.map { existing ->
+                            if (existing.id == updated.id) updated else existing
+                        },
+                    )
+                }
+            }
+            if (completed.state == PhotoTransferState.Succeeded) {
+                refreshRemote()
+            }
+        }
+    }
+
+    fun clearUploadError() {
+        mutableState.update { it.copy(uploadError = null) }
+    }
+
     companion object {
         fun factory(): ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -188,7 +273,9 @@ class PhotosViewModel(
                         port = port,
                         catalog = catalog,
                         previewRoot = File(application.filesDir, "icloud_photos/previews"),
+                        uploadRoot = File(application.filesDir, "icloud_photos/uploads"),
                     ),
+                    prepareUpload = { uri -> preparePhotoUploadCandidate(application, uri) },
                 )
             }
         }

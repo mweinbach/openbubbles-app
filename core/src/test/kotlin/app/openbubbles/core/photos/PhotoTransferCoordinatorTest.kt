@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -99,19 +100,121 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
-    fun uploadPlanIsDurableButBlockedUntilProtocolProof() = runBlocking {
+    fun uploadPlanDurablyStagesOriginalPreviewAndMetadata() = runBlocking {
         val root = createTempDirectory("photo-upload-plan").toFile()
         try {
-            val source = File(root, "IMG_1.HEIC").apply { writeText("original") }
+            val source = File(root, "IMG_1.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
             val catalog = FakeCatalog()
-            val coordinator = PhotoTransferCoordinator(FakePort(byteArrayOf()), catalog, File(root, "previews"))
+            val uploadRoot = File(root, "durable-uploads")
+            val coordinator = PhotoTransferCoordinator(
+                FakePort(byteArrayOf()),
+                catalog,
+                File(root, "previews"),
+                uploadRoot,
+            )
 
-            val transfer = coordinator.planUpload(source.path, null, "image/heic")
+            val transfer = coordinator.planUpload(
+                sourcePath = source.path,
+                previewPath = preview.path,
+                filename = null,
+                mimeType = "image/jpeg",
+                orientation = 1,
+            )
 
             assertEquals(PhotoTransferDirection.Upload, transfer.direction)
-            assertEquals(PhotoTransferState.Blocked, transfer.state)
-            assertTrue(transfer.lastError!!.contains("protocol proof", ignoreCase = true))
+            assertEquals(PhotoTransferState.Queued, transfer.state)
+            assertEquals(null, transfer.lastError)
+            assertTrue(File(transfer.localPath).isFile)
+            assertTrue(File(transfer.localPath).parentFile == uploadRoot)
+            assertContentEquals(source.readBytes(), File(transfer.localPath).readBytes())
+            assertEquals(3, uploadRoot.listFiles().orEmpty().size)
             assertEquals(transfer, catalog.transfer(transfer.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun selectingSameUploadTwiceIsIdempotent() = runBlocking {
+        val root = createTempDirectory("photo-upload-idempotent").toFile()
+        try {
+            val source = File(root, "same.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val coordinator = PhotoTransferCoordinator(
+                FakePort(byteArrayOf()),
+                FakeCatalog(),
+                File(root, "previews"),
+                File(root, "uploads"),
+                nowMs = { 2_000 },
+            )
+
+            val first = coordinator.planUpload(source.path, preview.path, source.name, "image/jpeg", 1)
+            source.setLastModified(3_000)
+            val second = coordinator.planUpload(source.path, preview.path, source.name, "image/jpeg", 1)
+
+            assertEquals(first.id, second.id)
+            assertEquals(first.localPath, second.localPath)
+            assertEquals(3, File(root, "uploads").listFiles().orEmpty().size)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun uploadPlanRejectsNonImageBeforePersisting() = runBlocking {
+        val root = createTempDirectory("photo-upload-reject").toFile()
+        try {
+            val source = File(root, "notes.txt").apply { writeText("not a photo") }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val catalog = FakeCatalog()
+            val coordinator = PhotoTransferCoordinator(
+                FakePort(byteArrayOf()),
+                catalog,
+                File(root, "previews"),
+            )
+
+            assertFailsWith<IllegalArgumentException> {
+                coordinator.planUpload(source.path, preview.path, source.name, "text/plain", 1)
+            }
+            assertTrue(catalog.transfers().isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun queuedUploadRunsOnceAndPersistsCloudMasterId() = runBlocking {
+        val root = createTempDirectory("photo-upload-run").toFile()
+        try {
+            val source = File(root, "same.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val catalog = FakeCatalog()
+            val port = FakePort(byteArrayOf())
+            val coordinator = PhotoTransferCoordinator(
+                port,
+                catalog,
+                File(root, "previews"),
+                File(root, "uploads"),
+            )
+            val queued = coordinator.planUpload(
+                source.path,
+                preview.path,
+                source.name,
+                "image/jpeg",
+                6,
+                1234L,
+            )
+
+            val completed = coordinator.upload(queued)
+
+            assertEquals(PhotoTransferState.Succeeded, completed.state)
+            assertEquals("master-uploaded", completed.assetId)
+            assertEquals(completed.totalBytes, completed.bytesDone)
+            assertEquals(1, port.uploadCalls)
+            assertEquals(6, port.uploadOrientation)
+            assertEquals(1234L, port.uploadCapturedAtMs)
+            assertEquals(completed, catalog.transfer(completed.id))
         } finally {
             root.deleteRecursively()
         }
@@ -140,6 +243,12 @@ class PhotoTransferCoordinatorTest {
     private class FakePort(private val payload: ByteArray) : PhotosPort {
         var calls: Int = 0
             private set
+        var uploadCalls: Int = 0
+            private set
+        var uploadOrientation: Int? = null
+            private set
+        var uploadCapturedAtMs: Long? = null
+            private set
 
         override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
         override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
@@ -151,6 +260,21 @@ class PhotoTransferCoordinatorTest {
             calls += 1
             File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
             onProgress(payload.size.toLong(), payload.size.toLong())
+        }
+
+        override suspend fun uploadJpeg(
+            originalPath: String,
+            previewPath: String,
+            filename: String,
+            capturedAtMs: Long?,
+            orientation: Int,
+        ): Result<PhotoUploadReceipt> = runCatching {
+            check(File(originalPath).isFile)
+            check(File(previewPath).isFile)
+            uploadCalls += 1
+            uploadOrientation = orientation
+            uploadCapturedAtMs = capturedAtMs
+            PhotoUploadReceipt("master-uploaded", "asset-uploaded")
         }
     }
 

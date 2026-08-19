@@ -1541,6 +1541,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1859,6 +1861,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_chats(
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_group_photo(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_messages(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_photo_jpeg(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys(
 ): Short
@@ -2318,6 +2322,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(`pt
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_photo_jpeg(`ptr`: Pointer,`originalPath`: RustBuffer.ByValue,`previewPath`: RustBuffer.ByValue,`filename`: RustBuffer.ByValue,`capturedAtMs`: RustBuffer.ByValue,`orientation`: Int,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
 fun uniffi_rust_lib_bluebubbles_fn_free_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -3097,6 +3103,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_messages() != 31511.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_photo_jpeg() != 11773.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys() != 62637.toShort()) {
@@ -6784,6 +6793,12 @@ public interface NativePushStateInterface {
      */
     fun `uploadMessages`(`records`: List<UCkBlob>): List<UCkSaveResult>
 
+    /**
+     * Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
+     * per-record PCS wrapping, and the atomic CPL master/asset transaction.
+     */
+    suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt): UPhotoUploadResult
+
     companion object
 }
 
@@ -8834,6 +8849,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     )
     }
 
+
+
+    /**
+     * Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
+     * per-record PCS wrapping, and the atomic CPL master/asset transaction.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt) : UPhotoUploadResult {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_photo_jpeg(
+                thisPtr,
+                FfiConverterString.lower(`originalPath`),FfiConverterString.lower(`previewPath`),FfiConverterString.lower(`filename`),FfiConverterOptionalULong.lower(`capturedAtMs`),FfiConverterUInt.lower(`orientation`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUPhotoUploadResult.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
 
 
 
@@ -14397,6 +14437,38 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalULong.write(value.`addedAtMs`, buf)
             FfiConverterBoolean.write(value.`favorite`, buf)
             FfiConverterBoolean.write(value.`hidden`, buf)
+    }
+}
+
+
+
+data class UPhotoUploadResult (
+    var `masterId`: kotlin.String,
+    var `assetId`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotoUploadResult: FfiConverterRustBuffer<UPhotoUploadResult> {
+    override fun read(buf: ByteBuffer): UPhotoUploadResult {
+        return UPhotoUploadResult(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhotoUploadResult) = (
+            FfiConverterString.allocationSize(value.`masterId`) +
+            FfiConverterString.allocationSize(value.`assetId`)
+    )
+
+    override fun write(value: UPhotoUploadResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`masterId`, buf)
+            FfiConverterString.write(value.`assetId`, buf)
     }
 }
 

@@ -11,18 +11,20 @@ remains the product boundary, implementation status, protocol findings, and road
 
 ## Product boundary
 
-The first product target is an experimental, read-only iCloud Photos browser and downloader:
+The first product target is an experimental personal iCloud Photos browser with explicit,
+user-initiated transfers:
 
 1. detect whether the signed-in account exposes the personal Photos library;
 2. page recent asset metadata without downloading the whole library;
 3. explicitly download a small preview, then an original image, video, or complete Live Photo
    pair;
 4. persist metadata and transfer intent without treating missing local data as a cloud deletion;
-5. prove incremental changes before adding background work.
+5. stage one JPEG privately and require a second explicit tap before attempting its upload;
+6. prove incremental changes before adding background work.
 
-Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. Upload,
-remote deletion, album mutation, edits, favorites, hidden state, and Shared Photo Library writes
-are later phases.
+Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. The
+single-JPEG upload milestone below does not imply background upload, device-gallery mirroring,
+remote deletion, album mutation, edits, favorites, hidden state, or Shared Photo Library writes.
 
 ## What exists today
 
@@ -57,9 +59,9 @@ The repository already has most lower-level primitives needed for a Photos proto
 - page/cursor/apply patterns in `core/.../sync/CloudSyncManager.kt` and
   `CloudSyncStateStore.kt`.
 
-The access/metadata slice and the host-side preview/catalog foundation are now implemented.
-Original resources, Live Photo pair downloads, incremental changes, background work, and remote
-mutations described below are not.
+The access/metadata slice, preview/catalog foundation, and an explicit JPEG upload path are now
+implemented. Original downloads, Live Photo pair downloads, incremental changes, background
+work, and remote mutations other than that narrow upload path are not.
 
 ## Investigation completed
 
@@ -86,8 +88,8 @@ The 2026-08-19 static audit established that:
   regenerated committed Kotlin bindings.
 - `core/photos/PhotosPort.kt` provides the fakeable port and a deduplicating pager. It has tests
   for indexing behavior, page continuation/deduplication, and the FFI page-size bound.
-- Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It states
-  explicitly that the library is experimental and read-only.
+- Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It keeps
+  listing and preview downloads explicit and does not present the feature as background sync.
 
 ### Implemented setup slice (device-proven for image previews)
 
@@ -106,9 +108,31 @@ The 2026-08-19 static audit established that:
   is supplied.
 - Cached metadata and completed preview state restore before a live refresh. The experimental
   Photos rows expose explicit preview downloads and progress; no automatic download is started.
-- Upload source files can be validated and recorded as durable `Blocked` plans. There is no remote
-  upload UniFFI method and no CPL write is attempted until a live device proves the required
-  records, assets, change tags, and commit order.
+- Upload rows share this durable transfer store and recover after process death or in-place APK
+  replacement. Selection creates only a `Queued` row; it does not cross the Apple write boundary.
+
+### Implemented explicit JPEG upload slice (device-proven)
+
+- Android's system photo picker accepts one JPEG. The app copies the original to private cache,
+  reads EXIF orientation and capture time, and generates a software-decoded JPEG preview capped at
+  414 pixels. The shared coordinator fsyncs content-addressed original/preview files plus a
+  versioned metadata sidecar before inserting a restorable `Queued` transfer.
+- A separate row tap invokes `upload_photo_jpeg(...)` through the fakeable `PhotosPort` and async
+  UniFFI. Running, failure, retry count, success, and the returned remote master ID persist in the
+  existing versioned Photos transfer table. Re-selecting content that already succeeded returns
+  the prior completed row.
+- Rust validates both JPEGs and their dimensions, prepares MMCS v2 resources for the original and
+  preview in one upload batch, and keeps the 32-byte clear resource keys in memory only. Each key
+  is RFC 3394-wrapped with its new CPLMaster record key and field-authenticated before record
+  serialization; no clear key crosses UniFFI or persistence.
+- The CPL master name and resource fingerprint fields use the MMCS v2 FORD reference signature
+  (`0x01`), distinct from the total asset signature (`0x04`). A deterministic CPLAsset UUID acts
+  as the content retry anchor. CPLMaster and CPLAsset are submitted together with zone isolation.
+  The asset-to-master reference is an owning CloudKit reference. Record fields preserve CPL's
+  exact mixed acronym casing, including `assetHDRType`, `fullSizeJPEGSource`, the
+  `resJPEGThumb*` family, and the exceptional lowercase-`d` `importGroupId`.
+- This milestone is deliberately JPEG-only. It does not add HEIC conversion, videos, Live Photo
+  upload pairs, edits, albums, deletes, or background gallery observation.
 
 The database is intentionally an Android implementation behind the Android-free `PhotosCatalog`
 contract. It does not add entities to `db/objectbox-model.json` and cannot move or rewrite the
@@ -116,7 +140,7 @@ legacy message store.
 
 Host evidence on 2026-08-19:
 
-- full `rustpush` library suite after the PCS/MMCS fixes: 35 passed, 2 manual-network tests
+- full `rustpush` library suite after the PCS/MMCS/upload-schema fixes: 39 passed, 2 manual-network tests
   ignored;
 - Rust facade regression coverage proves a staged preview can be rewound and read before atomic
   promotion;
@@ -125,14 +149,22 @@ Host evidence on 2026-08-19:
   `:app-native:assembleDebug` gate passed;
 - UniFFI parity and Android x86_64/arm64 Rust compilation passed as part of that gate;
 - the updated light/dark Photos screenshot goldens: passed and were inspected;
-- debug APK SHA-256:
+- upload coordinator coverage proves durable original/preview/metadata promotion, same-content
+  idempotence, JPEG-only validation, explicit execution, persisted remote ID, and retry state;
+- the final upload-capable debug APK is 323,690,808 bytes with SHA-256
+  `eb368536e4d159361b085ca42ffb704985d6f168b993f591900e7a250ce83e1b`;
+- the earlier preview-only debug APK had SHA-256
   `93afd838c32d830f36a3943eab6e5b14ee6350db3c83fbf52596534af7afda29`.
+
+The latter hash is retained as the earlier preview-download device-evidence artifact; it is not
+the upload-capable APK.
 
 Device evidence on 2026-08-19:
 
-- Pixel 10 Pro Fold `58201FDCG003BG`, OpenBubbles `3.4.0 (20002268)`, using the debug APK
-  hash above. The APK installed in place; the original install timestamp and signed-in chats
-  survived.
+- Pixel 10 Pro Fold `58201FDCG003BG` first proved previews with OpenBubbles
+  `3.4.0 (20002268)` and the earlier preview-only APK hash above. The current upload-capable APK
+  installed in place as `3.4.2 (20002270)` while preserving `firstInstallTime`
+  `2026-08-18 10:57:34` and the signed-in app state.
 - The live private Photos container reported `Personal library metadata available`. The first
   bounded page persisted 60 image summaries plus an opaque continuation cursor in
   `openbubbles-photos.db`.
@@ -151,6 +183,32 @@ Device evidence on 2026-08-19:
 - One earlier failed row remained durable with its byte target and sanitized error, while a
   retried row reached `Succeeded` and retained its attempt count. This separately proves failure,
   retry, success, and cold-start persistence rather than inferring them from the UI alone.
+- The upload-capable APK installed in place on the same Pixel and exposed `Upload to iCloud` only
+  after the live 60-record metadata list. Selecting the authorized 1,600-by-1,200 disposable JPEG
+  created a 43.7 KB `Queued` transfer and required a separate upload tap.
+- The first authorized attempt uploaded both MMCS resources, then failed locally before the CPL
+  record request because the PCS asset wrapper accepted only legacy 16-byte keys. The wrapper now
+  round-trips both 16-byte and MMCS v2 32-byte keys. The second authorized attempt passed that
+  boundary and reached the atomic CPL record save, which Apple rejected.
+- Comparison with the separately authorized Apple Photos oracle showed that the request used the
+  `0x04` total signature where CPL uses the `0x01` FORD reference fingerprint. Later
+  `BAD_SYNTAX` responses isolated three record-shape mismatches: `masterRef` must be owning; CPL
+  preserves acronyms in `assetHDRType`, `fullSizeJPEGSource`, and `resJPEGThumb*`; and the installed
+  Photos schema spells the import field `importGroupId`, not `importGroupID`.
+- After those corrections, the authorized disposable JPEG uploaded successfully. OpenBubbles
+  reported `Uploaded to iCloud Photos` for all 43,716 staged bytes, then a fresh server page
+  returned the new 1,600-by-1,200 image with a 34,386-byte original, 9,330-byte preview, and
+  2026-08-19 16:42:56 local timestamp. The durable transfer row is `Upload` / `Succeeded`, has a
+  cleared error, records 43,716 of 43,716 bytes, and its returned master ID joins the refreshed
+  catalog row. The source JPEG was 34,386 bytes with SHA-256
+  `4bc8da09ee6aa4765c11f8efba533862932ec596f0d8f5fd22355e9b040d4ed8`.
+- A narrow check of the Mac Photos library did not yet find the new item. The successful atomic
+  CloudKit save, refreshed remote page, and matching durable receipt prove this explicit iCloud
+  upload, but Apple-device appearance remains a separate pending evidence tier and this is not
+  claimed as general two-way sync.
+- The upload trace also revealed pre-existing PCS and MMCS debug statements containing key or raw
+  receipt material. Those statements were removed. Upload errors exposed to Kotlin contain only
+  fixed local diagnostics or Apple enum names, never raw records or response text.
 
 The repository-wide screenshot task still reports 28 unrelated existing baseline mismatches under
 this renderer. Only the two Photos cases were updated; unrelated reference images were left
@@ -160,7 +218,9 @@ This proves one normal signed-in account's personal-container access, bounded me
 separate catalog persistence, explicit image-preview download, retry, atomic cache promotion, and
 cold-start restoration. The sampled 60 records contained no videos, so the small-video rendition
 is still host-only. ADP behavior, originals, Live Photos, incremental change application,
-background work, upload, and delete remain unvalidated. Remote writes remain disabled.
+background work and delete remain unvalidated. The narrow, explicit JPEG write path is implemented
+and live-proven through MMCS, the atomic CPL save, a refreshed remote page, and the persisted
+receipt; appearance in another Apple Photos client remains pending.
 
 ## Ownership and proposed architecture
 
@@ -203,6 +263,8 @@ The first two names are now committed; keep later additions narrow.
   resource kinds.
 - `download_photo_preview(master_id, media_kind, destination, progress)` is committed for the
   small image/video display rendition. Kotlin owns atomic promotion and durable state.
+- `upload_photo_jpeg(original_path, preview_path, filename, captured_at_ms, orientation)` is
+  committed for an explicitly staged JPEG pair and returns the CPL master/asset identifiers.
 - A later `download_photo_resource(asset_id, resource_kind, destination)` will cover originals and
   Live Photo pairs and return verified size/checksum information.
 
@@ -256,10 +318,11 @@ like sync.
 
 ### Slice 5: mutations
 
-Only start remote execution after read-only sync has a durable device test record. Local upload
-planning rows exist now so UI/process work can be restored, but they intentionally remain blocked:
+The explicit JPEG upload milestone is the only remote mutation currently exposed. It has durable
+device evidence through MMCS, the atomic CPL record commit, refreshed metadata, and the persisted
+success receipt. Keep all broader mutation work blocked:
 
-- uploads and resource packaging;
+- HEIC, video, and Live Photo uploads or automatic gallery observation;
 - album creation/membership changes;
 - favorite, hidden, edit, and metadata writes;
 - local/remote deletion with explicit conflict policy;
@@ -269,7 +332,7 @@ Do not expose mutation methods speculatively in the initial UniFFI API.
 
 ## Safety rules
 
-- Read-only is the default until a later reviewed milestone explicitly changes it.
+- Read-only is the default except for the separately tapped, JPEG-only upload milestone.
 - Missing local data is never evidence that a remote asset should be deleted.
 - Deleting an app cache entry must never delete an iCloud original.
 - Remote tombstones may remove catalog/cache state, but not user-exported MediaStore copies.

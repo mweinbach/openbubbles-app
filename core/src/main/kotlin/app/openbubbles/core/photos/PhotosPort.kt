@@ -43,6 +43,11 @@ data class PhotosPage(
     val nextCursor: String?,
 )
 
+data class PhotoUploadReceipt(
+    val masterId: String,
+    val assetId: String,
+)
+
 /**
  * Read-only personal iCloud Photos seam. It is page-oriented from day one so
  * later persistence and incremental sync can be added behind this boundary.
@@ -56,6 +61,15 @@ interface PhotosPort {
         destPath: String,
         onProgress: (Long, Long) -> Unit,
     ): Result<Unit> = Result.failure(UnsupportedOperationException("Photos preview downloads are unavailable"))
+
+    suspend fun uploadJpeg(
+        originalPath: String,
+        previewPath: String,
+        filename: String,
+        capturedAtMs: Long?,
+        orientation: Int,
+    ): Result<PhotoUploadReceipt> =
+        Result.failure(UnsupportedOperationException("iCloud Photos uploads are unavailable"))
 }
 
 class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
@@ -119,6 +133,27 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
                     onProgress(done.toSafeLong(), total.toSafeLong())
                 }
             },
+        )
+    }
+
+    override suspend fun uploadJpeg(
+        originalPath: String,
+        previewPath: String,
+        filename: String,
+        capturedAtMs: Long?,
+        orientation: Int,
+    ): Result<PhotoUploadReceipt> = runCatching {
+        require(orientation in 1..8) { "Photos upload orientation is invalid" }
+        val result = state.uploadPhotoJpeg(
+            originalPath = originalPath,
+            previewPath = previewPath,
+            filename = filename,
+            capturedAtMs = capturedAtMs?.takeIf { it >= 0 }?.toULong(),
+            orientation = orientation.toUInt(),
+        )
+        PhotoUploadReceipt(
+            masterId = result.masterId,
+            assetId = result.assetId,
         )
     }
 }

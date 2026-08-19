@@ -864,6 +864,12 @@ pub struct UPhotosPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(uniffi::Record)]
+pub struct UPhotoUploadResult {
+    pub master_id: String,
+    pub asset_id: String,
+}
+
 fn native_password_manager(
     state: &SharedPushState,
 ) -> Result<Arc<rustpush::passwords::PasswordManager<DefaultAnisetteProvider>>, UError> {
@@ -935,6 +941,16 @@ fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
                 || detail.starts_with("unsupported MMCS asset protection key length ")
                 || detail.starts_with("unexpected unwrapped MMCS chunk key length ")
                 || detail.starts_with("unsupported MMCS chunk encryption key prefix ") => Some(detail),
+        rustpush::PushError::CloudKitError(result) => {
+            let error = result.error;
+            if let Some(client) = error.as_ref().and_then(|error| error.client_error.as_ref()) {
+                Some(format!("CloudKit client {}", client.r#type().as_str_name()))
+            } else if let Some(server) = error.as_ref().and_then(|error| error.server_error.as_ref()) {
+                Some(format!("CloudKit server {}", server.r#type().as_str_name()))
+            } else {
+                Some("CloudKit rejected request".to_string())
+            }
+        }
         _ => None,
     };
     let reason = safe_detail
@@ -1087,6 +1103,52 @@ impl NativePushState {
                 reason: format!("failed to sync Photos preview: {error}"),
             })?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
+    /// per-record PCS wrapping, and the atomic CPL master/asset transaction.
+    pub async fn upload_photo_jpeg(
+        &self,
+        original_path: String,
+        preview_path: String,
+        filename: String,
+        captured_at_ms: Option<u64>,
+        orientation: u32,
+    ) -> Result<UPhotoUploadResult, UError> {
+        if original_path.trim().is_empty() || preview_path.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photos upload staging paths are required".to_string(),
+            });
+        }
+        if filename.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photos upload filename is required".to_string(),
+            });
+        }
+        if !(1..=8).contains(&orientation) {
+            return Err(UError::InvalidArgument {
+                reason: "Photos upload orientation is invalid".to_string(),
+            });
+        }
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let uploaded = client
+                .upload_jpeg(
+                    &original_path,
+                    &preview_path,
+                    &filename,
+                    captured_at_ms,
+                    orientation,
+                )
+                .await
+                .map_err(|error| photos_protocol_error("upload", error))?;
+            Ok(UPhotoUploadResult {
+                master_id: uploaded.master_id,
+                asset_id: uploaded.asset_id,
+            })
         })
         .await
     }
