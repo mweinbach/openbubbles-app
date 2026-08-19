@@ -9,6 +9,7 @@ import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -193,8 +194,12 @@ class AttachmentManagerTest {
         val att = seedAttachment(chat, "att-3", "pic.png")
 
         val (first, second) = withTimeout(5_000) {
-            val a = async { manager.download(att).toList() }
-            val b = async { manager.download(att).toList() }
+            // Start both collectors inline until they suspend on the shared
+            // StateFlow. Default-dispatched collectors can be serialized on a
+            // loaded CI worker, letting the transfer finish before the second
+            // subscribes and turning this into a scheduler test.
+            val a = async(start = CoroutineStart.UNDISPATCHED) { manager.download(att).toList() }
+            val b = async(start = CoroutineStart.UNDISPATCHED) { manager.download(att).toList() }
             Pair(a.await(), b.await())
         }
 
