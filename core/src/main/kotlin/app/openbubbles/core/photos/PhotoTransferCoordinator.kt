@@ -72,7 +72,7 @@ class PhotoTransferCoordinator(
             updatedAtMs = timestamp,
         )
 
-        if (finalFile.isFile) {
+        if (validPreviewFile(finalFile, asset.mediaKind)) {
             return base.copy(
                 state = PhotoTransferState.Succeeded,
                 bytesDone = finalFile.length(),
@@ -108,6 +108,9 @@ class PhotoTransferCoordinator(
             }
             result.getOrThrow()
             check(partialFile.isFile) { "Preview download completed without a file" }
+            check(validPreviewFile(partialFile, asset.mediaKind)) {
+                "Downloaded preview did not match its expected media format"
+            }
             promote(partialFile, finalFile)
             current.updateAndGet {
                 it.copy(
@@ -195,5 +198,19 @@ class PhotoTransferCoordinator(
                 )
             }
         }
+    }
+}
+
+private fun validPreviewFile(file: File, mediaKind: PhotoMediaKind): Boolean {
+    if (!file.isFile) return false
+    val header = ByteArray(12)
+    val count = runCatching { file.inputStream().use { it.read(header) } }.getOrDefault(-1)
+    return when (mediaKind) {
+        PhotoMediaKind.Image -> count >= 3 &&
+            header[0] == 0xff.toByte() && header[1] == 0xd8.toByte() && header[2] == 0xff.toByte()
+        PhotoMediaKind.Video -> count >= 8 &&
+            header[4] == 'f'.code.toByte() && header[5] == 't'.code.toByte() &&
+            header[6] == 'y'.code.toByte() && header[7] == 'p'.code.toByte()
+        PhotoMediaKind.Unknown -> false
     }
 }

@@ -3,6 +3,7 @@ package app.openbubbles.core.photos
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -14,15 +15,56 @@ class PhotoTransferCoordinatorTest {
         val root = createTempDirectory("photo-preview").toFile()
         try {
             val catalog = FakeCatalog()
-            val port = FakePort("preview".toByteArray())
+            val payload = jpegPayload()
+            val port = FakePort(payload)
             val coordinator = PhotoTransferCoordinator(port, catalog, root) { 1_000 }
 
             val transfer = coordinator.downloadPreview(photo())
 
             assertEquals(PhotoTransferState.Succeeded, transfer.state)
-            assertEquals("preview", File(transfer.localPath).readText())
+            assertContentEquals(payload, File(transfer.localPath).readBytes())
             assertEquals(transfer, catalog.transfer(transfer.id))
             assertFalse(File(transfer.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun invalidPreviewIsNotPromoted() = runBlocking {
+        val root = createTempDirectory("photo-preview-invalid").toFile()
+        try {
+            val transfer = PhotoTransferCoordinator(
+                FakePort("encrypted bytes".toByteArray()),
+                FakeCatalog(),
+                root,
+            ).downloadPreview(photo())
+
+            assertEquals(PhotoTransferState.Failed, transfer.state)
+            assertTrue(transfer.lastError!!.contains("expected media format"))
+            assertFalse(File(transfer.localPath).exists())
+            assertFalse(File(transfer.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun corruptCompletedPreviewIsDownloadedAgain() = runBlocking {
+        val root = createTempDirectory("photo-preview-corrupt-cache").toFile()
+        try {
+            val catalog = FakeCatalog()
+            val first = PhotoTransferCoordinator(FakePort(jpegPayload()), catalog, root)
+                .downloadPreview(photo())
+            File(first.localPath).writeText("corrupt cache")
+            val retryPort = FakePort(jpegPayload())
+
+            val retried = PhotoTransferCoordinator(retryPort, catalog, root)
+                .downloadPreview(photo())
+
+            assertEquals(PhotoTransferState.Succeeded, retried.state)
+            assertEquals(1, retryPort.calls)
+            assertContentEquals(jpegPayload(), File(retried.localPath).readBytes())
         } finally {
             root.deleteRecursively()
         }
@@ -91,7 +133,14 @@ class PhotoTransferCoordinatorTest {
         hidden = false,
     )
 
+    private fun jpegPayload() = byteArrayOf(
+        0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 0, 1, 2,
+    )
+
     private class FakePort(private val payload: ByteArray) : PhotosPort {
+        var calls: Int = 0
+            private set
+
         override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
         override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
         override suspend fun downloadPreview(
@@ -99,6 +148,7 @@ class PhotoTransferCoordinatorTest {
             destPath: String,
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> = runCatching {
+            calls += 1
             File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
             onProgress(payload.size.toLong(), payload.size.toLong())
         }

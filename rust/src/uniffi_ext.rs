@@ -886,21 +886,42 @@ fn native_shared_albums(
 fn native_photos(
     state: &SharedPushState,
 ) -> Result<rustpush::photos::PhotosClient<DefaultAnisetteProvider>, UError> {
-    state
+    let services = state
         .icloud_services
         .as_ref()
-        .and_then(|services| services.cloudkit_client.clone())
-        .map(rustpush::photos::PhotosClient::new)
         .ok_or_else(|| UError::NotReady {
             reason: "iCloud Photos unavailable".to_string(),
-        })
+        })?;
+    let cloudkit = services.cloudkit_client.clone().ok_or_else(|| UError::NotReady {
+        reason: "iCloud Photos unavailable".to_string(),
+    })?;
+    let keychain = services.keychain.clone().ok_or_else(|| UError::NotReady {
+        reason: "iCloud Photos requires Secure iCloud Keychain".to_string(),
+    })?;
+    Ok(rustpush::photos::PhotosClient::new(cloudkit, keychain))
 }
 
-fn photos_protocol_error(action: &str, _error: rustpush::PushError) -> UError {
+fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
     // PushError variants can contain raw CloudKit responses or record data.
-    log::warn!("iCloud Photos {action} failed");
+    // Only forward our fixed, byte-free MMCS diagnostics; server-provided
+    // strings and all other protocol values remain redacted.
+    let safe_detail = match error {
+        rustpush::PushError::MMCSGetFailed(Some(detail))
+            if detail == "wrapped MMCS chunk key is missing its asset protection key"
+                || detail == "wrapped MMCS chunk key failed its integrity check"
+                || detail == "encrypted MMCS chunk is missing its resolved key"
+                || detail == "conflicting resolved keys for the same MMCS chunk"
+                || detail.starts_with("unsupported MMCS asset protection key length ")
+                || detail.starts_with("unexpected unwrapped MMCS chunk key length ")
+                || detail.starts_with("unsupported MMCS chunk encryption key prefix ") => Some(detail),
+        _ => None,
+    };
+    let reason = safe_detail
+        .map(|detail| format!("iCloud Photos {action} failed: {detail}"))
+        .unwrap_or_else(|| format!("iCloud Photos {action} failed"));
+    log::warn!("{reason}");
     UError::Failed {
-        reason: format!("iCloud Photos {action} failed"),
+        reason,
     }
 }
 
@@ -1023,12 +1044,24 @@ impl NativePushState {
             let client = native_photos(&state)?;
             let mut file = create_dest(&dest_path)?;
             client
-                .download_preview(&master_id, media_kind, &mut file, progress_cb(progress))
+                .download_preview(&master_id, media_kind.clone(), &mut file, progress_cb(progress))
                 .await
                 .map_err(|error| photos_protocol_error("preview download", error))?;
             file.flush().map_err(|error| UError::Failed {
                 reason: format!("failed to flush Photos preview: {error}"),
             })?;
+            file.rewind().map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos preview: {error}"),
+            })?;
+            let mut header = [0u8; 12];
+            let header_len = file.read(&mut header).map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos preview: {error}"),
+            })?;
+            if !rustpush::photos::valid_preview_header(&media_kind, &header[..header_len]) {
+                return Err(UError::Failed {
+                    reason: "downloaded Photos preview did not match its expected media format".to_string(),
+                });
+            }
             file.sync_all().map_err(|error| UError::Failed {
                 reason: format!("failed to sync Photos preview: {error}"),
             })?;
@@ -2401,7 +2434,7 @@ impl NativePushState {
 // ChangeParticipants/IconChange message — mirrors Dart's
 // `chat.groupVersion = (chat.groupVersion ?? -1) + 1`).
 
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 
 use rustpush::{Attachment, AttachmentType, MMCSFile, TextFormat};
@@ -2448,8 +2481,36 @@ fn create_dest(dest_path: &str) -> Result<std::fs::File, UError> {
                 .map_err(|e| UError::Failed { reason: format!("failed to create directory {}: {e}", prefix.display()) })?;
         }
     }
-    std::fs::File::create(path)
+    // Downloads normally only need a write handle, but Photos verifies the
+    // staged media header before Kotlin promotes it into the durable cache.
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
         .map_err(|e| UError::Failed { reason: format!("failed to create {dest_path}: {e}") })
+}
+
+#[cfg(test)]
+mod download_destination_tests {
+    use super::*;
+
+    #[test]
+    fn staged_download_can_be_rewound_and_read() {
+        let path = std::env::temp_dir().join(format!(
+            "openbubbles-download-dest-{}",
+            std::process::id(),
+        ));
+        let mut file = create_dest(path.to_str().expect("temporary path")).expect("create dest");
+        file.write_all(b"preview").expect("write staged bytes");
+        file.rewind().expect("rewind staged bytes");
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).expect("read staged bytes");
+        drop(file);
+        std::fs::remove_file(path).expect("remove staged file");
+        assert_eq!(bytes, b"preview");
+    }
 }
 
 /// Upload a local file to MMCS as an iMessage attachment (the

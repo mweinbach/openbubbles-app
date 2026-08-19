@@ -84,7 +84,7 @@ The 2026-08-19 static audit established that:
 - Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It states
   explicitly that the library is experimental and read-only.
 
-### Implemented setup slice (awaiting live preview proof)
+### Implemented setup slice (device-proven for image previews)
 
 - Metadata queries now ask for the presence and size of `resJPEGThumbRes` for images and
   `resVidSmallRes` for videos while still using `NO_ASSETS`; listing never downloads media.
@@ -111,22 +111,51 @@ legacy message store.
 
 Host evidence on 2026-08-19:
 
-- full `rustpush` library suite after the preview slice: 26 passed, 2 manual-network tests ignored;
-- UniFFI release build, committed Kotlin generation, and binding parity check: passed;
-- `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`, and ObjectBox model parity: passed;
-- Android x86_64/arm64 Rust compilation and `:app-native:assembleDebug`: passed;
+- full `rustpush` library suite after the PCS/MMCS fixes: 35 passed, 2 manual-network tests
+  ignored;
+- Rust facade regression coverage proves a staged preview can be rewound and read before atomic
+  promotion;
+- the combined `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`,
+  `:db:checkModelParity`, `:app-native:checkUniffiBindings`, and
+  `:app-native:assembleDebug` gate passed;
+- UniFFI parity and Android x86_64/arm64 Rust compilation passed as part of that gate;
 - the updated light/dark Photos screenshot goldens: passed and were inspected;
 - debug APK SHA-256:
-  `bec4f1890589a5c37f1bcfc5f7df14186f6c8e14ce4ad625dd335c7955d28fd5`.
+  `93afd838c32d830f36a3943eab6e5b14ee6350db3c83fbf52596534af7afda29`.
+
+Device evidence on 2026-08-19:
+
+- Pixel 10 Pro Fold `58201FDCG003BG`, OpenBubbles `3.4.0 (20002268)`, using the debug APK
+  hash above. The APK installed in place; the original install timestamp and signed-in chats
+  survived.
+- The live private Photos container reported `Personal library metadata available`. The first
+  bounded page persisted 60 image summaries plus an opaque continuation cursor in
+  `openbubbles-photos.db`.
+- The live encrypted-resource chain resolved the Photos PCS service key from the
+  `ProtectedCloudStorage` keychain view, unwrapped the legacy 24-byte asset protection value,
+  and prepared two non-persistent MMCS protection-key candidates. No key bytes crossed UniFFI or
+  were logged.
+- MMCS chunk identifiers now preserve their wire length. Prefix-`0x01`/17-byte identifiers use
+  their direct AES-128-CFB key; prefix-`0x02`/25-byte identifiers use RFC 3394 unwrap and its
+  integrity check to select the correct authenticated asset key. Malformed or unknown PCS values
+  return errors instead of panicking.
+- Three image previews completed as JPEGs at 31,153, 52,616, and 48,694 bytes. For the first
+  fully inspected path, UI and SQLite agreed on `48,694 / 48,694`, the promoted file was a valid
+  407-by-422 JFIF/Exif JPEG, and `last_error` was cleared. All three rows and
+  `Preview downloaded` states restored after a force-stop and cold launch.
+- One earlier failed row remained durable with its byte target and sanitized error, while a
+  retried row reached `Succeeded` and retained its attempt count. This separately proves failure,
+  retry, success, and cold-start persistence rather than inferring them from the UI alone.
 
 The repository-wide screenshot task still reports 28 unrelated existing baseline mismatches under
 this renderer. Only the two Photos cases were updated; unrelated reference images were left
 untouched.
 
-This does **not** prove that Apple's server accepts the inferred native Photos bundle/container
-pair for an OpenBubbles account session. No live Apple account, normal/ADP comparison, preview or
-original download, incremental change cursor, background worker, upload, or delete has been
-validated. The experimental screen is the next device-test surface for that go/no-go proof.
+This proves one normal signed-in account's personal-container access, bounded metadata query,
+separate catalog persistence, explicit image-preview download, retry, atomic cache promotion, and
+cold-start restoration. The sampled 60 records contained no videos, so the small-video rendition
+is still host-only. ADP behavior, originals, Live Photos, incremental change application,
+background work, upload, and delete remain unvalidated. Remote writes remain disabled.
 
 ## Ownership and proposed architecture
 
@@ -186,14 +215,14 @@ records, and server response bodies must remain in Rust and must not be logged o
 5. Add a fakeable `PhotosPort` plus deterministic paging/cancellation tests in `:core`.
 6. Add an experimental iCloud Settings entry that reports capability and displays metadata only.
 
-The host implementation of this slice is complete. Live container authorization and real-record
-decoding remain the go/no-go gate. Do not add persistence or scheduled work merely to make the
-experimental screen look like sync.
+This slice is live-proven on the Pixel/account recorded above. Other account states and ADP still
+need separate evidence. Do not add scheduled work merely to make the experimental screen look
+like sync.
 
 ### Slice 2: explicit resource download
 
-1. Download a small image/video preview to app-owned temporary storage. Host implementation is
-   complete; live proof is pending.
+1. Download a small image/video preview to app-owned temporary storage. Image preview download is
+   live-proven; the sampled page contained no videos, so small-video proof remains pending.
 2. Download an original still image and video.
 3. Support and verify both components of a Live Photo.
 4. Atomically promote completed files; clean up partial files on cancellation/failure. The shared
