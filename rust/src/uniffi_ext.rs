@@ -104,6 +104,27 @@ pub struct UConversation {
     pub after_guid: Option<String>,
 }
 
+/// One serialized argument for the multi-attachment send boundary.
+///
+/// Keep these fields grouped: lowering each value as a separate `RustBuffer`
+/// exceeds the safe arm64 JNA/libffi by-value call shape and can corrupt the
+/// stack-passed optional arguments before Rust begins the upload.
+#[derive(uniffi::Record)]
+pub struct USendAttachmentsRequest {
+    pub conversation: UConversation,
+    pub sender: String,
+    pub file_paths: Vec<String>,
+    pub text: Option<String>,
+    pub mimes: Vec<String>,
+    pub utis: Vec<String>,
+    pub names: Vec<Option<String>>,
+    pub reply_guid: Option<String>,
+    pub reply_part: Option<String>,
+    pub effect: Option<String>,
+    pub subject: Option<String>,
+    pub voice: bool,
+}
+
 #[derive(uniffi::Enum)]
 pub enum UPart {
     Text { text: String, format_json: String },
@@ -2763,20 +2784,23 @@ impl NativePushState {
     /// MessageInst; `id` is the staging GUID to persist.
     pub async fn send_attachments(
         &self,
-        conversation: UConversation,
-        sender: String,
-        file_paths: Vec<String>,
-        text: Option<String>,
-        mimes: Vec<String>,
-        utis: Vec<String>,
-        names: Vec<Option<String>>,
-        reply_guid: Option<String>,
-        reply_part: Option<String>,
-        effect: Option<String>,
-        subject: Option<String>,
-        voice: bool,
+        request: USendAttachmentsRequest,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<UMessageInst, UError> {
+        let USendAttachmentsRequest {
+            conversation,
+            sender,
+            file_paths,
+            text,
+            mimes,
+            utis,
+            names,
+            reply_guid,
+            reply_part,
+            effect,
+            subject,
+            voice,
+        } = request;
         let state = self.shared_arc();
         drive_ffi(async move {
             let count = file_paths.len();

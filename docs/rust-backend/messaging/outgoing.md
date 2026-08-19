@@ -28,7 +28,7 @@ Rust does not track it.
 | `send_read(conversation, sender, message_guid)` | Read receipt; the instance id is set to the newest acked message guid — pass that, not a fresh id |
 | `send_reaction(...)` | Tapbacks: `reaction_idx` 0 heart, 1 like, 2 dislike, 3 laugh, 4 emphasize, 5 question, 6 + `emoji` for custom; `enable=false` removes; `to_uuid`/`to_part` identify the target part |
 | `send_sticker(...)` | Uploads the file (progress callback), then sends a sticker-reaction with normalized 0..1 coordinates, radians rotation, 0.1..4 scale, `effect_type` |
-| `send_attachment` / `send_attachments` | Upload then send one/many files as parts of a single message, optional leading caption text; parallel `mimes`/`utis`/`names` arrays |
+| `send_attachment` / `send_attachments` | Upload then send one/many files as parts of a single message, optional leading caption text; `send_attachments` groups its parallel `mimes`/`utis`/`names` arrays and send metadata in `USendAttachmentsRequest` so the arm64 JNA boundary stays compact |
 | `edit_message`, `unsend_message` | `to_uuid` = original guid, `edit_part` = part index; edits carry the full replacement part list |
 | `rename_chat`, `change_participants`, `leave_chat` | Group ops; `change_participants` takes the *full* new list (adds/removes inferred by diff); `leave_chat` filters the sender out (prefix-insensitive) |
 | `set_group_icon` / `remove_group_icon` | 570×570 PNG upload → `IconChange` message |

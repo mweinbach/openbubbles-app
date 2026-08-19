@@ -2254,7 +2254,7 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_rotate_incoming_links(
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachment(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePath`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mime`: RustBuffer.ByValue,`uti`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`filePaths`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`mimes`: RustBuffer.ByValue,`utis`: RustBuffer.ByValue,`names`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,`voice`: Byte,`progress`: RustBuffer.ByValue,
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(`ptr`: Pointer,`request`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_parts(`ptr`: Pointer,`conversation`: RustBuffer.ByValue,`sender`: RustBuffer.ByValue,`parts`: RustBuffer.ByValue,`replyGuid`: RustBuffer.ByValue,`replyPart`: RustBuffer.ByValue,`effect`: RustBuffer.ByValue,`subject`: RustBuffer.ByValue,
 ): Long
@@ -3003,7 +3003,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachment() != 61754.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments() != 35070.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_attachments() != 10408.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_send_parts() != 14435.toShort()) {
@@ -6592,7 +6592,7 @@ public interface NativePushStateInterface {
      * order; each upload's counters restart at zero. Returns the staged
      * MessageInst; `id` is the staging GUID to persist.
      */
-    suspend fun `sendAttachments`(`conversation`: UConversation, `sender`: kotlin.String, `filePaths`: List<kotlin.String>, `text`: kotlin.String?, `mimes`: List<kotlin.String>, `utis`: List<kotlin.String>, `names`: List<kotlin.String?>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?): UMessageInst
+    suspend fun `sendAttachments`(`request`: USendAttachmentsRequest, `progress`: UProgressCallback?): UMessageInst
 
     suspend fun `sendParts`(`conversation`: UConversation, `sender`: kotlin.String, `parts`: List<UIndexedPart>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?): UMessageInst
 
@@ -8157,12 +8157,12 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      */
     @Throws(UException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `sendAttachments`(`conversation`: UConversation, `sender`: kotlin.String, `filePaths`: List<kotlin.String>, `text`: kotlin.String?, `mimes`: List<kotlin.String>, `utis`: List<kotlin.String>, `names`: List<kotlin.String?>, `replyGuid`: kotlin.String?, `replyPart`: kotlin.String?, `effect`: kotlin.String?, `subject`: kotlin.String?, `voice`: kotlin.Boolean, `progress`: UProgressCallback?) : UMessageInst {
+    override suspend fun `sendAttachments`(`request`: USendAttachmentsRequest, `progress`: UProgressCallback?) : UMessageInst {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_send_attachments(
                 thisPtr,
-                FfiConverterTypeUConversation.lower(`conversation`),FfiConverterString.lower(`sender`),FfiConverterSequenceString.lower(`filePaths`),FfiConverterOptionalString.lower(`text`),FfiConverterSequenceString.lower(`mimes`),FfiConverterSequenceString.lower(`utis`),FfiConverterSequenceOptionalString.lower(`names`),FfiConverterOptionalString.lower(`replyGuid`),FfiConverterOptionalString.lower(`replyPart`),FfiConverterOptionalString.lower(`effect`),FfiConverterOptionalString.lower(`subject`),FfiConverterBoolean.lower(`voice`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+                FfiConverterTypeUSendAttachmentsRequest.lower(`request`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -14660,6 +14660,85 @@ public object FfiConverterTypeUReportMessage: FfiConverterRustBuffer<UReportMess
             FfiConverterUInt.write(value.`conversationSize`, buf)
             FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
             FfiConverterDouble.write(value.`timeOfMessage`, buf)
+    }
+}
+
+
+
+/**
+ * One serialized argument for the multi-attachment send boundary.
+ *
+ * Keep these fields grouped: lowering each value as a separate `RustBuffer`
+ * exceeds the safe arm64 JNA/libffi by-value call shape and can corrupt the
+ * stack-passed optional arguments before Rust begins the upload.
+ */
+data class USendAttachmentsRequest (
+    var `conversation`: UConversation,
+    var `sender`: kotlin.String,
+    var `filePaths`: List<kotlin.String>,
+    var `text`: kotlin.String?,
+    var `mimes`: List<kotlin.String>,
+    var `utis`: List<kotlin.String>,
+    var `names`: List<kotlin.String?>,
+    var `replyGuid`: kotlin.String?,
+    var `replyPart`: kotlin.String?,
+    var `effect`: kotlin.String?,
+    var `subject`: kotlin.String?,
+    var `voice`: kotlin.Boolean
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUSendAttachmentsRequest: FfiConverterRustBuffer<USendAttachmentsRequest> {
+    override fun read(buf: ByteBuffer): USendAttachmentsRequest {
+        return USendAttachmentsRequest(
+            FfiConverterTypeUConversation.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: USendAttachmentsRequest) = (
+            FfiConverterTypeUConversation.allocationSize(value.`conversation`) +
+            FfiConverterString.allocationSize(value.`sender`) +
+            FfiConverterSequenceString.allocationSize(value.`filePaths`) +
+            FfiConverterOptionalString.allocationSize(value.`text`) +
+            FfiConverterSequenceString.allocationSize(value.`mimes`) +
+            FfiConverterSequenceString.allocationSize(value.`utis`) +
+            FfiConverterSequenceOptionalString.allocationSize(value.`names`) +
+            FfiConverterOptionalString.allocationSize(value.`replyGuid`) +
+            FfiConverterOptionalString.allocationSize(value.`replyPart`) +
+            FfiConverterOptionalString.allocationSize(value.`effect`) +
+            FfiConverterOptionalString.allocationSize(value.`subject`) +
+            FfiConverterBoolean.allocationSize(value.`voice`)
+    )
+
+    override fun write(value: USendAttachmentsRequest, buf: ByteBuffer) {
+            FfiConverterTypeUConversation.write(value.`conversation`, buf)
+            FfiConverterString.write(value.`sender`, buf)
+            FfiConverterSequenceString.write(value.`filePaths`, buf)
+            FfiConverterOptionalString.write(value.`text`, buf)
+            FfiConverterSequenceString.write(value.`mimes`, buf)
+            FfiConverterSequenceString.write(value.`utis`, buf)
+            FfiConverterSequenceOptionalString.write(value.`names`, buf)
+            FfiConverterOptionalString.write(value.`replyGuid`, buf)
+            FfiConverterOptionalString.write(value.`replyPart`, buf)
+            FfiConverterOptionalString.write(value.`effect`, buf)
+            FfiConverterOptionalString.write(value.`subject`, buf)
+            FfiConverterBoolean.write(value.`voice`, buf)
     }
 }
 

@@ -66,6 +66,7 @@ import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.UPushMessage
 import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UReportMessage
+import uniffi.rust_lib_bluebubbles.USendAttachmentsRequest
 import uniffi.rust_lib_bluebubbles.parseCallPoster
 import java.io.File
 import java.util.UUID
@@ -2408,14 +2409,20 @@ internal object CoreAttachmentSender : AttachmentSender {
             var failureLookupGuid = prepared.tempGuid
             try {
                 val inst = pushState.sendAttachments(
-                    prepared.conversation,
-                    prepared.myHandle,
-                    prepared.payloads.map { it.absolutePath },
-                    caption?.takeIf { it.isNotBlank() },
-                    attachments.map { it.mime },
-                    attachments.map { it.uti },
-                    attachments.map { it.name },
-                    null, null, null, subject, false,
+                    USendAttachmentsRequest(
+                        conversation = prepared.conversation,
+                        sender = prepared.myHandle,
+                        filePaths = prepared.payloads.map { it.absolutePath },
+                        text = caption?.takeIf { it.isNotBlank() },
+                        mimes = attachments.map { it.mime },
+                        utis = attachments.map { it.uti },
+                        names = attachments.map { it.name },
+                        replyGuid = null,
+                        replyPart = null,
+                        effect = null,
+                        subject = subject,
+                        voice = false,
+                    ),
                     attachmentSendProgressCallback(),
                 )
                 failureLookupGuid = inst.id
