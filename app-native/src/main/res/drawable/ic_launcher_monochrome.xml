@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon monochrome layer: speech bubble with the typing dots knocked out.
+
+     The system discards this drawable's colors and tints its alpha channel with the
+     user's theme color, so the dots cannot be painted in a contrasting color the way
+     they are in ic_launcher_foreground. They are instead reverse-wound subpaths of the
+     bubble outline, which makes them transparent holes under the default non-zero fill
+     rule. Geometry is otherwise identical to ic_launcher_foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,32 h38 a10,10 0 0 1 10,10 v18 a10,10 0 0 1 -10,10 h-22 l-11,9 a2.5,2.5 0 0 1 -4,-2 v-7.4 a10,10 0 0 1 -11,-9.6 v-18 a10,10 0 0 1 10,-10 z M41,57.3 a3.4,3.4 0 1 0 -0.1,0 z M54,57.3 a3.4,3.4 0 1 0 -0.1,0 z M67,57.3 a3.4,3.4 0 1 0 -0.1,0 z" />
+</vector>
