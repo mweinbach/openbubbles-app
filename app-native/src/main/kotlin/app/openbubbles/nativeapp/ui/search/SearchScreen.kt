@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import app.openbubbles.core.contacts.RawContact
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
@@ -484,11 +486,13 @@ private fun MessageResultRow(
         } else {
             ResultIconTile(icon = Icons.Filled.ChatBubble)
         }
+        val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = listOfNotNull(
                     chat?.title,
-                    formatListTimestamp(row.dateMillis).takeIf { row.dateMillis > 0L },
+                    formatListTimestamp(row.dateMillis, use24Hour = use24Hour)
+                        .takeIf { row.dateMillis > 0L },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -80,6 +80,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ContactDisplay
@@ -262,6 +263,7 @@ fun ChatInfoScreen(
         )
         val posterFile = rememberPosterFile(primaryAddress.ifBlank { null })
 
+        val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
         if (showDirectCard && chat != null) {
             val details = mergeContactAddresses(
                 rememberContactDetails(
@@ -283,7 +285,7 @@ fun ChatInfoScreen(
                     location = rememberContactLocation(details.handleAddress, details.allAddresses),
                     sharedContent = rememberSharedContent(chat.id),
                     conversationTitle = if (chat.isSms) "SMS" else "iMessage",
-                    conversationSubtitle = "Last active ${formatListTimestamp(chat.date)}",
+                    conversationSubtitle = "Last active ${formatListTimestamp(chat.date, use24Hour = use24Hour)}",
                     smsChat = chat.isSms,
                     onMessage = { openDirectChat(details.handleAddress.ifBlank { chat.avatarAddress.orEmpty() }) },
                     onFaceTime = { startFaceTime() },

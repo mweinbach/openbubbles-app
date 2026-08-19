@@ -68,7 +68,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -495,8 +494,7 @@ private fun ChatSections(
     footer: @Composable ColumnScope.() -> Unit,
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
-    val context = LocalContext.current
-    val filterUnknown = remember { MessagingPrefs(context).filterUnknownSenders }
+    val filterUnknown by MessagingPrefs.filterUnknownSendersFlow.collectAsState()
     val itemSpecs = rememberItemAnimationSpecs()
     val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind, filterUnknown) {
         fun visible(chats: List<ChatListItem>) =
@@ -761,9 +759,8 @@ fun ChatListRow(
     checked: Boolean? = null,
 ) {
     val unread = chat.unread > 0
-    val context = LocalContext.current
     val use24Hour by AppearancePrefs.use24HourTimeFlow.collectAsState()
-    val showDmAvatars = remember { MessagingPrefs(context).showAvatarsInDirectChats }
+    val showDmAvatars by MessagingPrefs.showAvatarsInDirectChatsFlow.collectAsState()
     val contactAvatarPath = rememberContactAvatarPath(chat.avatarAddress)
     val avatarPath = when {
         !chat.isGroup && !showDmAvatars -> null

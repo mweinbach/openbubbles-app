@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppearancePrefs
+import app.openbubbles.nativeapp.data.MessagingPrefs
 
 /**
  * Blue-seeded Material 3 palettes (iMessage-flavored): a confident blue
@@ -140,7 +141,10 @@ fun OpenBubblesTheme(
     val context = LocalContext.current
     // Idempotent SharedPreferences bind; SideEffect (not remember) because
     // init returns Unit and must run only after a successful composition.
-    SideEffect { AppearancePrefs.init(context) }
+    SideEffect {
+        AppearancePrefs.init(context)
+        MessagingPrefs.hydrate(context)
+    }
     val dynamicColorPref by AppearancePrefs.dynamicColorFlow.collectAsStateWithLifecycle()
     val useDynamicColor = dynamicColor ?: dynamicColorPref
     val themeMode by AppearancePrefs.themeModeFlow.collectAsStateWithLifecycle()

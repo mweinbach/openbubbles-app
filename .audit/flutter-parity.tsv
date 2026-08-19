@@ -9,4 +9,5 @@ ts	decision	why	alternative_rejected
 2026-08-19	App lock uses device credential	No second PIN store	Custom PIN in SharedPreferences
 2026-08-19	Wi-Fi-only auto-download via NOT_METERED	Matches Android metered flag	SSID/wifi-only ConnectivityManager type
 2026-08-19	Opaque surface behind swipe rows	Archive icon leaked through transparent ChatListRow at rest	Re-recording goldens with the leak
-2026-08-19	Re-record OpenGarden screenshot goldens	Main CI already fails the same brand/search goldens; Privacy rail is this PR	Leaving screenshot gate red
+2026-08-19	Observable filter and DM-avatar prefs	Settings toggles must recompose the list that stays on the back stack	remember { MessagingPrefs(context).flag }
+2026-08-19	24h clock at search and chat-info	Those screens called formatListTimestamp without use24Hour	Leaving them on the 12-hour default

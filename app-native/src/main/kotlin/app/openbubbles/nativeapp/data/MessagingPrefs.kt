@@ -1,12 +1,20 @@
 package app.openbubbles.nativeapp.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** iMessage interaction preferences retained across process restarts. */
 class MessagingPrefs(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    init {
+        hydrateFrom(prefs)
+    }
 
     /**
      * Registered iMessage handle preferred when a conversation does not
@@ -125,12 +133,14 @@ class MessagingPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_FILTER_UNKNOWN_SENDERS, false)
         set(value) {
             prefs.edit { putBoolean(KEY_FILTER_UNKNOWN_SENDERS, value) }
+            _filterUnknownSenders.value = value
         }
 
     var showAvatarsInDirectChats: Boolean
         get() = prefs.getBoolean(KEY_SHOW_AVATARS_IN_DIRECT_CHATS, true)
         set(value) {
             prefs.edit { putBoolean(KEY_SHOW_AVATARS_IN_DIRECT_CHATS, value) }
+            _showAvatarsInDirectChats.value = value
         }
 
     var replaceEmoticons: Boolean
@@ -140,6 +150,23 @@ class MessagingPrefs(context: Context) {
         }
 
     companion object {
+        private val _filterUnknownSenders = MutableStateFlow(false)
+        val filterUnknownSendersFlow: StateFlow<Boolean> = _filterUnknownSenders.asStateFlow()
+
+        private val _showAvatarsInDirectChats = MutableStateFlow(true)
+        val showAvatarsInDirectChatsFlow: StateFlow<Boolean> = _showAvatarsInDirectChats.asStateFlow()
+
+        fun hydrate(context: Context) {
+            hydrateFrom(
+                context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+            )
+        }
+
+        private fun hydrateFrom(prefs: SharedPreferences) {
+            _filterUnknownSenders.value = prefs.getBoolean(KEY_FILTER_UNKNOWN_SENDERS, false)
+            _showAvatarsInDirectChats.value = prefs.getBoolean(KEY_SHOW_AVATARS_IN_DIRECT_CHATS, true)
+        }
+
         /** Sentinel for [autoDownloadMaxBytes]: every supported payload auto-downloads. */
         const val AUTO_DOWNLOAD_UNLIMITED: Long = -1L
 

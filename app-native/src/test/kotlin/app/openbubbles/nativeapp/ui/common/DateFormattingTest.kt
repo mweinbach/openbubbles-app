@@ -27,6 +27,7 @@ class DateFormattingTest {
         val label = formatConversationTimestamp(daysBefore(0), zone, now, use24Hour = true)
         assertEquals(ConversationTimestamp(day = "Today", time = "09:41"), label)
         assertEquals("15:30", formatListTimestamp(now, zone, now, use24Hour = true))
+        assertEquals("3:30 PM", formatListTimestamp(now, zone, now, use24Hour = false))
     }
 
     @Test
