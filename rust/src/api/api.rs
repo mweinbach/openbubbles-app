@@ -426,12 +426,33 @@ fn migrate(path: String) -> bool {
                 }
                 if let Some(Value::Array(items)) = users.get_mut("keystore") {
                     let keystore = SivKey(keystore().ensure_secret(&format!("keychain:cloudkey-access-key:{}", dsid), 64).expect("wha"));
-                    for key in items {
-                        let Value::Data(data) = key else { continue };
-                        let serialized = CuttlefishSerializedKey::decode(&mut Cursor::new(data)).expect("failed to decode");
-                        let cloud = CloudKey::from_serialized_key(serialized, &keystore);
-                        *key = plist::to_value(&cloud).expect("Faield to serizsdf");
-                    }
+                    items.retain_mut(|key| {
+                        let Value::Data(data) = key else { return true };
+                        let serialized = match CuttlefishSerializedKey::decode(&mut Cursor::new(data)) {
+                            Ok(serialized) => serialized,
+                            Err(error) => {
+                                warn!("Dropping malformed legacy cloud key: {}", error);
+                                return false;
+                            }
+                        };
+                        let cloud = match CloudKey::from_serialized_key(serialized, &keystore) {
+                            Ok(cloud) => cloud,
+                            Err(error) => {
+                                warn!("Dropping legacy cloud key that failed decryption: {}", error);
+                                return false;
+                            }
+                        };
+                        match plist::to_value(&cloud) {
+                            Ok(cloud) => {
+                                *key = cloud;
+                                true
+                            }
+                            Err(error) => {
+                                warn!("Dropping legacy cloud key that failed serialization: {}", error);
+                                false
+                            }
+                        }
+                    });
                 }
                 if let Some(Value::Dictionary(dict)) = users.get_mut("items") {
                     dict.clear();

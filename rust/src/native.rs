@@ -519,13 +519,20 @@ impl NativePushState {
         RUNTIME.spawn(async move {
             // techincally this may insert into wrong group, but does anyone really ever update a passkey with the same ID??
             // and if they do, damn right it may go into the wrong group. Not my issue at this time lol
+            let passkey_key = match PKey::private_key_from_pkcs8(&key).and_then(|key| key.ec_key()) {
+                Ok(key) => key,
+                Err(error) => {
+                    callback.done(Some(format!("Invalid passkey key: {error}")));
+                    return;
+                }
+            };
             let result = passwords.insert_password_entry(&record_id, &Passkey {
                 cdat: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64,
                 mdat: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64,
                 agrp: "com.apple.webkit.webauthn".to_string(),
                 labl: site,
                 atag: tag,
-                data: Passkey::encode_key(PKey::private_key_from_pkcs8(&key).expect("Invalid EC key??").ec_key().expect("not ec key??")),
+                data: Passkey::encode_key(passkey_key),
                 klbl: id,
             }, group.clone()).await.err();
             callback.done(result.map(|e| format!("{e}")));
@@ -536,20 +543,40 @@ impl NativePushState {
         let passwords = self.state.icloud_services.as_ref().and_then(|i| i.passwords.clone()).expect("no icloud");
         RUNTIME.spawn(async move {
             let passwords = passwords.get_password_for_site(site).await;
-            callback.keys(passwords.passwords.into_iter().map(|(k, p)| SavedPassword {
-                cred_id: k,
-                username: p.acct.clone(),
-                password: String::from_utf8(p.data.clone()).expect("password not utf8??"),
-                otp: passwords.passwords_meta.values().find_map(|m| {
-                    if p.acct != m.acct { return None }
-                    let totp = m.get_password_data().ok()?.totp?;
-                    Some(totp.generate_otp().ok()?.0)
+            callback.keys(passwords.passwords.into_iter().filter_map(|(k, p)| {
+                let password = match String::from_utf8(p.data.clone()) {
+                    Ok(password) => password,
+                    Err(error) => {
+                        warn!("Skipping malformed password {} with non-UTF-8 data: {}", k, error);
+                        return None;
+                    }
+                };
+                Some(SavedPassword {
+                    cred_id: k,
+                    username: p.acct.clone(),
+                    password,
+                    otp: passwords.passwords_meta.values().find_map(|m| {
+                        if p.acct != m.acct { return None }
+                        let totp = m.get_password_data().ok()?.totp?;
+                        Some(totp.generate_otp().ok()?.0)
+                    })
                 })
-            }).collect(), passwords.passkeys.into_iter().map(|(k, p)| SavedPasskey {
-                cred_id: k,
-                id: p.klbl.clone(),
-                tag: p.atag.clone(),
-                key: PKey::from_ec_key(p.get_key()).unwrap().private_key_to_pkcs8().unwrap(),
+            }).collect(), passwords.passkeys.into_iter().filter_map(|(k, p)| {
+                let key = match p.get_key()
+                    .and_then(|key| PKey::from_ec_key(key).map_err(Into::into))
+                    .and_then(|key| key.private_key_to_pkcs8().map_err(Into::into)) {
+                    Ok(key) => key,
+                    Err(error) => {
+                        warn!("Skipping malformed passkey {}: {}", k, error);
+                        return None;
+                    }
+                };
+                Some(SavedPasskey {
+                    cred_id: k,
+                    id: p.klbl.clone(),
+                    tag: p.atag.clone(),
+                    key,
+                })
             }).collect());
         });
     }
