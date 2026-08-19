@@ -72,6 +72,7 @@ and `native/local.properties` exactly as documented in
 | Modules, login, receive/send, live vs poll | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Compose design, nav, screens, how to add UI | [docs/UI.md](docs/UI.md) |
 | UniFFI, rust vs rustpush, keystore, queue | [docs/RUST_KOTLIN.md](docs/RUST_KOTLIN.md) |
+| Personal iCloud Photos investigation and implementation | [docs/PHOTOS_SYNC.md](docs/PHOTOS_SYNC.md) |
 | ObjectBox entities, parity, store path | [docs/PERSISTENCE.md](docs/PERSISTENCE.md) |
 | Which tests prove what | [docs/VERIFY.md](docs/VERIFY.md) |
 | Human contrib, submodules | [CONTRIBUTING.md](CONTRIBUTING.md) |
