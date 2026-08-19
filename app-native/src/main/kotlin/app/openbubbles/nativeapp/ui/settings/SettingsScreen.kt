@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.ManageHistory
 import androidx.compose.material.icons.filled.Notifications
@@ -1335,6 +1336,9 @@ fun SettingsScreen(
                 var sendReadReceipts by remember {
                     mutableStateOf(messagingPrefs.sendReadReceipts)
                 }
+                var sendTypingIndicators by remember {
+                    mutableStateOf(messagingPrefs.sendTypingIndicators)
+                }
                 var showDeliveryTimestamps by remember {
                     mutableStateOf(messagingPrefs.showDeliveryTimestamps)
                 }
@@ -1344,127 +1348,162 @@ fun SettingsScreen(
                 var sendSubjectLines by remember {
                     mutableStateOf(messagingPrefs.sendSubjectLines)
                 }
-                SettingsActionItem(
-                    title = "Default sending address",
-                    supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
-                    onClick = { showDefaultSendingHandleDialog = true },
-                    index = 0,
-                    count = 9,
-                    enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
-                    icon = Icons.AutoMirrored.Filled.Send,
-                )
-                SettingsToggleItem(
-                    title = "Send read receipts",
-                    supporting = "Tell people in direct iMessage chats when you read their messages",
-                    checked = sendReadReceipts,
-                    onCheckedChange = { enabled ->
-                        sendReadReceipts = enabled
-                        messagingPrefs.sendReadReceipts = enabled
-                    },
-                    index = 1,
-                    count = 9,
-                    icon = Icons.Filled.DoneAll,
-                )
-                SettingsToggleItem(
-                    title = "Delivery timestamps",
-                    supporting = "Show delivered and read times below outgoing messages",
-                    checked = showDeliveryTimestamps,
-                    onCheckedChange = { enabled ->
-                        showDeliveryTimestamps = enabled
-                        messagingPrefs.showDeliveryTimestamps = enabled
-                    },
-                    index = 2,
-                    count = 9,
-                    icon = Icons.Filled.ManageHistory,
-                )
-                SettingsToggleItem(
-                    title = "Share Focus",
-                    supporting = "Publish a silenced Focus status to iMessage contacts",
-                    checked = shareFocusStatus,
-                    onCheckedChange = { enabled ->
-                        shareFocusStatus = enabled
-                        messagingPrefs.shareFocusStatus = enabled
-                        scope.launch(Dispatchers.IO) {
-                            runCatching {
-                                pushState?.publishStatus(if (enabled) SHARED_FOCUS_GUID else null)
-                            }.onFailure {
-                                withContext(Dispatchers.Main) {
-                                    shareFocusStatus = !enabled
-                                    messagingPrefs.shareFocusStatus = !enabled
+                val rows = buildList<SettingsRowContent> {
+                    add { index, count ->
+                        SettingsActionItem(
+                            title = "Default sending address",
+                            supporting = defaultSendingHandle?.let(::sendingHandleLabel) ?: "Automatic",
+                            onClick = { showDefaultSendingHandleDialog = true },
+                            index = index,
+                            count = count,
+                            enabled = availableSendingHandles.isNotEmpty() || defaultSendingHandle != null,
+                            icon = Icons.AutoMirrored.Filled.Send,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsToggleItem(
+                            title = "Send read receipts",
+                            supporting = "Tell people in direct iMessage chats when you read their messages",
+                            checked = sendReadReceipts,
+                            onCheckedChange = { enabled ->
+                                sendReadReceipts = enabled
+                                messagingPrefs.sendReadReceipts = enabled
+                            },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.DoneAll,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsToggleItem(
+                            title = "Send typing indicators",
+                            supporting = "Show people in iMessage chats when you are typing",
+                            checked = sendTypingIndicators,
+                            onCheckedChange = { enabled ->
+                                sendTypingIndicators = enabled
+                                messagingPrefs.sendTypingIndicators = enabled
+                            },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.Keyboard,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsToggleItem(
+                            title = "Delivery timestamps",
+                            supporting = "Show delivered and read times below outgoing messages",
+                            checked = showDeliveryTimestamps,
+                            onCheckedChange = { enabled ->
+                                showDeliveryTimestamps = enabled
+                                messagingPrefs.showDeliveryTimestamps = enabled
+                            },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.ManageHistory,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsToggleItem(
+                            title = "Share Focus",
+                            supporting = "Publish a silenced Focus status to iMessage contacts",
+                            checked = shareFocusStatus,
+                            onCheckedChange = { enabled ->
+                                shareFocusStatus = enabled
+                                messagingPrefs.shareFocusStatus = enabled
+                                scope.launch(Dispatchers.IO) {
+                                    runCatching {
+                                        pushState?.publishStatus(if (enabled) SHARED_FOCUS_GUID else null)
+                                    }.onFailure {
+                                        withContext(Dispatchers.Main) {
+                                            shareFocusStatus = !enabled
+                                            messagingPrefs.shareFocusStatus = !enabled
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    },
-                    index = 3,
-                    count = 9,
-                    icon = Icons.Filled.Notifications,
-                )
-                SettingsToggleItem(
-                    title = "Show subject field",
-                    supporting = "Add an optional subject line above the message composer",
-                    checked = sendSubjectLines,
-                    onCheckedChange = { enabled ->
-                        sendSubjectLines = enabled
-                        messagingPrefs.sendSubjectLines = enabled
-                    },
-                    index = 4,
-                    count = 9,
-                    icon = Icons.Filled.AlternateEmail,
-                )
-                SettingsActionItem(
-                    title = "Auto-download media",
-                    supporting = autoDownloadLimit.title,
-                    onClick = { showAutoDownloadDialog = true },
-                    index = 5,
-                    count = 9,
-                    icon = Icons.Filled.DownloadForOffline,
-                )
-                SettingsActionItem(
-                    title = "Archived conversations",
-                    supporting = if (archivedCount == 0) {
-                        "None"
-                    } else {
-                        "$archivedCount archived"
-                    },
-                    onClick = onOpenArchived,
-                    index = 6,
-                    count = 9,
-                    icon = Icons.Filled.Archive,
-                )
-                SettingsActionItem(
-                    title = "Recently Deleted",
-                    supporting = if (recentlyDeletedCount == 0) {
-                        "None"
-                    } else {
-                        "$recentlyDeletedCount recoverable"
-                    },
-                    onClick = onOpenRecentlyDeleted,
-                    index = 7,
-                    count = 9,
-                    icon = Icons.Filled.Restore,
-                )
-                // One row for the SMS role: the chip tone says whether it is
-                // active, the tap opens the system role picker either way.
-                SettingsActionItem(
-                    title = "SMS & MMS",
-                    supporting = if (isDefaultSmsApp) {
-                        "On — incoming and outgoing SMS stay in this app and in Android's message store"
-                    } else {
-                        "Off — set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
-                    },
-                    onClick = {
-                        SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
-                    },
-                    index = 8,
-                    count = 9,
-                    multiline = true,
-                    icon = Icons.Filled.Sms,
-                    iconTone = if (isDefaultSmsApp) {
-                        SettingsRowTone.Active
-                    } else {
-                        SettingsRowTone.Neutral
-                    },
-                )
+                            },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.Notifications,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsToggleItem(
+                            title = "Show subject field",
+                            supporting = "Add an optional subject line above the message composer",
+                            checked = sendSubjectLines,
+                            onCheckedChange = { enabled ->
+                                sendSubjectLines = enabled
+                                messagingPrefs.sendSubjectLines = enabled
+                            },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.AlternateEmail,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsActionItem(
+                            title = "Auto-download media",
+                            supporting = autoDownloadLimit.title,
+                            onClick = { showAutoDownloadDialog = true },
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.DownloadForOffline,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsActionItem(
+                            title = "Archived conversations",
+                            supporting = if (archivedCount == 0) {
+                                "None"
+                            } else {
+                                "$archivedCount archived"
+                            },
+                            onClick = onOpenArchived,
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.Archive,
+                        )
+                    }
+                    add { index, count ->
+                        SettingsActionItem(
+                            title = "Recently Deleted",
+                            supporting = if (recentlyDeletedCount == 0) {
+                                "None"
+                            } else {
+                                "$recentlyDeletedCount recoverable"
+                            },
+                            onClick = onOpenRecentlyDeleted,
+                            index = index,
+                            count = count,
+                            icon = Icons.Filled.Restore,
+                        )
+                    }
+                    // One row for the SMS role: the chip tone says whether it is
+                    // active, the tap opens the system role picker either way.
+                    add { index, count ->
+                        SettingsActionItem(
+                            title = "SMS & MMS",
+                            supporting = if (isDefaultSmsApp) {
+                                "On — incoming and outgoing SMS stay in this app and in Android's message store"
+                            } else {
+                                "Off — set OpenBubbles as the default SMS app so carrier SMS, MMS, and media arrive here"
+                            },
+                            onClick = {
+                                SmsRole.requestIntent(context)?.let(smsRoleLauncher::launch)
+                            },
+                            index = index,
+                            count = count,
+                            multiline = true,
+                            icon = Icons.Filled.Sms,
+                            iconTone = if (isDefaultSmsApp) {
+                                SettingsRowTone.Active
+                            } else {
+                                SettingsRowTone.Neutral
+                            },
+                        )
+                    }
+                }
+                rows.forEachIndexed { index, row -> row(index, rows.size) }
             }
 
             }
