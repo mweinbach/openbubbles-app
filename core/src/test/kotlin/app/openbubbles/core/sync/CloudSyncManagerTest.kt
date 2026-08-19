@@ -4,6 +4,7 @@ import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.Handle
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Message
@@ -608,6 +609,92 @@ class CloudSyncManagerTest {
             listOf(TranscriptBackgroundUpdate(chat.id, 5, remove = false, mmcsXml = "<plist/>")),
             backgroundUpdates,
         )
+    }
+
+    @Test
+    fun `transcript background by bare address prefers the iMessage twin over an older SMS chat`() {
+        // The SMS twin exists first (lower id, same identifier + address).
+        val smsHandle = Handle().apply {
+            address = "+15551234567"
+            service = "SMS"
+            uniqueAddressAndService = "+15551234567/SMS"
+        }
+        store.boxFor(Handle::class.java).put(smsHandle)
+        val smsChat = Chat().apply {
+            guid = "SMS;-;+15551234567"
+            chatIdentifier = "+15551234567"
+            isRpSms = true
+            handles.add(smsHandle)
+        }
+        store.boxFor(Chat::class.java).put(smsChat)
+
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-background",
+                cloudMessage(
+                    "rec-background",
+                    guid = "background-message",
+                    chatId = "unresolvable-cloud-chat-ref",
+                    text = null,
+                    msgType = 138,
+                    transcriptBackground = UTranscriptBackground(
+                        version = 6uL,
+                        chatId = "+15551234567",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        val imessageChat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(imessageChat.id, 6, remove = false, mmcsXml = "<plist/>")),
+            backgroundUpdates,
+        )
+    }
+
+    @Test
+    fun `full-guid cloud message routes to its own service's chat despite an identifier twin`() {
+        // Older SMS twin shares the identifier with the synced iMessage chat.
+        val smsHandle = Handle().apply {
+            address = "+15551234567"
+            service = "SMS"
+            uniqueAddressAndService = "+15551234567/SMS"
+        }
+        store.boxFor(Handle::class.java).put(smsHandle)
+        val smsChat = Chat().apply {
+            guid = "SMS;-;+15551234567"
+            chatIdentifier = "+15551234567"
+            isRpSms = true
+            handles.add(smsHandle)
+        }
+        store.boxFor(Chat::class.java).put(smsChat)
+
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-msg",
+                cloudMessage("rec-msg", chatId = "iMessage;-;+15551234567"),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        val imessageChat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        val row = requireNotNull(messageByGuid("msg-rec-msg"))
+        assertEquals(imessageChat.id, row.chat.targetId)
     }
 
     @Test
