@@ -11,7 +11,7 @@ import app.openbubbles.nativeapp.data.ChatListRepository
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SearchRepository
-import app.openbubbles.nativeapp.ui.common.UiContacts
+import app.openbubbles.nativeapp.data.UiContacts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview

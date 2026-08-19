@@ -87,10 +87,10 @@ import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.data.DeviceContactsReadResult
+import app.openbubbles.nativeapp.data.UiContacts
 import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.sms.SmsPermissions
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
-import app.openbubbles.nativeapp.ui.common.UiContacts
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.theme.ServiceColorPair
@@ -162,7 +162,9 @@ fun NewChatScreen(
             DeviceContactsReadResult.PermissionDenied
         }
         withContext(Dispatchers.IO) {
-            readResult.applySuccessfulSnapshot(CoreGraph::syncDeviceContacts)
+            readResult.applySuccessfulSnapshot { snapshot ->
+                CoreGraph.syncDeviceContacts(snapshot)
+            }
         }
         value = readResult
     }
