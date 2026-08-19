@@ -2,6 +2,17 @@
 
 Below are the last few OpenBubbles App release changelogs
 
+## v3.3.0
+
+### Enhancements
+
+- iCloud Passwords now supports creating, editing, and deleting vault items
+  and shared groups, including verification-code setup and group sharing.
+- Passwords and groups open in native detail pages modeled after Apple's
+  Passwords app, with locally cached vault data available immediately.
+- Nearby approval can now authorize iCloud Passwords setup from a trusted
+  Apple device, with clearer setup and recovery guidance in Settings.
+
 ## v3.2.13
 
 ### Fixes
