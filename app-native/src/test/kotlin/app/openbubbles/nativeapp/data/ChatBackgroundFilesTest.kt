@@ -29,7 +29,7 @@ class ChatBackgroundFilesTest {
         val root = Files.createTempDirectory("ob-flutter-watch").toFile()
         try {
             val prefix = File(root, "avatars/you/poster-7")
-            prefix.parentFile.mkdirs()
+            requireNotNull(prefix.parentFile).mkdirs()
             File("$prefix.jpg").writeBytes(byteArrayOf(9, 9, 9))
             val jpeg = JpegHeader + ByteArray(16)
 

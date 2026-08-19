@@ -5,8 +5,10 @@ import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -118,8 +121,10 @@ internal fun MessageActionSheet(
                 item { ActionRow("Block sender") { finish(onBlockSender) } }
             }
             if (downloaded.isNotEmpty()) {
-                item { ActionRow("Save") { finish { saveAttachments(context, downloaded); onResult("Saved to Downloads") } } }
-                item { ActionRow("Save original") { finish { saveAttachments(context, downloaded); onResult("Saved original payload") } } }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    item { ActionRow("Save") { finish { saveAttachments(context, downloaded); onResult("Saved to Downloads") } } }
+                    item { ActionRow("Save original") { finish { saveAttachments(context, downloaded); onResult("Saved original payload") } } }
+                }
                 item { ActionRow("Share") { finish { downloaded.forEach { (meta, file) -> shareAttachment(context, file, meta.mime) } } } }
                 item { ActionRow("Copy attachment") { finish { copyAttachment(context, downloaded.first().second, downloaded.first().first.mime); onResult("Attachment copied") } } }
             }
@@ -270,9 +275,10 @@ private fun shareText(context: Context, text: String) {
 }
 
 private fun openBrowser(context: Context, url: String) {
-    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
 }
 
+@RequiresApi(Build.VERSION_CODES.Q)
 private fun saveAttachments(context: Context, files: List<Pair<AttachmentMeta, File>>) {
     files.forEach { (meta, file) ->
         val values = ContentValues().apply {

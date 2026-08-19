@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Games
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.TouchApp
@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import app.openbubbles.core.model.InteractivePayload
 import app.openbubbles.core.model.SupportedKind
 import kotlin.math.max
@@ -58,7 +59,7 @@ fun InteractiveBalloon(
             if (latitude != null && longitude != null) {
                 {
                     val label = payload.label ?: payload.caption ?: "Shared location"
-                    val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude(${Uri.encode(label)})")
+                    val uri = "geo:$latitude,$longitude?q=$latitude,$longitude(${Uri.encode(label)})".toUri()
                     context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                 }
             } else {
@@ -256,7 +257,7 @@ private fun OpenHint(text: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Filled.OpenInNew,
+            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp),
@@ -279,7 +280,7 @@ private fun supportedSubtitle(kind: SupportedKind): String = when (kind) {
 }
 
 private fun String.asOpenAction(context: android.content.Context): (() -> Unit)? {
-    val uri = runCatching { Uri.parse(this) }.getOrNull() ?: return null
+    val uri = runCatching { toUri() }.getOrNull() ?: return null
     if (uri.scheme.isNullOrBlank() || uri.scheme == "data") return null
     return { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
 }

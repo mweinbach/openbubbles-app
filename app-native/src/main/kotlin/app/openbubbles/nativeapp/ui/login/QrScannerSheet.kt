@@ -86,8 +86,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun QrScannerSheet(
     onResult: (bytes: ByteArray?, text: String?) -> Unit,
     onClose: () -> Unit,
-    instruction: String = "Scan the pairing code on your Mac",
     modifier: Modifier = Modifier,
+    instruction: String = "Scan the pairing code on your Mac",
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current

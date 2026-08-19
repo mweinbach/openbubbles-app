@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -75,7 +76,7 @@ internal fun rememberDiagnosticsAboutSection(
     val syncSummary by CloudSyncWiring.lastSummary.collectAsStateWithLifecycle()
     var logRevision by remember { mutableIntStateOf(0) }
     var logCount by remember { mutableIntStateOf(0) }
-    var logBytes by remember { mutableStateOf(0L) }
+    var logBytes by remember { mutableLongStateOf(0L) }
     LaunchedEffect(logRevision) {
         val files = withContext(Dispatchers.IO) { diagnosticLogFiles(context) }
         logCount = files.size

@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.facetime
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,6 +11,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.annotation.RequiresApi
 
 /** Shared FaceTime notification channel ids and creation. */
 internal object FaceTimeNotifications {
@@ -73,6 +75,7 @@ internal object FaceTimeNotifications {
  * granted. A zero type is illegal on Android 14+ for a service declared as
  * `camera|microphone`.
  */
+@SuppressLint("InlinedApi") // Service type flags are passed only to the API-29+ startForeground overload.
 internal fun faceTimeForegroundServiceType(
     cameraGranted: Boolean,
     microphoneGranted: Boolean,
@@ -104,6 +107,7 @@ internal fun shouldOfferFullScreenCallSettings(context: Context): Boolean {
     )
 }
 
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 internal fun fullScreenCallSettingsIntent(packageName: String): Intent =
     Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).setData(
         Uri.fromParts("package", packageName, null),

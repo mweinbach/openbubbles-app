@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chat
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,21 +71,20 @@ fun BookmarkedMessagesScreen(
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
                 items(messages, key = { it.id }) { message ->
                     ListItem(
-                        headlineContent = {
-                            Text(
-                                message.text.ifBlank { "Attachment" },
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
+                        onClick = onOpenChat,
                         supportingContent = { Text(formatManagementDate(message.date)) },
                         trailingContent = {
                             IconButton(onClick = { onUnbookmark(message) }) {
                                 Icon(Icons.Filled.BookmarkRemove, contentDescription = "Remove bookmark")
                             }
                         },
-                        modifier = Modifier.clickable(onClick = onOpenChat),
-                    )
+                    ) {
+                        Text(
+                            message.text.ifBlank { "Attachment" },
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     HorizontalDivider()
                 }
             }
@@ -185,7 +183,6 @@ private fun DeletedRow(
     onDelete: () -> Unit,
 ) {
     ListItem(
-        headlineContent = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(supporting) },
         trailingContent = {
             Row {
@@ -201,7 +198,9 @@ private fun DeletedRow(
                 }
             }
         },
-    )
+    ) {
+        Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
     HorizontalDivider()
 }
 

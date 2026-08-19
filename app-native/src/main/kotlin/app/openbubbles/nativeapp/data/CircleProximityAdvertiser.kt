@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 
 internal object CircleProximityPermissions {
+    @SuppressLint("InlinedApi") // These permission names are returned only for Android 12+.
     fun requiredForSdk(sdkInt: Int): List<String> = if (sdkInt >= Build.VERSION_CODES.S) {
         listOf(
             Manifest.permission.BLUETOOTH_ADVERTISE,

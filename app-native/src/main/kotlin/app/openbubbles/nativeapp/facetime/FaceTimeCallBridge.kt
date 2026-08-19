@@ -1,7 +1,9 @@
 package app.openbubbles.nativeapp.facetime
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -125,6 +127,14 @@ internal object FaceTimeCallBridge {
             )
             calls[callUuid] = tracked
             runCatching {
+                // register() checked the normal self-managed-call permission,
+                // but recheck at the protected call site so a failed or
+                // changed permission state cannot escape as SecurityException.
+                if (appContext.checkSelfPermission(Manifest.permission.MANAGE_OWN_CALLS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    error("MANAGE_OWN_CALLS is unavailable")
+                }
                 telecom.placeCall(
                     address,
                     Bundle().apply {

@@ -18,7 +18,7 @@ class OutgoingAttachmentFilesTest {
         val root = Files.createTempDirectory("outgoing-move").toFile()
         try {
             val source = root.resolve("cache/photo.jpg").apply {
-                parentFile.mkdirs()
+                requireNotNull(parentFile).mkdirs()
                 writeBytes(byteArrayOf(1, 2, 3))
             }
             val destination = root.resolve("app_flutter/attachments/temp/photo.jpg")

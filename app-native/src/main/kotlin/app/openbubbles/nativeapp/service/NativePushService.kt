@@ -597,7 +597,7 @@ class NativePushService : Service(), MsgReceiver {
             body != null &&
             sender != null &&
             sender !in handles &&
-            inst?.verificationFailed == false &&
+            !inst.verificationFailed &&
             persistedMessage?.isFromMe != true &&
             persistedMessage?.verificationFailed != true
         val lastReadAtMs = target?.lastReadMessageGuid
@@ -614,7 +614,7 @@ class NativePushService : Service(), MsgReceiver {
                 messageCreatedAtMs = persistedMessage.dateCreated?.time,
                 lastReadAtMs = lastReadAtMs,
             )
-        val runtimeState = if (persisted && target != null && inst != null) {
+        val runtimeState = if (persisted) {
             Notifications.runtimeStateForIncoming(this, target.id, inst.id)
         } else {
             IncomingNotificationRuntimeState(

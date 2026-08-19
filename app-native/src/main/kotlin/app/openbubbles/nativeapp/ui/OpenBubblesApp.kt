@@ -1,7 +1,6 @@
 package app.openbubbles.nativeapp.ui
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -9,6 +8,7 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -346,7 +346,7 @@ fun OpenBubblesApp(
     resumeRoute: String? = null,
     onRouteChanged: (String?) -> Unit = {},
 ) {
-    val hostActivity = LocalContext.current as? Activity
+    val hostActivity = LocalActivity.current
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
@@ -790,7 +790,7 @@ fun OpenBubblesApp(
                     LaunchedEffect(key.sharedUris) {
                         if (key.sharedUris.isNotEmpty()) {
                             val staged = key.sharedUris.mapNotNull { raw ->
-                                prepareOutgoingAttachment(conversationContext, Uri.parse(raw))
+                                prepareOutgoingAttachment(conversationContext, raw.toUri())
                             }
                             viewModel.stageAttachments(staged)
                         }

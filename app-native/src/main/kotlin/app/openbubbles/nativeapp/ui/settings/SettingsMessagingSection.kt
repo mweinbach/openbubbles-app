@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.settings
 
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -180,7 +181,7 @@ internal fun rememberMessagingSection(
                     count = notifCount,
                     icon = Icons.Filled.EmojiEmotions,
                 )
-                if (offerFullScreenCalls) {
+                if (offerFullScreenCalls && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     SettingsActionItem(
                         title = "Full-screen FaceTime alerts",
                         supporting = "Android is blocking incoming calls from taking over the lock screen. Tap to allow them.",

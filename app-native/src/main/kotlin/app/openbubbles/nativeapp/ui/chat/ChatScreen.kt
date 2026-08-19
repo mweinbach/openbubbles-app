@@ -362,12 +362,12 @@ fun buildConversationEntries(
 fun ChatScreen(
     uiState: ChatUiState,
     onInputChange: (String) -> Unit,
-    onSubjectChange: (String) -> Unit = {},
-    onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     onSend: () -> Unit,
     onLoadOlder: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onSubjectChange: (String) -> Unit = {},
+    onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
      * False when this conversation renders as the detail pane beside its own
      * list: there is nothing to navigate back to, and Material specifies that a
@@ -554,8 +554,10 @@ fun ChatScreen(
         if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCapture(video)
         else requestCameraPermission.launch(Manifest.permission.CAMERA)
     }
-    val requestLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) {
+    val requestLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] != true &&
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] != true
+        ) {
             scope.launch { snackbarHostState.showSnackbar("Location access was denied") }
         } else {
             val message = currentLocationMessage(context)
@@ -815,11 +817,20 @@ fun ChatScreen(
                     onCameraPhoto = { requestCapture(false) },
                     onCameraVideo = { requestCapture(true) },
                     onShareLocation = {
-                        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        ) {
                             val message = currentLocationMessage(context)
                             if (message == null) scope.launch { snackbarHostState.showSnackbar("Current location is unavailable") }
                             else onInputChange(listOf(uiState.input.trimEnd(), message).filter(String::isNotBlank).joinToString("\n"))
-                        } else requestLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        } else {
+                            requestLocationPermission.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                ),
+                            )
+                        }
                     },
                     onRecordAudio = {
                         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -1658,19 +1669,19 @@ private fun MessageInputBarPreview() {
 private fun MessageInputBar(
     value: String,
     onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onPickMedia: () -> Unit,
+    onPickFile: () -> Unit,
+    onRecordAudio: () -> Unit,
+    modifier: Modifier = Modifier,
     subject: String = "",
     onSubjectChange: (String) -> Unit = {},
     showSubjectLine: Boolean = false,
     mentionCandidates: List<MentionCandidate> = emptyList(),
     onMentionSelected: (Int, Int, MentionCandidate) -> Unit = { _, _, _ -> },
-    onSend: () -> Unit,
-    onPickMedia: () -> Unit,
-    onPickFile: () -> Unit,
-    onRecordAudio: () -> Unit,
     onCameraPhoto: () -> Unit = {},
     onCameraVideo: () -> Unit = {},
     onShareLocation: () -> Unit = {},
-    modifier: Modifier = Modifier,
     recording: RecordingUiState? = null,
     onCancelRecording: () -> Unit = {},
     onFinishRecording: () -> Unit = {},

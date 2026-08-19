@@ -17,6 +17,7 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.LocusIdCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.net.toUri
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.NotifPrefs
@@ -760,7 +761,7 @@ object Notifications {
         operation: NotificationPendingIntentOperation,
     ): Intent {
         val identity = notificationPendingIntentIdentity(conversationId, operation)
-        return setAction(identity.action).setData(Uri.parse(identity.dataUri))
+        return setAction(identity.action).setData(identity.dataUri.toUri())
     }
 
     /**

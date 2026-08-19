@@ -314,8 +314,8 @@ private fun RichLinkCard(
 fun MessageBubble(
     message: MessageItem,
     showStatus: Boolean,
-    showDeliveryTimestamp: Boolean = false,
     modifier: Modifier = Modifier,
+    showDeliveryTimestamp: Boolean = false,
     tightTop: Boolean = false,
     tightBottom: Boolean = false,
     showSenderName: Boolean = false,

@@ -27,6 +27,7 @@ internal object FaceTimePhoneAccount {
      * FaceTime calls. Never throws; every failure means the notification-only
      * fallback.
      */
+    @Suppress("DEPRECATION") // Required compatibility path for self-managed calls on API 26–35.
     fun register(context: Context): TelecomManager? {
         if (context.checkSelfPermission(Manifest.permission.MANAGE_OWN_CALLS) !=
             PackageManager.PERMISSION_GRANTED
@@ -44,9 +45,9 @@ internal object FaceTimePhoneAccount {
                 .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_TEL, FACETIME_URI_SCHEME))
                 .setExtras(
                     Bundle().apply {
-                        // Calls show in the system phone app's call log (API 28+;
-                        // older releases ignore the extra).
-                        putBoolean(PhoneAccount.EXTRA_LOG_SELF_MANAGED_CALLS, true)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            putBoolean(PhoneAccount.EXTRA_LOG_SELF_MANAGED_CALLS, true)
+                        }
                     },
                 )
                 .build()

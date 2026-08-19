@@ -6,6 +6,7 @@ import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.os.Build
 import android.util.LruCache
+import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
@@ -228,11 +229,9 @@ internal fun Bitmap.scaledToMaxDimension(maxDimensionPx: Int): Bitmap {
     val longest = maxOf(width, height)
     if (longest <= maxDimensionPx) return this
     val scale = maxDimensionPx.toFloat() / longest.toFloat()
-    val scaled = Bitmap.createScaledBitmap(
-        this,
+    val scaled = scale(
         (width * scale).toInt().coerceAtLeast(1),
         (height * scale).toInt().coerceAtLeast(1),
-        true,
     )
     if (scaled !== this) recycle()
     return scaled
