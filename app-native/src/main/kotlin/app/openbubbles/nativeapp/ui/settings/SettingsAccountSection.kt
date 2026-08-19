@@ -144,8 +144,8 @@ internal fun rememberAccountSection(
                         },
                     )
                 } else {
-                    // Registration and handle details live under Diagnostics →
-                    // iMessage stats; this group keeps only the actionable rows.
+                    // Actionable rows only; registration and handle details
+                    // belong to Diagnostics → iMessage stats.
                     val error = pushError
                     val rows = buildList<SettingsRowContent> {
                         if (accountConnection != null) {
