@@ -175,6 +175,45 @@ class ChatRepoContactTest {
         )
     }
 
+    /**
+     * A synced wallpaper can land on any member of a contact-merged
+     * conversation (e.g. the phone-number chat while the email chat is
+     * newest). The merged list item must still surface it, or the open
+     * transcript renders no background.
+     */
+    @Test
+    fun `merged conversation surfaces a wallpaper stored on a non-newest member`() {
+        val first = handle("+15550000001")
+        val second = handle("+15550000002")
+        val third = handle("jamie@icloud.com")
+        ContactSync(store).upsertContacts(
+            listOf(
+                RawContact(
+                    id = "icloud:jamie-3",
+                    displayName = "Jamie Example",
+                    firstName = "Jamie",
+                    lastName = "Example",
+                    avatarPath = null,
+                    addresses = listOf(first.address, second.address, third.address),
+                ),
+            ),
+        )
+        chat("chat-oldest", first, "oldest", 100L)
+        val middle = chat("chat-middle", second, "middle", 200L)
+        chat("chat-newest", third, "newest", 300L)
+
+        store.boxFor(Chat::class.java).put(
+            store.boxFor(Chat::class.java).get(middle.id).apply {
+                transcriptPosterPath = "/backgrounds/shared-42-7.img"
+                transcriptBackgroundVersion = 7L
+            },
+        )
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("/backgrounds/shared-42-7.img", item.transcriptBackgroundPath)
+        assertEquals(7L, item.transcriptBackgroundVersion)
+    }
+
     @Test
     fun `sender override persists per protocol chat and projects into the list item`() {
         val handle = handle("friend@icloud.com")

@@ -336,7 +336,10 @@ class MessageIngestor(
             chatByGuidOrGuidRef(cid)?.let { return it }
             chatBox.query()
                 .equal(Chat_.chatIdentifier, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
+                .build().use { it.find() }
+                .let { candidates ->
+                    candidates.firstOrNull { it.isRpSms != true } ?: candidates.firstOrNull()
+                }
                 ?.let { return it }
         }
         val sender = inst.sender ?: return null
@@ -354,12 +357,18 @@ class MessageIngestor(
             .build().use { it.findFirst() }
     }
 
-    /** `Chat.findByHandle`: the direct chat whose only participant is [address]. */
+    /**
+     * `Chat.findByHandle`: the direct chat whose only participant is
+     * [address]. A phone number usually has an SMS twin sharing the address;
+     * this resolver only serves wallpaper routing, and wallpapers are an
+     * iMessage feature, so the iMessage row wins when both exist.
+     */
     private fun directChatForAddress(address: String): Chat? {
         val builder = chatBox.query()
         builder.link(Chat_.handles)
             .equal(Handle_.address, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
-        return builder.build().use { it.find() }.firstOrNull { it.handles.size == 1 }
+        val candidates = builder.build().use { it.find() }.filter { it.handles.size == 1 }
+        return candidates.firstOrNull { it.isRpSms != true } ?: candidates.firstOrNull()
     }
 
     private fun ingestRename(inst: UMessageInst, msg: UMessage.Rename, myHandles: Set<String>) {        if (inst.verificationFailed) return

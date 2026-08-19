@@ -483,47 +483,104 @@ class CloudSyncManager(
                     .build().use { it.findFirst() }
                     ?.also(::putChat)
 
-        fun chatForCloudMessage(chatId: String): Chat? {
+        /**
+         * Identifier lookup that can tell SMS/iMessage twins apart. A phone
+         * number's SMS and iMessage 1:1 chats share the same chatIdentifier,
+         * so a bare `findByIdentifier` binds whichever row the query returns
+         * first. The preferring variant falls back to the other twin (for
+         * resolvers that must not drop a record); the exact variant returns
+         * null instead so import paths fall through to creation rather than
+         * adopting the wrong service's thread.
+         */
+        fun findByIdentifierPreferring(identifier: String, sms: Boolean): Chat? {
+            val candidates = identifierCandidates(identifier)
+            return (
+                candidates.firstOrNull { (it.isRpSms == true) == sms }
+                    ?: candidates.firstOrNull()
+                )?.also(::putChat)
+        }
+
+        fun findByIdentifierForService(identifier: String, sms: Boolean): Chat? =
+            identifierCandidates(identifier)
+                .firstOrNull { (it.isRpSms == true) == sms }
+                ?.also(::putChat)
+
+        private fun identifierCandidates(identifier: String): List<Chat> =
+            chatBox.query()
+                .equal(Chat_.chatIdentifier, identifier, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.find() }
+
+        fun chatForCloudMessage(chatId: String): Chat? =
+            resolveChatRef(chatId, preferSmsForBareRefs = null)
+
+        /**
+         * Wallpapers are an iMessage feature; when a bare address or
+         * identifier is ambiguous between service twins, the iMessage row
+         * must win or the poster lands on a chat the transcript never reads.
+         */
+        fun chatForTranscriptBackground(chatId: String): Chat? =
+            resolveChatRef(chatId, preferSmsForBareRefs = false)
+
+        private fun resolveChatRef(chatId: String, preferSmsForBareRefs: Boolean?): Chat? {
             if (chatId.contains(';')) {
+                // Exact guid forms resolve before the shared-identifier
+                // fallback: the service prefix ("SMS;-;X" vs "iMessage;-;X")
+                // is the only thing that tells the twins apart, and the
+                // identifier fallback used to shadow it.
+                exactChatRef(chatId)?.let { return it }
                 val identifier = chatId.split(';').getOrNull(2)
                 if (!identifier.isNullOrEmpty()) {
-                    findByIdentifier(identifier)?.let { return it }
+                    findByIdentifierPreferring(identifier, sms = chatId.startsWith("SMS;"))
+                        ?.let { return it }
                 }
             } else {
                 // Transcript-background records reference their chat by the
                 // bare identifier: the peer address for direct chats, a rust
                 // guid for groups (Dart resolved these via findByHandle /
                 // findByRustGuid).
-                findByIdentifier(chatId)?.let { return it }
+                when (preferSmsForBareRefs) {
+                    null -> findByIdentifier(chatId)?.let { return it }
+                    else -> findByIdentifierPreferring(chatId, sms = preferSmsForBareRefs)
+                        ?.let { return it }
+                }
+                exactChatRef(chatId)?.let { return it }
             }
-            findByCloudGuid(chatId)?.let { return it }
-            chatsByGuid[chatId]?.let(chatBox::get)?.let { return it }
-            chatsByGuidRef[chatId]?.let(chatBox::get)?.let { return it }
-            chatBox.query()
-                .equal(Chat_.guid, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
-                ?.also(::putChat)
-                ?.let { return it }
-            chatBox.query()
-                .containsElement(Chat_.guidRefs, chatId, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                .build().use { it.findFirst() }
-                ?.also(::putChat)
-                ?.let { return it }
             val address = MessageMapper.normalizeAddress(chatId)
             if (address.contains('@') || address.contains('+')) {
-                directChatForAddress(address)?.let { return it }
+                directChatForAddress(address, preferIMessage = preferSmsForBareRefs == false)
+                    ?.let { return it }
             }
             return null
         }
 
+        private fun exactChatRef(ref: String): Chat? {
+            findByCloudGuid(ref)?.let { return it }
+            chatsByGuid[ref]?.let(chatBox::get)?.let { return it }
+            chatsByGuidRef[ref]?.let(chatBox::get)?.let { return it }
+            chatBox.query()
+                .equal(Chat_.guid, ref, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.also(::putChat)
+                ?.let { return it }
+            return chatBox.query()
+                .containsElement(Chat_.guidRefs, ref, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.also(::putChat)
+        }
+
         /** `Chat.findByHandle`: the direct chat whose only participant is [address]. */
-        fun directChatForAddress(address: String): Chat? {
+        fun directChatForAddress(address: String, preferIMessage: Boolean = false): Chat? {
             val builder = chatBox.query()
             builder.link(Chat_.handles)
                 .equal(Handle_.address, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            return builder.build().use { it.find() }
-                .firstOrNull { it.handles.size == 1 }
-                ?.also(::putChat)
+            val candidates = builder.build().use { it.find() }
+                .filter { it.handles.size == 1 }
+            val chosen = if (preferIMessage) {
+                candidates.firstOrNull { it.isRpSms != true } ?: candidates.firstOrNull()
+            } else {
+                candidates.firstOrNull()
+            }
+            return chosen?.also(::putChat)
         }
 
         fun putChat(chat: Chat) {
@@ -691,7 +748,15 @@ class CloudSyncManager(
     /** `Chat.findFromCloud`: cloud guid, then identifier, then exact participant set, else create. */
     private fun findOrImportChatLocked(cloud: UCloudChat, lookup: HistorySyncLookup): Chat {
         lookup.findByCloudGuid(cloud.groupId)?.let { return it }
-        lookup.findByIdentifier(cloud.chatIdentifier)?.let { return it }
+        // The identifier alone cannot tell a phone number's SMS and iMessage
+        // rows apart. An iMessage chat record must never adopt the SMS
+        // thread: doing so leaves cloud history and wallpapers on the SMS
+        // row while live APNs traffic builds a separate iMessage row. Exact
+        // service matching falls through to participant matching (already
+        // isRpSms-aware) and then creation. Only iMessage records reach here
+        // today, but the check keeps this correct if that filter widens.
+        lookup.findByIdentifierForService(cloud.chatIdentifier, sms = cloud.serviceName == "SMS")
+            ?.let { return it }
 
         val participants = cloud.participants.map { MessageMapper.normalizeAddress(it) }.distinct()
         if (participants.isNotEmpty()) {
@@ -802,10 +867,13 @@ class CloudSyncManager(
                         // history lands after it (Dart never aborted here).
                         val background = cloud.transcriptBackground ?: continue
                         val chat = background.chatId
-                            ?.let(lookup::chatForCloudMessage)
-                            ?: lookup.chatForCloudMessage(cloud.chatId)
+                            ?.let(lookup::chatForTranscriptBackground)
+                            ?: lookup.chatForTranscriptBackground(cloud.chatId)
                             ?: cloud.sender.takeIf(String::isNotEmpty)?.let { sender ->
-                                lookup.directChatForAddress(MessageMapper.normalizeAddress(sender))
+                                lookup.directChatForAddress(
+                                    MessageMapper.normalizeAddress(sender),
+                                    preferIMessage = true,
+                                )
                             }
                             ?: continue
                         removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
