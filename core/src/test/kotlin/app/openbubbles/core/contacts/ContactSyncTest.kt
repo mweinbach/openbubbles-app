@@ -85,17 +85,28 @@ class ContactSyncTest {
     }
 
     @Test
-    fun `avatar path survives a sync without one and is replaced when provided`() {
+    fun `avatar path supports set update and clear`() {
         sync.upsertContacts(listOf(raw("c2", avatarPath = "/avatars/c2.png")))
-        assertEquals("/avatars/c2.png", contactByNativeId("c2")?.avatarPath)
-
-        // Platform reports no avatar (e.g. contact never had one exported):
-        // keep the previously synced path.
-        sync.upsertContacts(listOf(raw("c2", avatarPath = null)))
         assertEquals("/avatars/c2.png", contactByNativeId("c2")?.avatarPath)
 
         sync.upsertContacts(listOf(raw("c2", avatarPath = "/avatars/c2-new.png")))
         assertEquals("/avatars/c2-new.png", contactByNativeId("c2")?.avatarPath)
+
+        sync.upsertContacts(
+            listOf(raw("c2").copy(avatarUpdate = AvatarUpdate.Clear)),
+        )
+        assertNull(contactByNativeId("c2")?.avatarPath)
+    }
+
+    @Test
+    fun `transient avatar failure preserves the stored path`() {
+        sync.upsertContacts(listOf(raw("c2", avatarPath = "/avatars/c2.png")))
+
+        sync.upsertContacts(
+            listOf(raw("c2").copy(avatarUpdate = AvatarUpdate.Keep)),
+        )
+
+        assertEquals("/avatars/c2.png", contactByNativeId("c2")?.avatarPath)
     }
 
     @Test
@@ -237,6 +248,74 @@ class ContactSyncTest {
         assertNotNull(contactByNativeId("android:kept"))
         assertNull(sync.contactsForHandles()[removedHandle.id])
         assertEquals("android:kept", sync.contactsForHandles()[keptHandle.id]?.nativeContactId)
+    }
+
+    @Test
+    fun `device snapshot migrates legacy row to stable lookup id and preserves objectbox id`() {
+        val legacy = ContactV2().apply {
+            nativeContactId = "42"
+            displayName = "Old Name"
+            avatarPath = "content://contacts/42/photo"
+            addresses = listOf("friend@example.com")
+            isNative = true
+        }
+        store.boxFor(ContactV2::class.java).put(legacy)
+        val originalObjectBoxId = legacy.id
+        val stableId = "${ContactSync.DEVICE_CONTACT_PREFIX}lookup-key"
+        val current = RawContact(
+            id = stableId,
+            displayName = "New Name",
+            firstName = "New",
+            lastName = "Name",
+            avatarUpdate = AvatarUpdate.Clear,
+            addresses = listOf("friend@example.com"),
+        )
+
+        val first = sync.reconcileDeviceSnapshot(
+            DeviceContactSnapshot(
+                contacts = listOf(current),
+                legacyNativeIds = mapOf(stableId to "42"),
+            ),
+        )
+
+        assertEquals(1, first.migratedLegacyIds)
+        assertEquals(0, first.removed)
+        assertNull(contactByNativeId("42"))
+        assertEquals(originalObjectBoxId, contactByNativeId(stableId)?.id)
+        assertNull(contactByNativeId(stableId)?.avatarPath)
+
+        val second = sync.reconcileDeviceSnapshot(
+            DeviceContactSnapshot(
+                contacts = listOf(current.copy(displayName = "Newest Name")),
+                // ContactsProvider row ids may change while LOOKUP_KEY stays stable.
+                legacyNativeIds = mapOf(stableId to "84"),
+            ),
+        )
+
+        assertEquals(0, second.migratedLegacyIds)
+        assertEquals(1, store.boxFor(ContactV2::class.java).count())
+        assertEquals(originalObjectBoxId, contactByNativeId(stableId)?.id)
+        assertEquals("Newest Name", contactByNativeId(stableId)?.displayName)
+    }
+
+    @Test
+    fun `successful empty device snapshot removes stable and legacy device rows only`() {
+        sync.upsertContacts(
+            listOf(
+                raw("${ContactSync.DEVICE_CONTACT_PREFIX}gone", addresses = listOf("gone@example.com")),
+                raw("73", addresses = listOf("legacy@example.com")),
+                raw("icloud:kept", addresses = listOf("kept@example.com")),
+            ),
+        )
+
+        val result = sync.reconcileDeviceSnapshot(
+            DeviceContactSnapshot(contacts = emptyList(), legacyNativeIds = emptyMap()),
+        )
+
+        assertEquals(2, result.removed)
+        assertNull(contactByNativeId("${ContactSync.DEVICE_CONTACT_PREFIX}gone"))
+        assertNull(contactByNativeId("73"))
+        assertNotNull(contactByNativeId("icloud:kept"))
     }
 
     // ------------------------------------------------------------------

@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -316,8 +317,9 @@ class NativeMainActivity : FragmentActivity() {
 
     private fun syncContacts() {
         lifecycleScope.launch {
-            val raw = DeviceContacts.read(this@NativeMainActivity)
-            CoreGraph.syncContacts(raw)
+            DeviceContacts.read(this@NativeMainActivity).applySuccessfulSnapshot { snapshot ->
+                CoreGraph.syncDeviceContacts(snapshot)
+            }
         }
     }
 

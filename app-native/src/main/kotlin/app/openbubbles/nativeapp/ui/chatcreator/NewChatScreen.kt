@@ -85,6 +85,8 @@ import app.openbubbles.core.contacts.RawContact
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.DeviceContactsReadResult
+import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.sms.SmsPermissions
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -149,10 +151,14 @@ fun NewChatScreen(
     }
 
     val contacts by produceState<List<RawContact>?>(initialValue = null, contactsPermission) {
-        val nativeContacts = if (contactsPermission) DeviceContacts.read(context) else emptyList()
+        val readResult = if (contactsPermission) DeviceContacts.read(context) else null
+        val nativeContacts = (readResult as? DeviceContactsReadResult.Success)
+            ?.snapshot
+            ?.contacts
+            .orEmpty()
         value = withContext(Dispatchers.IO) {
-            if (nativeContacts.isNotEmpty()) {
-                runCatching { CoreGraph.syncContacts(nativeContacts) }
+            readResult?.applySuccessfulSnapshot { snapshot ->
+                CoreGraph.syncDeviceContacts(snapshot)
             }
             CoreGraph.preferredContacts(includeNativeContacts = contactsPermission)
                 .ifEmpty { nativeContacts }

@@ -75,9 +75,11 @@ fun ChatAvatar(
     size: Dp = 48.dp,
     avatarPath: String? = null,
 ) {
+    val avatarGeneration by UiContacts.avatarGeneration.collectAsState()
     val decoded = rememberDecodedUriImage(
         uri = avatarPath,
         maxDimensionPx = (size.value.toInt() * 2).coerceAtLeast(64),
+        cacheGeneration = avatarGeneration,
     )
     Box(
         modifier = modifier

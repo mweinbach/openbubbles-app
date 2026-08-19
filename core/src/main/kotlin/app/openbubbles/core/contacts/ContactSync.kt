@@ -6,6 +6,22 @@ import app.openbubbles.db.Handle
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 
+/** Explicit avatar ownership for contact updates; no persistence field is required. */
+sealed interface AvatarUpdate {
+    /** The source could not authoritatively read the photo, so preserve the stored value. */
+    data object Keep : AvatarUpdate
+
+    /** The source authoritatively reports that the contact has no photo. */
+    data object Clear : AvatarUpdate
+
+    /** The source read a photo whose render identity is [path]. */
+    data class Set(val path: String) : AvatarUpdate {
+        init {
+            require(path.isNotBlank()) { "Avatar path must not be blank" }
+        }
+    }
+}
+
 /**
  * A platform-provided contact, flattened from the device contact store
  * (Android ContactsProvider / desktop equivalent). [id] is the platform's
@@ -17,10 +33,58 @@ data class RawContact(
     val displayName: String?,
     val firstName: String?,
     val lastName: String?,
-    val avatarPath: String?,
+    val avatarUpdate: AvatarUpdate,
     val addresses: List<String>,
     val nickname: String? = null,
     val company: String? = null,
+) {
+    /**
+     * Compatibility constructor for read-only projections and callers that
+     * have not claimed authoritative avatar ownership. A null path means
+     * [AvatarUpdate.Keep], never removal.
+     */
+    constructor(
+        id: String,
+        displayName: String?,
+        firstName: String?,
+        lastName: String?,
+        avatarPath: String?,
+        addresses: List<String>,
+        nickname: String? = null,
+        company: String? = null,
+    ) : this(
+        id = id,
+        displayName = displayName,
+        firstName = firstName,
+        lastName = lastName,
+        avatarUpdate = avatarPath
+            ?.takeIf(String::isNotBlank)
+            ?.let(AvatarUpdate::Set)
+            ?: AvatarUpdate.Keep,
+        addresses = addresses,
+        nickname = nickname,
+        company = company,
+    )
+
+    /** The path consumers render; Keep and Clear both project as no new path. */
+    val avatarPath: String?
+        get() = (avatarUpdate as? AvatarUpdate.Set)?.path
+}
+
+/**
+ * One complete, successful device-provider snapshot. [legacyNativeIds] maps
+ * each stable namespaced id to the numeric ContactsProvider row id seen in
+ * the same read, allowing a bounded migration from pre-LOOKUP_KEY rows.
+ */
+data class DeviceContactSnapshot(
+    val contacts: List<RawContact>,
+    val legacyNativeIds: Map<String, String>,
+)
+
+data class DeviceContactReconcileResult(
+    val upserted: Int,
+    val migratedLegacyIds: Int,
+    val removed: Int,
 )
 
 /**
@@ -51,10 +115,8 @@ data class ContactRelinkResult(
  * `HandleState._resolveAvatarPath`:
  *
  * 1. [upsertContacts] ingests platform [RawContact]s into `ContactV2` rows,
- *    matched by the `nativeContactId` unique index. An existing
- *    `avatarPath` survives a sync that carries none (the platform only
- *    reports an avatar after it has exported the image file — clearing a
- *    good path on a null report would drop avatars on every partial sync).
+ *    matched by the `nativeContactId` unique index. [AvatarUpdate] makes
+ *    preservation, replacement, and authoritative removal explicit.
  * 2. Each contact is re-linked to [Handle]s by matching normalized
  *    addresses (lower-cased emails; digit/plus-normalized phone numbers
  *    with country-code variants — `_getPhoneNumberVariants`). The ToMany
@@ -178,6 +240,55 @@ class ContactSync(private val store: BoxStore) {
     }.also { invalidateProjections() }
 
     /**
+     * Applies a complete device-provider snapshot. Stale Android rows are
+     * removed only through this API, so denied or failed provider reads can
+     * never masquerade as an empty address book.
+     *
+     * Legacy numeric ids are migrated in place only when the current row-id
+     * alias and at least one address agree. This preserves the ObjectBox row
+     * id without trusting a ContactsProvider row id that may have been
+     * recycled for a different person.
+     */
+    fun reconcileDeviceSnapshot(snapshot: DeviceContactSnapshot): DeviceContactReconcileResult =
+        store.callInTx {
+            val byNativeId = contactBox.all
+                .mapNotNull { contact -> contact.nativeContactId?.let { it to contact } }
+                .toMap(mutableMapOf())
+            var migrated = 0
+
+            snapshot.contacts.forEach { raw ->
+                if (byNativeId[raw.id] != null) return@forEach
+                val legacyId = snapshot.legacyNativeIds[raw.id]
+                    ?.takeIf(::isLegacyDeviceContactId)
+                    ?: return@forEach
+                val legacy = byNativeId[legacyId] ?: return@forEach
+                if (!sameContactAddresses(legacy, raw)) return@forEach
+                legacy.nativeContactId = raw.id
+                contactBox.put(legacy)
+                byNativeId.remove(legacyId)
+                byNativeId[raw.id] = legacy
+                migrated++
+            }
+
+            val (emailHandles, phoneHandles) = buildHandleIndexes()
+            snapshot.contacts.forEach { raw -> upsertOne(raw, emailHandles, phoneHandles) }
+
+            val present = snapshot.contacts.mapTo(HashSet()) { it.id }
+            val stale = contactBox.all.filter { contact ->
+                val nativeId = contact.nativeContactId ?: return@filter false
+                (isStableDeviceContactId(nativeId) || isLegacyDeviceContactId(nativeId)) &&
+                    nativeId !in present
+            }
+            stale.forEach(::deleteContact)
+
+            DeviceContactReconcileResult(
+                upserted = snapshot.contacts.size,
+                migratedLegacyIds = migrated,
+                removed = stale.size,
+            )
+        }.also { invalidateProjections() }
+
+    /**
      * Rebuilds every stored contact relation against the current handle table.
      *
      * Contact providers and CloudKit history are independent streams. On a
@@ -227,14 +338,21 @@ class ContactSync(private val store: BoxStore) {
             contactBox.query()
                 .equal(ContactV2_.nativeContactId, nativeId, QueryBuilder.StringOrder.CASE_SENSITIVE)
                 .build().use { it.findFirst() }
-        }.count { contact ->
-            // Flush the ToMany change before deleting the source row so no
-            // stale handle relation can survive a CardDAV tombstone.
-            contact.handles.clear()
-            contactBox.put(contact)
-            contactBox.remove(contact.id)
-        }
+        }.count(::deleteContact)
     }.also { invalidateProjections() }
+
+    private fun deleteContact(contact: ContactV2): Boolean {
+        // Flush the ToMany change before deleting the source row so no stale
+        // handle relation can survive a provider snapshot or CardDAV tombstone.
+        contact.handles.clear()
+        contactBox.put(contact)
+        return contactBox.remove(contact.id)
+    }
+
+    private fun sameContactAddresses(existing: ContactV2, raw: RawContact): Boolean {
+        val existingKeys = existing.addresses.flatMapTo(HashSet()) { addressMatchKeys(it) }
+        return raw.addresses.any { address -> addressMatchKeys(address).any(existingKeys::contains) }
+    }
 
     private fun upsertOne(
         raw: RawContact,
@@ -251,8 +369,11 @@ class ContactSync(private val store: BoxStore) {
         contact.firstName = raw.firstName
         contact.lastName = raw.lastName
         contact.addresses = raw.addresses.map { normalizeAddress(it) }.filter { it.isNotEmpty() }
-        // Keep a previously synced avatar when the platform reports none.
-        if (raw.avatarPath != null) contact.avatarPath = raw.avatarPath
+        when (val avatar = raw.avatarUpdate) {
+            AvatarUpdate.Keep -> {}
+            AvatarUpdate.Clear -> contact.avatarPath = null
+            is AvatarUpdate.Set -> contact.avatarPath = avatar.path
+        }
         // CardDAV re-sends the whole card, so a null there is a real removal.
         // Device reads never carry these and must not clear legacy rows.
         if (isICloudContactId(raw.id)) {
@@ -460,7 +581,7 @@ class ContactSync(private val store: BoxStore) {
                     displayName = computedDisplayName(contact).takeIf(String::isNotEmpty),
                     firstName = contact.firstName,
                     lastName = contact.lastName,
-                    avatarPath = avatar,
+                    avatarUpdate = avatar?.let(AvatarUpdate::Set) ?: AvatarUpdate.Clear,
                     addresses = addresses,
                 )
             }
@@ -481,7 +602,7 @@ class ContactSync(private val store: BoxStore) {
                     displayName = contact.displayName,
                     firstName = contact.firstName,
                     lastName = contact.lastName,
-                    avatarPath = contact.avatarPath,
+                    avatarUpdate = contact.avatarPath?.let(AvatarUpdate::Set) ?: AvatarUpdate.Clear,
                     addresses = contact.addresses,
                     nickname = contact.nickname,
                     company = contact.company,
@@ -509,6 +630,7 @@ class ContactSync(private val store: BoxStore) {
 
     companion object {
         private const val ICLOUD_CONTACT_PREFIX = "icloud:"
+        const val DEVICE_CONTACT_PREFIX = "android:lookup:"
 
         private val contactPreferenceComparator =
             compareBy<ContactV2> { contactPreference(it) }.thenBy { it.id }
@@ -521,6 +643,12 @@ class ContactSync(private val store: BoxStore) {
 
         fun isICloudContactId(id: String?): Boolean =
             id?.startsWith(ICLOUD_CONTACT_PREFIX) == true
+
+        fun isStableDeviceContactId(id: String?): Boolean =
+            id?.startsWith(DEVICE_CONTACT_PREFIX) == true
+
+        fun isLegacyDeviceContactId(id: String?): Boolean =
+            !id.isNullOrEmpty() && id.all(Char::isDigit)
 
         private fun isICloudContact(contact: ContactV2): Boolean =
             isICloudContactId(contact.nativeContactId)

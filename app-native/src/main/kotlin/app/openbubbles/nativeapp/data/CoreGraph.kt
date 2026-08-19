@@ -305,9 +305,17 @@ object CoreGraph {
         }
     }
 
-    /** Upsert device contacts + invalidate the handle→contact index. */
-    fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>) =
-        CoreContacts.syncFromDevice(raw).also { UiContacts.notifyAvatarsChanged() }
+    /** Upsert explicit contact deltas (for example complete CardDAV cards). */
+    fun syncContacts(raw: List<app.openbubbles.core.contacts.RawContact>): Boolean =
+        CoreContacts.upsert(raw).also { persisted ->
+            if (persisted) UiContacts.notifyAvatarsChanged()
+        }
+
+    /** Reconcile one complete, successful Android ContactsProvider snapshot. */
+    fun syncDeviceContacts(
+        snapshot: app.openbubbles.core.contacts.DeviceContactSnapshot,
+    ): app.openbubbles.core.contacts.DeviceContactReconcileResult? =
+        CoreContacts.syncFromDevice(snapshot).also { UiContacts.notifyAvatarsChanged() }
 
     /** Apply CardDAV contact tombstones + invalidate cached name lookups. */
     fun removeContacts(nativeContactIds: Collection<String>): Int =
@@ -1033,9 +1041,23 @@ private fun enrichWithEntityDetails(
 private object CoreContacts {
     private val sync: ContactSync? by lazy { CoreGraph.store?.let(::ContactSync) }
 
-    /** Upsert device contacts (called after READ_CONTACTS is granted). */
-    fun syncFromDevice(raw: List<app.openbubbles.core.contacts.RawContact>) {
-        sync?.upsertContacts(raw)
+    fun upsert(raw: List<app.openbubbles.core.contacts.RawContact>): Boolean {
+        val contactSync = sync ?: return false
+        contactSync.upsertContacts(raw)
+        invalidateIndexes()
+        return true
+    }
+
+    /** Reconcile device contacts after a complete successful provider read. */
+    fun syncFromDevice(
+        snapshot: app.openbubbles.core.contacts.DeviceContactSnapshot,
+    ): app.openbubbles.core.contacts.DeviceContactReconcileResult? {
+        val result = sync?.reconcileDeviceSnapshot(snapshot) ?: return null
+        invalidateIndexes()
+        return result
+    }
+
+    private fun invalidateIndexes() {
         handleIndex = null // force rebuild so fresh linkages resolve
         displayInfoIndex = null
         CoreGraph.invalidateRelatedChats()

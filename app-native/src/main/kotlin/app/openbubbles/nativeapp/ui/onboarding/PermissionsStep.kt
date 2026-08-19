@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.sms.SmsRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -113,8 +114,12 @@ internal fun PermissionsStep(
     LaunchedEffect(contactsGranted) {
         if (contactsGranted && contactSync != ContactSyncState.Done) {
             contactSync = ContactSyncState.Running
-            val raw = DeviceContacts.read(context)
-            withContext(Dispatchers.IO) { runCatching { CoreGraph.syncContacts(raw) } }
+            val result = DeviceContacts.read(context)
+            withContext(Dispatchers.IO) {
+                result.applySuccessfulSnapshot { snapshot ->
+                    CoreGraph.syncDeviceContacts(snapshot)
+                }
+            }
             contactSync = ContactSyncState.Done
         }
     }

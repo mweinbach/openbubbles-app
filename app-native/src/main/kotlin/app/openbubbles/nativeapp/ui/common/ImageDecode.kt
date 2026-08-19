@@ -324,27 +324,37 @@ private fun decodeUriImageWithImageDecoder(
     }.getOrNull()
 }
 
-internal fun uriImageCacheKey(uri: String?, maxDimensionPx: Int): String? {
+internal fun uriImageCacheKey(
+    uri: String?,
+    maxDimensionPx: Int,
+    cacheGeneration: Int = 0,
+): String? {
     val value = uri?.takeIf { it.isNotBlank() } ?: return null
     val fileMeta = when {
         value.startsWith("content://") -> ""
         value.startsWith("file://") -> {
-            val path = value.toUri().path ?: return "uri:$value:$maxDimensionPx"
+            val path = value.toUri().path ?: return "uri:$value:$maxDimensionPx:$cacheGeneration"
             File(path).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
         }
         else -> File(value).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
     }
-    return "uri:$value$fileMeta:$maxDimensionPx"
+    return "uri:$value$fileMeta:$maxDimensionPx:$cacheGeneration"
 }
 
 @Composable
 fun rememberDecodedUriImage(
     uri: String?,
     maxDimensionPx: Int = 256,
+    cacheGeneration: Int = 0,
 ): DecodedImage? {
     val context = LocalContext.current
-    val cacheKey = remember(uri, maxDimensionPx, File(uri.orEmpty()).let { it.lastModified() to it.length() }) {
-        uriImageCacheKey(uri, maxDimensionPx)
+    val cacheKey = remember(
+        uri,
+        maxDimensionPx,
+        cacheGeneration,
+        File(uri.orEmpty()).let { it.lastModified() to it.length() },
+    ) {
+        uriImageCacheKey(uri, maxDimensionPx, cacheGeneration)
     }
     return produceState<DecodedImage?>(initialValue = null, cacheKey) {
         val key = cacheKey ?: return@produceState
