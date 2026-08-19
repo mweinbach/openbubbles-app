@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,7 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.common.sharedAttachment
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /** Widest an image bubble may be (photos dominate the bubble column). */
@@ -67,6 +69,24 @@ private val ImageBubbleMaxWidth = 260.dp
 
 /** Cap so very tall screenshots do not take over the transcript. */
 private val ImageBubbleMaxHeight = 340.dp
+
+/**
+ * Decode budget for attachment tiles: the largest edge the bubble can
+ * actually display (340dp) converted to device pixels, instead of a fixed
+ * 512 that under-samples dense screens and over-decodes low-density ones.
+ * Clamped so tiny densities keep a legible thumbnail and dense screens do
+ * not decode past what the tile can show.
+ */
+internal fun attachmentDecodeBudgetPx(density: Float): Int =
+    (maxOf(ImageBubbleMaxWidth.value, ImageBubbleMaxHeight.value) * density)
+        .roundToInt()
+        .coerceIn(256, 1024)
+
+@Composable
+private fun rememberAttachmentDecodeBudget(): Int {
+    val density = LocalDensity.current.density
+    return remember(density) { attachmentDecodeBudgetPx(density) }
+}
 
 /** Standalone attachment radius, from the bubble family (see MessageBubble). */
 private val AttachmentShape = RoundedCornerShape(18.dp)
@@ -174,7 +194,7 @@ private fun LivePhotoAttachmentBubble(
     val stillFile = remember(attachment.guid, attachment.downloaded) { attachmentFile(attachment.guid) }
     val motionGuid = attachment.livePhotoMotionGuid
     val motionFile = remember(motionGuid, attachment.downloaded) { motionGuid?.let(attachmentFile) }
-    val decoded = rememberDecodedImage(file = stillFile, maxDimensionPx = 512)
+    val decoded = rememberDecodedImage(file = stillFile, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
     var playing by remember(attachment.guid) { mutableStateOf(false) }
     var videoView by remember(attachment.guid) { mutableStateOf<VideoView?>(null) }
@@ -292,7 +312,7 @@ private fun ImageAttachmentBubble(
     val file = remember(attachment.guid, attachment.downloaded) {
         attachmentFile(attachment.guid)
     }
-    val decoded = rememberDecodedImage(file = file, maxDimensionPx = 512)
+    val decoded = rememberDecodedImage(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
 
     Surface(
@@ -337,7 +357,7 @@ private fun VideoAttachmentBubble(
     val file = remember(attachment.guid, attachment.downloaded) {
         attachmentFile(attachment.guid)
     }
-    val poster = rememberVideoPoster(file = file, maxDimensionPx = 512)
+    val poster = rememberVideoPoster(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = poster?.aspectRatio ?: FallbackAspectRatio
     Surface(
         shape = shape,
@@ -400,7 +420,7 @@ private fun PdfAttachmentBubble(
     val file = remember(attachment.guid, attachment.downloaded) {
         attachmentFile(attachment.guid)
     }
-    val preview = rememberPdfPreview(file = file, maxDimensionPx = 512)
+    val preview = rememberPdfPreview(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     if (preview == null) {
         FileAttachmentRow(
             attachment = attachment,

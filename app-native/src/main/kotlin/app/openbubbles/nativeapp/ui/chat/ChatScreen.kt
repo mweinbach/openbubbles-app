@@ -901,10 +901,15 @@ fun ChatScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
-                            item(key = "typing-indicator") {
+                            item(key = "typing-indicator", contentType = "typing-indicator") {
                                 TypingIndicatorRow(
                                     senderAddress = uiState.typingSenders.first(),
-                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth),
+                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
+                                        .animateItem(
+                                            fadeInSpec = itemSpecs.fadeIn,
+                                            fadeOutSpec = itemSpecs.fadeOut,
+                                            placementSpec = itemSpecs.placement,
+                                        ),
                                 )
                             }
                         }
@@ -984,7 +989,7 @@ fun ChatScreen(
                             }
                         }
                         if (uiState.loadingOlder) {
-                            item(key = "loading-older") {
+                            item(key = "loading-older", contentType = "loading-older") {
                                 Box(
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .fillMaxWidth().padding(12.dp),
@@ -1406,7 +1411,10 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
 fun TypingIndicatorRow(senderAddress: String?, modifier: Modifier = Modifier) {
     val name = senderAddress?.let { address ->
         produceState<String?>(null, address) {
-            value = runCatching { UiContacts.contactNames?.invoke(address)?.first }.getOrNull()
+            // Resolving can rebuild the whole handle index; never on main.
+            value = withContext(Dispatchers.IO) {
+                runCatching { UiContacts.contactNames?.invoke(address)?.first }.getOrNull()
+            }
         }.value
     }
     Row(
