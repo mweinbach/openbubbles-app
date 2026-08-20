@@ -29,6 +29,7 @@ import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.sms.SmsBridge
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoWarmCache
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -180,6 +181,7 @@ class ChatViewModel(
     private val participantAddresses: (Long) -> List<String> = {
         AppGraph.chatInfo.participantAddresses(it)
     },
+    private val participantLookupDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     init {
@@ -237,7 +239,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val item = chat.filterNotNull().first()
             runCatching {
-                val participants = withContext(Dispatchers.IO) {
+                val participants = withContext(participantLookupDispatcher) {
                     participantAddresses(item.preferredChatId)
                 }
                 ContactDisplayWarmCache.warm(participants + listOfNotNull(item.avatarAddress))

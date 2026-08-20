@@ -1,5 +1,8 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
@@ -47,6 +50,8 @@ import kotlinx.coroutines.test.setMain
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
     private val dispatcher = StandardTestDispatcher()
+    private val viewModelStore = ViewModelStore()
+    private var nextViewModelKey = 0
 
     @BeforeTest
     fun setUp() {
@@ -55,6 +60,7 @@ class ChatViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        viewModelStore.clear()
         Dispatchers.resetMain()
     }
 
@@ -824,22 +830,32 @@ class ChatViewModelTest {
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
         historySyncActive: () -> Boolean = { false },
         openedAtMs: Long = 1_700_000_000_000L,
-    ) = ChatViewModel(
-        chatId = 7L,
-        chatListRepository = chatListRepository,
-        messageRepository = messageRepository,
-        sender = sender,
-        messageActions = actions,
-        faceTimeCaller = faceTimeCaller,
-        attachmentSender = attachmentSender,
-        stickerSender = stickerSender,
-        typingRepository = NoopTyping,
-        readReceiptSender = readReceiptSender,
-        smsSender = smsSender,
-        smsAttachmentSender = smsAttachmentSender,
-        historySyncActive = historySyncActive,
-        openedAtMs = openedAtMs,
-    )
+    ): ChatViewModel {
+        val created = ChatViewModel(
+            chatId = 7L,
+            chatListRepository = chatListRepository,
+            messageRepository = messageRepository,
+            sender = sender,
+            messageActions = actions,
+            faceTimeCaller = faceTimeCaller,
+            attachmentSender = attachmentSender,
+            stickerSender = stickerSender,
+            typingRepository = NoopTyping,
+            readReceiptSender = readReceiptSender,
+            smsSender = smsSender,
+            smsAttachmentSender = smsAttachmentSender,
+            historySyncActive = historySyncActive,
+            openedAtMs = openedAtMs,
+            participantAddresses = { emptyList() },
+            participantLookupDispatcher = dispatcher,
+        )
+        val factory = object : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                checkNotNull(modelClass.cast(created))
+        }
+        return ViewModelProvider(viewModelStore, factory)
+            .get("chat-test-${nextViewModelKey++}", ChatViewModel::class.java)
+    }
 
     private fun message(
         id: Long = 1L,
