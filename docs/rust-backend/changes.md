@@ -19,7 +19,7 @@ Part of the [Rust backend reference](../README.md). Read the
 5. Regenerate and commit bindings:
    ```bash
    (cd rust && ./build-uniffi.sh)
-   (cd native && ./gradlew :app-native:checkUniffiBindings --console=plain)
+   ./gradlew :app-native:checkUniffiBindings --console=plain
    ```
    Inspect the diff in `core/src/main/kotlin/uniffi/` (the script also copies it into
    the test source set). Never hand-edit generated Kotlin.
@@ -43,7 +43,7 @@ Work in the submodule: commit + push inside `rustpush/` **first**, then update a
 push the parent pointer separately. Run `cargo test --manifest-path
 rustpush/Cargo.toml --lib --locked` from the repo root (APNs proxy/replay tests stay
 `#[ignore]`). Bare cloud images need the FairPlay placeholders and
-`native/local.properties` fixture first (see
+`local.properties` fixture first (see
 [DEVELOPMENT.md](../DEVELOPMENT.md#cloudci-fixture-setup)).
 
 ## Change persisted state

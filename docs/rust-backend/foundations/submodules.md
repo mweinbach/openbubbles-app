@@ -68,7 +68,7 @@ oracle. Full details: [open-absinthe.md](../internals/open-absinthe.md).
 The retired Flutter client's telephony plugin: Dart `lib/`, `android/` plugin
 half, `example/`, `pubspec.yaml`. **The native app consumes exactly one path from
 it** — `telephony_plus/android-smsmms/library`, included by
-`native/settings.gradle` as the `:android-smsmms` Gradle module. Everything else in
+`settings.gradle` as the `:android-smsmms` Gradle module. Everything else in
 this submodule is reference/migration material per the native build boundary (no
 Dart in the build); do not add dependencies on it.
 

@@ -12,8 +12,8 @@ Platform UI and lifecycle stay in `app-native/` and `desktopApp/`. Apple protoco
 
 ## How
 
-JDK 21 or newer; Android Studio's bundled JBR is recommended. Gradle root is `native/` (not the
-repo root). Open `native/` as the Android Studio project. Submodules required.
+JDK 21 or newer; Android Studio's bundled JBR is recommended. The repository root is the Gradle
+and Android Studio project. Submodules are required.
 
 ### Native build boundary
 
@@ -28,11 +28,11 @@ All paths and commands in this file start at the repository root. Keep directory
 subshells so Gradle does not leave later Rust paths resolving under `native/`.
 
 ```bash
-(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain)
+./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
-UI chrome: also `(cd native && ./gradlew :app-native:validateDebugScreenshotTest --console=plain)`.
+UI chrome: also `./gradlew :app-native:validateDebugScreenshotTest --console=plain`.
 `rustpush/` changes: `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` from the root.
 UniFFI surface changes: `(cd rust && ./build-uniffi.sh)`, then commit the Kotlin in `core/src/main/kotlin/uniffi/`.
 Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). Do not claim those passed without hardware evidence.
@@ -62,7 +62,7 @@ oracle are different evidence tiers; state exactly which one passed.
 ## Cursor Cloud specific instructions
 
 Before compiling `rustpush/` on a bare cloud image, create the gitignored FairPlay placeholders
-and `native/local.properties` exactly as documented in
+and `local.properties` exactly as documented in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#cloudci-fixture-setup). Do not commit either fixture set.
 
 ## Read when relevant

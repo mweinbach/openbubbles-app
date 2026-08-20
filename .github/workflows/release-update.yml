@@ -222,7 +222,7 @@ jobs:
           done
 
       - name: Point the native build at the SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > native/local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Restore signing identity
         env:
@@ -279,9 +279,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
-        run: |
-          cd native
-          ./gradlew :app-native:assembleRelease --console=plain
+        run: ./gradlew :app-native:assembleRelease --console=plain
 
       - name: Stage assets and write update feed
         env:

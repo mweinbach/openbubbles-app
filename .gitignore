@@ -39,10 +39,11 @@ mise.toml
 
 .claude/projects
 
-# Native (no-Dart) gradle build
-native/local.properties
+# Kotlin/Rust Gradle build
+local.properties
+.gradle/
+gradle/gradle-daemon-jvm.properties
 native/.gradle/
-native/gradle/gradle-daemon-jvm.properties
 .kotlin/
 /build-native/
 db/objectbox-model.json.bak

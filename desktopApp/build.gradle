@@ -49,7 +49,7 @@ if (osName.contains("win")) {
     jnaResourcePrefix = arm64 ? "linux-aarch64" : "linux-x86-64"
 }
 
-def rustDir = rootProject.file("../rust")
+def rustDir = rootProject.file("rust")
 def rustLibrary = new File(rustDir, "target/release/${rustLibraryName}")
 def generatedRustResources = layout.buildDirectory.dir("generated/rustJnaResources")
 
@@ -60,7 +60,7 @@ def buildHostRust = tasks.register("buildHostRust", Exec) {
     inputs.files(fileTree(rustDir) {
         include "Cargo.toml", "Cargo.lock", "build.rs", "src/**"
     })
-    inputs.files(fileTree(rootProject.file("../rustpush")) {
+    inputs.files(fileTree(rootProject.file("rustpush")) {
         include "Cargo.toml", "Cargo.lock", "src/**", "keystore/**", "cloudkit-proto/**"
     })
     outputs.file(rustLibrary)
@@ -108,7 +108,7 @@ compose.desktop {
 //   ./gradlew :desktopApp:run
 tasks.matching { it.name == "run" }.configureEach {
     doFirst {
-        def rustLib = rootProject.file("../rust/target/release")
+        def rustLib = rootProject.file("rust/target/release")
         if (rustLib.exists()) {
             systemProperty("jna.library.path", rustLib.absolutePath)
         }

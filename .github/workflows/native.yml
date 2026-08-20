@@ -164,14 +164,13 @@ jobs:
           done
 
       - name: Point the native build at the SDK
-        run: echo "sdk.dir=$ANDROID_HOME" > native/local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Rust library tests
         run: cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 
       - name: Native JVM tests + model parity + lint
         run: |
-          cd native
           ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
             :db:checkModelParity :app-native:lintDebug \
             :app-native:checkUniffiBindings :app-native:validateDebugScreenshotTest \
@@ -182,9 +181,7 @@ jobs:
       # runs only when artifacts were explicitly requested.
       - name: Android artifacts
         if: github.event_name == 'workflow_dispatch' && inputs.package
-        run: |
-          cd native
-          ./gradlew :app-native:assembleDebug :app-native:bundleRelease --console=plain
+        run: ./gradlew :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
       - uses: actions/upload-artifact@v5
         if: github.event_name == 'workflow_dispatch' && inputs.package
@@ -304,13 +301,11 @@ jobs:
           done
 
       - name: DB model parity (no Android SDK needed)
-        run: |
-          cd native
-          ./gradlew.bat :db:checkModelParity --console=plain
+        run: ./gradlew.bat :db:checkModelParity --console=plain
 
       - name: Package Windows distributable
         if: github.event_name == 'workflow_dispatch' && inputs.package
-        run: cd native; ./gradlew.bat :desktopApp:verifyHostRustResource :desktopApp:createDistributable --console=plain
+        run: ./gradlew.bat :desktopApp:verifyHostRustResource :desktopApp:createDistributable --console=plain
 
       - uses: actions/upload-artifact@v5
         if: github.event_name == 'workflow_dispatch' && inputs.package

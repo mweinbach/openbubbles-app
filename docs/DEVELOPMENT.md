@@ -85,8 +85,8 @@ Run focused tests while iterating, then the union of affected rows in [VERIFY.md
 Before completing an ordinary native change:
 
 ```bash
-(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain)
+./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
 Additional boundaries:
@@ -97,10 +97,10 @@ cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 
 # Kotlin-visible Rust contract changes
 (cd rust && ./build-uniffi.sh)
-(cd native && ./gradlew :app-native:checkUniffiBindings --console=plain)
+./gradlew :app-native:checkUniffiBindings --console=plain
 
 # Compose chrome
-(cd native && ./gradlew :app-native:validateDebugScreenshotTest --console=plain)
+./gradlew :app-native:validateDebugScreenshotTest --console=plain
 ```
 
 Within `.github/workflows/native.yml`, PR/push CI is test-only: it runs Rust tests plus JVM tests,
@@ -181,10 +181,10 @@ do
 done
 ```
 
-Create gitignored `native/local.properties` with the actual SDK path. On the current Cursor image:
+Create gitignored `local.properties` with the actual SDK path. On the current Cursor image:
 
 ```bash
-echo "sdk.dir=${ANDROID_HOME:-/home/ubuntu/android-sdk}" > native/local.properties
+echo "sdk.dir=${ANDROID_HOME:-/home/ubuntu/android-sdk}" > local.properties
 ```
 
 Do not commit either generated fixture set.

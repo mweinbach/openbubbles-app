@@ -15,7 +15,7 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Build dirs are redirected to ../build-native, so point the processor at
+// Build dirs are redirected to build-native, so point the processor at
 // the model file explicitly (also where the Dart-parity seed lives).
 kapt {
     arguments {
@@ -28,8 +28,8 @@ kapt {
 // won't open. Run from CI or manually after entity changes.
 tasks.register("checkModelParity") {
     doLast {
-        def seed = rootProject.file("../db/seed-objectbox-model.json")
-        def ours = rootProject.file("../db/objectbox-model.json")
+        def seed = rootProject.file("db/seed-objectbox-model.json")
+        def ours = rootProject.file("db/objectbox-model.json")
         if (seed.text.trim() != ours.text.trim()) {
             throw new GradleException(
                 "db/objectbox-model.json drifted from the Flutter model — device stores would not open. " +

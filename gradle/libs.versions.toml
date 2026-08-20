@@ -13,7 +13,7 @@
 
 [versions]
 # --- toolchain -------------------------------------------------------------
-# Kept in sync with native/settings.gradle, which declares the plugin versions
+# Kept in sync with settings.gradle, which declares the plugin versions
 # literally: a version catalog cannot be consumed by the settings `plugins`
 # block that declares it.
 agp = "9.3.1"

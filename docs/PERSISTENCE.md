@@ -29,7 +29,7 @@ kapt on this `kotlin-jvm` module. After a reviewed seed change:
 
 ```bash
 python3 tools/gen_db_entities.py
-cd native && ./gradlew :db:checkModelParity
+./gradlew :db:checkModelParity
 ```
 
 Do not hand-edit the Java files or invent UIDs.

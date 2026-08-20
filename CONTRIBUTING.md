@@ -15,8 +15,8 @@ start from [AGENTS.md](AGENTS.md). The executable change loop and evidence hando
 2. Use Android Studio's bundled JBR or another JDK 21+ installation, plus the
    Android SDK/NDK versions listed in `README.md`, stable Rust, the Android Rust
    targets, and `protoc`.
-3. Create `native/local.properties` containing your Android SDK path.
-4. Open `native/` as the Android Studio project.
+3. Create `local.properties` containing your Android SDK path.
+4. Open the repository root as the Android Studio project.
 5. Keep secrets and local device state out of Git.
 
 The Gradle settings reject runtimes older than JDK 21 with an actionable error.
@@ -42,8 +42,8 @@ Prefer shared behavior in `core/`; keep Android framework types in
 Run focused tests while iterating. Before completing a native change, run:
 
 ```bash
-(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain)
+./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
 For changes touching `rustpush/`, also run:

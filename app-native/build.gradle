@@ -29,7 +29,7 @@ android {
     }
 
     def keystoreProperties = new Properties()
-    def keystorePropertiesFile = rootProject.file("../android/key.properties")
+    def keystorePropertiesFile = rootProject.file("android/key.properties")
     if (keystorePropertiesFile.exists()) {
         keystorePropertiesFile.withReader('UTF-8') { keystoreProperties.load(it) }
     }

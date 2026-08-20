@@ -419,9 +419,9 @@ Run the union of the affected gates, keeping host evidence separate from live Ap
 ```bash
 cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 (cd rust && ./build-uniffi.sh)
-(cd native && ./gradlew :core:test :app-native:testDebugUnitTest \
+./gradlew :core:test :app-native:testDebugUnitTest \
   :app-native:checkUniffiBindings :db:checkModelParity \
-  :app-native:assembleDebug --console=plain)
+  :app-native:assembleDebug --console=plain
 ```
 
 Compose work also requires the Material 3 Expressive routing skill and the relevant screenshot

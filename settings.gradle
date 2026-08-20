@@ -1,4 +1,4 @@
-// Gradle root for the native (no-Dart) OpenBubbles clients: Android + desktop.
+// Gradle root for the OpenBubbles clients: Android + desktop.
 pluginManagement {
     repositories {
         google()
@@ -41,12 +41,12 @@ if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
 rootProject.name = "OpenBubbles"
 
 include ":app-native"
-project(":app-native").projectDir = file("../app-native")
+project(":app-native").projectDir = file("app-native")
 include ":android-smsmms"
-project(":android-smsmms").projectDir = file("../telephony_plus/android-smsmms/library")
+project(":android-smsmms").projectDir = file("telephony_plus/android-smsmms/library")
 include ":db"
-project(":db").projectDir = file("../db")
+project(":db").projectDir = file("db")
 include ":core"
-project(":core").projectDir = file("../core")
+project(":core").projectDir = file("core")
 include ":desktopApp"
-project(":desktopApp").projectDir = file("../desktopApp")
+project(":desktopApp").projectDir = file("desktopApp")

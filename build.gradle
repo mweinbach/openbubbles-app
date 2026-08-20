@@ -6,7 +6,7 @@ allprojects {
 }
 
 // Gradle 9 removed Project.buildDir; layout.buildDirectory is the replacement.
-rootProject.layout.buildDirectory.set(file('../build-native'))
+rootProject.layout.buildDirectory.set(file('build-native'))
 subprojects {
     // :db (ObjectBox bytecode transformer) and :desktopApp (Compose
     // packaging) only follow standard build directory paths.

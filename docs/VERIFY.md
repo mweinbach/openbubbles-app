@@ -9,15 +9,15 @@ Run each command independently from the repository root:
 
 | Change | Command |
 |---|---|
-| Persistence / entities | `(cd native && ./gradlew :db:test :db:checkModelParity)` |
-| Ingest, repos, CloudKit, backup, contacts | `(cd native && ./gradlew :core:test)` |
-| ViewModels, send routing, SMS builders, service policy | `(cd native && ./gradlew :app-native:testDebugUnitTest)` |
-| List / chat / onboarding chrome | `(cd native && ./gradlew :app-native:validateDebugScreenshotTest)` |
-| UniFFI surface | `(cd rust && ./build-uniffi.sh)` then `(cd native && ./gradlew :app-native:checkUniffiBindings)` |
+| Persistence / entities | `./gradlew :db:test :db:checkModelParity` |
+| Ingest, repos, CloudKit, backup, contacts | `./gradlew :core:test` |
+| ViewModels, send routing, SMS builders, service policy | `./gradlew :app-native:testDebugUnitTest` |
+| List / chat / onboarding chrome | `./gradlew :app-native:validateDebugScreenshotTest` |
+| UniFFI surface | `(cd rust && ./build-uniffi.sh)` then `./gradlew :app-native:checkUniffiBindings` |
 | `rustpush/` | `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` |
 
 Re-record goldens with
-`(cd native && ./gradlew :app-native:updateDebugScreenshotTest --console=plain)`. Preview clocks
+`./gradlew :app-native:updateDebugScreenshotTest --console=plain`. Preview clocks
 stay **fixed**.
 
 Do not invent `cargo test --manifest-path rust/Cargo.toml` as a gate — `rust/` has no unit tests.
@@ -25,8 +25,8 @@ Do not invent `cargo test --manifest-path rust/Cargo.toml` as a gate — `rust/`
 ## Before done
 
 ```bash
-(cd native && ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
-  :db:checkModelParity :app-native:assembleDebug --console=plain)
+./gradlew :db:test :core:test :app-native:testDebugUnitTest \
+  :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
 PR/push CI also runs `:app-native:lintDebug`, `:app-native:checkUniffiBindings`, and
