@@ -397,6 +397,32 @@ fun MessageBubble(
         val gutterWidth = if (avatarGutter) SenderAvatarSize + SenderAvatarSpacing else 0.dp
         val maxBubbleWidth = bubbleMaxWidth(maxWidth - gutterWidth)
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        Column(modifier = Modifier.fillMaxWidth()) {
+        replyQuote?.let { quote ->
+            // The quote keeps the original message's transcript side — their
+            // quote floats left, mine right — even when the reply sits on the
+            // opposite side, the way Apple Messages anchors the quoted
+            // original above a threaded reply.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = if (!quote.fromMe && showAvatarGutter) {
+                            SenderAvatarSize + SenderAvatarSpacing
+                        } else {
+                            0.dp
+                        },
+                    ),
+                contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                ReplyQuotePreview(
+                    quote = quote,
+                    smsChat = smsChat,
+                    onOpen = onReplyQuoteTap,
+                    maxWidth = maxBubbleWidth,
+                )
+            }
+        }
         SwipeToReplyBox(
             enabled = onSwipeReply != null,
             onReply = { onSwipeReply?.invoke(defaultReplyPart) },
@@ -449,14 +475,6 @@ fun MessageBubble(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 6.dp),
-                )
-            }
-            replyQuote?.let { quote ->
-                ReplyQuotePreview(
-                    quote = quote,
-                    replyFromMe = message.isFromMe,
-                    smsChat = smsChat,
-                    onOpen = onReplyQuoteTap,
                 )
             }
             interactivePayload?.let { payload ->
@@ -639,6 +657,7 @@ fun MessageBubble(
         }
         }
         }
+        }
     }
 }
 
@@ -752,12 +771,9 @@ private fun InvisibleInkBubble(
     }
 }
 
-/** Ghost opacity for the quoted original, echoing iOS's dimmed reply quote. */
-private const val ReplyQuoteGhostAlpha = 0.62f
-
 /** Connector canvas footprint between the quote and the reply bubble. */
-private val ReplyConnectorWidth = 22.dp
-private val ReplyConnectorHeight = 8.dp
+private val ReplyConnectorWidth = 26.dp
+private val ReplyConnectorHeight = 16.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
@@ -790,50 +806,53 @@ internal fun replyConnectorGeometry(
 }
 
 /**
- * Smaller ghosted original-message bubble sitting above a reply, colored like
- * the original sender the way Apple Messages does, joined to the reply by a
- * curved connector. Tapping shows the original message.
+ * Original-message bubble stacked above a reply, the way Apple Messages
+ * renders threaded replies: a solid bubble in the original sender's own
+ * color carrying the full original text, kept on the original's transcript
+ * side (their quote left, mine right — even when the reply sits on the other
+ * side), with a curved connector dropping from its outer bottom corner
+ * toward the reply. Tapping shows the original message.
  */
 @Composable
 private fun ReplyQuotePreview(
     quote: ReplyQuote,
-    replyFromMe: Boolean,
     smsChat: Boolean,
     onOpen: () -> Unit,
+    maxWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
     val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
     Column(
         modifier = modifier,
-        // Sit on the reply's side; keep the original sender's bubble color.
-        horizontalAlignment = if (replyFromMe) Alignment.End else Alignment.Start,
+        // The connector hangs from the quote's outer corner.
+        horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
     ) {
         Surface(
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(BubbleCornerRadius),
             color = bubbleColor,
             contentColor = bubbleContent,
             modifier = Modifier
-                .widthIn(max = 240.dp)
-                .graphicsLayer { alpha = ReplyQuoteGhostAlpha }
+                .widthIn(max = maxWidth)
                 .clickable(
                     onClickLabel = "Show original message",
                     role = Role.Button,
                     onClick = onOpen,
                 ),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 quote.senderName?.let { name ->
                     Text(
                         text = name,
                         style = MaterialTheme.typography.labelSmall,
+                        color = bubbleContent.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
                     text = quote.text,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 6,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -846,13 +865,13 @@ private fun ReplyQuotePreview(
                 .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
         ) {
             // The curve runs past the canvas into the stack gap below so it
-            // lands on the reply's top corner; Canvas does not clip.
+            // lands toward the reply's top corner; Canvas does not clip.
             val geometry = replyConnectorGeometry(
                 width = size.width,
-                height = size.height + 4.dp.toPx(),
-                startInsetFromOuter = 16.dp.toPx(),
-                endInsetFromOuter = 5.dp.toPx(),
-                outerEdgeOnRight = replyFromMe == isLtr,
+                height = size.height + 6.dp.toPx(),
+                startInsetFromOuter = 18.dp.toPx(),
+                endInsetFromOuter = 6.dp.toPx(),
+                outerEdgeOnRight = quote.fromMe == isLtr,
             )
             drawPath(
                 path = Path().apply {
@@ -1159,30 +1178,31 @@ private fun MessageReplyPreview() {
         Column {
             MessageBubble(
                 message = previewMessage(
-                    "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
-                    isFromMe = true,
-                    status = MessageStatus.DELIVERED,
+                    "im trying i dont know why i thought i was calling you but a dream awake somehow and youtube man",
+                    isFromMe = false,
                 ).copy(id = 1),
                 showStatus = false,
             )
             MessageBubble(
-                message = previewMessage(
-                    "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
-                    isFromMe = true,
-                    status = MessageStatus.FAILED,
-                ).copy(id = 2, replyToGuid = "root"),
+                message = previewMessage("That's so cute", isFromMe = true, status = MessageStatus.DELIVERED)
+                    .copy(id = 2, replyToGuid = "root"),
                 showStatus = true,
                 replyQuote = ReplyQuote(
-                    text = "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
-                    fromMe = true,
+                    text = "im trying i dont know why i thought i was calling you but a dream awake somehow and youtube man",
+                    fromMe = false,
                 ),
             )
             MessageBubble(
-                message = previewMessage("I'll add one, the models like to be considerate of storage and data by default", isFromMe = false)
-                    .copy(id = 3, replyToGuid = "root"),
+                message = previewMessage("I love you more than the world itself", isFromMe = true, status = MessageStatus.DELIVERED)
+                    .copy(id = 3),
+                showStatus = false,
+            )
+            MessageBubble(
+                message = previewMessage("how is that even possible", isFromMe = false)
+                    .copy(id = 4, replyToGuid = "root2"),
                 showStatus = false,
                 replyQuote = ReplyQuote(
-                    text = "For the contact sheet I gave it a screenshot and said when I click contact sheet it opens to this",
+                    text = "I love you more than the world itself",
                     fromMe = true,
                 ),
             )
