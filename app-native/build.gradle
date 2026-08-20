@@ -100,6 +100,9 @@ tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
         systemProperty "user.language", "en"
         systemProperty "user.country", "US"
         systemProperty "user.timezone", "America/New_York"
+        // alpha16 exposes the engine input directly under AGP 9.3. Android's
+        // documented 0.01% tolerance absorbs host renderer subpixel drift.
+        testEngineInput.threshold.set(0.0001f)
     }
 }
 
