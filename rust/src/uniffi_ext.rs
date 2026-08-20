@@ -3288,7 +3288,8 @@ pub struct UChatChange {
     pub chat: Option<UCloudChat>,
     /// Re-uploadable record payload (binary plist of the rustpush
     /// `CloudChat`). Persist alongside the local row; feed back through
-    /// `upload_chats` to push local modifications. Empty for tombstones.
+    /// `upload_chats` to push local modifications. Empty for tombstones and
+    /// records returned by the explicitly lean sync methods.
     pub blob: Vec<u8>,
 }
 
@@ -3299,7 +3300,8 @@ pub struct UMessageChange {
     pub message: Option<UCloudMessage>,
     /// Re-uploadable record payload (batch-8 blob format of the rustpush
     /// `CloudMessage`). Persist alongside the local row; feed back through
-    /// `upload_messages`. Empty for tombstones.
+    /// `upload_messages`. Empty for tombstones and records returned by the
+    /// explicitly lean sync methods.
     pub blob: Vec<u8>,
 }
 
@@ -3566,6 +3568,32 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
     }
 }
 
+fn conv_chat_change(record_id: String, chat: Option<CloudChat>, include_blob: bool) -> UChatChange {
+    let blob = if include_blob {
+        chat.as_ref().map(chat_blob).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    UChatChange {
+        record_id,
+        chat: chat.as_ref().map(conv_chat),
+        blob,
+    }
+}
+
+fn conv_message_change(record_id: String, message: Option<CloudMessage>, include_blob: bool) -> UMessageChange {
+    let blob = if include_blob {
+        message.as_ref().map(message_blob).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    UMessageChange {
+        record_id,
+        message: message.as_ref().map(conv_cloud_message),
+        blob,
+    }
+}
+
 const TRANSCRIPT_BACKGROUND_MESSAGE_TYPE: i64 = 138;
 
 fn decode_cloud_transcript_background(
@@ -3761,11 +3789,28 @@ impl NativePushState {
             Ok(UChatSyncPage {
                 records: items
                     .into_iter()
-                    .map(|(record_id, chat)| UChatChange {
-                        blob: chat.as_ref().map(chat_blob).unwrap_or_default(),
-                        record_id,
-                        chat: chat.as_ref().map(conv_chat),
-                    })
+                    .map(|(record_id, chat)| conv_chat_change(record_id, chat, true))
+                    .collect(),
+                next_cursor: next,
+                more: status != 3,
+                status,
+            })
+        }).await
+    }
+
+    /// Pull one page of chat changes without constructing round-trip record
+    /// blobs. The Kotlin persistence path maps the flattened fields and does
+    /// not persist `UChatChange.blob`; upload clients should continue using
+    /// `sync_chats_page` when they need re-uploadable payloads.
+    pub async fn sync_chats_page_lean(&self, cursor: Option<Vec<u8>>) -> Result<UChatSyncPage, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        drive_ffi(async move {
+            let (next, items, status) =
+                api::sync_chats(&client, cursor).await.map_err(sync_err)?;
+            Ok(UChatSyncPage {
+                records: items
+                    .into_iter()
+                    .map(|(record_id, chat)| conv_chat_change(record_id, chat, false))
                     .collect(),
                 next_cursor: next,
                 more: status != 3,
@@ -3784,11 +3829,27 @@ impl NativePushState {
             Ok(UMessageSyncPage {
                 records: items
                     .into_iter()
-                    .map(|(record_id, message)| UMessageChange {
-                        blob: message.as_ref().map(message_blob).unwrap_or_default(),
-                        record_id,
-                        message: message.as_ref().map(conv_cloud_message),
-                    })
+                    .map(|(record_id, message)| conv_message_change(record_id, message, true))
+                    .collect(),
+                next_cursor: next,
+                more: status != 3,
+                status,
+            })
+        }).await
+    }
+
+    /// Pull one page of message changes without re-encoding every CloudKit
+    /// record into a round-trip blob. Kotlin persists the flattened message
+    /// fields only; upload clients should use `sync_messages_page` instead.
+    pub async fn sync_messages_page_lean(&self, cursor: Option<Vec<u8>>) -> Result<UMessageSyncPage, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        drive_ffi(async move {
+            let (next, items, status) =
+                api::sync_messages(&client, cursor).await.map_err(sync_err)?;
+            Ok(UMessageSyncPage {
+                records: items
+                    .into_iter()
+                    .map(|(record_id, message)| conv_message_change(record_id, message, false))
                     .collect(),
                 next_cursor: next,
                 more: status != 3,
@@ -3817,11 +3878,31 @@ impl NativePushState {
             };
             Ok(items
                 .into_iter()
-                .map(|(record_id, message)| UMessageChange {
-                    blob: message_blob(&message),
-                    record_id,
-                    message: Some(conv_cloud_message(&message)),
-                })
+                .map(|(record_id, message)| conv_message_change(record_id, Some(message), true))
+                .collect())
+        }).await
+    }
+
+    /// Query transcript-background records without constructing round-trip
+    /// blobs. Kotlin applies the decoded background metadata directly.
+    pub async fn query_transcript_backgrounds_lean(&self) -> Result<Vec<UMessageChange>, UError> {
+        let client = cloud_messages_client(self.shared())?;
+        drive_ffi(async move {
+            let items = match tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                api::query_transcript_backgrounds(&client),
+            ).await {
+                Ok(result) => result.map_err(sync_err)?,
+                Err(_) => {
+                    log::warn!("Transcript background query timed out");
+                    return Err(UError::Failed {
+                        reason: "transcript background query timed out".to_string(),
+                    });
+                }
+            };
+            Ok(items
+                .into_iter()
+                .map(|(record_id, message)| conv_message_change(record_id, Some(message), false))
                 .collect())
         }).await
     }

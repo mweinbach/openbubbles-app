@@ -71,8 +71,7 @@ interface CloudSyncPort {
 
 /**
  * Production port: forwards to the UniFFI batch-4 methods on the live
- * [NativePushState], each on [Dispatchers.IO] (the exports are synchronous
- * `RUNTIME.block_on` calls).
+ * [NativePushState], keeping the native CloudKit work on [Dispatchers.IO].
  */
 class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
 
@@ -83,10 +82,10 @@ class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
         withContext(Dispatchers.IO) { state.isInClique() }
 
     override suspend fun chatsPage(cursor: ByteArray?): UChatSyncPage =
-        withContext(Dispatchers.IO) { state.syncChatsPage(cursor) }
+        withContext(Dispatchers.IO) { state.syncChatsPageLean(cursor) }
 
     override suspend fun messagesPage(cursor: ByteArray?): UMessageSyncPage =
-        withContext(Dispatchers.IO) { state.syncMessagesPage(cursor) }
+        withContext(Dispatchers.IO) { state.syncMessagesPageLean(cursor) }
 
     override suspend fun attachmentsPage(cursor: ByteArray?): UAttachmentSyncPage =
         withContext(Dispatchers.IO) { state.syncAttachmentsPage(cursor) }
@@ -104,5 +103,5 @@ class UniffiCloudSyncPort(private val state: NativePushState) : CloudSyncPort {
         withContext(Dispatchers.IO) { state.downloadGroupPhoto(recordId, path) }
 
     override suspend fun transcriptBackgrounds(): List<UMessageChange> =
-        withContext(Dispatchers.IO) { state.queryTranscriptBackgrounds() }
+        withContext(Dispatchers.IO) { state.queryTranscriptBackgroundsLean() }
 }

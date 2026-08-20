@@ -1545,6 +1545,12 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1782,6 +1788,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_publish_status(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds_lean(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_following(
@@ -1840,9 +1848,13 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_attachments
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page(
 ): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page_lean(
+): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page_lean(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_passwords(
 ): Short
@@ -2244,6 +2256,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_publish_status(`ptr`: 
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds(`ptr`: Pointer,
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds_lean(`ptr`: Pointer,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_refresh_following(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
@@ -2302,9 +2316,13 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_attachments_page(
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
 ): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page_lean(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_history(`ptr`: Pointer,`chatCursor`: RustBuffer.ByValue,`messageCursor`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`onPage`: Pointer,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page_lean(`ptr`: Pointer,`cursor`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_passwords(`ptr`: Pointer,
 ): Long
@@ -2988,6 +3006,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds() != 63641.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_query_transcript_backgrounds_lean() != 5599.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_refresh_devices() != 32109.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -3075,10 +3096,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page() != 10595.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_chats_page_lean() != 44532.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_history() != 45719.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page() != 33695.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_messages_page_lean() != 50815.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_sync_passwords() != 60135.toShort()) {
@@ -6566,6 +6593,12 @@ public interface NativePushStateInterface {
     suspend fun `queryTranscriptBackgrounds`(): List<UMessageChange>
 
     /**
+     * Query transcript-background records without constructing round-trip
+     * blobs. Kotlin applies the decoded background metadata directly.
+     */
+    suspend fun `queryTranscriptBackgroundsLean`(): List<UMessageChange>
+
+    /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
      */
     fun `refreshDevices`(): List<UFmDevice>
@@ -6721,6 +6754,14 @@ public interface NativePushStateInterface {
     suspend fun `syncChatsPage`(`cursor`: kotlin.ByteArray?): UChatSyncPage
 
     /**
+     * Pull one page of chat changes without constructing round-trip record
+     * blobs. The Kotlin persistence path maps the flattened fields and does
+     * not persist `UChatChange.blob`; upload clients should continue using
+     * `sync_chats_page` when they need re-uploadable payloads.
+     */
+    suspend fun `syncChatsPageLean`(`cursor`: kotlin.ByteArray?): UChatSyncPage
+
+    /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
      * `mode` picks the start cursors — `Full` ignores the passed cursors,
@@ -6739,6 +6780,13 @@ public interface NativePushStateInterface {
      * contract as `sync_chats_page`.
      */
     suspend fun `syncMessagesPage`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
+
+    /**
+     * Pull one page of message changes without re-encoding every CloudKit
+     * record into a round-trip blob. Kotlin persists the flattened message
+     * fields only; upload clients should use `sync_messages_page` instead.
+     */
+    suspend fun `syncMessagesPageLean`(`cursor`: kotlin.ByteArray?): UMessageSyncPage
 
     /**
      * Pull the Passwords, Wi-Fi, and CreditCards Keychain zones and refresh
@@ -8022,6 +8070,31 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
     /**
+     * Query transcript-background records without constructing round-trip
+     * blobs. Kotlin applies the decoded background metadata directly.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `queryTranscriptBackgroundsLean`() : List<UMessageChange> {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_query_transcript_backgrounds_lean(
+                thisPtr,
+
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeUMessageChange.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
      * Devices on this Apple ID, after a server refresh (`refreshClient`).
      */
     @Throws(UException::class)override fun `refreshDevices`(): List<UFmDevice> {
@@ -8627,6 +8700,33 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
 
 
     /**
+     * Pull one page of chat changes without constructing round-trip record
+     * blobs. The Kotlin persistence path maps the flattened fields and does
+     * not persist `UChatChange.blob`; upload clients should continue using
+     * `sync_chats_page` when they need re-uploadable payloads.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncChatsPageLean`(`cursor`: kotlin.ByteArray?) : UChatSyncPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_chats_page_lean(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`cursor`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUChatSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
      * Coarse driver: pull both zones (chats, then messages) to completion,
      * streaming every page's records + running counts through `on_page`.
      * `mode` picks the start cursors — `Full` ignores the passed cursors,
@@ -8669,6 +8769,32 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page(
+                thisPtr,
+                FfiConverterOptionalByteArray.lower(`cursor`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeUMessageSyncPage.lift(it) },
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
+     * Pull one page of message changes without re-encoding every CloudKit
+     * record into a round-trip blob. Kotlin persists the flattened message
+     * fields only; upload clients should use `sync_messages_page` instead.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `syncMessagesPageLean`(`cursor`: kotlin.ByteArray?) : UMessageSyncPage {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_sync_messages_page_lean(
                 thisPtr,
                 FfiConverterOptionalByteArray.lower(`cursor`),
             )
@@ -12789,7 +12915,8 @@ data class UChatChange (
     /**
      * Re-uploadable record payload (binary plist of the rustpush
      * `CloudChat`). Persist alongside the local row; feed back through
-     * `upload_chats` to push local modifications. Empty for tombstones.
+     * `upload_chats` to push local modifications. Empty for tombstones and
+     * records returned by the explicitly lean sync methods.
      */
     var `blob`: kotlin.ByteArray
 ) {
@@ -14191,7 +14318,8 @@ data class UMessageChange (
     /**
      * Re-uploadable record payload (batch-8 blob format of the rustpush
      * `CloudMessage`). Persist alongside the local row; feed back through
-     * `upload_messages`. Empty for tombstones.
+     * `upload_messages`. Empty for tombstones and records returned by the
+     * explicitly lean sync methods.
      */
     var `blob`: kotlin.ByteArray
 ) {
