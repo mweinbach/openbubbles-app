@@ -318,9 +318,10 @@ class CloudSyncManager(
                 update(SyncPhase.MESSAGES)
                 val shouldQueryBackgrounds = mode == SyncMode.INCREMENTAL &&
                     !syncStore.wallpaperBackfillDone()
+                var backgroundQuerySucceeded = false
                 val queriedBackgrounds = if (shouldQueryBackgrounds) {
                     try {
-                        port.transcriptBackgrounds()
+                        port.transcriptBackgrounds().also { backgroundQuerySucceeded = true }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
@@ -357,7 +358,7 @@ class CloudSyncManager(
                 if (!messagesComplete) {
                     return@withContext finish(cancelledFlag = true)
                 }
-                if (shouldQueryBackgrounds || mode == SyncMode.FULL) {
+                if ((shouldQueryBackgrounds && backgroundQuerySucceeded) || mode == SyncMode.FULL) {
                     syncStore.saveWallpaperBackfillDone(true)
                 }
 
@@ -851,6 +852,7 @@ class CloudSyncManager(
         invalidations.coalesce {
             records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
                 store.runInTx {
+                    val latestChatsToPersist = LinkedHashMap<Long, Chat>()
                     val cloudMessages = batch.mapNotNull(UMessageChange::message)
                     val messagesByGuid = messagesByGuidsLocked(
                         buildSet {
@@ -895,10 +897,18 @@ class CloudSyncManager(
                                     )
                                 }
                                 ?: continue
-                            removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
+                            removeLegacyTranscriptBackgroundMessageLocked(
+                                cloud.guid,
+                                messagesByGuid,
+                                latestChatsToPersist,
+                            )
+                            val version = background.version
+                                .takeIf { it <= Long.MAX_VALUE.toULong() }
+                                ?.toLong()
+                                ?: continue
                             transcriptBackgrounds += TranscriptBackgroundUpdate(
                                 chatId = chat.id,
-                                version = background.version.toLong(),
+                                version = version,
                                 remove = background.remove,
                                 mmcsXml = background.mmcsXml,
                             )
@@ -910,8 +920,10 @@ class CloudSyncManager(
                             lookup,
                             messagesByGuid,
                             attachmentsByGuid,
+                            latestChatsToPersist,
                         )
                     }
+                    latestChatsToPersist.values.forEach(chatBox::put)
                 }
             }
         }
@@ -920,6 +932,9 @@ class CloudSyncManager(
                 "transcript background handler is unavailable"
             }
             transcriptBackgrounds
+                .groupBy(TranscriptBackgroundUpdate::chatId)
+                .values
+                .mapNotNull { updates -> updates.maxByOrNull(TranscriptBackgroundUpdate::version) }
                 .sortedBy(TranscriptBackgroundUpdate::version)
                 .forEach { update ->
                     try {
@@ -949,6 +964,7 @@ class CloudSyncManager(
     private fun removeLegacyTranscriptBackgroundMessageLocked(
         guid: String,
         messagesByGuid: MutableMap<String, Message>,
+        latestChatsToPersist: MutableMap<Long, Chat>,
     ) {
         val message = messagesByGuid.remove(guid) ?: return
         val chat = message.chat.target
@@ -958,12 +974,13 @@ class CloudSyncManager(
         if (chat != null && wasLatest) {
             val latest = messageBox.query()
                 .equal(Message_.chatId, chat.id)
-                .build().use { it.find() }
-                .filter { it.dateDeleted == null }
-                .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+                .isNull(Message_.dateDeleted)
+                .orderDesc(Message_.dateCreated)
+                .orderDesc(Message_.id)
+                .build().use { it.findFirst() }
             chat.dbLatestMessage.target = latest
             chat.dbOnlyLatestMessageDate = latest?.dateCreated
-            chatBox.put(chat)
+            latestChatsToPersist[chat.id] = chat
         }
     }
 
@@ -1007,6 +1024,7 @@ class CloudSyncManager(
         lookup: HistorySyncLookup,
         messagesByGuid: MutableMap<String, Message>,
         attachmentsByGuid: MutableMap<String, Attachment>,
+        latestChatsToPersist: MutableMap<Long, Chat>,
     ) {
         val existing = messagesByGuid[cloud.guid]
         if (existing != null) {
@@ -1093,7 +1111,7 @@ class CloudSyncManager(
             chat.dbLatestMessage.target = message
             chat.dbOnlyLatestMessageDate = message.dateCreated
             if (chat.dateDeleted != null) chat.dateDeleted = null // Chat.unDelete
-            chatBox.put(chat)
+            latestChatsToPersist[chat.id] = chat
         }
     }
 

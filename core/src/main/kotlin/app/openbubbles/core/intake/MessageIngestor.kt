@@ -145,19 +145,32 @@ class MessageIngestor(
     suspend fun ingestWithResult(msg: UPushMessage, myHandles: Set<String>): IngestResult {
         return withContext(Dispatchers.IO) {
             mutex.withLock {
-                val inst = (msg as? UPushMessage.IMessage)?.inst
-                val notifiableType = inst?.message is UMessage.Normal || inst?.message is UMessage.React
-                val existedBefore = inst?.id?.let(::findMessageByGuidOrStaging) != null
-                val chat = ingestLocked(msg, myHandles)
-                IngestResult(
-                    chat = chat,
-                    isNewIncomingMessage = chat != null &&
-                        notifiableType &&
-                        !existedBefore &&
-                        inst.sender != null &&
-                        inst.sender !in myHandles &&
-                        !inst.verificationFailed,
-                )
+                // Relation reads (chat.handles, message.chat, attachments)
+                // must share and close one reader on this IO worker. Letting
+                // ToOne/ToMany lazily open thread-local readers here leaves
+                // them alive until a different thread closes the store.
+                store.callInTx {
+                    val inst = (msg as? UPushMessage.IMessage)?.inst
+                    val notifiableType = inst?.message is UMessage.Normal || inst?.message is UMessage.React
+                    val existedBefore = if (notifiableType) {
+                        findMessageByGuidOrStaging(
+                            checkNotNull(inst).id,
+                            includeStaging = shouldSearchStaging(inst, myHandles),
+                        ) != null
+                    } else {
+                        false
+                    }
+                    val chat = ingestLocked(msg, myHandles)
+                    IngestResult(
+                        chat = chat,
+                        isNewIncomingMessage = chat != null &&
+                            notifiableType &&
+                            !existedBefore &&
+                            inst.sender != null &&
+                            inst.sender !in myHandles &&
+                            !inst.verificationFailed,
+                    )
+                }
             }
         }
     }
@@ -305,6 +318,11 @@ class MessageIngestor(
         msg: UMessage.SetTranscriptBackground,
         myHandles: Set<String>,
     ): Chat? {
+        // Wallpaper payloads carry authenticated MMCS references. Treat a
+        // failed IDS signature like profile updates: do not resolve a chat,
+        // download data, or mutate the stored background.
+        if (inst.verificationFailed) return null
+        val version = msg.version.takeIf { it <= Long.MAX_VALUE.toULong() }?.toLong() ?: return null
         val chat = chatForTranscriptBackground(inst, msg.chatId, myHandles) ?: return null
         val handler = transcriptBackgroundHandler ?: return chat
         scope.launch {
@@ -312,7 +330,7 @@ class MessageIngestor(
                 handler.apply(
                     TranscriptBackgroundUpdate(
                         chatId = chat.id,
-                        version = msg.version.toLong(),
+                        version = version,
                         remove = msg.remove,
                         mmcsXml = msg.mmcsXml,
                     ),
@@ -773,7 +791,10 @@ class MessageIngestor(
         val conversation = inst.conversation ?: return null
         // 1. Replay: an existing row for this guid already knows its chat
         //    (also covers Edit/Unsend targets).
-        findMessageByGuidOrStaging(inst.id)?.chat?.target?.let { return it }
+        findMessageByGuidOrStaging(
+            inst.id,
+            includeStaging = shouldSearchStaging(inst, myHandles),
+        )?.chat?.target?.let { return it }
         // 2. `afterGuid` — the conversation anchor message.
         conversation.afterGuid?.let { after ->
             findMessageByGuidOrStaging(after)?.chat?.target?.let { chat ->
@@ -878,10 +899,17 @@ class MessageIngestor(
     // Persistence (Message.save + Chat.addMessageLocal + IncomingMsgHandler)
     // ------------------------------------------------------------------
 
-    private fun findMessageByGuidOrStaging(guid: String?): Message? {
+    private fun shouldSearchStaging(inst: UMessageInst, myHandles: Set<String>): Boolean =
+        inst.sender == null || inst.sender in myHandles
+
+    private fun findMessageByGuidOrStaging(
+        guid: String?,
+        includeStaging: Boolean = true,
+    ): Message? {
         if (guid == null) return null
         messageBox.query().equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }?.let { return it }
+        if (!includeStaging) return null
         messageBox.query().equal(Message_.stagingGuid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }?.let { return it }
         return null
@@ -895,7 +923,10 @@ class MessageIngestor(
     ) {
         store.runInTx {
             val incoming = mapped.message
-            val existing = findMessageByGuidOrStaging(incoming.guid)
+            val existing = findMessageByGuidOrStaging(
+                incoming.guid,
+                includeStaging = shouldSearchStaging(inst, myHandles),
+            )
 
             val saved: Message
             if (existing == null) {

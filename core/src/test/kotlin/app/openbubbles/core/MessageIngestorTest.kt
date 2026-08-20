@@ -235,6 +235,84 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `unverified transcript background set and removal reach no handler`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            listOf(false, true).forEachIndexed { index, remove ->
+                val result = capturing.ingest(
+                    push(
+                        UMessageInst(
+                            id = "unverified-bg-$index",
+                            sender = friend,
+                            conversation = conversation(me, friend),
+                            message = UMessage.SetTranscriptBackground(
+                                json = "{}",
+                                version = (50 + index).toULong(),
+                                chatId = null,
+                                remove = remove,
+                                mmcsXml = if (remove) null else "<mmcs/>",
+                            ),
+                            sentTimestamp = 1_700_000_150_000uL + index.toULong(),
+                            sendDelivered = false,
+                            verificationFailed = true,
+                        ),
+                    ),
+                    myHandles,
+                )
+                assertNull(result)
+            }
+        } finally {
+            capturing.close()
+        }
+
+        assertTrue(updates.isEmpty())
+    }
+
+    @Test
+    fun `transcript background version above signed storage range is rejected`() = runBlocking<Unit> {
+        ingestor.ingest(push(textInst("msg-1", friend, "hi")), myHandles)
+        val updates = mutableListOf<TranscriptBackgroundUpdate>()
+        val capturing = MessageIngestor(
+            store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            transcriptBackgroundHandler = TranscriptBackgroundHandler { update -> updates += update },
+        )
+        try {
+            val result = capturing.ingest(
+                push(
+                    UMessageInst(
+                        id = "overflow-bg",
+                        sender = friend,
+                        conversation = conversation(me, friend),
+                        message = UMessage.SetTranscriptBackground(
+                            json = "{}",
+                            version = Long.MAX_VALUE.toULong() + 1uL,
+                            chatId = null,
+                            remove = false,
+                            mmcsXml = "<mmcs/>",
+                        ),
+                        sentTimestamp = 1_700_000_160_000uL,
+                        sendDelivered = false,
+                        verificationFailed = false,
+                    ),
+                ),
+                myHandles,
+            )
+            assertNull(result)
+        } finally {
+            capturing.close()
+        }
+
+        assertTrue(updates.isEmpty())
+    }
+
+    @Test
     fun `transcript background push for an unknown chat reaches no handler`() = runBlocking<Unit> {
         val updates = mutableListOf<TranscriptBackgroundUpdate>()
         val capturing = MessageIngestor(
@@ -827,6 +905,33 @@ class MessageIngestorTest {
         assertNull(row.stagingGuid) // promoted
         // Echo is not Apple's ACK. The row stays in-flight until SendConfirm.
         assertEquals(MessageRepo.DEFAULT_SENDING_SERVICE_ID, row.sendingServiceId)
+    }
+
+    @Test
+    fun `incoming peer message cannot match an outgoing staging fallback`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessage(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "failed outgoing",
+            stagingGuid = "peer-collision",
+        )
+        staged.guid = "error-protocol: collision-fixture"
+        staged.stagingGuid = "peer-collision"
+        staged.errorMessage = "fixture"
+        messageBox().put(staged)
+
+        ingestor.ingest(push(textInst("peer-collision", friend, "incoming text")), myHandles)
+
+        val incoming = messageByGuid("peer-collision")
+        assertNotNull(incoming)
+        assertFalse(incoming.isFromMe)
+        assertEquals("incoming text", incoming.text)
+        val preservedOutgoing = messageByGuid("error-protocol: collision-fixture")
+        assertNotNull(preservedOutgoing)
+        assertTrue(preservedOutgoing.isFromMe)
+        assertEquals("failed outgoing", preservedOutgoing.text)
+        assertEquals("peer-collision", preservedOutgoing.stagingGuid)
     }
 
     @Test

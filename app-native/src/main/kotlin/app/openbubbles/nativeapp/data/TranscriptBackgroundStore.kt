@@ -65,7 +65,11 @@ internal class TranscriptBackgroundStore(
             val directory = File(filesDir, "chat_backgrounds").apply {
                 check(isDirectory || mkdirs()) { "failed to create transcript background directory" }
             }
-            chatBox.all.forEach { chat ->
+            // Box.getAll() otherwise retains a reader transaction in this
+            // Dispatchers.IO worker's thread-local cache. Keep the snapshot
+            // transaction explicit so it is also closed on its creator
+            // thread before a restore can close the process-wide store.
+            store.callInReadTx { chatBox.all }.forEach { chat ->
                 val path = chat.transcriptPosterPath ?: return@forEach
                 if (File(path).isFile) return@forEach
                 val resolved = resolveBackgroundImageFile(path, ::extractWatchImageFromPosterSave)
@@ -84,7 +88,7 @@ internal class TranscriptBackgroundStore(
     override suspend fun apply(update: TranscriptBackgroundUpdate) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val chatBox = store.boxFor(Chat::class.java)
-            val initial = chatBox.get(update.chatId) ?: return@withLock
+            val initial = store.callInReadTx { chatBox.get(update.chatId) } ?: return@withLock
             if (hasApplied(initial, update)) {
                 return@withLock
             }
@@ -105,7 +109,7 @@ internal class TranscriptBackgroundStore(
             try {
                 val image = loadImage(mmcsXml, payload)
 
-                val current = chatBox.get(update.chatId) ?: return@withLock
+                val current = store.callInReadTx { chatBox.get(update.chatId) } ?: return@withLock
                 if (hasApplied(current, update)) {
                     return@withLock
                 }

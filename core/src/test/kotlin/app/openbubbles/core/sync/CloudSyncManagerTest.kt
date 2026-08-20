@@ -505,6 +505,48 @@ class CloudSyncManagerTest {
     }
 
     @Test
+    fun `history page applies only the newest representable wallpaper per chat`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            backgroundChange("background-6", 6uL, remove = false),
+            backgroundChange("background-8", 8uL, remove = true),
+            backgroundChange("background-7", 7uL, remove = false),
+            backgroundChange("background-overflow", Long.MAX_VALUE.toULong() + 1uL, remove = false),
+        )
+
+        val summary = runSync()
+
+        assertNull(summary.error)
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(TranscriptBackgroundUpdate(chat.id, 8L, remove = true, mmcsXml = null)),
+            backgroundUpdates,
+        )
+        assertEquals(0L, store.boxFor(Message::class.java).count())
+    }
+
+    private fun backgroundChange(guid: String, version: ULong, remove: Boolean) =
+        UMessageChange(
+            "record-$guid",
+            cloudMessage(
+                "record-$guid",
+                guid = guid,
+                chatId = "iMessage;-;+15551234567",
+                text = null,
+                msgType = 138,
+                transcriptBackground = UTranscriptBackground(
+                    version = version,
+                    chatId = "rec-chat",
+                    remove = remove,
+                    mmcsXml = if (remove) null else "<plist/>",
+                ),
+            ),
+            blob = byteArrayOf(),
+        )
+
+    @Test
     fun `malformed cloud transcript background is skipped without wedging the sync`() {
         syncStore.saveMessageCursor(byteArrayOf(9))
         port.chatPages += chatPage(
@@ -782,7 +824,7 @@ class CloudSyncManagerTest {
     }
 
     @Test
-    fun `failed wallpaper query preserves the incremental cursor and records the attempt`() {
+    fun `failed wallpaper query preserves the cursor and retries on the next run`() {
         port.chatPages += chatPage(
             UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
         )
@@ -799,6 +841,16 @@ class CloudSyncManagerTest {
         assertNull(summary.error)
         assertEquals(2, port.messageCursorsReceived.size)
         assertTrue(port.messageCursorsReceived[1]!!.contentEquals(byteArrayOf(20)))
+        assertFalse(syncStore.wallpaperBackfillDone())
+
+        port.transcriptBackgroundsError = null
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(cursor = byteArrayOf(22))
+
+        val retried = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(retried.error)
+        assertEquals(2, port.calls.count { it == "transcript-backgrounds" })
         assertTrue(syncStore.wallpaperBackfillDone())
     }
 
@@ -1198,7 +1250,7 @@ class CloudSyncManagerTest {
         port.state = USyncState.NEEDS_LOGIN
         val needsLogin = runSync()
         assertNotNull(needsLogin.error)
-        assertTrue(needsLogin.error!!.contains("login", ignoreCase = true))
+        assertTrue(needsLogin.error.contains("login", ignoreCase = true))
 
         port.state = USyncState.NOT_ENABLED
         val notEnabled = runSync()

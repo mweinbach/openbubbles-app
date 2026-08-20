@@ -119,9 +119,9 @@ class NativePushService : Service(), MsgReceiver {
                     initNative(dir, null, InitReceiver(generation))
                 }
             } catch (error: Throwable) {
-                Log.e(TAG, "native initialization failed", error)
+                Log.e(TAG, "native initialization failed (${diagnosticKind(error)})")
                 PushStateHolder.reportError(
-                    "Apple push initialization failed: ${error.message ?: error.javaClass.simpleName}",
+                    "Apple push initialization failed (${diagnosticKind(error)})",
                 )
                 scheduleReconnect(generation, "initialization failed")
             }
@@ -175,10 +175,9 @@ class NativePushService : Service(), MsgReceiver {
                 runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
             } catch (error: Throwable) {
                 // Leave the entry queued; Rust re-emits with backoff.
-                Log.e(TAG, "incoming pointer $msg failed on attempt $retry", error)
+                Log.e(TAG, "incoming message failed on attempt ${retry + 1uL} (${diagnosticKind(error)})")
                 PushStateHolder.reportError(
-                    "Incoming message failed on attempt ${retry + 1uL}: " +
-                        (error.message ?: error.javaClass.simpleName),
+                    "Incoming message failed on attempt ${retry + 1uL} (${diagnosticKind(error)})",
                 )
             }
         }
@@ -187,7 +186,7 @@ class NativePushService : Service(), MsgReceiver {
     private fun handleRegistrationState() {
         val state = activeState ?: return
         val registration = runCatching { state.getRegstate() }
-            .onFailure { error -> Log.w(TAG, "failed to read IDS registration state", error) }
+            .onFailure { error -> Log.w(TAG, "failed to read IDS registration state (${diagnosticKind(error)})") }
             .getOrNull() ?: return
         PushStateHolder.updateRegistration(registration)
         when (registration) {
@@ -195,7 +194,7 @@ class NativePushService : Service(), MsgReceiver {
                 if (registrationRequiresSignIn(registration)) {
                     markAccountSignInRequired(registration)
                 } else {
-                    PushStateHolder.reportError("Apple messaging registration failed: ${registration.error}")
+                    PushStateHolder.reportError("Apple messaging registration failed")
                     updateStatus(REGISTRATION_FAILED_STATUS)
                 }
             }
@@ -215,7 +214,13 @@ class NativePushService : Service(), MsgReceiver {
         // state explicit instead of calling this fully connected.
         Log.w(TAG, "Apple account reauthentication required; keeping current push session active")
         PushStateHolder.updateRegistration(registration)
-        PushStateHolder.reportError(registration.error)
+        PushStateHolder.reportError(
+            if (registration.error.startsWith(ACCOUNT_TWO_FACTOR_REQUIRED_PREFIX)) {
+                "Apple ID verification required"
+            } else {
+                "Apple ID sign-in required"
+            },
+        )
         updateStatus(
             if (registration.error.startsWith(ACCOUNT_TWO_FACTOR_REQUIRED_PREFIX)) {
                 ACCOUNT_TWO_FACTOR_REQUIRED_STATUS
@@ -248,11 +253,11 @@ class NativePushService : Service(), MsgReceiver {
                 ingestAndNotify(entry.message, handles, entrySource)
             } catch (error: Throwable) {
                 journalFailures += entry.id
-                Log.e(TAG, "journal message ${entry.id} failed on attempt ${entry.attempts.toUInt() + 1u}", error)
+                Log.e(TAG, "journal message failed on attempt ${entry.attempts.toUInt() + 1u} (${diagnosticKind(error)})")
                 runCatching {
                     runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
                 }.onFailure { persistenceError ->
-                    Log.e(TAG, "failed to persist journal retry for ${entry.id}", persistenceError)
+                    Log.e(TAG, "failed to persist journal retry (${diagnosticKind(persistenceError)})")
                 }
                 delay(journalRetryDelayMs(entry.attempts.toInt()))
                 continue
@@ -261,7 +266,7 @@ class NativePushService : Service(), MsgReceiver {
                 runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
                 journalFailures -= entry.id
             } catch (error: Throwable) {
-                Log.e(TAG, "failed to persist journal completion for ${entry.id}", error)
+                Log.e(TAG, "failed to persist journal completion (${diagnosticKind(error)})")
                 delay(journalRetryDelayMs(entry.attempts.toInt()))
             }
         }
@@ -316,7 +321,9 @@ class NativePushService : Service(), MsgReceiver {
         chat: app.openbubbles.db.Chat?,
     ) {
         val inst = (decoded as? UPushMessage.IMessage)?.inst ?: return
+        if (inst.verificationFailed) return
         val background = inst.message as? UMessage.SetTranscriptBackground ?: return
+        val version = background.version.takeIf { it <= Long.MAX_VALUE.toULong() }?.toLong() ?: return
         // The ingestor already resolved the chat (cid handle / rust guid /
         // sender fallback); a null means we do not know the conversation yet
         // and the history sync that imports it applies the wallpaper instead.
@@ -328,13 +335,13 @@ class NativePushService : Service(), MsgReceiver {
             transcriptBackgroundStore.apply(
                 TranscriptBackgroundUpdate(
                     chatId = target.id,
-                    version = background.version.toLong(),
+                    version = version,
                     remove = background.remove,
                     mmcsXml = background.mmcsXml,
                 ),
             )
         }.onFailure { error ->
-            Log.w(TAG, "failed to apply transcript background for chat ${target.id}", error)
+            Log.w(TAG, "failed to apply transcript background (${diagnosticKind(error)})")
         }
     }
 
@@ -376,12 +383,12 @@ class NativePushService : Service(), MsgReceiver {
         handleNativeError(initGeneration.get(), reason)
     }
 
-    private fun handleNativeError(generation: Int, reason: String) {
+    private fun handleNativeError(generation: Int, _reason: String) {
         scope.launch {
             if (generation != initGeneration.get()) return@launch
             activeState = null
             PushStateHolder.clear()
-            PushStateHolder.reportError("Apple push restore failed: $reason")
+            PushStateHolder.reportError("Apple push restore failed")
             updateStatus(DISCONNECTED_STATUS)
             scheduleReconnect(generation, "native restore failed")
         }
@@ -403,26 +410,25 @@ class NativePushService : Service(), MsgReceiver {
             // This coroutine runs on Dispatchers.IO, never Rust's Tokio worker.
             val handles = runCatching { live.getHandles().toSet() }
                 .getOrElse { error ->
-                    Log.e(TAG, "failed to load registered handles", error)
+                    Log.e(TAG, "failed to load registered handles (${diagnosticKind(error)})")
                     activeState = null
                     stopState(live)
                     PushStateHolder.clear()
                     PushStateHolder.reportError(
-                        "Registered handles unavailable: ${error.message ?: error.javaClass.simpleName}",
+                        "Registered handles unavailable (${diagnosticKind(error)})",
                     )
                     updateStatus(DISCONNECTED_STATUS)
                     scheduleReconnect(generation, "registered handles unavailable")
                     return@launch
                 }
             val registration = runCatching { live.getRegstate() }
-                .onFailure { Log.e(TAG, "failed to read restored IDS registration state", it) }
+                .onFailure { Log.e(TAG, "failed to read restored IDS registration state (${diagnosticKind(it)})") }
                 .getOrElse { error ->
                     activeState = null
                     stopState(live)
                     PushStateHolder.clear()
                     PushStateHolder.reportError(
-                        "Apple registration status unavailable: " +
-                            (error.message ?: error.javaClass.simpleName),
+                        "Apple registration status unavailable (${diagnosticKind(error)})",
                     )
                     updateStatus(DISCONNECTED_STATUS)
                     scheduleReconnect(generation, "registration status unavailable")
@@ -468,9 +474,9 @@ class NativePushService : Service(), MsgReceiver {
             drainMessageJournal(handles, IncomingNotificationSource.JOURNAL_RECOVERY)
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
-                    Log.e(TAG, "failed to start Apple push loop", it)
+                    Log.e(TAG, "failed to start Apple push loop (${diagnosticKind(it)})")
                     PushStateHolder.reportError(
-                        "Apple push loop failed: ${it.message ?: it.javaClass.simpleName}",
+                        "Apple push loop failed (${diagnosticKind(it)})",
                     )
                     updateStatus(DISCONNECTED_STATUS)
                     scheduleReconnect(generation, "loop start failed")
@@ -501,9 +507,9 @@ class NativePushService : Service(), MsgReceiver {
                 )
             } catch (error: Throwable) {
                 // next WorkManager tick retries
-                Log.e(TAG, "battery-saver poll failed", error)
+                Log.e(TAG, "battery-saver poll failed (${diagnosticKind(error)})")
                 PushStateHolder.reportError(
-                    "Background message check failed: ${error.message ?: error.javaClass.simpleName}",
+                    "Background message check failed (${diagnosticKind(error)})",
                 )
             } finally {
                 if (shouldStopAfterPoll(generation, initGeneration.get(), pollMode)) {
@@ -747,7 +753,7 @@ class NativePushService : Service(), MsgReceiver {
 
     private fun stopState(state: NativePushState) {
         runCatching { state.stopLoop() }
-            .onFailure { Log.w(TAG, "failed to stop Apple push state", it) }
+            .onFailure { Log.w(TAG, "failed to stop Apple push state (${diagnosticKind(it)})") }
     }
 
     companion object {
@@ -781,7 +787,7 @@ class NativePushService : Service(), MsgReceiver {
                 )
                 true
             } catch (error: SecurityException) {
-                Log.w("NativePushService", "foreground start denied", error)
+                Log.w("NativePushService", "foreground start denied")
                 false
             } catch (error: RuntimeException) {
                 // The exception class was added in API 31 while our minSdk is
@@ -790,7 +796,7 @@ class NativePushService : Service(), MsgReceiver {
                 if (error.javaClass.name ==
                     "android.app.ForegroundServiceStartNotAllowedException"
                 ) {
-                    Log.w("NativePushService", "foreground start deferred by Android", error)
+                    Log.w("NativePushService", "foreground start deferred by Android")
                     false
                 } else {
                     throw error
@@ -799,6 +805,9 @@ class NativePushService : Service(), MsgReceiver {
         }
     }
 }
+
+private fun diagnosticKind(error: Throwable): String =
+    error.javaClass.simpleName.ifBlank { "NativeError" }
 
 internal fun isPollStart(action: String?): Boolean =
     action == BatterySaver.ACTION_POLL_ONCE
