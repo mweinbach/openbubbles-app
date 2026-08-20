@@ -3,7 +3,6 @@ use std::{collections::BTreeSet, fmt::{Debug, Display}, path::PathBuf, sync::{Ar
 use aes_gcm::{AeadInPlace, Aes256Gcm, KeyInit, Nonce};
 use keystore::{EcCurve, EncryptMode, KeyType, Keystore, KeystoreAccessRules, KeystoreDigest, KeystoreError, KeystorePadding, backup::{BackupKeystore, BackupKeystoreState}, init_keystore, keystore, software::{SoftwareKeystore, SoftwareKeystoreState}};
 use openssl::{bn::BigNumContext, ec::{EcGroup, EcKey, EcPoint, PointConversionForm}, encrypt::Encrypter, hash::MessageDigest, nid::Nid, pkey::{PKey, Public}, rsa::{Padding, Rsa}};
-use rustpush::cloudkit_proto::base64_encode;
 use std::str::FromStr;
 use rasn::{types::SetOf, AsnType, Decode, Encode};
 use log::{error, info};
@@ -183,9 +182,9 @@ pub fn setup_keystore(dir: String, keystore: Arc<dyn NativeKeystore>) {
         // bytes recoverable while letting startup proceed.
         let (state, key) = match plist::from_file(&keystore_path) {
             Ok(existing) => (existing, None),
-            Err(error) => {
+            Err(_error) => {
                 if keystore_path.exists() {
-                    error!("keystore state failed to deserialize: {error}");
+                    error!("keystore state failed to deserialize");
                     crate::api::api::quarantine_corrupt_state(&keystore_path);
                 }
                 let (keystore, key) = BackupKeystoreState::new(&keystore).expect("Failed to initialize keystore!");
@@ -198,8 +197,8 @@ pub fn setup_keystore(dir: String, keystore: Arc<dyn NativeKeystore>) {
             update_state: Box::new(move |state| {
                 // Atomic: a crash mid-write must never truncate the master
                 // keystore file.
-                if let Err(error) = crate::api::api::atomic_write_plist(&keystore_path, state) {
-                    error!("failed to save keystore state: {error}");
+                if let Err(_error) = crate::api::api::atomic_write_plist(&keystore_path, state) {
+                    error!("failed to save keystore state");
                 }
             }),
             hardware: keystore,
@@ -208,9 +207,9 @@ pub fn setup_keystore(dir: String, keystore: Arc<dyn NativeKeystore>) {
     } else {
         let state: SoftwareKeystoreState = match plist::from_file(&soft_keystore) {
             Ok(existing) => existing,
-            Err(error) => {
+            Err(_error) => {
                 if soft_keystore.exists() {
-                    error!("software keystore state failed to deserialize: {error}");
+                    error!("software keystore state failed to deserialize");
                     crate::api::api::quarantine_corrupt_state(&soft_keystore);
                 }
                 SoftwareKeystoreState::default()
@@ -219,8 +218,8 @@ pub fn setup_keystore(dir: String, keystore: Arc<dyn NativeKeystore>) {
         init_keystore(SoftwareKeystore {
             state: RwLock::new(state),
             update_state: Box::new(move |state| {
-                if let Err(error) = crate::api::api::atomic_write_plist(&soft_keystore, state) {
-                    error!("failed to save software keystore state: {error}");
+                if let Err(_error) = crate::api::api::atomic_write_plist(&soft_keystore, state) {
+                    error!("failed to save software keystore state");
                 }
             }),
             encryptor: keystore,
@@ -542,12 +541,10 @@ pub struct NativeKeystoreHolder {
 
 impl Keystore for NativeKeystoreHolder {
     fn create_key(&self, alias: &str, r#type: KeyType, access_rules: KeystoreAccessRules) -> Result<(), keystore::KeystoreError> {
-        info!("Keystore creating key {alias}");
         self.keystore.create_key(alias.to_owned(), r#type, access_rules).map_err(|e| e.into())
     }
 
     fn destroy_key(&self, alias: &str) -> Result<(), KeystoreError> {
-        info!("Keystore destroying key {alias}");
         self.keystore.destroy_key(alias.to_owned()).map_err(|e| e.into())
     }
 
@@ -568,19 +565,15 @@ impl Keystore for NativeKeystoreHolder {
     }
 
     fn import_key(&self, alias: &str, r#type: KeyType, priv_key: &[u8], access_rules: KeystoreAccessRules) -> Result<(), KeystoreError> {
-        info!("Keystore importing alias {alias}");
         let rsa = Rsa::public_key_from_der(&self.keystore.get_import_wrap_key().map_err(|e| <NativeKeystoreError as Into<KeystoreError>>::into(e))?)?;
 
         let wrapped = wrap_import_key(r#type, rsa, priv_key, &access_rules)?;
-        info!("wrapped asn.1 {}", base64_encode(&wrapped));
 
         self.keystore.import_key(alias.to_owned(), r#type, wrapped, access_rules).map_err(|e| e.into())
     }
 
     fn get_key_type(&self, alias: &str) -> Result<Option<KeyType>, KeystoreError> {
-        let res = self.keystore.get_key_type(alias.to_owned()).map_err(|e| e.into());
-        info!("sitch {alias} {res:?}");
-        res
+        self.keystore.get_key_type(alias.to_owned()).map_err(|e| e.into())
     }
 
     fn sign(&self, alias: &str, digest: KeystoreDigest, padding: KeystorePadding, data: &[u8]) -> Result<Vec<u8>, KeystoreError> {

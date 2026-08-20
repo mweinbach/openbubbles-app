@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.credentials.CreatePasswordRequest
 import androidx.credentials.CreatePasswordResponse
@@ -48,7 +47,6 @@ class CredentialCreateActivity : FragmentActivity() {
         val continueFlow = {
             CredentialWebAuthnUtils.ensurePrivilegedAllowlistFresh(this) { error ->
                 if (error != null) {
-                    Log.e("Webauthn", "Unable to refresh privileged app allowlist", error)
                     finishAndRemoveTask()
                     return@ensurePrivilegedAllowlistFresh
                 }
@@ -65,8 +63,7 @@ class CredentialCreateActivity : FragmentActivity() {
             CredentialUserAuth.authenticateForPasskey(
                 this,
                 onSuccess = continueFlow,
-                onFailure = { error ->
-                    Log.i("CredentialCreate", "User authentication failed or canceled: $error")
+                onFailure = {
                     finish()
                 }
             )
@@ -188,7 +185,6 @@ class CredentialCreateActivity : FragmentActivity() {
                     service.keychainPasskeyInsert(rpId, recordId, credentialId, tag, keyPair.private.encoded, object : InsertKeychainCallback {
                         override fun done(error: String?) {
                             if (error != null) {
-                                Log.e("Webauthn", "Error $error")
                                 finish()
                                 return
                             }
@@ -216,7 +212,6 @@ class CredentialCreateActivity : FragmentActivity() {
                 object : InsertKeychainCallback {
                     override fun done(error: String?) {
                         if (error != null) {
-                            Log.e("Credential", "Error $error")
                             finish()
                             return
                         }

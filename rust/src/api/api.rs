@@ -76,15 +76,8 @@ pub(crate) fn quarantine_corrupt_state(path: &Path) {
     let mut target = path.as_os_str().to_owned();
     target.push(format!(".corrupt-{millis}"));
     match std::fs::rename(path, &target) {
-        Ok(()) => log::error!(
-            "state file {} was unreadable; quarantined to {}",
-            path.display(),
-            Path::new(&target).display(),
-        ),
-        Err(error) => log::error!(
-            "state file {} was unreadable and could not be quarantined: {error}",
-            path.display(),
-        ),
+        Ok(()) => log::error!("Unreadable native state was quarantined"),
+        Err(_error) => log::error!("Unreadable native state could not be quarantined"),
     }
 }
 
@@ -431,15 +424,15 @@ fn migrate(path: String) -> bool {
                         let Value::Data(data) = key else { return true };
                         let serialized = match CuttlefishSerializedKey::decode(&mut Cursor::new(data)) {
                             Ok(serialized) => serialized,
-                            Err(error) => {
-                                warn!("Dropping malformed legacy cloud key: {}", error);
+                            Err(_error) => {
+                                warn!("Dropping malformed legacy cloud key");
                                 return false;
                             }
                         };
                         let cloud = match CloudKey::from_serialized_key(serialized, &keystore) {
                             Ok(cloud) => cloud,
-                            Err(error) => {
-                                warn!("Dropping legacy cloud key that failed decryption: {}", error);
+                            Err(_error) => {
+                                warn!("Dropping legacy cloud key that failed decryption");
                                 return false;
                             }
                         };
@@ -448,8 +441,8 @@ fn migrate(path: String) -> bool {
                                 *key = cloud;
                                 true
                             }
-                            Err(error) => {
-                                warn!("Dropping legacy cloud key that failed serialization: {}", error);
+                            Err(_error) => {
+                                warn!("Dropping legacy cloud key that failed serialization");
                                 false
                             }
                         }
@@ -540,8 +533,8 @@ pub async fn make_imclient(path: String, conn: &APSConnection, users: &Vec<IDSUs
     &[&MADRID_SERVICE, &MULTIPLEX_SERVICE, &FACETIME_SERVICE, &VIDEO_SERVICE], dir.join("id_cache.plist"), conn.os_config.clone(), Box::new(move |updated_keys| {
         info!("updated keys!!!");
         // Atomic: a crash mid-write must never truncate the IDS users file.
-        if let Err(error) = atomic_write_plist(&id_path, &updated_keys) {
-            log::error!("failed to save updated IDS users: {error}");
+        if let Err(_error) = atomic_write_plist(&id_path, &updated_keys) {
+            log::error!("failed to save updated IDS users");
         }
     })).await)
 }
@@ -779,8 +772,8 @@ impl SharedPushState {
     pub async fn restore(path: String) -> Option<(Self, APSWatcher)> {
         match Self::restore_with_error(path).await {
             Ok(state) => state,
-            Err(error) => {
-                error!("failed to restore saved push state: {error}");
+            Err(_error) => {
+                error!("failed to restore saved push state");
                 None
             }
         }
@@ -797,8 +790,8 @@ impl SharedPushState {
             init_keystore(SoftwareKeystore {
                 state: plist::from_file(&keystore).unwrap_or_default(),
                 update_state: Box::new(move |state| {
-                    if let Err(error) = atomic_write_plist(&keystore, state) {
-                        log::error!("failed to save keystore state: {error}");
+                    if let Err(_error) = atomic_write_plist(&keystore, state) {
+                        log::error!("failed to save keystore state");
                     }
                 }),
                 encryptor: SoftwareEncryptor(*b"desktopisinsecureyoushouldn'tber"),
@@ -938,8 +931,8 @@ pub async fn make_shared_streams(path: String, conn: &APSConnection, anisette: &
     let state = plist::from_file(&stream_path).ok()?;
 
     let client = SharedStreamClient::new(state, Box::new(move |update| {
-        if let Err(error) = atomic_write_plist(&stream_path, update) {
-            log::error!("failed to save shared streams state: {error}");
+        if let Err(_error) = atomic_write_plist(&stream_path, update) {
+            log::error!("failed to save shared streams state");
         }
     }), token.clone(), conn.clone(), anisette.clone(), config.config()).await;
 
@@ -977,8 +970,8 @@ pub async fn make_passwords(path: String, keychain: &Arc<KeychainClient<DefaultA
     let state: PasswordState = plist::from_file(&path).unwrap_or_default();
 
     PasswordManager::new(keychain.clone(), cloudkit.clone(), client.identity.clone(), conn.clone(), state, Box::new(move |item| {
-        if let Err(error) = atomic_write_plist(&path, item) {
-            log::error!("failed to save passwords state: {error}");
+        if let Err(_error) = atomic_write_plist(&path, item) {
+            log::error!("failed to save passwords state");
         }
     }), Box::new(|manager, wifi| {
         if !wifi { return }
@@ -1002,8 +995,8 @@ pub async fn make_facetime(path: String, conn: &APSConnection, client: &Arc<IMCl
     let facetime_path = dir.join("facetime.plist");
     let state: FTState = plist::from_file(&facetime_path).unwrap_or_default();
     Arc::new(FTClient::new(state, Box::new(move |state| {
-        if let Err(error) = atomic_write_plist(&facetime_path, state) {
-            log::error!("failed to save facetime state: {error}");
+        if let Err(_error) = atomic_write_plist(&facetime_path, state) {
+            log::error!("failed to save facetime state");
         }
     }), conn.clone(), client.identity.clone(), conn.os_config.clone()).await)
 }
@@ -1014,8 +1007,8 @@ pub async fn make_statuskit(path: String, provider: &Arc<TokenProvider<DefaultAn
     let path = dir.join("statuskit.plist");
     let state: StatusKitState = plist::from_file(&path).unwrap_or_default();
     StatusKitClient::new(state, Box::new(move |state| {
-        if let Err(error) = atomic_write_plist(&path, state) {
-            log::error!("failed to save statuskit state: {error}");
+        if let Err(_error) = atomic_write_plist(&path, state) {
+            log::error!("failed to save statuskit state");
         }
     }), provider.clone(), conn.clone(), config.config(), client.identity.clone()).await
 }
@@ -1039,9 +1032,9 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
 
     let mut state: KeychainClientState = match plist::from_file(&cloudkit_path) {
         Ok(state) => state,
-        Err(error) => {
+        Err(_error) => {
             if cloudkit_path.exists() {
-                log::error!("keychain state failed to deserialize: {error}");
+                log::error!("keychain state failed to deserialize");
                 // Leave the bytes recoverable and unblock the login-time
                 // recreation path (gated on !exists()) so the user can
                 // re-join iCloud Keychain instead of being stuck forever.
@@ -1067,12 +1060,12 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
                     Ok(_) => {
                         info!("re-adopting persisted keychain identity {}", saved.identity.identifier);
                         state.user_identity = Some(saved.identity);
-                        if let Err(error) = atomic_write_plist(&cloudkit_path, &state) {
-                            log::error!("failed to persist re-adopted keychain identity: {error}");
+                        if let Err(_error) = atomic_write_plist(&cloudkit_path, &state) {
+                            log::error!("failed to persist re-adopted keychain identity");
                         }
                     }
-                    Err(error) => {
-                        warn!("persisted keychain identity is unusable (keystore keys missing?): {error}");
+                    Err(_error) => {
+                        warn!("persisted keychain identity is unusable (keystore keys missing?)");
                     }
                 }
             }
@@ -1094,14 +1087,14 @@ pub fn make_keychain(path: String, cloudkit: &Arc<CloudKitClient<DefaultAnisette
                     dsid: update.dsid.clone(),
                     identity: identity.clone(),
                 };
-                if let Err(error) = atomic_write_plist(&identity_path, &saved) {
-                    log::error!("failed to save keychain identity sidecar: {error}");
+                if let Err(_error) = atomic_write_plist(&identity_path, &saved) {
+                    log::error!("failed to save keychain identity sidecar");
                 }
             }
             // Atomic: this fires on every trust sync; a crash mid-write used
             // to truncate keychain.plist and permanently lose the keychain.
-            if let Err(error) = atomic_write_plist(&cloudkit_path, update) {
-                log::error!("failed to save keychain state: {error}");
+            if let Err(_error) = atomic_write_plist(&cloudkit_path, update) {
+                log::error!("failed to save keychain state");
             }
         }),
         container: tokio::sync::Mutex::new(None),
@@ -1123,8 +1116,8 @@ pub async fn make_findmy(path: String, token_provider: &Arc<TokenProvider<Defaul
     Some(Arc::new(FindMyClient::new(conn.clone(), cloudkit.clone(), keychain.clone(), config.config(), Arc::new(FindMyStateManager {
         state: Mutex::new(state),
         update: Box::new(move |state| {
-            if let Err(error) = atomic_write(&id_path, &state) {
-                log::error!("failed to save findmy state: {error}");
+            if let Err(_error) = atomic_write(&id_path, &state) {
+                log::error!("failed to save Find My state");
             }
         }),
     }), token_provider.clone(), anisette.clone(), client.identity.clone()).await.unwrap()))
@@ -1236,8 +1229,8 @@ pub async fn setup_push(config: &JoinedOSConfig, identity: &IDSNGMIdentity, stat
                     };
                     // Atomic: hw_info.plist is the provisioned hardware
                     // identity; truncating it forces a full re-provision.
-                    if let Err(error) = atomic_write_plist(&state_path, &state) {
-                        log::error!("failed to save hardware state: {error}");
+                    if let Err(_error) = atomic_write_plist(&state_path, &state) {
+                        log::error!("failed to save hardware state");
                     }
                 },
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -1977,7 +1970,7 @@ async fn handle_2fa(state: &SharedPushState, signin: &IdmsRequestedSignIn) -> bo
     }
     let adsid = lock.spd.as_ref().unwrap().get("adsid").expect("no adsid???s").as_string().unwrap();
     if adsid != &signin.adsid {
-        warn!("Dropping 2fa code for account because adsid is wrong {adsid} {}", signin.adsid);
+        warn!("Dropping two-factor code for a different Apple account");
         return false;
     }
     drop(lock);
@@ -1993,8 +1986,8 @@ async fn handle_circle(state: &SharedPushState, signin: &Option<IdmsRequestedSig
             return
         };
         match client.handle_circle_request(msg).await {
-            Err(e) => {
-                warn!("error {e}");
+            Err(_error) => {
+                warn!("Circle client request failed");
                 *locked = None;
             },
             Ok(Some(LoginState::LoggedIn)) => {
@@ -2051,8 +2044,8 @@ async fn handle_circle(state: &SharedPushState, signin: &Option<IdmsRequestedSig
     }
 
     match circle_lock.iter_mut().find(|a| a.atxnid == msg.atxnid).unwrap().session.handle_circle_request(msg).await {
-        Err(e) => {
-            warn!("error {e}");
+        Err(_error) => {
+            warn!("Circle server request failed");
         },
         Ok(success) => {
             // login
@@ -2087,8 +2080,8 @@ pub async fn approve_circle(state: &Arc<Mutex<Vec<ActiveCircleSession>>>, accoun
             warn!("Session disappeared??");
             return
         };
-        if let Err(e) = item.session.handle_circle_request(&msg).await {
-            warn!("cirlce error {e}");
+        if let Err(_error) = item.session.handle_circle_request(&msg).await {
+            warn!("Circle approval failed");
             return;
         }
     });
@@ -2169,8 +2162,8 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                                     }))
                                 }
                             },
-                            Err(e) => {
-                                warn!("FMF import error {e}");
+                            Err(_error) => {
+                                warn!("Find My import failed");
                             }
                         }
                     }
@@ -2186,8 +2179,8 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                 // notification, whatever its topic
                 if has_channel || topic_in(&HANDLER_TOPICS.statuskit) {
                     match icloud.statuskit_client.handle(msg.clone()).await {
-                        Err(e) => {
-                            error!("Statuskit handle error {e}");
+                        Err(_error) => {
+                            error!("StatusKit payload handling failed");
                             return PollResult::Cont(None);
                         },
                         Ok(None) => {},
@@ -2198,16 +2191,16 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                 }
                 if let Some(passwords) = &icloud.passwords {
                     if topic_in(&HANDLER_TOPICS.passwords) {
-                        if let Err(e) = passwords.handle(msg.clone()).await {
-                            info!("error handling passwords {e}");
+                        if let Err(_error) = passwords.handle(msg.clone()).await {
+                            warn!("Password payload handling failed");
                         }
                     }
                 }
             }
             if topic == Some(HANDLER_TOPICS.idms) {
                 match state.idms_client.handle(msg.clone()) {
-                    Err(e) => {
-                        error!("IDMS handle error {e}");
+                    Err(_error) => {
+                        error!("Apple account-service payload handling failed");
                         return PollResult::Cont(None);
                     },
                     Ok(None) => {},
@@ -2235,9 +2228,9 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                 match ft_msg {
                     Ok(Some(msg)) => return PollResult::Cont(Some(PushMessage::FaceTime(msg))),
                     Ok(None) => {},
-                    Err(err) => {
+                    Err(_error) => {
                         // log and ignore for now
-                        error!("ft err {}", err);
+                        error!("FaceTime payload handling failed");
                         return PollResult::Cont(None);
                     }
                 }
@@ -2246,9 +2239,9 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
             let msg = match msg {
                 Ok(Some(msg)) => Some(PushMessage::IMessage(msg)),
                 Ok(None) => None,
-                Err(err) => {
+                Err(_error) => {
                     // log and ignore for now
-                    error!("{}", err);
+                    error!("iMessage payload handling failed");
                     return PollResult::Cont(None);
                 }
             };
@@ -2283,8 +2276,8 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                                 });
                                 let identity = state.client.identity.clone();
                                 tokio::spawn(async move {
-                                    if let Err(error) = identity.refresh_now().await {
-                                        warn!("Failed to restart IDS registration after credential renewal: {error}");
+                                    if let Err(_error) = identity.refresh_now().await {
+                                        warn!("Failed to restart IDS registration after credential renewal");
                                     }
                                 });
                                 return PollResult::Cont(None);
@@ -2301,8 +2294,8 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
                                     lifecycle.reauth_error = Some(ACCOUNT_TWO_FACTOR_REQUIRED);
                                 });
                             }
-                            Err(IDSAuthRefreshError::Transient(error)) => {
-                                warn!("Temporary Apple account credential refresh failure: {error}");
+                            Err(IDSAuthRefreshError::Transient(_error)) => {
+                                warn!("Temporary Apple account credential refresh failure");
                             }
                         }
                     }
@@ -2528,7 +2521,6 @@ pub fn save_user(user: &IDSUser) -> anyhow::Result<String> {
 }
 
 pub fn restore_user(user: String) -> anyhow::Result<IDSUser> {
-    info!("Got user {user}");
     Ok(plist::from_reader(Cursor::new(user))?)
 }
 
@@ -3404,8 +3396,8 @@ pub(crate) fn reset_icloud_services(path: &str) {
         my_key: None,
         ..plist::from_file(&path).unwrap_or_default()
     };
-    if let Err(error) = atomic_write_plist(&path, &state) {
-        log::error!("failed to reset statuskit state: {error}");
+    if let Err(_error) = atomic_write_plist(&path, &state) {
+        log::error!("failed to reset statuskit state");
     }
 }
 

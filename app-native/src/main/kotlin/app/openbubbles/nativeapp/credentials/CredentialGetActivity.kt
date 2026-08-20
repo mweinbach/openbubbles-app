@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
-import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PasswordCredential
@@ -56,8 +55,7 @@ class CredentialGetActivity : FragmentActivity() {
             CredentialUserAuth.authenticateForPasskey(
                 this,
                 onSuccess = continueFlow,
-                onFailure = { error ->
-                    Log.i("CredentialGet", "User authentication failed or canceled: $error")
+                onFailure = {
                     finish()
                 }
             )
@@ -132,9 +130,6 @@ class CredentialGetActivity : FragmentActivity() {
                                 clientDataJsonPlain.toByteArray(Charsets.UTF_8)
                             }
 
-                            Log.i("Client data", clientDataJsonPlain)
-                            Log.i("orign", origin)
-
                             val dataHash = clientDataHash ?: sha256(clientDataJson)
                             val rpIdHash = sha256(rpId.toByteArray(Charsets.UTF_8))
 
@@ -153,8 +148,6 @@ class CredentialGetActivity : FragmentActivity() {
                                 update(authData)
                                 update(dataHash)
                             }.sign()
-
-                            Log.i("sign data", base64UrlEncode(authData + dataHash))
 
                             val user = decodeUserTag(saved.tag)
                             val endTheThing = { clientExtensionResults: JSONObject ->
@@ -194,7 +187,6 @@ class CredentialGetActivity : FragmentActivity() {
                                         error: String?
                                     ) {
                                         if (error != null) {
-                                            Log.e("Special apple auth failed", "Error $error")
                                             finish()
                                             return
                                         }
@@ -218,9 +210,8 @@ class CredentialGetActivity : FragmentActivity() {
 
                         else -> finish()
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    throw e
+                } catch (error: Exception) {
+                    throw error
                 }
             }
         })

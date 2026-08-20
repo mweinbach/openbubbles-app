@@ -38,4 +38,23 @@ class RustBootTest {
             root.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `legacy log cleanup preserves lookalikes directories and nested files`() {
+        val root = Files.createTempDirectory("openbubbles-rust-log-boundary")
+        try {
+            val logs = root.resolve("logs").createDirectories()
+            val lookalike = logs.resolve("rs_r00001.log.bak").createFile().also { it.writeText("keep") }
+            val matchingDirectory = logs.resolve("rs_r00002.log").createDirectories()
+            val nested = matchingDirectory.resolve("rs_r00003.log").createFile().also { it.writeText("keep") }
+            logs.resolve("rs_rCURRENT.log").createFile().writeText("sensitive")
+
+            assertEquals(1, deleteLegacyRustLogs(root.toFile()))
+            assertTrue(Files.exists(lookalike))
+            assertTrue(Files.isDirectory(matchingDirectory))
+            assertTrue(Files.exists(nested))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }

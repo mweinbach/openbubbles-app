@@ -63,8 +63,8 @@ class SimpleFilePackager(private val context: Context) : KotlinFilePackager {
                 copyToMediaStore(file, plan)
                 exported += plan.dedupKey
                 prefs.edit { putStringSet(KEY_EXPORTED, exported.toSet()) }
-            } catch (t: Throwable) {
-                Log.w(TAG, "gallery export failed for $path", t)
+            } catch (_error: Throwable) {
+                Log.w(TAG, "gallery export failed")
             }
         }
     }

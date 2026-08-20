@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.service.autofill.FillResponse
 import android.text.InputType
-import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillId
 import androidx.annotation.RequiresApi
@@ -165,7 +164,6 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
 //        val md = ai.metaData ?: return
 //
 //        val string = md.getString("asset_statements") ?: return
-//        Log.i("statements", string)
     }
 
     fun processNode(node: AssistStructure.ViewNode) {
@@ -184,8 +182,6 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
                 false
             }
 
-            Log.i("type", "$type")
-
             if (type == null) {
                 type = AutofillType.entries.filter { candidate -> candidate.acceptableTypes.contains(node.autofillType) }.find { candidate ->
                     val allowedKeys = listOf("name", "label")
@@ -195,8 +191,6 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
                             node.autofillHints.orEmpty().any { candidate.extraHints.matches(it) }
                 }
             }
-            Log.i("typeb", "$type")
-
             if (type == null) {
                 val variation = InputType.TYPE_MASK_VARIATION and node.inputType
                 type = when (variation) {
@@ -211,13 +205,10 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
                 }
             }
 
-            Log.i("typec", "$type ${node.inputType}")
-
             if (type != null) {
                 fields.add(Pair(node, type))
             }
 
-            Log.i("FILL", "Got form $lastString $currentText ${node.contentDescription} ${node.htmlInfo?.attributes?.joinToString(" ")} ${node.autofillHints?.joinToString("|")} $type")
             lastString = ""
         }
 

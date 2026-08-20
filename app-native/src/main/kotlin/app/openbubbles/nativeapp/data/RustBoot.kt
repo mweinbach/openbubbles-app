@@ -41,7 +41,7 @@ object RustBoot {
             starting = true
         }
         try {
-            purgeLegacyAuthLogs(context, File(dir))
+            purgeLegacySensitiveLogs(context, File(dir))
             uniffiEnsureInitialized()
             start(dir, SimpleFilePackager(context.applicationContext), BootWifiCallback())
             val keystore = AndroidNativeKeystore(context.applicationContext)
@@ -76,18 +76,18 @@ object RustBoot {
     }
 
     /**
-     * Earlier debug builds wrote Apple's decrypted account-service payload to
-     * the private Rust log. Current Rust logging is sanitized, so remove only
-     * those legacy Rust log files once, before the logger opens them.
+     * Earlier builds wrote decrypted account-service and message payloads to
+     * the private Rust log. Remove only those rotating Rust log files once,
+     * before the sanitized logger opens them.
      */
-    private fun purgeLegacyAuthLogs(context: android.content.Context, filesRoot: File) {
+    private fun purgeLegacySensitiveLogs(context: android.content.Context, filesRoot: File) {
         val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_LEGACY_AUTH_LOGS_REMOVED, false)) return
+        if (prefs.getBoolean(KEY_LEGACY_SENSITIVE_LOGS_REMOVED, false)) return
         val removed = deleteLegacyRustLogs(filesRoot)
         if (legacyRustLogs(filesRoot).isEmpty()) {
-            prefs.edit { putBoolean(KEY_LEGACY_AUTH_LOGS_REMOVED, true) }
+            prefs.edit { putBoolean(KEY_LEGACY_SENSITIVE_LOGS_REMOVED, true) }
         }
-        if (removed > 0) Log.i(TAG, "removed $removed legacy Rust auth log file(s)")
+        if (removed > 0) Log.i(TAG, "removed $removed legacy sensitive Rust log file(s)")
     }
 
     private class BootWifiCallback : HandleWifiNetworksCallback {
@@ -97,7 +97,7 @@ object RustBoot {
     }
 
     private const val PREFS = "native_setup"
-    private const val KEY_LEGACY_AUTH_LOGS_REMOVED = "legacy_auth_logs_removed_v1"
+    private const val KEY_LEGACY_SENSITIVE_LOGS_REMOVED = "legacy_sensitive_logs_removed_v2"
     private const val TAG = "RustBoot"
 }
 

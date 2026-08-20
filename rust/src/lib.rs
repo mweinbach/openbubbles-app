@@ -25,13 +25,12 @@ pub mod bbhwinfo {
 }
 
 pub fn init_logger(path: &Path) {
-    // Every record is formatted and fanned out to both sinks (logcat + the
-    // rotating file), and rustpush's hot paths log heavily at debug (full
-    // payload hex dumps, per-page sync traces). Release builds cap at Info so
-    // debug!/trace! arguments are never even evaluated; debug builds keep
-    // the full firehose.
-    let max_level = if cfg!(debug_assertions) { log::Level::Debug } else { log::Level::Info };
-    let level_spec = if cfg!(debug_assertions) { "debug" } else { "info" };
+    // Rust protocol code handles decrypted messages and Apple authorization
+    // material. Keep ordinary device logs at warning level in every build so
+    // verbose formatting is never evaluated or persisted accidentally. Safe,
+    // aggregate diagnostics can be promoted deliberately when needed.
+    let max_level = log::Level::Warn;
+    let level_spec = "warn";
 
     #[cfg(target_os = "android")]
     let system = android_logger::AndroidLogger::new(
@@ -51,20 +50,16 @@ pub fn init_logger(path: &Path) {
         .append()
         .format(opt_format)
         .cleanup_in_background_thread(true)
-        .rotate(Criterion::AgeOrSize(Age::Day, 1024 * 1024 * 10 /* 10 MB */), Naming::Numbers, Cleanup::KeepLogFiles(1))
+        .rotate(Criterion::AgeOrSize(Age::Day, 1024 * 1024 /* 1 MB */), Naming::Numbers, Cleanup::KeepLogFiles(1))
         .write_mode(WriteMode::BufferAndFlush)
         .build().unwrap();
 
     let _ = multi_log::MultiLogger::init(vec![Box::new(system), logger], max_level);
 
-    // Rust's default panic hook writes to stderr, which is discarded on Android.
-    // Route panics through `log` so they reach logcat (and the file logger above).
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = std::backtrace::Backtrace::force_capture();
-        // `info` Display includes "panicked at <file>:<line>:<col>:\n<message>".
-        log::error!("RUST PANIC: {info}\n{backtrace}");
-        default_hook(info);
+    // Panic messages and backtraces can contain protocol payloads or private
+    // paths. Keep the persisted signal useful without rendering either.
+    std::panic::set_hook(Box::new(move |_info| {
+        log::error!("Rust runtime panic (details suppressed)");
     }));
 }
 
@@ -128,8 +123,8 @@ pub extern "C" fn openbubbles_debug_nac_round_trip() -> i32 {
 
     match run {
         Ok(Ok(validation)) => i32::try_from(validation.len()).unwrap_or(-3),
-        Ok(Err(error)) => {
-            log::error!("debug NAC round trip failed: {error:?}");
+        Ok(Err(_error)) => {
+            log::error!("debug NAC round trip failed");
             -1
         }
         Err(_) => -2,
@@ -165,8 +160,8 @@ pub unsafe extern "C" fn openbubbles_debug_nac_round_trip_saved(
 
     match run {
         Ok(Ok(validation)) => i32::try_from(validation.len()).unwrap_or(-3),
-        Ok(Err(error)) => {
-            log::error!("debug saved-config NAC round trip failed: {error:?}");
+        Ok(Err(_error)) => {
+            log::error!("debug saved-config NAC round trip failed");
             -1
         }
         Err(_) => -2,

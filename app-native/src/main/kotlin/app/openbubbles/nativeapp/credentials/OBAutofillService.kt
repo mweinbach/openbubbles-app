@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.*
-import android.util.Log
 import android.widget.RemoteViews
 import androidx.annotation.RequiresApi
 
@@ -55,11 +54,6 @@ class OBAutofillService : AutofillService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
 
-        Log.d("MyAutofillService", "onFillRequest")
-
-
-        Log.i("Current domain", "${structure.webDomain}")
-
         val suggestions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             request.inlineSuggestionsRequest
         } else { null }
@@ -103,7 +97,6 @@ class OBAutofillService : AutofillService() {
                     SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_PASSWORD or SaveInfo.SAVE_DATA_TYPE_USERNAME, saveFields.toTypedArray())
                         .setFlags(if (!structure.fields.any { it.second == AutofillType.PASSWORD &&
                                     it.first.htmlInfo?.attributes?.find { it.first == "visibility" }?.second != "invisible" } && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            Log.i("FLAG_DELAY_SAVE", "true")
                             SaveInfo.FLAG_DELAY_SAVE
                         } else {
                             0
@@ -135,7 +128,6 @@ class OBAutofillService : AutofillService() {
     ) {
         val currentContext = request.fillContexts.last().structure
         val structure = AutofillStructure(this, currentContext)
-        Log.i("Really", "what ${structure.webDomain}")
         if (structure.webDomain == null || !structure.hasEmails()) {
             callback.onSuccess(null)
             return
@@ -194,9 +186,6 @@ class OBAutofillService : AutofillService() {
                 }
                 pushState.keychainPasswordInsert(save.domain, save.username, save.password, object : InsertKeychainCallback {
                     override fun done(error: String?) {
-                        if (error != null) {
-                            Log.e("Error", "error")
-                        }
                         client.destroy()
                         finishOne(error)
                     }
