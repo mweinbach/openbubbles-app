@@ -1,12 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-cargo build --release --locked
+# UniFFI extracts exported metadata, which is identical across Cargo profiles.
+# Keep binding generation off the shipping release profile's LTO path.
+cargo build --locked
 # cdylib artifact suffix differs by platform.
 LIB=""
 for candidate in \
-    target/release/librust_lib_bluebubbles.so \
-    target/release/librust_lib_bluebubbles.dylib \
-    target/release/rust_lib_bluebubbles.dll
+    target/debug/librust_lib_bluebubbles.so \
+    target/debug/librust_lib_bluebubbles.dylib \
+    target/debug/rust_lib_bluebubbles.dll
 do
     if [ -f "$candidate" ]; then
         LIB="$candidate"
@@ -14,7 +16,7 @@ do
     fi
 done
 if [ -z "$LIB" ]; then
-    echo "cdylib not found in target/release" >&2
+    echo "cdylib not found in target/debug" >&2
     exit 1
 fi
 cargo run --locked --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin

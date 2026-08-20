@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.PathSensitivity
+
 // Compose Desktop entry point (Windows is the target; develops fine on macOS).
 // Shares :db and the UniFFI bindings with the Android app; the Rust core
 // loads via JNA from the host-built cdylib (rust/target/release).
@@ -52,17 +54,52 @@ if (osName.contains("win")) {
 def rustDir = rootProject.file("rust")
 def rustLibrary = new File(rustDir, "target/release/${rustLibraryName}")
 def generatedRustResources = layout.buildDirectory.dir("generated/rustJnaResources")
+def cargoExecutable = System.getenv("CARGO") ?: "cargo"
+def rustcExecutable = System.getenv("RUSTC") ?: "rustc"
+def cargoVersion = providers.exec {
+    commandLine cargoExecutable, "--version"
+}.standardOutput.asText.map { it.trim() }
+def rustcVersion = providers.exec {
+    commandLine rustcExecutable, "-vV"
+}.standardOutput.asText.map { it.trim() }
+def cargoHome = System.getenv("CARGO_HOME") ?: new File(System.getProperty("user.home"), ".cargo").absolutePath
+def globalCargoConfig = files(
+        new File(cargoHome, "config.toml"),
+        new File(cargoHome, "config"),
+)
 
 def buildHostRust = tasks.register("buildHostRust", Exec) {
     description = "Builds the host Rust cdylib used by desktop UniFFI/JNA"
     workingDir rustDir
-    commandLine "cargo", "build", "--release", "--locked"
+    commandLine cargoExecutable, "build", "--release", "--locked"
     inputs.files(fileTree(rustDir) {
-        include "Cargo.toml", "Cargo.lock", "build.rs", "src/**"
-    })
+        exclude "target/**", ".git", ".git/**", ".DS_Store"
+    }).withPropertyName("rustWorkspace")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(fileTree(rootProject.file("rustpush")) {
-        include "Cargo.toml", "Cargo.lock", "src/**", "keystore/**", "cloudkit-proto/**"
-    })
+        exclude "**/target/**", "**/.git", "**/.git/**", "**/.DS_Store"
+    }).withPropertyName("rustpushWorkspace")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("cargoExecutable", cargoExecutable)
+    inputs.property("cargoVersion", cargoVersion)
+    inputs.property("rustcVersion", rustcVersion)
+    inputs.files(globalCargoConfig)
+            .withPropertyName("globalCargoConfig")
+            .withPathSensitivity(PathSensitivity.NONE)
+    inputs.property("cargoBuildEnvironment", providers.environmentVariablesPrefixedBy("CARGO_BUILD_"))
+    inputs.property("cargoProfileEnvironment", providers.environmentVariablesPrefixedBy("CARGO_PROFILE_"))
+    inputs.property("cargoTargetEnvironment", providers.environmentVariablesPrefixedBy("CARGO_TARGET_"))
+    [
+            "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_INCREMENTAL",
+            "PROTOC",
+            "RUSTC",
+            "RUSTC_WORKSPACE_WRAPPER",
+            "RUSTC_WRAPPER",
+            "RUSTFLAGS",
+    ].each { variable ->
+        inputs.property("environment.${variable}", providers.environmentVariable(variable).orElse(""))
+    }
     outputs.file(rustLibrary)
 }
 

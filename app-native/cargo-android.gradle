@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.apache.tools.ant.taskdefs.condition.Os
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.process.ExecOperations
 
@@ -44,6 +45,19 @@ def cargoBinaryName = Os.isFamily(Os.FAMILY_WINDOWS) ? "cargo.exe" : "cargo"
 def cargoHome = System.getenv("CARGO_HOME") ?: new File(System.getProperty("user.home"), ".cargo").absolutePath
 def cargoFromHome = new File(cargoHome, "bin/${cargoBinaryName}")
 def cargoExecutable = System.getenv("CARGO") ?: (cargoFromHome.isFile() ? cargoFromHome.absolutePath : cargoBinaryName)
+def rustcBinaryName = Os.isFamily(Os.FAMILY_WINDOWS) ? "rustc.exe" : "rustc"
+def rustcFromCargoHome = new File(cargoHome, "bin/${rustcBinaryName}")
+def rustcExecutable = System.getenv("RUSTC") ?: (rustcFromCargoHome.isFile() ? rustcFromCargoHome.absolutePath : rustcBinaryName)
+def cargoVersion = providers.exec {
+    commandLine cargoExecutable, "--version"
+}.standardOutput.asText.map { it.trim() }
+def rustcVersion = providers.exec {
+    commandLine rustcExecutable, "-vV"
+}.standardOutput.asText.map { it.trim() }
+def globalCargoConfig = files(
+        new File(cargoHome, "config.toml"),
+        new File(cargoHome, "config"),
+)
 def protocOverride = System.getenv("PROTOC")
 def protocExecutable = protocOverride ?: [
         "/opt/homebrew/bin/protoc",
@@ -52,6 +66,24 @@ def protocExecutable = protocOverride ?: [
         new File(System.getProperty("user.home"), ".linuxbrew/bin/protoc").absolutePath,
         "/home/linuxbrew/.linuxbrew/bin/protoc",
 ].find { candidate -> candidate && new File(candidate).isFile() }
+def protocVersion = protocExecutable ? providers.exec {
+    commandLine protocExecutable, "--version"
+}.standardOutput.asText.map { it.trim() } : ""
+
+// Cargo already tracks its third-party registry/git dependencies in its target
+// directory. Gradle needs to track the local workspace inputs around that
+// target so an ordinary Android-only build can skip Cargo altogether while a
+// Rust, manifest, generated-proto, certificate, or nested path-crate change
+// still invalidates the JNI output. Keep target/.git trees out of the snapshot:
+// this checkout's Android Cargo target alone can exceed 20 GiB.
+def cargoWorkspaceInputs = files(
+        fileTree(manifestDir) {
+            exclude "target/**", ".git", ".git/**", ".DS_Store"
+        },
+        fileTree(file("../rustpush")) {
+            exclude "**/target/**", "**/.git", "**/.git/**", "**/.DS_Store"
+        },
+)
 
 def cargoTasksByBuildType = [:]
 
@@ -69,9 +101,35 @@ androidComponents {
         t = tasks.register(taskName, CargoAndroidJniTask) {
             description = "Builds ${libname} (.so) with Cargo and the Android NDK for ${buildType}"
             outputDirectory.set(layout.buildDirectory.dir("cargo-android/jniLibs/${buildType}"))
-            // Cargo's own caching makes the incremental call cheap; always re-run
-            // so merged jniLibs pick up Rust changes.
-            outputs.upToDateWhen { false }
+            inputs.files(cargoWorkspaceInputs)
+                    .withPropertyName("cargoWorkspace")
+                    .withPathSensitivity(PathSensitivity.RELATIVE)
+            inputs.property("buildType", buildType)
+            inputs.property("abis", abiFilters.toList().sort())
+            inputs.property("minSdk", projectMinSdk)
+            inputs.property("ndkVersion", ndkVersion)
+            inputs.property("cargoExecutable", cargoExecutable)
+            inputs.property("cargoVersion", cargoVersion)
+            inputs.property("rustcVersion", rustcVersion)
+            inputs.property("protocExecutable", protocExecutable ?: "")
+            inputs.property("protocVersion", protocVersion)
+            inputs.files(globalCargoConfig)
+                    .withPropertyName("globalCargoConfig")
+                    .withPathSensitivity(PathSensitivity.NONE)
+            inputs.property("cargoBuildEnvironment", providers.environmentVariablesPrefixedBy("CARGO_BUILD_"))
+            inputs.property("cargoProfileEnvironment", providers.environmentVariablesPrefixedBy("CARGO_PROFILE_"))
+            inputs.property("cargoTargetEnvironment", providers.environmentVariablesPrefixedBy("CARGO_TARGET_"))
+            [
+                    "CARGO_ENCODED_RUSTFLAGS",
+                    "CARGO_INCREMENTAL",
+                    "PROTOC",
+                    "RUSTC",
+                    "RUSTC_WORKSPACE_WRAPPER",
+                    "RUSTC_WRAPPER",
+                    "RUSTFLAGS",
+            ].each { variable ->
+                inputs.property("environment.${variable}", providers.environmentVariable(variable).orElse(""))
+            }
 
             doLast {
                 def cargoOutputDir = outputDirectory.get().asFile
@@ -174,8 +232,9 @@ androidComponents {
 }
 
 // Guards against the committed UniFFI bindings drifting from the Rust
-// surface: regenerates into a temp dir and diffs. Slow (release cargo
-// build); run explicitly or from CI, not part of assembleDebug.
+// surface. UniFFI reads exported metadata, which is profile-independent, so
+// use the debug cdylib instead of paying the shipping release profile's LTO
+// cost merely to regenerate Kotlin declarations.
 tasks.register("checkUniffiBindings") {
     doLast {
         def tmp = File.createTempDir()
@@ -183,7 +242,7 @@ tasks.register("checkUniffiBindings") {
         injected.execOps.exec {
             workingDir file("../rust")
             executable cargoExecutable
-            args "build", "--release", "--locked"
+            args "build", "--locked"
             if (protocExecutable) environment "PROTOC", protocExecutable
         }
         def libraryName
@@ -194,7 +253,7 @@ tasks.register("checkUniffiBindings") {
         } else {
             libraryName = "librust_lib_bluebubbles.so"
         }
-        def libraryFile = file("../rust/target/release/${libraryName}")
+        def libraryFile = file("../rust/target/debug/${libraryName}")
         injected.execOps.exec {
             workingDir file("../rust")
             executable cargoExecutable

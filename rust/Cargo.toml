@@ -4,7 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib"]
+
+[profile.release]
+# Keep the native networking/crypto path fully optimized while allowing LLVM
+# to remove duplicate generic code across crate boundaries. Preserve symbols
+# in Cargo's output so AGP can extract native debug metadata before stripping
+# the libraries delivered in the APK.
+lto = "thin"
+codegen-units = 8
 
 [lints.rust]
 # frb_expand is set by the legacy Flutter Rust Bridge macros that still

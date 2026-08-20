@@ -66,6 +66,21 @@ android {
         buildConfig true
     }
 
+    packaging {
+        resources {
+            // :db is a JVM module shared with desktop, so the ObjectBox plugin
+            // adds the current host runtime to its published runtime graph.
+            // Android uses objectbox-android's ABI-specific JNI libraries and
+            // must not ship unrelated desktop host libraries as resources.
+            excludes += [
+                    "native/libobjectbox-jni-macos.dylib",
+                    "native/libobjectbox-jni-linux-x64.so",
+                    "native/objectbox-jni-windows-x64.dll",
+                    "native/objectbox-jni-windows-x86.dll",
+            ]
+        }
+    }
+
     lint {
         // CredentialDependency wants credentials-play-services-auth for
         // Android 13-and-below Credential Manager *clients*. This app only
