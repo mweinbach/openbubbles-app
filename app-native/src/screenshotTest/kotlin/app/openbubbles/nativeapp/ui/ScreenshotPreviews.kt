@@ -585,8 +585,14 @@ fun ChatScreenReplyScreenshot() {
             fromMe = true,
             status = MessageStatus.DELIVERED,
         ).copy(guid = "root")
-        val reply = message(
+        val middle = message(
             2,
+            "That is not good but also good",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "middle")
+        val reply = message(
+            3,
             "Btw is there a way to auto download photos? Or is that a setting I totally missed?",
             fromMe = false,
         ).copy(
@@ -607,7 +613,7 @@ fun ChatScreenReplyScreenshot() {
                     avatarColor = 0xFF006C4C,
                     isSms = false,
                 ),
-                messages = listOf(original, reply),
+                messages = listOf(original, middle, reply),
             ),
             onInputChange = {},
             onSend = {},
