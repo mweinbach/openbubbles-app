@@ -92,6 +92,17 @@ android {
     }
 }
 
+// DateFormat and java.time use the forked JVM's defaults. Pin screenshot
+// recording and validation so chat timestamps render identically on developer
+// machines and Linux CI, regardless of the host's locale or timezone.
+tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+    if (name.endsWith("ScreenshotTest")) {
+        systemProperty "user.language", "en"
+        systemProperty "user.country", "US"
+        systemProperty "user.timezone", "America/New_York"
+    }
+}
+
 kotlin {
     compilerOptions {
         // jvmTarget follows compileOptions.targetCompatibility (21).
