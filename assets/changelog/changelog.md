@@ -2,6 +2,24 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.6
+
+### Enhancements
+
+- Contact sync, live message ingestion, Find My mapping, and native startup now
+  do less redundant work and allocate less memory.
+- Native Android builds and packaging are smaller and more incremental while
+  preserving the same supported device architectures.
+
+### Fixes
+
+- Signing out now stops account-bound Photos and contact work before clearing
+  only the signed-out account's local data and retained folder access.
+- Attachment downloads are validated and published atomically, and transcript
+  backgrounds reject oversized or malformed packages before loading them.
+- Sensitive Apple protocol, credential, and message payloads are no longer
+  persisted in diagnostics; legacy sensitive Rust logs are removed on upgrade.
+
 ## v3.4.5
 
 ### Enhancements
