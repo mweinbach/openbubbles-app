@@ -25,6 +25,7 @@ import java.net.URI
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import javax.xml.parsers.DocumentBuilderFactory
 
 private const val ICLOUD_CONTACTS_PREFS = "icloud_contacts"
@@ -82,6 +83,13 @@ internal fun cardDavCursorForPhotoCache(
     photoCacheVersion: Int = ICLOUD_PHOTO_CACHE_VERSION,
 ): Pair<String?, String?> =
     if (storedPhotoVersion < photoCacheVersion) null to null else storedCtag to storedToken
+
+internal fun iCloudContactIdsForAccountCleanup(contacts: List<RawContact>): List<String> =
+    contacts.asSequence()
+        .map(RawContact::id)
+        .filter { it.startsWith("icloud:") }
+        .distinct()
+        .toList()
 
 internal fun writeContactPhoto(directory: File, stem: String, bytes: ByteArray?): File? {
     if (bytes == null || !hasImageMagic(bytes)) return null
@@ -609,6 +617,7 @@ data class ICloudContactSyncStatus(
 
 object ICloudContactSync {
     private val mutex = Mutex()
+    private val accountGeneration = AtomicLong()
 
     fun status(context: Context): ICloudContactSyncStatus {
         val prefs = context.getSharedPreferences(ICLOUD_CONTACTS_PREFS, Context.MODE_PRIVATE)
@@ -624,8 +633,15 @@ object ICloudContactSync {
         context: Context,
         state: NativePushState,
         force: Boolean = false,
-    ): ICloudContactSyncStatus = mutex.withLock {
-        withContext(Dispatchers.IO) {
+    ): ICloudContactSyncStatus {
+        val requestedGeneration = accountGeneration.get()
+        return mutex.withLock {
+            withContext(Dispatchers.IO) {
+                // A pass queued before sign-out must not repopulate the store
+                // after the account-owned rows and files have been cleared.
+                if (requestedGeneration != accountGeneration.get() || PushStateHolder.state !== state) {
+                    return@withContext status(context)
+                }
             val prefs = context.getSharedPreferences(ICLOUD_CONTACTS_PREFS, Context.MODE_PRIVATE)
             val previous = status(context)
             val storedPhotoVersion = prefs.getInt(PHOTO_CACHE_VERSION_KEY, 0)
@@ -679,12 +695,7 @@ object ICloudContactSync {
                                     null
                                 } else {
                                     client.downloadPhoto(resolved).also { bytes ->
-                                        if (bytes == null) {
-                                            Log.w(
-                                                "ICloudContactSync",
-                                                "contact photo download failed: $resolved",
-                                            )
-                                        }
+                                        if (bytes == null) Log.w("ICloudContactSync", "contact photo download failed")
                                     }
                                 }
                             },
@@ -754,14 +765,48 @@ object ICloudContactSync {
                 if (ContactDeviceSync.isEnabled(context)) {
                     ContactDeviceSync.schedule(context)
                     runCatching { ContactDeviceSync.syncNow(context) }
-                        .onFailure { Log.w("ICloudContactSync", "device mirror failed: ${it.message}") }
+                        .onFailure { Log.w("ICloudContactSync", "device mirror failed") }
                 }
             }.onFailure { error ->
-                val message = error.message ?: error.javaClass.simpleName
+                val message = error.javaClass.simpleName
                 prefs.edit { putString("last_error", message) }
-                Log.w("ICloudContactSync", "iCloud Contacts sync failed: $message")
+                Log.w("ICloudContactSync", "iCloud Contacts sync failed ($message)")
             }
             status(context)
+            }
+        }
+    }
+
+    /** Clears only CardDAV-owned rows, preferences, avatars, and mirror state. */
+    suspend fun clearAccountState(context: Context): Result<Unit> = mutex.withLock {
+        // Invalidate sync calls that captured the old account while waiting
+        // for this mutex. An in-flight pass finishes first, then is erased.
+        accountGeneration.incrementAndGet()
+        withContext(Dispatchers.IO) {
+            runAccountCleanupSteps(
+                { ContactDeviceSync.clearAccountState(context).getOrThrow() },
+                {
+                    checkNotNull(CoreGraph.removeICloudContacts()) {
+                        "Contact persistence unavailable during Apple sign-out"
+                    }
+                },
+                {
+                    val prefs = context.getSharedPreferences(
+                        ICLOUD_CONTACTS_PREFS,
+                        Context.MODE_PRIVATE,
+                    )
+                    check(prefs.edit().clear().commit()) {
+                        "Could not clear CardDAV preferences"
+                    }
+                },
+                {
+                    val cleanup = clearOwnedAppleAccountRoot(
+                        context.filesDir,
+                        ICLOUD_CONTACT_AVATAR_ROOT,
+                    )
+                    check(cleanup.complete) { "Could not clear iCloud contact avatars" }
+                },
+            )
         }
     }
 
@@ -772,7 +817,7 @@ object ICloudContactSync {
         cleanupContactPhotos(photoDirectory(context), photoStem(href), keep)
 
     private fun photoDirectory(context: Context) =
-        File(context.filesDir, "icloud_contact_avatars").apply { mkdirs() }
+        File(context.filesDir, ICLOUD_CONTACT_AVATAR_ROOT).apply { mkdirs() }
 
     private fun photoStem(href: String) = MessageDigest.getInstance("SHA-256")
         .digest(href.toByteArray())

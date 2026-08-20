@@ -13,6 +13,25 @@ data class PhotoFolderSource(
     val displayName: String,
 )
 
+internal data class PhotoFolderGrantCleanup(
+    val released: Int,
+    val failed: Int,
+    val preferencesCleared: Boolean,
+) {
+    val complete: Boolean
+        get() = failed == 0 && preferencesCleared
+}
+
+internal fun photoFolderGrantValues(
+    stored: Collection<String>,
+    persisted: Collection<String>,
+): List<String> = (stored.asSequence() + persisted.asSequence())
+    .map(String::trim)
+    .filter(String::isNotEmpty)
+    .distinct()
+    .sorted()
+    .toList()
+
 /** Persisted, user-selected Android document trees. Nothing scans them automatically. */
 class PhotoFolderSources(private val context: Context) {
     private val resolver = context.contentResolver
@@ -46,6 +65,49 @@ class PhotoFolderSources(private val context: Context) {
         runCatching {
             resolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+    }
+
+    /**
+     * Releases every persisted read-only tree grant owned by this feature,
+     * including an orphan whose preference write was previously lost, then
+     * clears the account-specific source list.
+     */
+    internal fun clearAccountState(): PhotoFolderGrantCleanup {
+        val storedResult = runCatching { prefs.getStringSet(KEY_URIS, emptySet()).orEmpty() }
+        val stored = storedResult.getOrDefault(emptySet())
+        // PhotoFolderSources is the app's only owner of persistable tree
+        // grants. Enumerating the resolver also catches prefs/grant drift.
+        val persistedResult = runCatching {
+            resolver.persistedUriPermissions
+                .asSequence()
+                .filter { it.isReadPermission }
+                .map { it.uri }
+                .filter { uri -> runCatching { DocumentsContract.isTreeUri(uri) }.getOrDefault(false) }
+                .associateBy { it.toString() }
+        }
+        val persisted = persistedResult.getOrDefault(emptyMap())
+        val values = photoFolderGrantValues(stored, persisted.keys)
+        var released = 0
+        var failed = (if (storedResult.isFailure) 1 else 0) +
+            (if (persistedResult.isFailure) 1 else 0)
+        values.forEach { value ->
+            val uri = persisted[value] ?: return@forEach
+            runCatching {
+                resolver.releasePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }.onSuccess {
+                released += 1
+            }.onFailure {
+                failed += 1
+            }
+        }
+        return PhotoFolderGrantCleanup(
+            released = released,
+            failed = failed,
+            preferencesCleared = prefs.edit().clear().commit(),
+        )
     }
 
     suspend fun photos(source: PhotoFolderSource, limit: Int = MAX_SCAN_ITEMS): List<Uri> =

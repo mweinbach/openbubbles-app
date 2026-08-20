@@ -26,6 +26,7 @@ import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSources
 import app.openbubbles.nativeapp.data.photos.PhotosBackgroundSync
 import app.openbubbles.nativeapp.data.photos.PhotosSqliteCatalog
+import app.openbubbles.nativeapp.data.photos.PhotosWorkRegistry
 import app.openbubbles.nativeapp.data.photos.PickedPhotoUpload
 import app.openbubbles.nativeapp.data.photos.preparePhotoUploadCandidate
 import java.io.File
@@ -36,7 +37,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -90,11 +90,38 @@ private class LivePhotosPort(private val stateProvider: () -> NativePushState?) 
     ) = port().uploadJpeg(originalPath, previewPath, filename, capturedAtMs, orientation)
 }
 
-class PhotosViewModel(
+internal interface PhotosFolderPort {
+    suspend fun sources(): List<PhotoFolderSource>
+    suspend fun add(uri: Uri): List<PhotoFolderSource>
+    suspend fun remove(uri: Uri): List<PhotoFolderSource>
+    suspend fun photos(source: PhotoFolderSource): List<Uri>
+}
+
+private class AndroidPhotosFolderPort(
+    private val folders: PhotoFolderSources,
+) : PhotosFolderPort {
+    override suspend fun sources(): List<PhotoFolderSource> = withContext(Dispatchers.IO) {
+        folders.sources()
+    }
+
+    override suspend fun add(uri: Uri): List<PhotoFolderSource> = withContext(Dispatchers.IO) {
+        folders.add(uri)
+        folders.sources()
+    }
+
+    override suspend fun remove(uri: Uri): List<PhotoFolderSource> = withContext(Dispatchers.IO) {
+        folders.remove(uri)
+        folders.sources()
+    }
+
+    override suspend fun photos(source: PhotoFolderSource): List<Uri> = folders.photos(source)
+}
+
+internal class PhotosViewModel(
     private val browser: PhotosBrowser,
     private val catalog: PhotosCatalog,
     private val coordinator: PhotoTransferCoordinator,
-    private val folders: PhotoFolderSources,
+    private val folders: PhotosFolderPort,
     private val prepareUpload: suspend (Uri) -> PickedPhotoUpload,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(PhotosUiState())
@@ -102,24 +129,50 @@ class PhotosViewModel(
     private var requestJob: Job? = null
     private val previewJobs = mutableMapOf<String, Job>()
     private val originalJobs = mutableMapOf<String, Job>()
+    private val validatedDownloads = mutableSetOf<String>()
     private val previewSlots = Semaphore(4)
+    private val originalSlots = Semaphore(1)
+    private val workSession = PhotosWorkRegistry.register()
 
     init {
-        requestJob = viewModelScope.launch { bootstrap() }
+        requestJob = launchWork { bootstrap() }
+        if (requestJob == null) {
+            mutableState.value = PhotosUiState(
+                loading = false,
+                snapshot = PhotosSnapshot(
+                    PhotosAccess(
+                        PhotosAvailability.Unavailable,
+                        "Sign in to Apple services to browse iCloud Photos",
+                    ),
+                ),
+            )
+        }
     }
 
     fun refresh() {
         if (requestJob?.isActive == true) return
-        requestJob = viewModelScope.launch { refreshRemote() }
+        requestJob = launchWork { refreshRemote() }
     }
 
     private suspend fun bootstrap() {
         catalog.recoverInterruptedTransfers()
         val cached = catalog.loadMetadata()
         val allTransfers = catalog.transfers()
-        val folderSources = withContext(Dispatchers.IO) { folders.sources() }
+        val folderSources = folders.sources()
+        val assetsById = cached.assets.associateBy(PhotoSummary::id)
         val downloads = allTransfers.filter {
             it.direction == PhotoTransferDirection.Download && it.assetId != null
+        }.map { transfer ->
+            val asset = assetsById[transfer.assetId]
+            if (asset == null) {
+                transfer
+            } else {
+                coordinator.revalidateCompletedDownload(asset, transfer).also { checked ->
+                    if (checked.state == PhotoTransferState.Succeeded) {
+                        validatedDownloads += checked.id
+                    }
+                }
+            }
         }
         val previews = downloads.filter { it.resourceKind == PhotoResourceKind.Preview }
             .associateBy { checkNotNull(it.assetId) }
@@ -183,7 +236,7 @@ class PhotosViewModel(
     fun loadMore() {
         val snapshot = mutableState.value.snapshot ?: return
         if (snapshot.nextCursor == null || requestJob?.isActive == true) return
-        requestJob = viewModelScope.launch {
+        requestJob = launchWork {
             mutableState.update { it.copy(loadingMore = true, error = null) }
             try {
                 val next = browser.next(snapshot)
@@ -203,25 +256,44 @@ class PhotosViewModel(
     fun ensurePreview(asset: PhotoSummary, retry: Boolean = false) {
         if (asset.previewSize == null || asset.mediaKind == PhotoMediaKind.Unknown) return
         val existing = mutableState.value.previewTransfers[asset.id]
-        if (previewJobs[asset.id]?.isActive == true || existing?.state == PhotoTransferState.Succeeded) return
-        if (!retry && existing?.state !in listOf(null, PhotoTransferState.Queued)) return
-        previewJobs[asset.id] = viewModelScope.launch {
+        if (previewJobs[asset.id]?.isActive == true) return
+        if (existing.isValidatedCacheFile()) return
+        if (!retry && existing?.state !in listOf(
+                null,
+                PhotoTransferState.Queued,
+                PhotoTransferState.Succeeded,
+            )
+        ) return
+        lateinit var job: Job
+        job = workSession.createJob(viewModelScope) {
             try {
-                previewSlots.withPermit {
+                val completed = previewSlots.withPermit {
                     coordinator.downloadPreview(asset) { updatePreview(asset.id, it) }
                 }
+                if (completed.state == PhotoTransferState.Succeeded) validatedDownloads += completed.id
+                updatePreview(asset.id, completed)
             } finally {
-                previewJobs.remove(asset.id)
+                previewJobs.remove(asset.id, job)
             }
-        }
+        } ?: return
+        previewJobs[asset.id] = job
+        job.start()
+    }
+
+    fun cancelPreview(asset: PhotoSummary) {
+        previewJobs.remove(asset.id)?.cancel()
     }
 
     fun select(asset: PhotoSummary) {
+        mutableState.value.selectedAssetId
+            ?.takeIf { it != asset.id }
+            ?.let(::cancelOriginal)
         mutableState.update { it.copy(selectedAssetId = asset.id) }
         ensureOriginal(asset)
     }
 
     fun closeSelected() {
+        mutableState.value.selectedAssetId?.let(::cancelOriginal)
         mutableState.update { it.copy(selectedAssetId = null) }
     }
 
@@ -234,19 +306,38 @@ class PhotosViewModel(
             originalJobs[asset.id]?.isActive == true
         ) return
         val existing = mutableState.value.originalTransfers[asset.id]
-        if (existing?.state == PhotoTransferState.Succeeded) return
-        if (!retry && existing?.state !in listOf(null, PhotoTransferState.Queued)) return
-        originalJobs[asset.id] = viewModelScope.launch {
+        if (existing.isValidatedCacheFile()) return
+        if (!retry && existing?.state !in listOf(
+                null,
+                PhotoTransferState.Queued,
+                PhotoTransferState.Succeeded,
+            )
+        ) return
+        lateinit var job: Job
+        job = workSession.createJob(viewModelScope) {
             try {
-                coordinator.downloadOriginal(asset) { transfer ->
-                    mutableState.update { state ->
-                        state.copy(originalTransfers = state.originalTransfers + (asset.id to transfer))
+                val completed = originalSlots.withPermit {
+                    coordinator.downloadOriginal(asset) { transfer ->
+                        updateOriginal(asset.id, transfer)
                     }
                 }
+                if (completed.state == PhotoTransferState.Succeeded) validatedDownloads += completed.id
+                updateOriginal(asset.id, completed)
             } finally {
-                originalJobs.remove(asset.id)
+                originalJobs.remove(asset.id, job)
             }
-        }
+        } ?: return
+        originalJobs[asset.id] = job
+        job.start()
+    }
+
+    private fun cancelOriginal(assetId: String) {
+        originalJobs.remove(assetId)?.cancel()
+    }
+
+    private fun PhotoTransfer?.isValidatedCacheFile(): Boolean {
+        if (this == null || state != PhotoTransferState.Succeeded || id !in validatedDownloads) return false
+        return File(localPath).let { it.isFile && it.canRead() && it.length() > 0 }
     }
 
     private fun updatePreview(assetId: String, transfer: PhotoTransfer) {
@@ -255,18 +346,21 @@ class PhotosViewModel(
         }
     }
 
+    private fun updateOriginal(assetId: String, transfer: PhotoTransfer) {
+        mutableState.update { state ->
+            state.copy(originalTransfers = state.originalTransfers + (assetId to transfer))
+        }
+    }
+
     fun planUploads(uris: List<Uri>) {
         if (uris.isEmpty() || mutableState.value.planningUpload) return
-        viewModelScope.launch { stageUris(uris, "selection") }
+        launchWork { stageUris(uris, "selection") }
     }
 
     fun addFolder(uri: Uri) {
-        viewModelScope.launch {
+        launchWork {
             try {
-                val sources = withContext(Dispatchers.IO) {
-                    folders.add(uri)
-                    folders.sources()
-                }
+                val sources = folders.add(uri)
                 mutableState.update { it.copy(folderSources = sources) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -279,18 +373,15 @@ class PhotosViewModel(
     }
 
     fun removeFolder(source: PhotoFolderSource) {
-        viewModelScope.launch {
-            val sources = withContext(Dispatchers.IO) {
-                folders.remove(source.uri)
-                folders.sources()
-            }
+        launchWork {
+            val sources = folders.remove(source.uri)
             mutableState.update { it.copy(folderSources = sources, sourceMessage = null) }
         }
     }
 
     fun scanFolder(source: PhotoFolderSource) {
         if (mutableState.value.planningUpload) return
-        viewModelScope.launch {
+        launchWork {
             try {
                 val uris = folders.photos(source)
                 if (uris.isEmpty()) {
@@ -362,7 +453,7 @@ class PhotosViewModel(
 
     fun upload(transfer: PhotoTransfer) {
         if (transfer.state !in listOf(PhotoTransferState.Queued, PhotoTransferState.Failed)) return
-        viewModelScope.launch {
+        launchWork {
             val completed = runUpload(transfer)
             if (completed.state == PhotoTransferState.Succeeded) refreshRemote()
         }
@@ -373,7 +464,7 @@ class PhotosViewModel(
             it.state in listOf(PhotoTransferState.Queued, PhotoTransferState.Failed)
         }
         if (pending.isEmpty()) return
-        viewModelScope.launch {
+        launchWork {
             var uploaded = false
             pending.forEach { uploaded = runUpload(it).state == PhotoTransferState.Succeeded || uploaded }
             if (uploaded) refreshRemote()
@@ -393,11 +484,20 @@ class PhotosViewModel(
         mutableState.update { it.copy(uploadError = null) }
     }
 
+    override fun onCleared() {
+        workSession.close()
+        super.onCleared()
+    }
+
+    private fun launchWork(block: suspend () -> Unit): Job? =
+        workSession.createJob(viewModelScope) { block() }?.also { it.start() }
+
     companion object {
         fun factory(): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = checkNotNull(this[APPLICATION_KEY])
                 PhotosBackgroundSync.keepDisabled(application)
+                if (PushStateHolder.state != null) PhotosWorkRegistry.activate()
                 val port = LivePhotosPort { PushStateHolder.state }
                 val catalog = PhotosSqliteCatalog(application)
                 PhotosViewModel(
@@ -410,7 +510,7 @@ class PhotosViewModel(
                         uploadRoot = File(application.filesDir, "icloud_photos/uploads"),
                         originalRoot = File(application.filesDir, "icloud_photos/originals"),
                     ),
-                    folders = PhotoFolderSources(application),
+                    folders = AndroidPhotosFolderPort(PhotoFolderSources(application)),
                     prepareUpload = { uri -> preparePhotoUploadCandidate(application, uri) },
                 )
             }

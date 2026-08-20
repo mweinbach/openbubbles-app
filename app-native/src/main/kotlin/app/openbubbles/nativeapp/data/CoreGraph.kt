@@ -18,6 +18,7 @@ import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.send.buildSendConversation
 import app.openbubbles.core.send.selectSendingHandle
+import app.openbubbles.nativeapp.data.photos.PhotosAccountCleanup
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
@@ -34,6 +35,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -69,6 +71,8 @@ import uniffi.rust_lib_bluebubbles.UReportMessage
 import uniffi.rust_lib_bluebubbles.USendAttachmentsRequest
 import uniffi.rust_lib_bluebubbles.parseCallPoster
 import java.io.File
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -330,6 +334,11 @@ object CoreGraph {
     fun icloudContacts(): List<app.openbubbles.core.contacts.RawContact> =
         CoreContacts.icloud()
 
+    /** Remove only app-stored CardDAV contacts during explicit Apple sign-out. */
+    fun removeICloudContacts(): Int? = CoreContacts.removeICloud().also { removed ->
+        if ((removed ?: 0) > 0) UiContacts.notifyAvatarsChanged()
+    }
+
     /**
      * (display name, avatar path) for a handle address, or null when unknown.
      *
@@ -371,8 +380,9 @@ object CoreGraph {
 
     /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
-     * state, stop the push service, and clear the holders — the sign-in
-     * banner reappears on the chat list.
+     * state, stop the push service, clear account-derived Contacts/Photos
+     * state, and clear the holders — the sign-in banner reappears on the
+     * chat list. Message history and hardware setup remain untouched.
      */
     suspend fun signOut(context: android.content.Context): Result<Unit> {
         Log.i("CoreGraph", "Apple account sign-out requested")
@@ -380,17 +390,26 @@ object CoreGraph {
             runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }
         }
         teardown.onFailure { error ->
-            Log.e("CoreGraph", "Apple account sign-out teardown failed", error)
+            Log.e("CoreGraph", "Apple account sign-out teardown failed (${error.javaClass.simpleName})")
         }
         PushStateHolder.clear(resetError = true)
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
         }.onFailure { error ->
-            Log.e("CoreGraph", "Apple push service stop failed during sign-out", error)
+            Log.e("CoreGraph", "Apple push service stop failed during sign-out (${error.javaClass.simpleName})")
+        }
+        val localCleanup = withContext(Dispatchers.IO + NonCancellable) {
+            runAccountCleanupSteps(
+                { ICloudContactSync.clearAccountState(context).getOrThrow() },
+                { PhotosAccountCleanup.clear(context).getOrThrow() },
+            )
         }
         Log.i("CoreGraph", "Apple account sign-out finished")
-        return teardown
+        return runAccountCleanupSteps(
+            { teardown.getOrThrow() },
+            { localCleanup.getOrThrow() },
+        )
     }
 
     /**
@@ -407,7 +426,7 @@ object CoreGraph {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
         }.onFailure { error ->
-            Log.e("CoreGraph", "push service stop failed during iCloud repair", error)
+            Log.e("CoreGraph", "push service stop failed during iCloud repair (${error.javaClass.simpleName})")
         }
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -420,7 +439,9 @@ object CoreGraph {
             // The login screen consumes this and auto-runs the sessioned
             // re-auth instead of asking for a password (see RepairFlow).
             RepairFlow.requestSessionRepair()
-        }.also { Log.i("CoreGraph", "iCloud service repair finished: $it") }
+        }.also { result ->
+            Log.i("CoreGraph", "iCloud service repair finished (success=${result.isSuccess})")
+        }
     }
 
     /** Attachment send path (staging + Rust upload + echo ingest). */
@@ -784,6 +805,15 @@ object PushStateHolder {
     }
 }
 
+/** Stable, collision-resistant storage key that never exposes the sender address on disk. */
+internal fun sharedProfileFileName(senderAddress: String): String {
+    val normalized = senderAddress.trim().lowercase(Locale.ROOT)
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(normalized.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    return "$digest.img"
+}
+
 private object NativeProfileUpdatePort : ProfileUpdatePort {
     private const val TAG = "ProfileUpdate"
 
@@ -795,21 +825,21 @@ private object NativeProfileUpdatePort : ProfileUpdatePort {
         if (kind == ProfileMessageKind.SharingUpdate) return null
         val state = PushStateHolder.state ?: return null
         val record = runCatching { state.fetchProfile(profileJson) }
-            .onFailure { Log.w(TAG, "shared profile fetch failed", it) }
+            .onFailure { Log.w(TAG, "shared profile fetch failed (${it.javaClass.simpleName})") }
             .getOrNull() ?: return null
         val image = record.poster?.let { poster ->
             runCatching {
                 val parsed = parseCallPoster(poster)
                 parsed.lowResImage().takeIf(ByteArray::isNotEmpty)
                     ?: parsed.photoFiles(0u).map { PosterImageFile(it.filename, it.data) }.let(::wallpaperBytesFromPhotoFiles)
-            }.onFailure { Log.w(TAG, "shared poster parse failed", it) }
+            }.onFailure { Log.w(TAG, "shared poster parse failed (${it.javaClass.simpleName})") }
                 .getOrNull()
         }?.takeIf(ByteArray::isNotEmpty) ?: record.image?.takeIf(ByteArray::isNotEmpty)
         val posterPath = image?.let { bytes ->
             runCatching {
                 val context = AppContext.current ?: return@runCatching null
                 val directory = File(context.filesDir, "shared_profiles").apply { mkdirs() }
-                val destination = File(directory, "${senderAddress.hashCode().toUInt()}.img")
+                val destination = File(directory, sharedProfileFileName(senderAddress))
                 val temporary = File(directory, "${destination.name}.tmp")
                 temporary.writeBytes(bytes)
                 if (!temporary.renameTo(destination)) {
@@ -817,7 +847,7 @@ private object NativeProfileUpdatePort : ProfileUpdatePort {
                     temporary.delete()
                 }
                 destination.absolutePath
-            }.onFailure { Log.w(TAG, "shared poster persist failed", it) }
+            }.onFailure { Log.w(TAG, "shared poster persist failed (${it.javaClass.simpleName})") }
                 .getOrNull()
         }
         return IncomingProfile(
@@ -1096,6 +1126,15 @@ private object CoreContacts {
         return removed
     }
 
+    fun removeICloud(): Int? {
+        val contactSync = sync ?: return null
+        val ids = iCloudContactIdsForAccountCleanup(contactSync.icloudContacts())
+        if (ids.isEmpty()) return 0
+        val removed = contactSync.removeContacts(ids)
+        if (removed > 0) invalidateIndexes()
+        return removed
+    }
+
     fun relink(): app.openbubbles.core.contacts.ContactRelinkResult? {
         val result = sync?.relinkContacts() ?: return null
         // History may have added handles even when every existing relation
@@ -1173,7 +1212,10 @@ private object CoreContacts {
             }
             infoByHandle?.get(handle.id)?.let { info -> return info.name to info.avatar }
         }
-        return contactSync.displayInfoForAddress(address)?.let { info -> info.name to info.avatar }
+        return ContactSync.displayInfoForMatchKeys(
+            address,
+            contactSync.displayInfoByMatchKey(),
+        )?.let { info -> info.name to info.avatar }
     }
 }
 
@@ -1782,7 +1824,7 @@ private object CoreSender : Sender {
                     failOutgoingText(
                         store,
                         failureLookupGuid,
-                        failure.message ?: failure.javaClass.simpleName,
+                        "Message send failed (${failure.javaClass.simpleName})",
                     )
                 }
             }
@@ -2488,12 +2530,11 @@ internal object CoreAttachmentSender : AttachmentSender {
                 ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
             } catch (failure: Throwable) {
                 val marked = CoreGraphStageHolder.messageRepo(store)
-                    .failOutgoing(failureLookupGuid, failure.message ?: failure.javaClass.simpleName)
+                    .failOutgoing(failureLookupGuid, "Attachment send failed (${failure.javaClass.simpleName})")
                 if (marked == null) {
                     android.util.Log.w(
                         "CoreAttachmentSender",
-                        "attachment send failed but no staged row for $failureLookupGuid",
-                        failure,
+                        "attachment send failed but no staged row exists (${failure.javaClass.simpleName})",
                     )
                 }
             } finally {

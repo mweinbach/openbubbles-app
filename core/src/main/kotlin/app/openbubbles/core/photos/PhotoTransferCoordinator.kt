@@ -12,6 +12,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,6 +30,7 @@ class PhotoTransferCoordinator(
     private val previewRoot: File,
     private val uploadRoot: File = File(previewRoot.parentFile ?: previewRoot, "uploads"),
     private val originalRoot: File = File(previewRoot.parentFile ?: previewRoot, "originals"),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val transferLocks = ConcurrentHashMap<String, Mutex>()
@@ -73,6 +75,44 @@ class PhotoTransferCoordinator(
                 onProgress = onProgress,
             )
         }
+    }
+
+    /**
+     * A completed catalog row is only a cache hint. Revalidate its promoted
+     * file before restoring it into UI state so eviction or corruption cannot
+     * leave a permanently blank tile/viewer.
+     */
+    suspend fun revalidateCompletedDownload(
+        asset: PhotoSummary,
+        transfer: PhotoTransfer,
+    ): PhotoTransfer {
+        if (
+            transfer.direction != PhotoTransferDirection.Download ||
+            transfer.assetId != asset.id ||
+            transfer.state != PhotoTransferState.Succeeded
+        ) return transfer
+        val valid = withContext(ioDispatcher) {
+            val file = File(transfer.localPath)
+            when (transfer.resourceKind) {
+                PhotoResourceKind.Preview -> validPreviewFile(file, asset.mediaKind)
+                PhotoResourceKind.Original -> validOriginalFile(file, asset.mediaKind)
+                PhotoResourceKind.LivePhotoVideo -> false
+            }
+        }
+        if (valid) return transfer
+
+        val expectedBytes = when (transfer.resourceKind) {
+            PhotoResourceKind.Preview -> asset.previewSize
+            PhotoResourceKind.Original -> asset.originalSize
+            PhotoResourceKind.LivePhotoVideo -> null
+        }
+        return transfer.copy(
+            state = PhotoTransferState.Queued,
+            bytesDone = 0,
+            totalBytes = expectedBytes ?: transfer.totalBytes,
+            lastError = null,
+            updatedAtMs = nowMs(),
+        ).also { catalog.putTransfer(it) }
     }
 
     private suspend fun runDownload(
@@ -165,6 +205,7 @@ class PhotoTransferCoordinator(
                 )
             }
             catalog.putTransfer(current.get())
+            onProgress(current.get())
             throw cancelled
         } catch (error: Throwable) {
             partialFile.delete()
@@ -189,7 +230,7 @@ class PhotoTransferCoordinator(
         mimeType: String?,
         orientation: Int,
         capturedAtMs: Long? = null,
-    ): PhotoTransfer = withContext(Dispatchers.IO) {
+    ): PhotoTransfer = withContext(ioDispatcher) {
         val source = File(sourcePath)
         val preview = File(previewPath)
         require(source.isFile) { "Upload source does not exist" }

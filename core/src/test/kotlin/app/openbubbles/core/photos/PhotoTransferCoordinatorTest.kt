@@ -8,6 +8,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class PhotoTransferCoordinatorTest {
@@ -66,6 +70,64 @@ class PhotoTransferCoordinatorTest {
             assertEquals(PhotoTransferState.Succeeded, retried.state)
             assertEquals(1, retryPort.calls)
             assertContentEquals(jpegPayload(), File(retried.localPath).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun missingCompletedPreviewIsDurablyRequeuedOnRestore() = runBlocking {
+        val root = createTempDirectory("photo-preview-restore").toFile()
+        try {
+            val catalog = FakeCatalog()
+            val coordinator = PhotoTransferCoordinator(FakePort(jpegPayload()), catalog, root)
+            val completed = coordinator.downloadPreview(photo())
+            assertTrue(File(completed.localPath).delete())
+
+            val restored = coordinator.revalidateCompletedDownload(photo(), completed)
+
+            assertEquals(PhotoTransferState.Queued, restored.state)
+            assertEquals(0, restored.bytesDone)
+            assertEquals(null, restored.lastError)
+            assertEquals(restored, catalog.transfer(restored.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cancellingDownloadPublishesQueuedStateAndDeletesPartialFile() = runBlocking {
+        val root = createTempDirectory("photo-preview-cancel").toFile()
+        try {
+            val started = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog()
+            val port = object : PhotosPort {
+                override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
+                override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
+                override suspend fun downloadPreview(
+                    asset: PhotoSummary,
+                    destPath: String,
+                    onProgress: (Long, Long) -> Unit,
+                ): Result<Unit> {
+                    File(destPath).apply { parentFile?.mkdirs() }.writeText("partial")
+                    onProgress(7, 10)
+                    started.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            val updates = mutableListOf<PhotoTransfer>()
+            val coordinator = PhotoTransferCoordinator(port, catalog, root)
+            val job = launch { coordinator.downloadPreview(photo(), updates::add) }
+            started.await()
+
+            job.cancelAndJoin()
+
+            val persisted = checkNotNull(catalog.transfer(
+                PhotoTransferCoordinator.downloadId("master-1", PhotoResourceKind.Preview),
+            ))
+            assertEquals(PhotoTransferState.Queued, persisted.state)
+            assertEquals(PhotoTransferState.Queued, updates.last().state)
+            assertFalse(File(persisted.localPath + ".part").exists())
         } finally {
             root.deleteRecursively()
         }

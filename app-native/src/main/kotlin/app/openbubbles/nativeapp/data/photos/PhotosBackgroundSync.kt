@@ -24,6 +24,14 @@ object PhotosBackgroundSync {
     fun keepDisabled(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
     }
+
+    /** Sign-out waits until any legacy job is actually cancelled. */
+    fun cancelAndAwait(context: Context) {
+        WorkManager.getInstance(context)
+            .cancelUniqueWork(WORK_NAME)
+            .result
+            .get()
+    }
 }
 
 class PhotosBackgroundSyncWorker(

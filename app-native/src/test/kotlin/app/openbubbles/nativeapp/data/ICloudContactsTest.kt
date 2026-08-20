@@ -191,6 +191,31 @@ class ICloudContactsTest {
     }
 
     @Test
+    fun `sign out selects only app stored iCloud contact ids`() {
+        fun contact(id: String) = app.openbubbles.core.contacts.RawContact(
+            id = id,
+            displayName = null,
+            firstName = null,
+            lastName = null,
+            avatarUpdate = AvatarUpdate.Clear,
+            addresses = emptyList(),
+        )
+
+        assertEquals(
+            listOf("icloud:first", "icloud:second"),
+            iCloudContactIdsForAccountCleanup(
+                listOf(
+                    contact("android:lookup:kept"),
+                    contact("icloud:first"),
+                    contact("contact:kept"),
+                    contact("icloud:second"),
+                    contact("icloud:first"),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `contact photos are only persisted when the bytes are an image`() {
         val directory = java.nio.file.Files.createTempDirectory("ob-contact-photo").toFile()
         try {

@@ -57,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -100,6 +101,7 @@ fun PhotosScreen(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onPreviewVisible: (PhotoSummary) -> Unit,
+    onPreviewHidden: (PhotoSummary) -> Unit,
     onRetryPreview: (PhotoSummary) -> Unit,
     onSelect: (PhotoSummary) -> Unit,
     onCloseSelected: () -> Unit,
@@ -161,6 +163,7 @@ fun PhotosScreen(
                 snapshot = snapshot,
                 onLoadMore = onLoadMore,
                 onPreviewVisible = onPreviewVisible,
+                onPreviewHidden = onPreviewHidden,
                 onRetryPreview = onRetryPreview,
                 onSelect = onSelect,
                 modifier = Modifier.padding(padding),
@@ -209,6 +212,7 @@ private fun PhotosGrid(
     snapshot: PhotosSnapshot,
     onLoadMore: () -> Unit,
     onPreviewVisible: (PhotoSummary) -> Unit,
+    onPreviewHidden: (PhotoSummary) -> Unit,
     onRetryPreview: (PhotoSummary) -> Unit,
     onSelect: (PhotoSummary) -> Unit,
     modifier: Modifier = Modifier,
@@ -250,6 +254,7 @@ private fun PhotosGrid(
                 asset = asset,
                 transfer = uiState.previewTransfers[asset.id],
                 onVisible = { onPreviewVisible(asset) },
+                onHidden = { onPreviewHidden(asset) },
                 onRetry = { onRetryPreview(asset) },
                 onSelect = { onSelect(asset) },
             )
@@ -289,10 +294,14 @@ private fun PhotoTile(
     asset: PhotoSummary,
     transfer: PhotoTransfer?,
     onVisible: () -> Unit,
+    onHidden: () -> Unit,
     onRetry: () -> Unit,
     onSelect: () -> Unit,
 ) {
-    LaunchedEffect(asset.id) { onVisible() }
+    DisposableEffect(asset.id) {
+        onVisible()
+        onDispose { onHidden() }
+    }
     val file = transfer?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
     val decoded = when (asset.mediaKind) {
@@ -646,6 +655,7 @@ private fun PhotosPreview() {
             onRefresh = {},
             onLoadMore = {},
             onPreviewVisible = {},
+            onPreviewHidden = {},
             onRetryPreview = {},
             onSelect = {},
             onCloseSelected = {},

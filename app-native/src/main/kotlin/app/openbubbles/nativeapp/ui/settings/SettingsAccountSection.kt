@@ -315,7 +315,7 @@ internal fun rememberAccountSection(
                                     if (result.isSuccess) {
                                         onBack()
                                     } else {
-                                        signOutError = result.exceptionOrNull()?.message ?: "Sign-out cleanup failed"
+                                        signOutError = "Sign-out cleanup did not finish. Try again before using another Apple ID."
                                     }
                                 }
                             },

@@ -94,6 +94,7 @@ pub trait HandleWifiNetworksCallback: Send + Sync + Debug {
 pub struct NativePushState {
     state: Arc<SharedPushState>,
     watcher: Mutex<APSWatcher>,
+    photos_client: OnceLock<Arc<rustpush::photos::PhotosClient<rustpush::DefaultAnisetteProvider>>>,
 }
 
 impl NativePushState {
@@ -105,6 +106,19 @@ impl NativePushState {
     /// Owned handle for async exports whose futures outlive the borrow.
     pub(crate) fn shared_arc(&self) -> Arc<SharedPushState> {
         self.state.clone()
+    }
+
+    /// Reuse the account-scoped Photos client for the lifetime of this
+    /// restored native state. The client owns the open CloudKit container
+    /// and its in-memory PCS zone-key cache.
+    pub(crate) fn cached_photos_client(
+        &self,
+        cloudkit: Arc<rustpush::cloudkit::CloudKitClient<rustpush::DefaultAnisetteProvider>>,
+        keychain: Arc<rustpush::keychain::KeychainClient<rustpush::DefaultAnisetteProvider>>,
+    ) -> Arc<rustpush::photos::PhotosClient<rustpush::DefaultAnisetteProvider>> {
+        self.photos_client
+            .get_or_init(|| Arc::new(rustpush::photos::PhotosClient::new(cloudkit, keychain)))
+            .clone()
     }
 }
 
@@ -129,11 +143,13 @@ pub fn init_native(dir: String, handle: Option<String>, handler: Arc<dyn MsgRece
             take_daemon(&handle).map(|daemondata| Some(Arc::new(NativePushState {
                 state: Arc::new(daemondata.state),
                 watcher: Mutex::new(daemondata.watcher),
+                photos_client: OnceLock::new(),
             })))
         } else {
             SharedPushState::restore_with_error(dir).await.map(|restored| restored.map(|a| Arc::new(NativePushState {
                 state: Arc::new(a.0),
                 watcher: Mutex::new(a.1),
+                photos_client: OnceLock::new(),
             })))
         };
 
@@ -296,7 +312,7 @@ impl MessageLog {
                 item: item.clone(),
             };
             compacted_len += message.write(&mut temp).map_err(|error| {
-                warn!("Failed to write to journal {error}");
+                warn!("Failed to write to the message journal");
                 error
             })?;
         }
@@ -324,8 +340,8 @@ impl MessageLog {
 
     fn log_entry(&mut self, item: MessageJournal) -> anyhow::Result<()> {
         if should_compact(self.journal_len, self.last_compacted_len, self.messages.is_empty()) {
-            if let Err(e) = self.compact_journal() {
-                warn!("Error compacting journal {e}");
+            if let Err(_error) = self.compact_journal() {
+                warn!("Failed to compact the message journal");
             }
         }
 
@@ -336,7 +352,7 @@ impl MessageLog {
                 Ok(())
             },
             Err(e) => {
-                warn!("Failed to write to journal {e}");
+                warn!("Failed to write to the message journal");
                 let _ = self.journal.set_len(self.journal_len as u64);
                 let _ = self.journal.seek(std::io::SeekFrom::Start(self.journal_len as u64));
                 Err(e)
@@ -423,8 +439,8 @@ impl NativePushState {
                                         });
                                         match result {
                                             Ok(_) => break,
-                                            Err(error) => {
-                                                error!("Failed to persist incoming message journal entry: {error}");
+                                            Err(_error) => {
+                                                error!("Failed to persist an incoming message journal entry");
                                                 tokio::time::sleep(Duration::from_secs(5)).await;
                                             },
                                         }
@@ -445,7 +461,7 @@ impl NativePushState {
                                     while QUEUED_MESSAGES.lock().await.1.contains_key(&key) {
                                         retry += 1;
                                         if retry > 5 {
-                                            warn!("Excessive retries, dropping pointer {key}");
+                                            warn!("Excessive retries; dropping an incoming callback pointer");
                                             QUEUED_MESSAGES.lock().await.1.remove(&key);
                                             break;
                                         }
@@ -467,16 +483,8 @@ impl NativePushState {
                             PollResult::Stop => break
                         }
                     },
-                    Err(payload) => {
-                        let panic = match payload.downcast_ref::<&'static str>() {
-                            Some(msg) => Some(*msg),
-                            None => match payload.downcast_ref::<String>() {
-                                Some(msg) => Some(msg.as_str()),
-                                // Copy what rustc does in the default panic handler
-                                None => None,
-                            },
-                        };
-                        error!("Failed {:?}", panic);
+                    Err(_payload) => {
+                        error!("Native receive loop panicked (details suppressed)");
                     }
                 }
             }
@@ -546,8 +554,8 @@ impl NativePushState {
             callback.keys(passwords.passwords.into_iter().filter_map(|(k, p)| {
                 let password = match String::from_utf8(p.data.clone()) {
                     Ok(password) => password,
-                    Err(error) => {
-                        warn!("Skipping malformed password {} with non-UTF-8 data: {}", k, error);
+                    Err(_error) => {
+                        warn!("Skipping malformed password data");
                         return None;
                     }
                 };
@@ -566,8 +574,8 @@ impl NativePushState {
                     .and_then(|key| PKey::from_ec_key(key).map_err(Into::into))
                     .and_then(|key| key.private_key_to_pkcs8().map_err(Into::into)) {
                     Ok(key) => key,
-                    Err(error) => {
-                        warn!("Skipping malformed passkey {}: {}", k, error);
+                    Err(_error) => {
+                        warn!("Skipping malformed passkey data");
                         return None;
                     }
                 };
@@ -597,17 +605,9 @@ impl NativePushState {
                 Ok(Err(e)) => {
                     callback.got_verification(HashMap::new(), Some(format!("{e}")));
                 }
-                Err(payload) => {
-                    let panic = match payload.downcast_ref::<&'static str>() {
-                        Some(msg) => Some(*msg),
-                        None => match payload.downcast_ref::<String>() {
-                            Some(msg) => Some(msg.as_str()),
-                            // Copy what rustc does in the default panic handler
-                            None => None,
-                        },
-                    };
-                    error!("Failed {:?}", panic);
-                    callback.got_verification(HashMap::new(), Some(format!("{panic:?}")));
+                Err(_payload) => {
+                    error!("Passkey verification panicked (details suppressed)");
+                    callback.got_verification(HashMap::new(), Some("Passkey verification failed".to_string()));
                 }
             }
         });
@@ -622,8 +622,8 @@ impl NativePushState {
     pub fn decline_facetime(&self, guid: String) {
         let state_ref = self.state.ft_client.clone();
         RUNTIME.spawn(async move {
-            if let Err(e) = decline_facetime(&state_ref, guid).await {
-                warn!("Failed to decline facetime {e}");
+            if let Err(_error) = decline_facetime(&state_ref, guid).await {
+                warn!("Failed to decline FaceTime call");
             }
         });
     }
@@ -631,8 +631,8 @@ impl NativePushState {
     pub fn teardown_2fa(&self, action: String, txnid: String) {
         let state_ref = self.state.icloud_services.as_ref().expect("no icloud!").account.clone();
         RUNTIME.spawn(async move {
-            if let Err(e) = teardown_2fa(&state_ref, action, txnid).await {
-                warn!("Failed to teardown 2fa {e}");
+            if let Err(_error) = teardown_2fa(&state_ref, action, txnid).await {
+                warn!("Failed to tear down two-factor session");
             }
         });
     }
@@ -644,8 +644,8 @@ impl NativePushState {
         RUNTIME.block_on(async move {
             match approve_circle(&data_ref, &state_ref, txnid).await {
                 Ok(e) => e,
-                Err(e) => {
-                    warn!("Failed to get auth code {e}");
+                Err(_error) => {
+                    warn!("Failed to get authentication code");
                     0
                 }
             }
@@ -655,8 +655,8 @@ impl NativePushState {
     pub fn publish_status(&self, guid: Option<String>) {
         let state_ref = self.state.icloud_services.as_ref().expect("no icloud!").statuskit_client.clone();
         RUNTIME.spawn(async move {
-            if let Err(e) = set_status(&state_ref, guid).await {
-                warn!("Failed to decline publish status {e}");
+            if let Err(_error) = set_status(&state_ref, guid).await {
+                warn!("Failed to publish status");
             }
         });
     }

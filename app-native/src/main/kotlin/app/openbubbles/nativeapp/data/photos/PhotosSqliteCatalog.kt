@@ -140,6 +140,18 @@ class PhotosSqliteCatalog(context: Context) :
         )
     }
 
+    /** Clears every account-derived catalog row in one transaction. */
+    suspend fun clearAccountData(): Unit = withContext(Dispatchers.IO) {
+        val database = writableDatabase
+        database.beginTransaction()
+        try {
+            ACCOUNT_CLEAR_TABLES.forEach { table -> database.delete(table, null, null) }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
     private fun PhotoSummary.contentValues() = ContentValues().apply {
         put("master_id", id)
         put("asset_id", assetId)
@@ -241,6 +253,12 @@ class PhotosSqliteCatalog(context: Context) :
         private const val SYNC_TABLE = "photo_sync_state"
         private const val TRANSFERS_TABLE = "photo_transfers"
         private const val METADATA_SYNC_KEY = "personal_metadata"
+
+        internal val ACCOUNT_CLEAR_TABLES = listOf(
+            TRANSFERS_TABLE,
+            ASSETS_TABLE,
+            SYNC_TABLE,
+        )
 
         private const val CREATE_ASSETS = """
             CREATE TABLE photo_assets (

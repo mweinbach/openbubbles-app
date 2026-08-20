@@ -16,6 +16,7 @@ import app.openbubbles.core.contacts.ContactMergePolicy
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
 import app.openbubbles.nativeapp.data.DeviceContactsReadResult
+import app.openbubbles.nativeapp.data.runAccountCleanupSteps
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -101,6 +102,29 @@ object ContactDeviceSync {
         prefs(context).edit {
             putString(DECISION_PREFIX + icloudId, decision.name)
             putString(KEY_CONFLICTS, encode(remaining))
+        }
+    }
+
+    /**
+     * Apple sign-out owns the account-specific opt-in, decisions, conflicts,
+     * and periodic work. Contacts already copied into Android's provider are
+     * user-owned and deliberately remain on the phone.
+     */
+    suspend fun clearAccountState(context: Context): Result<Unit> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runAccountCleanupSteps(
+                {
+                    WorkManager.getInstance(context)
+                        .cancelUniqueWork(WORK_NAME)
+                        .result
+                        .get()
+                },
+                {
+                    check(prefs(context).edit().clear().commit()) {
+                        "Could not clear device-contact sync preferences"
+                    }
+                },
+            )
         }
     }
 

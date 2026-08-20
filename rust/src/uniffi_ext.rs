@@ -915,9 +915,10 @@ fn native_shared_albums(
 }
 
 fn native_photos(
-    state: &SharedPushState,
-) -> Result<rustpush::photos::PhotosClient<DefaultAnisetteProvider>, UError> {
+    state: &NativePushState,
+) -> Result<Arc<rustpush::photos::PhotosClient<DefaultAnisetteProvider>>, UError> {
     let services = state
+        .shared()
         .icloud_services
         .as_ref()
         .ok_or_else(|| UError::NotReady {
@@ -929,7 +930,7 @@ fn native_photos(
     let keychain = services.keychain.clone().ok_or_else(|| UError::NotReady {
         reason: "iCloud Photos requires Secure iCloud Keychain".to_string(),
     })?;
-    Ok(rustpush::photos::PhotosClient::new(cloudkit, keychain))
+    Ok(state.cached_photos_client(cloudkit, keychain))
 }
 
 fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
@@ -992,9 +993,8 @@ fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSumma
 impl NativePushState {
     /// Probe the personal iCloud Photos library without downloading media.
     pub async fn photos_access_state(&self) -> Result<UPhotosAccess, UError> {
-        let state = self.shared_arc();
+        let client = native_photos(self)?;
         drive_ffi(async move {
-            let client = native_photos(&state)?;
             let access = client
                 .access_state()
                 .await
@@ -1041,9 +1041,8 @@ impl NativePushState {
                 reason: "Photos cursor is invalid".to_string(),
             });
         }
-        let state = self.shared_arc();
+        let client = native_photos(self)?;
         drive_ffi(async move {
-            let client = native_photos(&state)?;
             let page = client
                 .list_assets(offset, limit)
                 .await
@@ -1080,9 +1079,8 @@ impl NativePushState {
                 });
             }
         };
-        let state = self.shared_arc();
+        let client = native_photos(self)?;
         drive_ffi(async move {
-            let client = native_photos(&state)?;
             let mut file = create_dest(&dest_path)?;
             client
                 .download_preview(&master_id, media_kind.clone(), &mut file, progress_cb(progress))
@@ -1135,9 +1133,8 @@ impl NativePushState {
                 });
             }
         };
-        let state = self.shared_arc();
+        let client = native_photos(self)?;
         drive_ffi(async move {
-            let client = native_photos(&state)?;
             let mut file = create_dest(&dest_path)?;
             client
                 .download_original(&master_id, &mut file, progress_cb(progress))
@@ -1192,9 +1189,8 @@ impl NativePushState {
                 reason: "Photos upload orientation is invalid".to_string(),
             });
         }
-        let state = self.shared_arc();
+        let client = native_photos(self)?;
         drive_ffi(async move {
-            let client = native_photos(&state)?;
             let uploaded = client
                 .upload_jpeg(
                     &original_path,
@@ -3864,18 +3860,12 @@ impl NativePushState {
     pub async fn query_transcript_backgrounds(&self) -> Result<Vec<UMessageChange>, UError> {
         let client = cloud_messages_client(self.shared())?;
         drive_ffi(async move {
-            let items = match tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                api::query_transcript_backgrounds(&client),
-            ).await {
-                Ok(result) => result.map_err(sync_err)?,
-                Err(_) => {
-                    log::warn!("Transcript background query timed out");
-                    return Err(UError::Failed {
-                        reason: "transcript background query timed out".to_string(),
-                    });
-                }
-            };
+            // The Rust client already bounds each CloudKit page. A second
+            // 20-second deadline around the whole multi-page query aborted
+            // valid histories before later pages could complete.
+            let items = api::query_transcript_backgrounds(&client)
+                .await
+                .map_err(sync_err)?;
             Ok(items
                 .into_iter()
                 .map(|(record_id, message)| conv_message_change(record_id, Some(message), true))
@@ -3888,18 +3878,9 @@ impl NativePushState {
     pub async fn query_transcript_backgrounds_lean(&self) -> Result<Vec<UMessageChange>, UError> {
         let client = cloud_messages_client(self.shared())?;
         drive_ffi(async move {
-            let items = match tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                api::query_transcript_backgrounds(&client),
-            ).await {
-                Ok(result) => result.map_err(sync_err)?,
-                Err(_) => {
-                    log::warn!("Transcript background query timed out");
-                    return Err(UError::Failed {
-                        reason: "transcript background query timed out".to_string(),
-                    });
-                }
-            };
+            let items = api::query_transcript_backgrounds(&client)
+                .await
+                .map_err(sync_err)?;
             Ok(items
                 .into_iter()
                 .map(|(record_id, message)| conv_message_change(record_id, Some(message), false))

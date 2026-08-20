@@ -26,6 +26,14 @@ class PhotosSqliteCatalogSchemaTest {
         }
     }
 
+    @Test
+    fun accountCleanupCoversTransfersMetadataAndCursorState() {
+        assertEquals(
+            listOf("photo_transfers", "photo_assets", "photo_sync_state"),
+            PhotosSqliteCatalog.ACCOUNT_CLEAR_TABLES,
+        )
+    }
+
     private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
         .digest(toByteArray(Charsets.UTF_8))
         .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }

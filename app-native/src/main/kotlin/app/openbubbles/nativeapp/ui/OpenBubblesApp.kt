@@ -1107,6 +1107,7 @@ fun OpenBubblesApp(
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
                         onPreviewVisible = viewModel::ensurePreview,
+                        onPreviewHidden = viewModel::cancelPreview,
                         onRetryPreview = { viewModel.ensurePreview(it, retry = true) },
                         onSelect = viewModel::select,
                         onCloseSelected = viewModel::closeSelected,
