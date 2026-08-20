@@ -40,6 +40,18 @@ def ndkDirectory = androidComponents.sdkComponents.ndkDirectory
 def ndkVersion = android.ndkVersion
 def projectMinSdk = android.defaultConfig.minSdk as int
 def abiFilters = android.defaultConfig.ndk.abiFilters
+def cargoBinaryName = Os.isFamily(Os.FAMILY_WINDOWS) ? "cargo.exe" : "cargo"
+def cargoHome = System.getenv("CARGO_HOME") ?: new File(System.getProperty("user.home"), ".cargo").absolutePath
+def cargoFromHome = new File(cargoHome, "bin/${cargoBinaryName}")
+def cargoExecutable = System.getenv("CARGO") ?: (cargoFromHome.isFile() ? cargoFromHome.absolutePath : cargoBinaryName)
+def protocOverride = System.getenv("PROTOC")
+def protocExecutable = protocOverride ?: [
+        "/opt/homebrew/bin/protoc",
+        "/usr/local/bin/protoc",
+        "/usr/bin/protoc",
+        new File(System.getProperty("user.home"), ".linuxbrew/bin/protoc").absolutePath,
+        "/home/linuxbrew/.linuxbrew/bin/protoc",
+].find { candidate -> candidate && new File(candidate).isFile() }
 
 def cargoTasksByBuildType = [:]
 
@@ -129,10 +141,11 @@ androidComponents {
                     logger.lifecycle("Building ${libname} for ${abi} (${rustTarget})")
                     injected.execOps.exec {
                         workingDir manifestDir
-                        executable "cargo"
+                        executable cargoExecutable
                         args cargoArgs
                         environment "CARGO_TARGET_DIR", cargoTargetDir.absolutePath
                         environment "CARGO_ENCODED_RUSTFLAGS", rustFlags
+                        if (protocExecutable) environment "PROTOC", protocExecutable
                         environment linkerKey, targetClang.absolutePath
                         environment "AR_${rustTarget}", llvmAr.absolutePath
                         environment "CC_${rustTarget}", clang.absolutePath
@@ -169,8 +182,9 @@ tasks.register("checkUniffiBindings") {
         tmp.deleteOnExit()
         injected.execOps.exec {
             workingDir file("../rust")
-            executable "cargo"
+            executable cargoExecutable
             args "build", "--release", "--locked"
+            if (protocExecutable) environment "PROTOC", protocExecutable
         }
         def libraryName
         if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS)) {
@@ -183,11 +197,12 @@ tasks.register("checkUniffiBindings") {
         def libraryFile = file("../rust/target/release/${libraryName}")
         injected.execOps.exec {
             workingDir file("../rust")
-            executable "cargo"
+            executable cargoExecutable
             args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
                     "--library", libraryFile.absolutePath,
                     "--language", "kotlin", "--no-format",
                     "--out-dir", tmp.absolutePath
+            if (protocExecutable) environment "PROTOC", protocExecutable
         }
         def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
         def committed = file("../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")

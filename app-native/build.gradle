@@ -188,3 +188,22 @@ dependencies {
 
 // Build the Rust UniFFI cdylib directly with Cargo and the Android NDK.
 apply from: "cargo-android.gradle"
+
+// Rabbit 1 Canary 1 asks AGP 9.3 projects for these aggregate class tasks
+// during IDE builds, while AGP exposes the equivalent assemble lifecycle
+// tasks. Keep the aliases guarded so a future AGP-provided task wins.
+gradle.projectsEvaluated {
+    [
+            unitTestClasses       : "assembleUnitTest",
+            androidTestClasses    : "assembleAndroidTest",
+            screenshotTestClasses : "assembleScreenshotTest",
+    ].each { aliasName, targetName ->
+        if (tasks.findByName(aliasName) == null) {
+            tasks.register(aliasName) {
+                group = "build"
+                description = "Compatibility alias for ${targetName} requested by Android Studio."
+                dependsOn targetName
+            }
+        }
+    }
+}
