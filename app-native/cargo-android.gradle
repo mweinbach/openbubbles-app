@@ -4,6 +4,8 @@ import javax.inject.Inject
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.process.ExecOperations
 
 // Gradle 9 removed Project.exec()/javaexec() from task actions. ExecOperations
@@ -14,6 +16,13 @@ interface CargoExecInjection {
     ExecOperations getExecOps()
 }
 def injected = project.objects.newInstance(CargoExecInjection)
+
+// DirectoryProperty output so AGP can wire this task through
+// variant.sources.jniLibs.addGeneratedSourceDirectory.
+abstract class CargoAndroidJniTask extends DefaultTask {
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+}
 
 // Gradle 9 removed Project.buildDir.
 def cargoRoot = project.layout.buildDirectory.dir("cargo-android").get().asFile
@@ -27,118 +36,127 @@ def ABI_CONFIG = [
 
 def libname = "rust_lib_bluebubbles"
 def manifestDir = file("../rust")
+def ndkDirectory = androidComponents.sdkComponents.ndkDirectory
+def ndkVersion = android.ndkVersion
+def projectMinSdk = android.defaultConfig.minSdk as int
+def abiFilters = android.defaultConfig.ndk.abiFilters
 
-android.applicationVariants.all { variant ->
-    def buildType = variant.buildType.name
-    def cargoOutputDir = new File(cargoRoot, "jniLibs/${buildType}")
+def cargoTasksByBuildType = [:]
 
-    def taskName = "cargoBuild${libname.capitalize()}${buildType.capitalize()}"
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def jniLibs = variant.sources.jniLibs
+        if (jniLibs == null) {
+            return
+        }
 
-    def t = tasks.register(taskName) {
-        description = "Builds ${libname} (.so) with Cargo and the Android NDK for ${variant.name}"
-        // Cargo's own caching makes the incremental call cheap; always re-run
-        // so merged jniLibs pick up Rust changes.
-        outputs.upToDateWhen { false }
+        def buildType = variant.buildType
+        def t = cargoTasksByBuildType[buildType]
+        if (t == null) {
+        def taskName = "cargoBuild${libname.capitalize()}${buildType.capitalize()}"
+        t = tasks.register(taskName, CargoAndroidJniTask) {
+            description = "Builds ${libname} (.so) with Cargo and the Android NDK for ${buildType}"
+            outputDirectory.set(layout.buildDirectory.dir("cargo-android/jniLibs/${buildType}"))
+            // Cargo's own caching makes the incremental call cheap; always re-run
+            // so merged jniLibs pick up Rust changes.
+            outputs.upToDateWhen { false }
 
-        doLast {
-            def abis = android.defaultConfig.ndk.abiFilters.toList()
-            if (abis.isEmpty()) {
-                throw new GradleException("Set ndk.abiFilters in defaultConfig so Cargo knows which Rust targets to build")
-            }
-
-            def configs = abis.collectEntries { abi ->
-                def config = ABI_CONFIG[abi]
-                if (config == null) {
-                    throw new GradleException("Unsupported ABI in ndk.abiFilters: ${abi}")
-                }
-                [(abi): config]
-            }
-
-            def ndkDir = new File(android.sdkDirectory, "ndk/${android.ndkVersion}")
-            if (!new File(ndkDir, "package.xml").isFile()) {
-                throw new GradleException(
-                        "Android NDK ${android.ndkVersion} is not installed under ${android.sdkDirectory}. " +
-                        "Install package ndk;${android.ndkVersion} with sdkmanager.")
-            }
-
-            def isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
-            def hostTag = isWindows ? "windows-x86_64" :
-                    (Os.isFamily(Os.FAMILY_MAC) ? "darwin-x86_64" : "linux-x86_64")
-            def binarySuffix = isWindows ? ".exe" : ""
-            def compilerSuffix = isWindows ? ".cmd" : ""
-            def toolchainBin = new File(ndkDir, "toolchains/llvm/prebuilt/${hostTag}/bin")
-            if (!toolchainBin.isDirectory()) {
-                throw new GradleException("Android NDK toolchain not found: ${toolchainBin}")
-            }
-
-            def clang = new File(toolchainBin, "clang${binarySuffix}")
-            def clangxx = new File(toolchainBin, "clang++${binarySuffix}")
-            def llvmAr = new File(toolchainBin, "llvm-ar${binarySuffix}")
-            def llvmRanlib = new File(toolchainBin, "llvm-ranlib${binarySuffix}")
-            for (tool in [clang, clangxx, llvmAr, llvmRanlib]) {
-                if (!tool.isFile()) throw new GradleException("Android NDK tool not found: ${tool}")
-            }
-
-            def cargoTargetDir = new File(cargoRoot, "target")
-            def workaroundDir = new File(cargoRoot, "libgcc_workaround/${android.ndkVersion.tokenize('.').first()}")
-            workaroundDir.mkdirs()
-            new File(workaroundDir, "libgcc.a").text = "INPUT(-lunwind)"
-            def separator = "\u001f"
-            def inheritedRustFlags = System.getenv("CARGO_ENCODED_RUSTFLAGS")
-            def rustFlags = (inheritedRustFlags ? inheritedRustFlags + separator : "") +
-                    "-L${separator}${workaroundDir.absolutePath}"
-            def projectMinSdk = android.defaultConfig.minSdkVersion.apiLevel as int
-
-            if (cargoOutputDir.exists()) cargoOutputDir.deleteDir()
-            for (entry in configs) {
-                def abi = entry.key
-                def config = entry.value
-                def rustTarget = config.rust
-                def minSdk = Math.max(projectMinSdk, config.minSdk as int)
-                def targetArg = "--target=${config.clang}${minSdk}"
-                def targetClang = new File(toolchainBin, "${config.clang}${minSdk}-clang${compilerSuffix}")
-                if (!targetClang.isFile()) {
-                    throw new GradleException("Android NDK linker not found: ${targetClang}")
+            doLast {
+                def cargoOutputDir = outputDirectory.get().asFile
+                def abis = abiFilters.toList()
+                if (abis.isEmpty()) {
+                    throw new GradleException("Set ndk.abiFilters in defaultConfig so Cargo knows which Rust targets to build")
                 }
 
-                def linkerKey = "CARGO_TARGET_${rustTarget.replace('-', '_').toUpperCase()}_LINKER"
-                def cargoArgs = ["build", "--locked", "--lib", "--target", rustTarget]
-                if (buildType == "release") cargoArgs += "--release"
-
-                logger.lifecycle("Building ${libname} for ${abi} (${rustTarget})")
-                injected.execOps.exec {
-                    workingDir manifestDir
-                    executable "cargo"
-                    args cargoArgs
-                    environment "CARGO_TARGET_DIR", cargoTargetDir.absolutePath
-                    environment "CARGO_ENCODED_RUSTFLAGS", rustFlags
-                    environment linkerKey, targetClang.absolutePath
-                    environment "AR_${rustTarget}", llvmAr.absolutePath
-                    environment "CC_${rustTarget}", clang.absolutePath
-                    environment "CFLAGS_${rustTarget}", targetArg
-                    environment "CXX_${rustTarget}", clangxx.absolutePath
-                    environment "CXXFLAGS_${rustTarget}", targetArg
-                    environment "RANLIB_${rustTarget}", llvmRanlib.absolutePath
+                def configs = abis.collectEntries { abi ->
+                    def config = ABI_CONFIG[abi]
+                    if (config == null) {
+                        throw new GradleException("Unsupported ABI in ndk.abiFilters: ${abi}")
+                    }
+                    [(abi): config]
                 }
 
-                def profile = buildType == "release" ? "release" : "debug"
-                def builtLibrary = new File(cargoTargetDir, "${rustTarget}/${profile}/lib${libname}.so")
-                if (!builtLibrary.isFile()) {
-                    throw new GradleException("Cargo produced no Android library: ${builtLibrary}")
+                def ndkDir = ndkDirectory.get().asFile
+                if (!new File(ndkDir, "package.xml").isFile()) {
+                    throw new GradleException(
+                            "Android NDK ${ndkVersion} is not installed at ${ndkDir}. " +
+                            "Install package ndk;${ndkVersion} with sdkmanager.")
                 }
-                def outputLibrary = new File(cargoOutputDir, "${abi}/lib${libname}.so")
-                Files.createDirectories(outputLibrary.parentFile.toPath())
-                Files.copy(builtLibrary.toPath(), outputLibrary.toPath(), StandardCopyOption.REPLACE_EXISTING)
+
+                def isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
+                def hostTag = isWindows ? "windows-x86_64" :
+                        (Os.isFamily(Os.FAMILY_MAC) ? "darwin-x86_64" : "linux-x86_64")
+                def binarySuffix = isWindows ? ".exe" : ""
+                def compilerSuffix = isWindows ? ".cmd" : ""
+                def toolchainBin = new File(ndkDir, "toolchains/llvm/prebuilt/${hostTag}/bin")
+                if (!toolchainBin.isDirectory()) {
+                    throw new GradleException("Android NDK toolchain not found: ${toolchainBin}")
+                }
+
+                def clang = new File(toolchainBin, "clang${binarySuffix}")
+                def clangxx = new File(toolchainBin, "clang++${binarySuffix}")
+                def llvmAr = new File(toolchainBin, "llvm-ar${binarySuffix}")
+                def llvmRanlib = new File(toolchainBin, "llvm-ranlib${binarySuffix}")
+                for (tool in [clang, clangxx, llvmAr, llvmRanlib]) {
+                    if (!tool.isFile()) throw new GradleException("Android NDK tool not found: ${tool}")
+                }
+
+                def cargoTargetDir = new File(cargoRoot, "target")
+                def workaroundDir = new File(cargoRoot, "libgcc_workaround/${ndkVersion.tokenize('.').first()}")
+                workaroundDir.mkdirs()
+                new File(workaroundDir, "libgcc.a").text = "INPUT(-lunwind)"
+                def separator = "\u001f"
+                def inheritedRustFlags = System.getenv("CARGO_ENCODED_RUSTFLAGS")
+                def rustFlags = (inheritedRustFlags ? inheritedRustFlags + separator : "") +
+                        "-L${separator}${workaroundDir.absolutePath}"
+
+                if (cargoOutputDir.exists()) cargoOutputDir.deleteDir()
+                for (entry in configs) {
+                    def abi = entry.key
+                    def config = entry.value
+                    def rustTarget = config.rust
+                    def minSdk = Math.max(projectMinSdk, config.minSdk as int)
+                    def targetArg = "--target=${config.clang}${minSdk}"
+                    def targetClang = new File(toolchainBin, "${config.clang}${minSdk}-clang${compilerSuffix}")
+                    if (!targetClang.isFile()) {
+                        throw new GradleException("Android NDK linker not found: ${targetClang}")
+                    }
+
+                    def linkerKey = "CARGO_TARGET_${rustTarget.replace('-', '_').toUpperCase()}_LINKER"
+                    def cargoArgs = ["build", "--locked", "--lib", "--target", rustTarget]
+                    if (buildType == "release") cargoArgs += "--release"
+
+                    logger.lifecycle("Building ${libname} for ${abi} (${rustTarget})")
+                    injected.execOps.exec {
+                        workingDir manifestDir
+                        executable "cargo"
+                        args cargoArgs
+                        environment "CARGO_TARGET_DIR", cargoTargetDir.absolutePath
+                        environment "CARGO_ENCODED_RUSTFLAGS", rustFlags
+                        environment linkerKey, targetClang.absolutePath
+                        environment "AR_${rustTarget}", llvmAr.absolutePath
+                        environment "CC_${rustTarget}", clang.absolutePath
+                        environment "CFLAGS_${rustTarget}", targetArg
+                        environment "CXX_${rustTarget}", clangxx.absolutePath
+                        environment "CXXFLAGS_${rustTarget}", targetArg
+                        environment "RANLIB_${rustTarget}", llvmRanlib.absolutePath
+                    }
+
+                    def profile = buildType == "release" ? "release" : "debug"
+                    def builtLibrary = new File(cargoTargetDir, "${rustTarget}/${profile}/lib${libname}.so")
+                    if (!builtLibrary.isFile()) {
+                        throw new GradleException("Cargo produced no Android library: ${builtLibrary}")
+                    }
+                    def outputLibrary = new File(cargoOutputDir, "${abi}/lib${libname}.so")
+                    Files.createDirectories(outputLibrary.parentFile.toPath())
+                    Files.copy(builtLibrary.toPath(), outputLibrary.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
             }
         }
-    }
+            cargoTasksByBuildType[buildType] = t
+        }
 
-    android.sourceSets.maybeCreate(buildType).jniLibs.srcDir(cargoOutputDir)
-
-    // AGP 8: merge<Variant>JniLibFolders must wait for cargo
-    def mergeName = "merge${variant.name.capitalize()}JniLibFolders"
-    tasks.matching { it.name == mergeName }.configureEach {
-        dependsOn t
+        jniLibs.addGeneratedSourceDirectory(t) { it.outputDirectory }
     }
 }
 

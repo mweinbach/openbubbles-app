@@ -15,6 +15,13 @@ subprojects {
             rootProject.layout.buildDirectory.dir(project.name)
         )
     }
+    // :android-smsmms is Java-only. Built-in Kotlin would still add a
+    // compile task and the stdlib; turn that off for this library.
+    pluginManager.withPlugin("com.android.library") {
+        extensions.configure(com.android.build.api.dsl.LibraryExtension) { android ->
+            android.enableKotlin = false
+        }
+    }
 }
 
 tasks.register("clean", Delete) {

@@ -1,7 +1,6 @@
 // Native (no-Dart) OpenBubbles Android application.
 plugins {
     id "com.android.application"
-    id "org.jetbrains.kotlin.android"
     id "org.jetbrains.kotlin.plugin.compose"
     id "org.jetbrains.kotlin.plugin.serialization"
     // Compose Preview Screenshot Testing: renders @PreviewTest previews and
@@ -57,21 +56,6 @@ android {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "21"
-        // Most of the Expressive surface graduated across material3 alpha15-26,
-        // but LoadingIndicator, MaterialShapes/toShape(), ButtonGroup and the
-        // ToggleButton size variants are still gated. The global opt-in is a
-        // safety net for those rather than a blanket requirement.
-        freeCompilerArgs += [
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
-            "-opt-in=androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
-            // SharedTransitionLayout / LocalSharedTransitionScope (NavDisplay
-            // shared elements) are still experimental in compose-animation.
-            "-opt-in=androidx.compose.animation.ExperimentalSharedTransitionApi",
-        ]
-    }
     // The screenshot plugin requires this here as well as in gradle.properties.
     experimentalProperties["android.experimental.enableScreenshotTest"] = true
 
@@ -93,12 +77,34 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        // jvmTarget follows compileOptions.targetCompatibility (21).
+        // Most of the Expressive surface graduated across material3 alpha15-26,
+        // but LoadingIndicator, MaterialShapes/toShape(), ButtonGroup and the
+        // ToggleButton size variants are still gated. The global opt-in is a
+        // safety net for those rather than a blanket requirement.
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
+            // SharedTransitionLayout / LocalSharedTransitionScope (NavDisplay
+            // shared elements) are still experimental in compose-animation.
+            "androidx.compose.animation.ExperimentalSharedTransitionApi",
+        )
+    }
+}
+
 // Recovery-only: `-PopenAbsintheOracleJniDir=/path/to/jniLibs` adds the
 // historical arm64 image to a debug APK for byte-for-byte differential tests.
 // Ordinary debug/release builds do not package it.
 def openAbsintheOracleJniDir = providers.gradleProperty("openAbsintheOracleJniDir").orNull
 if (openAbsintheOracleJniDir) {
-    android.sourceSets.debug.jniLibs.srcDir(file(openAbsintheOracleJniDir))
+    androidComponents {
+        onVariants(selector().withBuildType("debug")) { variant ->
+            variant.sources.jniLibs.addStaticSourceDirectory(file(openAbsintheOracleJniDir).absolutePath)
+        }
+    }
 }
 
 dependencies {
