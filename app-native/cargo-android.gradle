@@ -5,6 +5,8 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.apache.tools.ant.taskdefs.condition.Os
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.process.ExecOperations
@@ -23,6 +25,71 @@ def injected = project.objects.newInstance(CargoExecInjection)
 abstract class CargoAndroidJniTask extends DefaultTask {
     @OutputDirectory
     abstract DirectoryProperty getOutputDirectory()
+}
+
+abstract class CheckUniffiBindingsTask extends DefaultTask {
+    @Internal
+    abstract DirectoryProperty getRustDirectory()
+
+    @InputFile
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract RegularFileProperty getCommittedBindings()
+
+    @Input
+    abstract Property<String> getCargoCommand()
+
+    @Input
+    abstract Property<String> getProtocCommand()
+
+    @Input
+    abstract Property<String> getHostLibraryName()
+
+    @Inject
+    abstract ExecOperations getExecOperations()
+
+    @TaskAction
+    void checkBindings() {
+        def rustDir = rustDirectory.get().asFile
+        def cargo = cargoCommand.get()
+        def protoc = protocCommand.get()
+        def tmp = Files.createTempDirectory(temporaryDir.toPath(), "bindings-").toFile()
+
+        execOperations.exec {
+            workingDir rustDir
+            executable cargo
+            args "build", "--locked"
+            if (protoc) environment "PROTOC", protoc
+        }
+
+        def libraryFile = new File(rustDir, "target/debug/${hostLibraryName.get()}")
+        if (!libraryFile.isFile()) {
+            throw new GradleException("Cargo produced no UniFFI metadata library: ${libraryFile}")
+        }
+        execOperations.exec {
+            workingDir rustDir
+            executable cargo
+            args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
+                    "--library", libraryFile.absolutePath,
+                    "--language", "kotlin", "--no-format",
+                    "--out-dir", tmp.absolutePath
+            if (protoc) environment "PROTOC", protoc
+        }
+
+        def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
+        def committed = committedBindings.get().asFile
+        if (!generated.isFile()) {
+            throw new GradleException("bindgen produced no kotlin file in temp dir")
+        }
+        if (normalizeBindings(generated.text) != normalizeBindings(committed.text)) {
+            throw new GradleException(
+                    "UniFFI bindings are stale. Run: (cd rust && ./build-uniffi.sh)")
+        }
+        logger.lifecycle("UniFFI bindings up to date")
+    }
+
+    private static String normalizeBindings(String text) {
+        text.replaceAll(/(?m)[ \t]+$/, "").trim()
+    }
 }
 
 // Gradle 9 removed Project.buildDir.
@@ -235,7 +302,6 @@ androidComponents {
 // surface. UniFFI reads exported metadata, which is profile-independent, so
 // use the debug cdylib instead of paying the shipping release profile's LTO
 // cost merely to regenerate Kotlin declarations.
-def uniffiRustDirectory = layout.projectDirectory.dir("../rust")
 def uniffiLibraryName
 if (Os.isFamily(Os.FAMILY_WINDOWS)) {
     uniffiLibraryName = "rust_lib_bluebubbles.dll"
@@ -244,44 +310,11 @@ if (Os.isFamily(Os.FAMILY_WINDOWS)) {
 } else {
     uniffiLibraryName = "librust_lib_bluebubbles.so"
 }
-def uniffiDebugLibrary = uniffiRustDirectory.file("target/debug/${uniffiLibraryName}")
-def committedUniffiBindings = layout.projectDirectory.file(
-        "../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
-tasks.register("checkUniffiBindings") {
-    doLast {
-        def tmp = File.createTempDir()
-        tmp.deleteOnExit()
-        injected.execOps.exec {
-            workingDir uniffiRustDirectory.asFile
-            executable cargoExecutable
-            args "build", "--locked"
-            if (protocExecutable) environment "PROTOC", protocExecutable
-        }
-        def libraryFile = uniffiDebugLibrary.asFile
-        injected.execOps.exec {
-            workingDir uniffiRustDirectory.asFile
-            executable cargoExecutable
-            args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
-                    "--library", libraryFile.absolutePath,
-                    "--language", "kotlin", "--no-format",
-                    "--out-dir", tmp.absolutePath
-            if (protocExecutable) environment "PROTOC", protocExecutable
-        }
-        def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
-        def committed = committedUniffiBindings.asFile
-        if (!generated.exists()) {
-            throw new GradleException("bindgen produced no kotlin file in temp dir")
-        }
-        // build-uniffi.sh strips trailing whitespace from the committed file
-        // (ktlint or its perl fallback); normalize the same way so the gate
-        // compares the surface, not incidental whitespace.
-        def normalize = { String text ->
-            text.replaceAll(/(?m)[ \t]+$/, "").trim()
-        }
-        if (normalize(generated.text) != normalize(committed.text)) {
-            throw new GradleException(
-                "UniFFI bindings are stale. Run: (cd rust && ./build-uniffi.sh)")
-        }
-        logger.lifecycle("UniFFI bindings up to date")
-    }
+tasks.register("checkUniffiBindings", CheckUniffiBindingsTask) {
+    rustDirectory.set(layout.projectDirectory.dir("../rust"))
+    committedBindings.set(layout.projectDirectory.file(
+            "../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt"))
+    cargoCommand.set(cargoExecutable)
+    protocCommand.set(protocExecutable ?: "")
+    hostLibraryName.set(uniffiLibraryName)
 }
