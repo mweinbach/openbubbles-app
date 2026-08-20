@@ -407,19 +407,19 @@ fun MessageBubble(
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         Column(modifier = Modifier.fillMaxWidth()) {
         replyQuote?.let { quote ->
-            // The quote keeps the original sender's transcript side, while the
-            // connector stays on the conversation's start-side thread rail. It
-            // must not jump to the replying sender's side.
             ReplyQuotePreview(
                 quote = quote,
                 smsChat = smsChat,
                 onOpen = onReplyQuoteTap,
                 maxWidth = maxBubbleWidth,
-                incomingGutter = if (showAvatarGutter) {
+                quoteLeadingInset = if (showAvatarGutter && !quote.fromMe) {
                     SenderAvatarSize + SenderAvatarSpacing
                 } else {
                     0.dp
                 },
+                replyFromMe = message.isFromMe,
+                replyLeadingInset = gutterWidth,
+                replyWidthPx = contentSize.width,
             )
         }
         SwipeToReplyBox(
@@ -627,7 +627,11 @@ fun MessageBubble(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 6.dp),
+                    // Thread affordances sit on the edge facing the transcript
+                    // center: end for incoming bubbles, start for outgoing.
+                    modifier = Modifier
+                        .align(if (message.isFromMe) Alignment.Start else Alignment.End)
+                        .padding(horizontal = 6.dp),
                 ) {
                     if (message.edited) {
                         Text(
@@ -811,14 +815,15 @@ private fun InvisibleInkBubble(
     }
 }
 
-/** Connector canvas footprint between the quote and the reply bubble. */
-private val ReplyConnectorWidth = 44.dp
-private val ReplyConnectorHeight = 26.dp
+private const val ReplyQuoteWidthFraction = 0.76f
+private val ReplyQuoteTopPadding = 4.dp
+private val ReplyConnectorDrawHeight = 28.dp
+private val ReplyConnectorLayoutHeight = 24.dp
 private val ReplyConnectorStrokeWidth = 2.4.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
-    val verticalEnd: Offset,
+    val horizontalEnd: Offset,
     val control1: Offset,
     val control2: Offset,
     val curveEnd: Offset,
@@ -826,44 +831,54 @@ internal data class ReplyConnectorGeometry(
 )
 
 /**
- * Start-side thread rail with a vertical stem, a circular quarter-turn, and a
- * short horizontal landing. A single full-height Bézier is not equivalent: it
- * bends for the entire stroke and reads as a detached hook rather than a rail.
+ * A reply connector leaves the center-facing edge of the quoted bubble and
+ * turns downward into the center-facing edge of the reply. This is the rotated
+ * counterpart of the old rail: horizontal from the source, vertical into the
+ * target, rather than a detached vertical hook at the transcript edge.
  */
 internal fun replyConnectorGeometry(
-    width: Float,
+    sourceX: Float,
+    targetX: Float,
     height: Float,
-    startInsetFromOuter: Float,
-    endInsetFromOuter: Float,
-    outerEdgeOnRight: Boolean,
 ): ReplyConnectorGeometry {
-    fun fromOuter(inset: Float) = if (outerEdgeOnRight) width - inset else inset
-
-    val startX = fromOuter(startInsetFromOuter)
-    val endX = fromOuter(endInsetFromOuter)
-    val dx = endX - startX
+    val dx = targetX - sourceX
     val direction = if (dx >= 0f) 1f else -1f
-    val radius = minOf(height * 0.46f, kotlin.math.abs(dx))
+    val radius = minOf(height * 0.45f, kotlin.math.abs(dx) * 0.45f)
     val kappa = 0.5522848f
-    val verticalEnd = Offset(startX, height - radius)
-    val curveEnd = Offset(startX + direction * radius, height)
+    val horizontalEnd = Offset(targetX - direction * radius, 0f)
+    val curveEnd = Offset(targetX, radius)
 
     return ReplyConnectorGeometry(
-        start = Offset(startX, 0f),
-        verticalEnd = verticalEnd,
-        control1 = Offset(startX, verticalEnd.y + radius * kappa),
-        control2 = Offset(curveEnd.x - direction * radius * kappa, height),
+        start = Offset(sourceX, 0f),
+        horizontalEnd = horizontalEnd,
+        control1 = Offset(horizontalEnd.x + direction * radius * kappa, 0f),
+        control2 = Offset(targetX, radius - radius * kappa),
         curveEnd = curveEnd,
-        end = Offset(endX, height),
+        end = Offset(targetX, height),
     )
 }
 
+/** Physical x-coordinate of the bubble edge that faces the transcript center. */
+internal fun centerFacingBubbleAnchor(
+    containerWidth: Float,
+    bubbleWidth: Float,
+    leadingInset: Float,
+    isFromMe: Boolean,
+    isLtr: Boolean,
+): Float {
+    val anchor = when {
+        isLtr && isFromMe -> containerWidth - bubbleWidth
+        isLtr -> leadingInset + bubbleWidth
+        isFromMe -> bubbleWidth
+        else -> containerWidth - leadingInset - bubbleWidth
+    }
+    return anchor.coerceIn(0f, containerWidth)
+}
+
 /**
- * Original-message bubble stacked above a reply, the way Apple Messages
- * renders threaded replies: a solid capsule in the original sender's own
- * color carrying the original text, kept on the original's transcript side
- * (theirs left, mine right), paired with a start-side thread rail that stays
- * fixed even when the reply is on the opposite side. Tapping shows the original.
+ * Smaller, quieter original-message capsule stacked above a reply. The quote
+ * stays on its author's transcript side, while the connector follows the
+ * center-facing edges of both bubbles. Tapping shows the original.
  */
 @Composable
 private fun ReplyQuotePreview(
@@ -871,100 +886,107 @@ private fun ReplyQuotePreview(
     smsChat: Boolean,
     onOpen: () -> Unit,
     maxWidth: Dp,
-    incomingGutter: Dp,
+    quoteLeadingInset: Dp,
+    replyFromMe: Boolean,
+    replyLeadingInset: Dp,
+    replyWidthPx: Int,
     modifier: Modifier = Modifier,
 ) {
-    val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
+    val (bubbleColor, bubbleContent) = when {
+        quote.fromMe && smsChat -> smsServiceColors().let {
+            it.container.copy(alpha = 0.82f) to it.content
+        }
+        quote.fromMe -> MaterialTheme.colorScheme.primaryContainer to
+            MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainer to
+            MaterialTheme.colorScheme.onSurfaceVariant
+    }
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+    var quoteSize by remember(quote.text, quote.fromMe) {
+        mutableStateOf(androidx.compose.ui.unit.IntSize.Zero)
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 10.dp),
+            .padding(top = ReplyQuoteTopPadding),
     ) {
         // Quoted message capsule
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = if (quote.fromMe) 0.dp else incomingGutter),
+                .padding(start = if (quote.fromMe) 0.dp else quoteLeadingInset),
             contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = bubbleColor,
                 contentColor = bubbleContent,
                 modifier = Modifier
-                    .widthIn(max = maxWidth * 0.84f)
+                    .widthIn(max = maxWidth * ReplyQuoteWidthFraction)
+                    .onSizeChanged { quoteSize = it }
                     .clickable(
-                        onClickLabel = "Show original message",
+                        onClickLabel = quote.senderName?.let { "Show original message from $it" }
+                            ?: if (quote.fromMe) "Show your original message" else "Show original message",
                         role = Role.Button,
                         onClick = onOpen,
                     ),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) {
-                    quote.senderName?.takeIf { !quote.fromMe }?.let { name ->
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = bubbleContent.copy(alpha = 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Text(
-                        text = quote.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    text = quote.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
             }
         }
 
-        // Apple-style inline replies use one start-side thread rail. The quoted
-        // message may be left or right aligned, and the reply may be from either
-        // sender, but neither changes the rail's side.
-        Box(
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(ReplyConnectorHeight),
-            contentAlignment = Alignment.CenterStart,
+                .height(ReplyConnectorLayoutHeight),
         ) {
-            Canvas(
-                modifier = Modifier
-                    // Modifier.offset is layout-direction aware, so this moves
-                    // inward from Start in both LTR and RTL layouts.
-                    .offset(x = 10.dp)
-                    .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
-            ) {
-                val strokeWidth = ReplyConnectorStrokeWidth.toPx()
-                val halfStroke = strokeWidth / 2f
-                val geometry = replyConnectorGeometry(
-                    width = size.width,
-                    // Keep both round caps and the horizontal landing inside the
-                    // canvas instead of clipping them on its top/bottom edges.
-                    height = (size.height - strokeWidth).coerceAtLeast(0f),
-                    startInsetFromOuter = 2.dp.toPx(),
-                    endInsetFromOuter = 38.dp.toPx(),
-                    // Start is physically right in RTL and physically left in LTR.
-                    outerEdgeOnRight = !isLtr,
-                )
-                drawPath(
-                    path = Path().apply {
-                        moveTo(geometry.start.x, geometry.start.y + halfStroke)
-                        lineTo(geometry.verticalEnd.x, geometry.verticalEnd.y + halfStroke)
-                        cubicTo(
-                            geometry.control1.x, geometry.control1.y + halfStroke,
-                            geometry.control2.x, geometry.control2.y + halfStroke,
-                            geometry.curveEnd.x, geometry.curveEnd.y + halfStroke,
-                        )
-                        lineTo(geometry.end.x, geometry.end.y + halfStroke)
-                    },
-                    color = connectorColor,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                )
-            }
+            val strokeWidth = ReplyConnectorStrokeWidth.toPx()
+            val halfStroke = strokeWidth / 2f
+            val quoteWidth = quoteSize.width.takeIf { it > 0 }?.toFloat()
+                ?: maxWidth.toPx() * ReplyQuoteWidthFraction
+            val replyWidth = replyWidthPx.takeIf { it > 0 }?.toFloat()
+                ?: maxWidth.toPx()
+            val geometry = replyConnectorGeometry(
+                sourceX = centerFacingBubbleAnchor(
+                    containerWidth = size.width,
+                    bubbleWidth = quoteWidth,
+                    leadingInset = quoteLeadingInset.toPx(),
+                    isFromMe = quote.fromMe,
+                    isLtr = isLtr,
+                ),
+                targetX = centerFacingBubbleAnchor(
+                    containerWidth = size.width,
+                    bubbleWidth = replyWidth,
+                    leadingInset = replyLeadingInset.toPx(),
+                    isFromMe = replyFromMe,
+                    isLtr = isLtr,
+                ),
+                // Paint a few dp into the following row; the reply draws over
+                // the cap so the connector visibly terminates inside it.
+                height = (ReplyConnectorDrawHeight.toPx() - strokeWidth).coerceAtLeast(0f),
+            )
+            drawPath(
+                path = Path().apply {
+                    moveTo(geometry.start.x, geometry.start.y + halfStroke)
+                    lineTo(geometry.horizontalEnd.x, geometry.horizontalEnd.y + halfStroke)
+                    cubicTo(
+                        geometry.control1.x, geometry.control1.y + halfStroke,
+                        geometry.control2.x, geometry.control2.y + halfStroke,
+                        geometry.curveEnd.x, geometry.curveEnd.y + halfStroke,
+                    )
+                    lineTo(geometry.end.x, geometry.end.y + halfStroke)
+                },
+                color = connectorColor,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+            )
         }
     }
 }
