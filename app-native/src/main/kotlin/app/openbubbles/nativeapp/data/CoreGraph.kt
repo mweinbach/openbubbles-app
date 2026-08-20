@@ -786,7 +786,11 @@ private object NativeProfileUpdatePort : ProfileUpdatePort {
         if (kind == ProfileMessageKind.SharingUpdate) return null
         val record = PushStateHolder.state?.fetchProfile(profileJson) ?: return null
         val image = record.poster?.let { poster ->
-            runCatching { parseCallPoster(poster).lowResImage() }.getOrNull()
+            runCatching {
+                val parsed = parseCallPoster(poster)
+                parsed.lowResImage().takeIf(ByteArray::isNotEmpty)
+                    ?: parsed.photoFiles(0u).map { PosterImageFile(it.filename, it.data) }.let(::wallpaperBytesFromPhotoFiles)
+            }.getOrNull()
         }?.takeIf(ByteArray::isNotEmpty) ?: record.image?.takeIf(ByteArray::isNotEmpty)
         val posterPath = image?.let { bytes ->
             val context = AppContext.current ?: return@let null
