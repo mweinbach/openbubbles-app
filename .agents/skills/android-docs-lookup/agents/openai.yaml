@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android Docs Lookup"
+  short_description: "Search official Android docs via the android CLI"
+  default_prompt: "Use $android-docs-lookup to look up current official Android documentation for this API or pattern."

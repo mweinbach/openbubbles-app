@@ -106,6 +106,7 @@ destinations for Find My / Settings (those live in the chat-list profile menu).
 | Foldables / window size classes | [adaptive](.agents/skills/adaptive/SKILL.md) |
 | Critique a screen | [m3-expressive-review](.agents/skills/m3-expressive-review/SKILL.md) |
 | Receivers, exported components, SMS role | [android-intent-security](.agents/skills/android-intent-security/SKILL.md) |
+| Need current official Android docs beyond bundled references | [android-docs-lookup](.agents/skills/android-docs-lookup/SKILL.md) — `android docs` knowledge base |
 | Adding test kinds | [testing-setup](.agents/skills/testing-setup/SKILL.md) — keep our existing stack; do not install Hilt |
 
 Do not load Wear, CameraX, Play Billing, Engage, TV, or glasses skills for this app.
