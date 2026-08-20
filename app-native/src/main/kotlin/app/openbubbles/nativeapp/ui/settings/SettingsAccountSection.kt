@@ -54,11 +54,6 @@ internal fun rememberAccountSection(
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
     val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
-    val accountConnection = accountConnectionUiState(
-        hasLiveState = pushState != null,
-        registration = registrationState,
-        lastError = pushError,
-    )
     var showSignOutConfirmation by rememberSaveable { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     var signOutError by remember { mutableStateOf<String?>(null) }
@@ -126,11 +121,25 @@ internal fun rememberAccountSection(
 
     return SettingsSectionSlice(
         groups = { filter, showTitles ->
+            val accountConnection = accountConnectionUiState(
+                hasLiveState = pushState != null,
+                registration = registrationState,
+                lastError = pushError,
+            )
             if (filter == null || filter == SettingsSection.Account) SettingsGroup(
                 title = if (showTitles) "Account" else null,
             ) {
                 if (pushState == null) {
-                    val recovery = checkNotNull(accountConnection)
+                    val recovery = accountConnection ?: accountConnectionUiState(
+                        hasLiveState = false,
+                        registration = registrationState,
+                        lastError = pushError,
+                    ) ?: AccountConnectionUiState(
+                        title = "Sign in to message",
+                        supporting = "Use your Apple ID to send and receive iMessages.",
+                        action = AccountConnectionAction.SignIn,
+                        actionLabel = "Sign in",
+                    )
                     AccountRecoverySettingsItem(
                         recovery = recovery,
                         index = 0,
@@ -151,7 +160,7 @@ internal fun rememberAccountSection(
                         if (accountConnection != null) {
                             add { index, count ->
                                 AccountRecoverySettingsItem(
-                                    recovery = checkNotNull(accountConnection),
+                                    recovery = accountConnection,
                                     index = index,
                                     count = count,
                                     onAction = { action ->
