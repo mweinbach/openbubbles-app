@@ -100,6 +100,50 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
+    fun originalDownloadUsesSeparateProtectedResourceAndCache() = runBlocking {
+        val root = createTempDirectory("photo-original").toFile()
+        try {
+            val port = FakePort(jpegPayload())
+            val coordinator = PhotoTransferCoordinator(
+                port = port,
+                catalog = FakeCatalog(),
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            )
+
+            val transfer = coordinator.downloadOriginal(photo())
+
+            assertEquals(PhotoResourceKind.Original, transfer.resourceKind)
+            assertEquals(PhotoTransferState.Succeeded, transfer.state)
+            assertEquals(0, port.calls)
+            assertEquals(1, port.originalCalls)
+            assertTrue(File(transfer.localPath).parentFile == File(root, "originals"))
+            assertContentEquals(jpegPayload(), File(transfer.localPath).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun invalidOriginalIsNotPromoted() = runBlocking {
+        val root = createTempDirectory("photo-original-invalid").toFile()
+        try {
+            val transfer = PhotoTransferCoordinator(
+                port = FakePort("not an image".toByteArray()),
+                catalog = FakeCatalog(),
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            ).downloadOriginal(photo())
+
+            assertEquals(PhotoTransferState.Failed, transfer.state)
+            assertFalse(File(transfer.localPath).exists())
+            assertFalse(File(transfer.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun uploadPlanDurablyStagesOriginalPreviewAndMetadata() = runBlocking {
         val root = createTempDirectory("photo-upload-plan").toFile()
         try {
@@ -245,6 +289,8 @@ class PhotoTransferCoordinatorTest {
             private set
         var uploadCalls: Int = 0
             private set
+        var originalCalls: Int = 0
+            private set
         var uploadOrientation: Int? = null
             private set
         var uploadCapturedAtMs: Long? = null
@@ -258,6 +304,16 @@ class PhotoTransferCoordinatorTest {
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> = runCatching {
             calls += 1
+            File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
+            onProgress(payload.size.toLong(), payload.size.toLong())
+        }
+
+        override suspend fun downloadOriginal(
+            asset: PhotoSummary,
+            destPath: String,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> = runCatching {
+            originalCalls += 1
             File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
             onProgress(payload.size.toLong(), payload.size.toLong())
         }

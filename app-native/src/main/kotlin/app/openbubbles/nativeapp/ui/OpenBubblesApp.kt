@@ -1091,21 +1091,33 @@ fun OpenBubblesApp(
                 entry<PhotosKey>(metadata = overlayMetadata) {
                     val viewModel: PhotosViewModel = viewModel(factory = PhotosViewModel.factory())
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
-                    val pickPhotoForUpload = rememberLauncherForActivityResult(
-                        ActivityResultContracts.PickVisualMedia(),
-                    ) { uri -> uri?.let(viewModel::planUpload) }
+                    val pickPhotosForUpload = rememberLauncherForActivityResult(
+                        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 50),
+                        viewModel::planUploads,
+                    )
+                    val pickPhotoFolder = rememberLauncherForActivityResult(
+                        ActivityResultContracts.OpenDocumentTree(),
+                    ) { uri -> uri?.let(viewModel::addFolder) }
                     PhotosScreen(
                         uiState = state,
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
                         onLoadMore = viewModel::loadMore,
-                        onDownloadPreview = viewModel::downloadPreview,
-                        onChooseUpload = {
-                            pickPhotoForUpload.launch(
+                        onPreviewVisible = viewModel::ensurePreview,
+                        onRetryPreview = { viewModel.ensurePreview(it, retry = true) },
+                        onSelect = viewModel::select,
+                        onCloseSelected = viewModel::closeSelected,
+                        onRetryOriginal = viewModel::retryOriginal,
+                        onChooseUploads = {
+                            pickPhotosForUpload.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                             )
                         },
+                        onAddFolder = { pickPhotoFolder.launch(null) },
+                        onScanFolder = viewModel::scanFolder,
+                        onRemoveFolder = viewModel::removeFolder,
                         onUpload = viewModel::upload,
+                        onUploadAll = viewModel::uploadAll,
                     )
                 }
 

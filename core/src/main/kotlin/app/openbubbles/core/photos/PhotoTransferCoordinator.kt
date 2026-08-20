@@ -28,6 +28,7 @@ class PhotoTransferCoordinator(
     private val catalog: PhotosCatalog,
     private val previewRoot: File,
     private val uploadRoot: File = File(previewRoot.parentFile ?: previewRoot, "uploads"),
+    private val originalRoot: File = File(previewRoot.parentFile ?: previewRoot, "originals"),
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val transferLocks = ConcurrentHashMap<String, Mutex>()
@@ -38,58 +39,88 @@ class PhotoTransferCoordinator(
     ): PhotoTransfer {
         val id = downloadId(asset.id, PhotoResourceKind.Preview)
         return transferLocks.getOrPut(id) { Mutex() }.withLock {
-            runPreviewDownload(id, asset, onProgress)
+            runDownload(
+                id = id,
+                asset = asset,
+                resourceKind = PhotoResourceKind.Preview,
+                root = previewRoot,
+                extension = previewExtension(asset.mediaKind),
+                expectedBytes = asset.previewSize,
+                mimeType = previewMimeType(asset.mediaKind),
+                validate = { validPreviewFile(it, asset.mediaKind) },
+                download = { path, progress -> port.downloadPreview(asset, path, progress) },
+                onProgress = onProgress,
+            )
         }
     }
 
-    private suspend fun runPreviewDownload(
+    suspend fun downloadOriginal(
+        asset: PhotoSummary,
+        onProgress: (PhotoTransfer) -> Unit = {},
+    ): PhotoTransfer {
+        val id = downloadId(asset.id, PhotoResourceKind.Original)
+        return transferLocks.getOrPut(id) { Mutex() }.withLock {
+            runDownload(
+                id = id,
+                asset = asset,
+                resourceKind = PhotoResourceKind.Original,
+                root = originalRoot,
+                extension = originalExtension(asset),
+                expectedBytes = asset.originalSize,
+                mimeType = originalMimeType(asset),
+                validate = { validOriginalFile(it, asset.mediaKind) },
+                download = { path, progress -> port.downloadOriginal(asset, path, progress) },
+                onProgress = onProgress,
+            )
+        }
+    }
+
+    private suspend fun runDownload(
         id: String,
         asset: PhotoSummary,
+        resourceKind: PhotoResourceKind,
+        root: File,
+        extension: String,
+        expectedBytes: Long?,
+        mimeType: String?,
+        validate: (File) -> Boolean,
+        download: suspend (String, (Long, Long) -> Unit) -> Result<Unit>,
         onProgress: (PhotoTransfer) -> Unit,
     ): PhotoTransfer {
         val timestamp = nowMs()
-        val extension = when (asset.mediaKind) {
-            PhotoMediaKind.Image -> "jpg"
-            PhotoMediaKind.Video -> "mov"
-            PhotoMediaKind.Unknown -> "preview"
-        }
-        val finalFile = File(previewRoot, "${safeKey(asset.id)}.$extension")
+        val finalFile = File(root, "${safeKey(asset.id)}.$extension")
         val partialFile = File(finalFile.path + ".part")
         val existing = catalog.transfer(id)
         val base = PhotoTransfer(
             id = id,
             assetId = asset.id,
             direction = PhotoTransferDirection.Download,
-            resourceKind = PhotoResourceKind.Preview,
+            resourceKind = resourceKind,
             localPath = finalFile.absolutePath,
             filename = asset.filename,
-            mimeType = when (asset.mediaKind) {
-                PhotoMediaKind.Image -> "image/jpeg"
-                PhotoMediaKind.Video -> "video/quicktime"
-                PhotoMediaKind.Unknown -> null
-            },
+            mimeType = mimeType,
             state = PhotoTransferState.Queued,
-            totalBytes = asset.previewSize ?: 0,
+            totalBytes = expectedBytes ?: 0,
             attemptCount = existing?.attemptCount ?: 0,
             createdAtMs = existing?.createdAtMs ?: timestamp,
             updatedAtMs = timestamp,
         )
 
-        if (validPreviewFile(finalFile, asset.mediaKind)) {
+        if (validate(finalFile)) {
             return base.copy(
                 state = PhotoTransferState.Succeeded,
                 bytesDone = finalFile.length(),
                 totalBytes = finalFile.length(),
             ).also { catalog.putTransfer(it) }
         }
-        if (asset.previewSize == null || asset.mediaKind == PhotoMediaKind.Unknown) {
+        if (expectedBytes == null || asset.mediaKind == PhotoMediaKind.Unknown) {
             return base.copy(
                 state = PhotoTransferState.Failed,
-                lastError = "No preview resource was advertised for this asset",
+                lastError = "No ${resourceKind.name.lowercase()} resource was advertised for this asset",
             ).also { catalog.putTransfer(it) }
         }
 
-        previewRoot.mkdirs()
+        root.mkdirs()
         partialFile.delete()
         val current = AtomicReference(base.copy(
             state = PhotoTransferState.Running,
@@ -99,7 +130,7 @@ class PhotoTransferCoordinator(
         onProgress(current.get())
 
         try {
-            val result = port.downloadPreview(asset, partialFile.absolutePath) { done, total ->
+            val result = download(partialFile.absolutePath) { done, total ->
                 val progress = current.updateAndGet { transfer ->
                     transfer.copy(
                         bytesDone = done.coerceAtLeast(0),
@@ -110,9 +141,9 @@ class PhotoTransferCoordinator(
                 onProgress(progress)
             }
             result.getOrThrow()
-            check(partialFile.isFile) { "Preview download completed without a file" }
-            check(validPreviewFile(partialFile, asset.mediaKind)) {
-                "Downloaded preview did not match its expected media format"
+            check(partialFile.isFile) { "Photo download completed without a file" }
+            check(validate(partialFile)) {
+                "Downloaded ${resourceKind.name.lowercase()} did not match its expected media format"
             }
             promote(partialFile, finalFile)
             current.updateAndGet {
@@ -140,7 +171,7 @@ class PhotoTransferCoordinator(
             current.updateAndGet {
                 it.copy(
                     state = PhotoTransferState.Failed,
-                    lastError = error.message ?: "Preview download failed",
+                    lastError = error.message ?: "Photo download failed",
                     updatedAtMs = nowMs(),
                 )
             }
@@ -375,6 +406,47 @@ private data class UploadMetadata(val orientation: Int, val capturedAtMs: Long?)
 private fun ByteArray.toHex(): String =
     joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
+private fun previewExtension(mediaKind: PhotoMediaKind): String = when (mediaKind) {
+    PhotoMediaKind.Image -> "jpg"
+    PhotoMediaKind.Video -> "mov"
+    PhotoMediaKind.Unknown -> "preview"
+}
+
+private fun previewMimeType(mediaKind: PhotoMediaKind): String? = when (mediaKind) {
+    PhotoMediaKind.Image -> "image/jpeg"
+    PhotoMediaKind.Video -> "video/quicktime"
+    PhotoMediaKind.Unknown -> null
+}
+
+private fun originalExtension(asset: PhotoSummary): String {
+    val extension = asset.filename
+        ?.substringAfterLast('.', missingDelimiterValue = "")
+        ?.lowercase()
+        ?.takeIf { it.matches(Regex("[a-z0-9]{1,10}")) }
+    return extension ?: when (asset.mediaKind) {
+        PhotoMediaKind.Image -> "image"
+        PhotoMediaKind.Video -> "mov"
+        PhotoMediaKind.Unknown -> "original"
+    }
+}
+
+private fun originalMimeType(asset: PhotoSummary): String? = when (asset.mediaKind) {
+    PhotoMediaKind.Image -> when (originalExtension(asset)) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "heic", "heif" -> "image/heic"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "dng" -> "image/x-adobe-dng"
+        else -> "image/*"
+    }
+    PhotoMediaKind.Video -> when (originalExtension(asset)) {
+        "mp4", "m4v" -> "video/mp4"
+        else -> "video/quicktime"
+    }
+    PhotoMediaKind.Unknown -> null
+}
+
 private fun validPreviewFile(file: File, mediaKind: PhotoMediaKind): Boolean {
     if (!file.isFile) return false
     val header = ByteArray(12)
@@ -387,4 +459,55 @@ private fun validPreviewFile(file: File, mediaKind: PhotoMediaKind): Boolean {
             header[6] == 'y'.code.toByte() && header[7] == 'p'.code.toByte()
         PhotoMediaKind.Unknown -> false
     }
+}
+
+private fun validOriginalFile(file: File, mediaKind: PhotoMediaKind): Boolean {
+    if (!file.isFile) return false
+    val header = ByteArray(12)
+    val count = runCatching { file.inputStream().use { it.read(header) } }.getOrDefault(-1)
+    val isoBmff = count >= 8 &&
+        header[4] == 'f'.code.toByte() && header[5] == 't'.code.toByte() &&
+        header[6] == 'y'.code.toByte() && header[7] == 'p'.code.toByte()
+    return when (mediaKind) {
+        PhotoMediaKind.Image -> isJpeg(header, count) ||
+            isPng(header, count) ||
+            isGif(header, count) ||
+            isWebp(header, count) ||
+            isTiff(header, count) ||
+            (count >= 2 && header[0] == 'B'.code.toByte() && header[1] == 'M'.code.toByte()) ||
+            isoBmff
+        PhotoMediaKind.Video -> isoBmff
+        PhotoMediaKind.Unknown -> false
+    }
+}
+
+private fun isJpeg(header: ByteArray, count: Int): Boolean = count >= 3 &&
+    header[0] == 0xff.toByte() && header[1] == 0xd8.toByte() && header[2] == 0xff.toByte()
+
+private fun isPng(header: ByteArray, count: Int): Boolean = count >= 8 &&
+    header.copyOfRange(0, 8).contentEquals(
+        byteArrayOf(
+            0x89.toByte(),
+            'P'.code.toByte(),
+            'N'.code.toByte(),
+            'G'.code.toByte(),
+            '\r'.code.toByte(),
+            '\n'.code.toByte(),
+            0x1a,
+            '\n'.code.toByte(),
+        ),
+    )
+
+private fun isGif(header: ByteArray, count: Int): Boolean = count >= 6 &&
+    String(header, 0, 6, Charsets.US_ASCII) in setOf("GIF87a", "GIF89a")
+
+private fun isWebp(header: ByteArray, count: Int): Boolean = count >= 12 &&
+    String(header, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+    String(header, 8, 4, Charsets.US_ASCII) == "WEBP"
+
+private fun isTiff(header: ByteArray, count: Int): Boolean {
+    if (count < 4) return false
+    val marker = header.copyOfRange(0, 4)
+    return marker.contentEquals(byteArrayOf('I'.code.toByte(), 'I'.code.toByte(), '*'.code.toByte(), 0)) ||
+        marker.contentEquals(byteArrayOf('M'.code.toByte(), 'M'.code.toByte(), 0, '*'.code.toByte()))
 }

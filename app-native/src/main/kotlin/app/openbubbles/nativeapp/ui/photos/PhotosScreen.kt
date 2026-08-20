@@ -1,39 +1,82 @@
 package app.openbubbles.nativeapp.ui.photos
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudQueue
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MotionPhotosOn
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.core.photos.PhotoMediaKind
@@ -43,14 +86,12 @@ import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosAccess
 import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosSnapshot
-import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
-import app.openbubbles.nativeapp.ui.settings.SettingsGroup
-import app.openbubbles.nativeapp.ui.settings.SettingsGroupSpacing
-import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
-import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
+import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
+import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
-import java.text.DateFormat
-import java.util.Date
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,52 +100,97 @@ fun PhotosScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onDownloadPreview: (PhotoSummary) -> Unit,
-    onChooseUpload: () -> Unit,
+    onPreviewVisible: (PhotoSummary) -> Unit,
+    onRetryPreview: (PhotoSummary) -> Unit,
+    onSelect: (PhotoSummary) -> Unit,
+    onCloseSelected: () -> Unit,
+    onRetryOriginal: (PhotoSummary) -> Unit,
+    onChooseUploads: () -> Unit,
+    onAddFolder: () -> Unit,
+    onScanFolder: (PhotoFolderSource) -> Unit,
+    onRemoveFolder: (PhotoFolderSource) -> Unit,
     onUpload: (PhotoTransfer) -> Unit,
+    onUploadAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showTransfers by remember { mutableStateOf(false) }
+    val snapshot = uiState.snapshot
     Scaffold(
-        modifier = modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        modifier = modifier.fillMaxSize(),
         topBar = {
-            MediumFlexibleTopAppBar(
-                title = { Text("iCloud Photos") },
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Photos")
+                        snapshot?.let {
+                            Text(
+                                text = "${it.assets.size} items · Background sync off",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showTransfers = true }) {
+                        Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
+                    }
                     IconButton(
                         onClick = onRefresh,
                         enabled = !uiState.refreshing && !uiState.loading && !uiState.loadingMore,
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Run Photos probe again")
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh Photos")
                     }
                 },
-                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
-        if (uiState.loading) {
-            Box(
+        when {
+            uiState.loading -> Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(modifier = Modifier.size(36.dp))
             }
-        } else {
-            PhotosContent(
+            snapshot != null -> PhotosGrid(
                 uiState = uiState,
+                snapshot = snapshot,
                 onLoadMore = onLoadMore,
-                onDownloadPreview = onDownloadPreview,
-                onChooseUpload = onChooseUpload,
-                onUpload = onUpload,
+                onPreviewVisible = onPreviewVisible,
+                onRetryPreview = onRetryPreview,
+                onSelect = onSelect,
                 modifier = Modifier.padding(padding),
             )
         }
+    }
+
+    if (showTransfers) {
+        UploadsSheet(
+            uiState = uiState,
+            onDismiss = { showTransfers = false },
+            onChooseUploads = onChooseUploads,
+            onAddFolder = onAddFolder,
+            onScanFolder = onScanFolder,
+            onRemoveFolder = onRemoveFolder,
+            onUpload = onUpload,
+            onUploadAll = onUploadAll,
+        )
+    }
+
+    val selected = snapshot?.assets?.firstOrNull { it.id == uiState.selectedAssetId }
+    if (selected != null) {
+        PhotoDetail(
+            asset = selected,
+            preview = uiState.previewTransfers[selected.id],
+            original = uiState.originalTransfers[selected.id],
+            onBack = onCloseSelected,
+            onRetryOriginal = { onRetryOriginal(selected) },
+        )
     }
 
     uiState.error?.let { error ->
@@ -119,215 +205,431 @@ fun PhotosScreen(
 }
 
 @Composable
-private fun PhotosContent(
+private fun PhotosGrid(
     uiState: PhotosUiState,
+    snapshot: PhotosSnapshot,
     onLoadMore: () -> Unit,
-    onDownloadPreview: (PhotoSummary) -> Unit,
-    onChooseUpload: () -> Unit,
-    onUpload: (PhotoTransfer) -> Unit,
+    onPreviewVisible: (PhotoSummary) -> Unit,
+    onRetryPreview: (PhotoSummary) -> Unit,
+    onSelect: (PhotoSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val snapshot = uiState.snapshot ?: return
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(112.dp),
         modifier = modifier.fillMaxSize().navigationBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
+        contentPadding = PaddingValues(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        item {
-            SettingsGroup(title = "Library access") {
-                SettingsInfoItem(
-                    title = accessTitle(snapshot.access),
-                    supporting = snapshot.access.detail +
-                        if (uiState.showingCachedMetadata) {
-                            ". A live refresh will replace this saved snapshot."
+        if (snapshot.access.availability != PhotosAvailability.Ready || uiState.showingCachedMetadata) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                AccessNotice(snapshot.access, uiState.showingCachedMetadata)
+            }
+        }
+        if (snapshot.assets.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (snapshot.access.availability == PhotosAvailability.Indexing) {
+                            "Your iCloud library is still indexing."
                         } else {
-                            ". Previews download only when tapped. Uploads are staged privately and run only after confirmation."
+                            "No photos are available yet."
                         },
-                    index = 0,
-                    count = 1,
-                    multiline = true,
-                    icon = accessIcon(snapshot.access.availability),
-                    tone = accessTone(snapshot.access.availability),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        itemsIndexed(snapshot.assets, key = { _, asset -> asset.id }) { index, asset ->
+            if (snapshot.nextCursor != null && index >= snapshot.assets.lastIndex - 4) {
+                LaunchedEffect(snapshot.nextCursor) { onLoadMore() }
+            }
+            PhotoTile(
+                asset = asset,
+                transfer = uiState.previewTransfers[asset.id],
+                onVisible = { onPreviewVisible(asset) },
+                onRetry = { onRetryPreview(asset) },
+                onSelect = { onSelect(asset) },
+            )
+        }
+        if (uiState.loadingMore) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessNotice(access: PhotosAccess, cached: Boolean) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Filled.CloudOff, contentDescription = null)
+            Text(
+                text = if (cached) "Showing saved previews while iCloud reconnects." else access.detail,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhotoTile(
+    asset: PhotoSummary,
+    transfer: PhotoTransfer?,
+    onVisible: () -> Unit,
+    onRetry: () -> Unit,
+    onSelect: () -> Unit,
+) {
+    LaunchedEffect(asset.id) { onVisible() }
+    val file = transfer?.takeIf { it.state == PhotoTransferState.Succeeded }
+        ?.localPath?.let(::File)
+    val decoded = when (asset.mediaKind) {
+        PhotoMediaKind.Image -> rememberDecodedImage(file, maxDimensionPx = 512)
+        PhotoMediaKind.Video -> rememberVideoPoster(file, maxDimensionPx = 512)
+        PhotoMediaKind.Unknown -> null
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .semantics {
+                role = Role.Button
+                contentDescription = asset.filename ?: "Photo"
+            }
+            .clickable(onClick = onSelect),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (decoded != null) {
+            Image(
+                bitmap = decoded.image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            when (transfer?.state) {
+                PhotoTransferState.Failed -> TextButton(onClick = onRetry) { Text("Retry") }
+                PhotoTransferState.Running, PhotoTransferState.Queued ->
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                else -> Icon(
+                    Icons.Filled.AddPhotoAlternate,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        item {
-            SettingsGroup(title = "Newest metadata") {
-                if (snapshot.assets.isEmpty()) {
-                    SettingsInfoItem(
-                        title = "No photo records loaded",
-                        supporting = when (snapshot.access.availability) {
-                            PhotosAvailability.Ready -> "The metadata query returned no paired photo records."
-                            PhotosAvailability.Indexing -> "Try again after Apple finishes indexing this library."
-                            PhotosAvailability.Unavailable -> "Sign in to an Apple ID with iCloud Photos enabled."
-                        },
-                        index = 0,
-                        count = 1,
-                        multiline = true,
-                        icon = Icons.Filled.PhotoLibrary,
-                    )
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (asset.favorite) TileBadge(Icons.Filled.Favorite, "Favorite")
+            if (asset.livePhoto) TileBadge(Icons.Filled.MotionPhotosOn, "Live Photo")
+            if (asset.mediaKind == PhotoMediaKind.Video) TileBadge(Icons.Filled.PlayCircle, "Video")
+        }
+    }
+}
+
+@Composable
+private fun TileBadge(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+    Surface(shape = RoundedCornerShape(10.dp), color = Color.Black.copy(alpha = 0.55f)) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier.padding(3.dp).size(15.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UploadsSheet(
+    uiState: PhotosUiState,
+    onDismiss: () -> Unit,
+    onChooseUploads: () -> Unit,
+    onAddFolder: () -> Unit,
+    onScanFolder: (PhotoFolderSource) -> Unit,
+    onRemoveFolder: (PhotoFolderSource) -> Unit,
+    onUpload: (PhotoTransfer) -> Unit,
+    onUploadAll: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Add to iCloud Photos", style = MaterialTheme.typography.headlineSmall)
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.CloudOff, contentDescription = null)
+                    Column {
+                        Text("Background sync is off", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Photos and folders are staged only when you choose them or tap Scan now.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(onClick = onChooseUploads, enabled = !uiState.planningUpload) {
+                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Choose photos")
+                }
+                OutlinedButton(onClick = onAddFolder, enabled = !uiState.planningUpload) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add folder")
+                }
+            }
+            if (uiState.planningUpload) {
+                Text("Staging ${uiState.planningDone} of ${uiState.planningTotal}")
+                val fraction = if (uiState.planningTotal > 0) {
+                    uiState.planningDone.toFloat() / uiState.planningTotal
                 } else {
-                    snapshot.assets.forEachIndexed { index, asset ->
-                        val transfer = uiState.transfers[asset.id]
-                        val icon = when (asset.mediaKind) {
-                            PhotoMediaKind.Video -> Icons.Filled.VideoLibrary
-                            PhotoMediaKind.Image, PhotoMediaKind.Unknown -> Icons.Filled.PhotoLibrary
+                    0f
+                }
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            }
+            uiState.sourceMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium)
+            }
+            uiState.uploadError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (uiState.folderSources.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Selected folders", style = MaterialTheme.typography.titleMedium)
+                uiState.folderSources.forEach { source ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.Folder, contentDescription = null)
+                        Text(
+                            source.displayName,
+                            modifier = Modifier.padding(horizontal = 10.dp).weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(
+                            onClick = { onScanFolder(source) },
+                            enabled = !uiState.planningUpload,
+                        ) { Text("Scan now") }
+                        TextButton(onClick = { onRemoveFolder(source) }) { Text("Remove") }
+                    }
+                }
+            }
+            if (uiState.uploadPlans.isNotEmpty()) {
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Staged uploads", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Button(
+                        onClick = onUploadAll,
+                        enabled = uiState.uploadPlans.any {
+                            it.state in listOf(PhotoTransferState.Queued, PhotoTransferState.Failed)
+                        },
+                    ) {
+                        Icon(Icons.Filled.Upload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Upload all")
+                    }
+                }
+                uiState.uploadPlans.forEach { transfer ->
+                    UploadRow(transfer = transfer, onUpload = { onUpload(transfer) })
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun UploadRow(transfer: PhotoTransfer, onUpload: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(transfer.filename ?: "Staged photo", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = when (transfer.state) {
+                    PhotoTransferState.Queued -> "Ready to upload"
+                    PhotoTransferState.Running -> "Uploading ${transfer.percentLabel()}"
+                    PhotoTransferState.Succeeded -> "Uploaded"
+                    PhotoTransferState.Failed -> transfer.lastError ?: "Upload failed"
+                    PhotoTransferState.Blocked -> transfer.lastError ?: "Upload blocked"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (transfer.state == PhotoTransferState.Failed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        TextButton(
+            onClick = onUpload,
+            enabled = transfer.state in listOf(PhotoTransferState.Queued, PhotoTransferState.Failed),
+        ) { Text(if (transfer.state == PhotoTransferState.Failed) "Retry" else "Upload") }
+    }
+}
+
+@Composable
+private fun PhotoDetail(
+    asset: PhotoSummary,
+    preview: PhotoTransfer?,
+    original: PhotoTransfer?,
+    onBack: () -> Unit,
+    onRetryOriginal: () -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    val originalFile = original?.takeIf { it.state == PhotoTransferState.Succeeded }
+        ?.localPath?.let(::File)
+    val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
+        ?.localPath?.let(::File)
+    val shownFile = originalFile ?: previewFile
+    var scale by remember(asset.id) { mutableFloatStateOf(1f) }
+    var offset by remember(asset.id) { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .then(
+                if (asset.mediaKind == PhotoMediaKind.Image) {
+                    Modifier.pointerInput(asset.id) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val next = (scale * zoom).coerceIn(1f, 6f)
+                            offset = if (next > 1f) offset + pan else Offset.Zero
+                            scale = next
                         }
-                        if (asset.previewSize != null && asset.mediaKind != PhotoMediaKind.Unknown) {
-                            SettingsActionItem(
-                                title = asset.filename ?: "Photo ${index + 1}",
-                                supporting = assetSupporting(asset, transfer),
-                                onClick = { onDownloadPreview(asset) },
-                                enabled = transfer?.state != PhotoTransferState.Running,
-                                busy = transfer?.state == PhotoTransferState.Running,
-                                index = index,
-                                count = snapshot.assets.size,
-                                multiline = true,
-                                icon = if (transfer?.state == PhotoTransferState.Succeeded) {
-                                    Icons.Filled.Download
-                                } else {
-                                    icon
-                                },
-                            )
-                        } else {
-                            SettingsInfoItem(
-                                title = asset.filename ?: "Photo ${index + 1}",
-                                supporting = assetSupporting(asset, transfer),
-                                index = index,
-                                count = snapshot.assets.size,
-                                multiline = true,
-                                icon = icon,
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (asset.mediaKind) {
+            PhotoMediaKind.Image -> {
+                val decoded = rememberDecodedImage(shownFile, maxDimensionPx = 2048)
+                if (decoded != null) {
+                    Image(
+                        bitmap = decoded.image,
+                        contentDescription = asset.filename,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                        ),
+                    )
+                }
+            }
+            PhotoMediaKind.Video -> if (originalFile != null) {
+                AttachmentVideoPlayer(file = originalFile, onPlaybackError = {})
+            } else {
+                val poster = rememberVideoPoster(previewFile, maxDimensionPx = 1080)
+                poster?.let {
+                    Image(
+                        bitmap = it.image,
+                        contentDescription = asset.filename,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            PhotoMediaKind.Unknown -> Unit
+        }
+        if (originalFile == null) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = Color.Black.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when {
+                        asset.originalSize == null || asset.mediaKind == PhotoMediaKind.Unknown ->
+                            Text("Full-quality file is unavailable", color = Color.White)
+                        original?.state == PhotoTransferState.Failed -> {
+                            Text(original.lastError ?: "Full photo download failed", color = Color.White)
+                            TextButton(onClick = onRetryOriginal) { Text("Retry") }
+                        }
+                        original?.state == PhotoTransferState.Running && original.totalBytes > 0 -> {
+                            Text("Loading full quality ${original.percentLabel()}", color = Color.White)
+                            LinearProgressIndicator(
+                                progress = { original.progressFraction() },
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
+                        original?.state in listOf(PhotoTransferState.Running, PhotoTransferState.Queued) ||
+                            original == null -> {
+                            Text("Loading full quality", color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                        }
+                        else -> Text("Full-quality file is unavailable", color = Color.White)
                     }
                 }
             }
         }
-        item {
-            val count = 1 + uiState.uploadPlans.size + if (uiState.uploadError != null) 1 else 0
-            SettingsGroup(title = "Upload to iCloud") {
-                SettingsActionItem(
-                    title = "Choose a photo",
-                    supporting = "Choose a JPEG, prepare its small preview, and copy both into private durable staging.",
-                    onClick = onChooseUpload,
-                    enabled = snapshot.access.availability == PhotosAvailability.Ready && !uiState.planningUpload,
-                    busy = uiState.planningUpload,
-                    index = 0,
-                    count = count,
-                    multiline = true,
-                    icon = Icons.Filled.Upload,
-                )
-                uiState.uploadPlans.forEachIndexed { index, transfer ->
-                    SettingsActionItem(
-                        title = transfer.filename ?: "Staged photo",
-                        supporting = uploadSupporting(transfer),
-                        onClick = { onUpload(transfer) },
-                        enabled = transfer.state == PhotoTransferState.Queued ||
-                            transfer.state == PhotoTransferState.Failed,
-                        busy = transfer.state == PhotoTransferState.Running,
-                        index = index + 1,
-                        count = count,
-                        multiline = true,
-                        icon = Icons.Filled.CloudSync,
-                    )
-                }
-                uiState.uploadError?.let { error ->
-                    SettingsInfoItem(
-                        title = "Photo could not be staged",
-                        supporting = error,
-                        index = count - 1,
-                        count = count,
-                        multiline = true,
-                        icon = Icons.Filled.CloudOff,
-                        tone = SettingsRowTone.Error,
-                    )
-                }
+        Row(
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close photo", tint = Color.White)
             }
-        }
-        if (snapshot.nextCursor != null) {
-            item {
-                SettingsGroup(title = null) {
-                    SettingsActionItem(
-                        title = "Load more metadata",
-                        supporting = "Continue the bounded newest-first probe",
-                        onClick = onLoadMore,
-                        enabled = !uiState.loadingMore && !uiState.refreshing,
-                        busy = uiState.loadingMore,
-                        index = 0,
-                        count = 1,
-                        icon = Icons.Filled.ExpandMore,
-                    )
-                }
-            }
+            Text(
+                asset.filename ?: "Photo",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
-private fun accessTitle(access: PhotosAccess): String = when (access.availability) {
-    PhotosAvailability.Ready -> "Personal library metadata available"
-    PhotosAvailability.Indexing -> "Photo library indexing"
-    PhotosAvailability.Unavailable -> "Personal library unavailable"
-}
+private fun PhotoTransfer.progressFraction(): Float =
+    if (totalBytes > 0) (bytesDone.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f
 
-private fun accessIcon(availability: PhotosAvailability) = when (availability) {
-    PhotosAvailability.Ready -> Icons.Filled.CloudQueue
-    PhotosAvailability.Indexing -> Icons.Filled.CloudSync
-    PhotosAvailability.Unavailable -> Icons.Filled.CloudOff
-}
-
-private fun accessTone(availability: PhotosAvailability) = when (availability) {
-    PhotosAvailability.Ready -> SettingsRowTone.Active
-    PhotosAvailability.Indexing -> SettingsRowTone.Neutral
-    PhotosAvailability.Unavailable -> SettingsRowTone.Error
-}
-
-private fun assetSupporting(asset: PhotoSummary, transfer: PhotoTransfer?): String = buildList {
-    when (transfer?.state) {
-        PhotoTransferState.Queued -> add("Preview queued")
-        PhotoTransferState.Running -> add(progressLabel(transfer))
-        PhotoTransferState.Succeeded -> add("Preview downloaded")
-        PhotoTransferState.Failed -> add("Preview failed — tap to retry")
-        PhotoTransferState.Blocked -> add("Transfer blocked")
-        null -> if (asset.previewSize != null) add("Tap to download preview")
-    }
-    if (asset.width != null && asset.height != null) add("${asset.width} × ${asset.height}")
-    asset.originalSize?.let { add(formatBytes(it)) }
-    asset.previewSize?.let { add("${formatBytes(it)} preview") }
-    asset.capturedAtMs?.let { add(DateFormat.getDateTimeInstance().format(Date(it))) }
-    if (asset.livePhoto) add("Live Photo")
-    if (asset.favorite) add("Favorite")
-    if (asset.hidden) add("Hidden")
-}.joinToString(" · ").ifEmpty { "Photo metadata" }
-
-private fun progressLabel(transfer: PhotoTransfer): String = when {
-    transfer.totalBytes > 0 -> {
-        val percent = (transfer.bytesDone * 100 / transfer.totalBytes).coerceIn(0, 100)
-        "Downloading preview ($percent%)"
-    }
-    transfer.bytesDone > 0 -> "Downloading preview (${formatBytes(transfer.bytesDone)})"
-    else -> "Downloading preview"
-}
-
-private fun uploadSupporting(transfer: PhotoTransfer): String = buildList {
-    add(
-        when (transfer.state) {
-            PhotoTransferState.Queued -> "Ready — tap to upload"
-            PhotoTransferState.Running -> "Encrypting and uploading"
-            PhotoTransferState.Succeeded -> "Uploaded to iCloud Photos"
-            PhotoTransferState.Failed -> "Upload failed — tap to retry" +
-                transfer.lastError?.let { ": $it" }.orEmpty()
-            PhotoTransferState.Blocked -> transfer.lastError ?: "Upload blocked"
-        },
-    )
-    add(formatBytes(transfer.totalBytes))
-}.joinToString(" · ")
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
-    bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
-    bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
-    else -> "$bytes B"
-}
+private fun PhotoTransfer.percentLabel(): String =
+    if (totalBytes > 0) "${(progressFraction() * 100).toInt()}%" else ""
 
 @Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
@@ -337,35 +639,40 @@ private fun PhotosPreview() {
             uiState = PhotosUiState(
                 loading = false,
                 snapshot = PhotosSnapshot(
-                    access = PhotosAccess(
-                        PhotosAvailability.Ready,
-                        "Personal iCloud Photos metadata is available",
-                    ),
-                    assets = listOf(
-                        PhotoSummary(
-                            id = "master-1",
-                            assetId = "asset-1",
-                            filename = "IMG_1042.HEIC",
-                            mediaKind = PhotoMediaKind.Image,
-                            livePhoto = true,
-                            width = 4032,
-                            height = 3024,
-                            originalSize = 4_200_000,
-                            previewSize = 102_000,
-                            capturedAtMs = 1_700_000_000_000,
-                            addedAtMs = 1_700_000_000_000,
-                            favorite = true,
-                            hidden = false,
-                        ),
-                    ),
+                    access = PhotosAccess(PhotosAvailability.Ready, "Personal iCloud Photos is available"),
+                    assets = listOf(previewPhoto("master-1", "IMG_1042.HEIC", favorite = true)),
                 ),
             ),
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
-            onDownloadPreview = {},
-            onChooseUpload = {},
+            onPreviewVisible = {},
+            onRetryPreview = {},
+            onSelect = {},
+            onCloseSelected = {},
+            onRetryOriginal = {},
+            onChooseUploads = {},
+            onAddFolder = {},
+            onScanFolder = {},
+            onRemoveFolder = {},
             onUpload = {},
+            onUploadAll = {},
         )
     }
 }
+
+private fun previewPhoto(id: String, filename: String, favorite: Boolean = false) = PhotoSummary(
+    id = id,
+    assetId = "asset-$id",
+    filename = filename,
+    mediaKind = PhotoMediaKind.Image,
+    livePhoto = true,
+    width = 4032,
+    height = 3024,
+    originalSize = 4_200_000,
+    previewSize = 102_000,
+    capturedAtMs = null,
+    addedAtMs = null,
+    favorite = favorite,
+    hidden = false,
+)

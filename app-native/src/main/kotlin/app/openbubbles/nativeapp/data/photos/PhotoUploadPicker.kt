@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,9 +36,7 @@ suspend fun preparePhotoUploadCandidate(
     val resolver = context.contentResolver
     val mimeType = resolver.getType(uri)
         ?: throw IllegalArgumentException("The selected photo has no MIME type")
-    require(mimeType == "image/jpeg") {
-        "The first iCloud Photos upload supports JPEG images only"
-    }
+    require(mimeType.startsWith("image/")) { "The selected item is not a photo" }
 
     var displayName: String? = null
     resolver.query(
@@ -52,17 +51,27 @@ suspend fun preparePhotoUploadCandidate(
             if (index >= 0 && !cursor.isNull(index)) displayName = cursor.getString(index)
         }
     }
-    val filename = sanitizeFilename(displayName ?: uri.lastPathSegment ?: "photo")
+    val pickedName = sanitizeFilename(displayName ?: uri.lastPathSegment ?: "photo")
+    val filename = pickedName.substringBeforeLast('.', pickedName).ifBlank { "photo" } + ".jpg"
     val stagingRoot = File(context.cacheDir, "photos-upload-picker").apply { mkdirs() }
     val candidate = File(stagingRoot, "${UUID.randomUUID()}-$filename")
     val preview = File(stagingRoot, "${UUID.randomUUID()}-preview.jpg")
     try {
-        resolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(candidate).use { output ->
-                input.copyTo(output)
-                output.fd.sync()
+        if (mimeType == "image/jpeg") {
+            resolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(candidate).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            } ?: error("The selected photo could not be opened")
+        } else {
+            val bitmap = decodeBitmap(context, uri, maxDimension = 4096)
+            try {
+                writeJpeg(bitmap, candidate, quality = 95)
+            } finally {
+                bitmap.recycle()
             }
-        } ?: error("The selected photo could not be opened")
+        }
         require(candidate.length() > 0) { "The selected photo is empty" }
         val exif = ExifInterface(candidate)
         val orientation = exif.getAttributeInt(
@@ -75,7 +84,7 @@ suspend fun preparePhotoUploadCandidate(
             file = candidate,
             previewFile = preview,
             filename = filename,
-            mimeType = mimeType,
+            mimeType = "image/jpeg",
             orientation = orientation,
             capturedAtMs = capturedAtMs,
         )
@@ -87,27 +96,35 @@ suspend fun preparePhotoUploadCandidate(
 }
 
 private fun writePreview(context: Context, uri: Uri, destination: File) {
+    val bitmap = decodeBitmap(context, uri, maxDimension = 414)
+    try {
+        writeJpeg(bitmap, destination, quality = 85)
+    } finally {
+        bitmap.recycle()
+    }
+    require(destination.length() > 0) { "The selected photo preview is empty" }
+}
+
+private fun decodeBitmap(context: Context, uri: Uri, maxDimension: Int): Bitmap {
     val source = ImageDecoder.createSource(context.contentResolver, uri)
-    val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+    return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
         val longest = max(info.size.width, info.size.height)
-        require(longest > 0) { "The selected JPEG could not be decoded" }
-        val targetScale = 414f / longest.toFloat()
+        require(longest > 0) { "The selected photo could not be decoded" }
+        val targetScale = min(1f, maxDimension.toFloat() / longest.toFloat())
         val targetWidth = (info.size.width * targetScale).roundToInt().coerceAtLeast(1)
         val targetHeight = (info.size.height * targetScale).roundToInt().coerceAtLeast(1)
         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
         decoder.setTargetSize(targetWidth, targetHeight)
     }
-    try {
-        FileOutputStream(destination).use { output ->
-            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)) {
-                "The selected photo preview could not be encoded"
-            }
-            output.fd.sync()
+}
+
+private fun writeJpeg(bitmap: Bitmap, destination: File, quality: Int) {
+    FileOutputStream(destination).use { output ->
+        check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)) {
+            "The selected photo could not be encoded"
         }
-    } finally {
-        bitmap.recycle()
+        output.fd.sync()
     }
-    require(destination.length() > 0) { "The selected photo preview is empty" }
 }
 
 private fun sanitizeFilename(value: String): String {

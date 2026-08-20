@@ -1107,6 +1107,62 @@ impl NativePushState {
         .await
     }
 
+    /// Download one full-resolution Photos original after an explicit gallery
+    /// selection. Preview browsing uses a separate method and cannot reach this
+    /// path accidentally.
+    pub async fn download_photo_original(
+        &self,
+        master_id: String,
+        media_kind: UPhotoMediaKind,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        if master_id.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photo master id is required".to_string(),
+            });
+        }
+        let media_kind = match media_kind {
+            UPhotoMediaKind::Image => rustpush::photos::PhotoMediaKind::Image,
+            UPhotoMediaKind::Video => rustpush::photos::PhotoMediaKind::Video,
+            UPhotoMediaKind::Unknown => {
+                return Err(UError::InvalidArgument {
+                    reason: "Photo media kind is unknown".to_string(),
+                });
+            }
+        };
+        let state = self.shared_arc();
+        drive_ffi(async move {
+            let client = native_photos(&state)?;
+            let mut file = create_dest(&dest_path)?;
+            client
+                .download_original(&master_id, &mut file, progress_cb(progress))
+                .await
+                .map_err(|error| photos_protocol_error("original download", error))?;
+            file.flush().map_err(|error| UError::Failed {
+                reason: format!("failed to flush Photos original: {error}"),
+            })?;
+            file.rewind().map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos original: {error}"),
+            })?;
+            let mut header = [0u8; 12];
+            let header_len = file.read(&mut header).map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Photos original: {error}"),
+            })?;
+            if !rustpush::photos::valid_original_header(&media_kind, &header[..header_len]) {
+                return Err(UError::Failed {
+                    reason: "downloaded Photos original did not match its expected media format"
+                        .to_string(),
+                });
+            }
+            file.sync_all().map_err(|error| UError::Failed {
+                reason: format!("failed to sync Photos original: {error}"),
+            })?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
     /// per-record PCS wrapping, and the atomic CPL master/asset transaction.
     pub async fn upload_photo_jpeg(

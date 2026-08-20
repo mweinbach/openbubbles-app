@@ -48,10 +48,7 @@ data class PhotoUploadReceipt(
     val assetId: String,
 )
 
-/**
- * Read-only personal iCloud Photos seam. It is page-oriented from day one so
- * later persistence and incremental sync can be added behind this boundary.
- */
+/** Foreground personal iCloud Photos seam for metadata, protected resources, and explicit uploads. */
 interface PhotosPort {
     suspend fun access(): PhotosAccess
     suspend fun page(cursor: String?, limit: Int): PhotosPage
@@ -61,6 +58,12 @@ interface PhotosPort {
         destPath: String,
         onProgress: (Long, Long) -> Unit,
     ): Result<Unit> = Result.failure(UnsupportedOperationException("Photos preview downloads are unavailable"))
+
+    suspend fun downloadOriginal(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = Result.failure(UnsupportedOperationException("Photos original downloads are unavailable"))
 
     suspend fun uploadJpeg(
         originalPath: String,
@@ -125,6 +128,28 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
             PhotoMediaKind.Unknown -> UPhotoMediaKind.UNKNOWN
         }
         state.downloadPhotoPreview(
+            masterId = asset.id,
+            mediaKind = mediaKind,
+            destPath = destPath,
+            progress = object : UProgressCallback {
+                override fun onProgress(done: ULong, total: ULong) {
+                    onProgress(done.toSafeLong(), total.toSafeLong())
+                }
+            },
+        )
+    }
+
+    override suspend fun downloadOriginal(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = runCatching {
+        val mediaKind = when (asset.mediaKind) {
+            PhotoMediaKind.Image -> UPhotoMediaKind.IMAGE
+            PhotoMediaKind.Video -> UPhotoMediaKind.VIDEO
+            PhotoMediaKind.Unknown -> UPhotoMediaKind.UNKNOWN
+        }
+        state.downloadPhotoOriginal(
             masterId = asset.id,
             mediaKind = mediaKind,
             destPath = destPath,

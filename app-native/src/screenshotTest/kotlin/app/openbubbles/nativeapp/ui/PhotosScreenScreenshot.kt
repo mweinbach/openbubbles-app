@@ -71,9 +71,17 @@ fun PhotosScreenScreenshot() {
             onBack = {},
             onRefresh = {},
             onLoadMore = {},
-            onDownloadPreview = {},
-            onChooseUpload = {},
+            onPreviewVisible = {},
+            onRetryPreview = {},
+            onSelect = {},
+            onCloseSelected = {},
+            onRetryOriginal = {},
+            onChooseUploads = {},
+            onAddFolder = {},
+            onScanFolder = {},
+            onRemoveFolder = {},
             onUpload = {},
+            onUploadAll = {},
         )
     }
 }

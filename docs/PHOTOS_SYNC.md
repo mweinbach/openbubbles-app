@@ -16,11 +16,13 @@ user-initiated transfers:
 
 1. detect whether the signed-in account exposes the personal Photos library;
 2. page recent asset metadata without downloading the whole library;
-3. explicitly download a small preview, then an original image, video, or complete Live Photo
-   pair;
+3. download small previews only for visible gallery cells, then download one original image or
+   video only after explicit selection (complete Live Photo pairs remain future work);
 4. persist metadata and transfer intent without treating missing local data as a cloud deletion;
-5. stage one JPEG privately and require a second explicit tap before attempting its upload;
-6. prove incremental changes before adding background work.
+5. stage selected photos or manually scanned document-tree folders privately and require a
+   separate explicit upload action;
+6. keep the implemented background worker hard-disabled until incremental changes and policy are
+   proven.
 
 Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. The
 single-JPEG upload milestone below does not imply background upload, device-gallery mirroring,
@@ -59,9 +61,9 @@ The repository already has most lower-level primitives needed for a Photos proto
 - page/cursor/apply patterns in `core/.../sync/CloudSyncManager.kt` and
   `CloudSyncStateStore.kt`.
 
-The access/metadata slice, preview/catalog foundation, and an explicit JPEG upload path are now
-implemented. Original downloads, Live Photo pair downloads, incremental changes, background
-work, and remote mutations other than that narrow upload path are not.
+The access/metadata slice, preview/original catalog foundation, adaptive foreground gallery, and
+explicit JPEG upload path are implemented. Live Photo pair downloads, incremental changes,
+enabled background work, and remote mutations other than that narrow upload path are not.
 
 ## Investigation completed
 
@@ -88,8 +90,9 @@ The 2026-08-19 static audit established that:
   regenerated committed Kotlin bindings.
 - `core/photos/PhotosPort.kt` provides the fakeable port and a deduplicating pager. It has tests
   for indexing behavior, page continuation/deduplication, and the FFI page-size bound.
-- Android Settings contains a calm `Photos (experimental)` entry and metadata screen. It keeps
-  listing and preview downloads explicit and does not present the feature as background sync.
+- Android Settings contains a calm `Photos (experimental)` entry and adaptive media grid. Listing
+  is metadata-only; cells fetch only their small display rendition as they enter the lazy-grid
+  viewport/prefetch window.
 
 ### Implemented setup slice (device-proven for image previews)
 
@@ -106,12 +109,12 @@ The 2026-08-19 static audit established that:
   attempts, error, and timestamps. Interrupted `Running` rows recover to `Queued` at startup. The
   v1 SQL signature is pinned by a unit test, and a version bump fails until an explicit migration
   is supplied.
-- Cached metadata and completed preview state restore before a live refresh. The experimental
-  Photos rows expose explicit preview downloads and progress; no automatic download is started.
+- Cached metadata and completed preview state restore before a live refresh. Preview requests are
+  bounded to composed gallery cells and a four-request foreground concurrency limit.
 - Upload rows share this durable transfer store and recover after process death or in-place APK
   replacement. Selection creates only a `Queued` row; it does not cross the Apple write boundary.
 
-### Implemented explicit JPEG upload slice (device-proven)
+### Implemented explicit JPEG upload slice (device-proven for the original single-file path)
 
 - Android's system photo picker accepts one JPEG. The app copies the original to private cache,
   reads EXIF orientation and capture time, and generates a software-decoded JPEG preview capped at
@@ -137,8 +140,29 @@ The 2026-08-19 static audit established that:
   The asset-to-master reference is an owning CloudKit reference. Record fields preserve CPL's
   exact mixed acronym casing, including `assetHDRType`, `fullSizeJPEGSource`, the
   `resJPEGThumb*` family, and the exceptional lowercase-`d` `importGroupId`.
-- This milestone is deliberately JPEG-only. It does not add HEIC conversion, videos, Live Photo
-  upload pairs, edits, albums, deletes, or background gallery observation.
+- The Apple write contract remains deliberately JPEG-only. It does not add video/Live Photo
+  upload pairs, edits, albums, deletes, or automatic Android gallery observation.
+
+### Implemented foreground gallery and manual source slice (host-verified only)
+
+- The Photos screen is now an adaptive, stable-key thumbnail grid. A composed cell requests only
+  its advertised small image/video rendition. Failed previews require an explicit retry.
+- Selecting a cell is the only UI event that can call the new async
+  `download_photo_original(master_id, media_kind, destination, progress)` method. Originals use a
+  separate durable transfer ID and cache directory, are validated as supported image/ISO-BMFF
+  media, and replace the preview in the full-screen viewer after atomic promotion.
+- The Android picker accepts up to 50 images. JPEG input is preserved; other decodable image
+  formats, including provider-supported HEIC, are normalized to a bounded JPEG original before
+  they enter the existing JPEG-only Apple upload contract. Selection stages files only.
+- Users can persist read access to chosen Android document-tree folders. `Scan now` recursively
+  finds at most 500 images and stages them; choosing a folder never scans or uploads it.
+- `PhotosBackgroundSyncWorker` contains the future folder scan, queued-upload, and metadata-refresh
+  pass, but `PhotosBackgroundSync.ENABLED` is a compile-time `false`, no scheduler exists, startup
+  cancels any work under its unique name, and the UI exposes no enable control.
+
+This slice has host coverage but no new hardware protocol claim. In particular, original images,
+original videos, converted HEIC uploads, multi-file batches, and folder batches still require
+device evidence before they can be described as live-proven.
 
 The database is intentionally an Android implementation behind the Android-free `PhotosCatalog`
 contract. It does not add entities to `db/objectbox-model.json` and cannot move or rewrite the
@@ -164,6 +188,21 @@ Host evidence on 2026-08-19:
 
 The latter hash is retained as the earlier preview-download device-evidence artifact; it is not
 the upload-capable APK.
+
+Current foreground-gallery host evidence on 2026-08-19:
+
+- `rustpush` library tests: 49 passed and 2 manual-network tests ignored;
+- the combined database, core, Android unit, ObjectBox parity, UniFFI parity, two-ABI Rust build,
+  debug assembly, and Photos light/dark screenshot gate passed;
+- coordinator coverage proves preview/original resource separation, independent cache paths,
+  successful atomic original promotion, and rejection of an invalid original;
+- the hard-disabled background invariant has a unit test, and no scheduler or UI enable control
+  exists;
+- the debug APK is 323,917,208 bytes with SHA-256
+  `3fc3ca74ed80d21e60ad290250869bee2535a4a5c6bc96a692d4f9e215f14754`.
+
+This is host evidence only for the new gallery/original/batch/folder behavior; the device evidence
+below predates this slice.
 
 Device evidence on 2026-08-19:
 
@@ -275,8 +314,9 @@ The first two names are now committed; keep later additions narrow.
   small image/video display rendition. Kotlin owns atomic promotion and durable state.
 - `upload_photo_jpeg(original_path, preview_path, filename, captured_at_ms, orientation)` is
   committed for an explicitly staged JPEG pair and returns the CPL master/asset identifiers.
-- A later `download_photo_resource(asset_id, resource_kind, destination)` will cover originals and
-  Live Photo pairs and return verified size/checksum information.
+- `download_photo_original(master_id, media_kind, destination, progress)` is committed for an
+  explicitly selected original. A later resource method must still cover Live Photo motion pairs
+  and return verified size/checksum information.
 
 CloudKit authentication tokens, signed download URLs, change tags, encryption material, raw
 records, and server response bodies must remain in Rust and must not be logged or cross UniFFI.
@@ -300,10 +340,11 @@ like sync.
 
 1. Download a small image/video preview to app-owned temporary storage. Image preview download is
    live-proven; the sampled page contained no videos, so small-video proof remains pending.
-2. Download an original still image and video.
+2. Download an original still image and video. The foreground path is implemented; live proof is
+   still pending.
 3. Support and verify both components of a Live Photo.
 4. Atomically promote completed files; clean up partial files on cancellation/failure. The shared
-   coordinator is implemented for previews.
+   coordinator is implemented for previews and originals.
 5. Add an explicit "Save to device" MediaStore export. Exported gallery files are user-owned
    copies, not the sync root.
 
@@ -320,7 +361,8 @@ like sync.
 
 ### Slice 4: background reconciliation
 
-1. Add dedicated WorkManager scheduling with network, charging, battery, and storage constraints.
+1. The worker pass exists behind a compile-time false flag; add dedicated WorkManager scheduling
+   with network, charging, battery, and storage constraints only after the enablement review.
 2. APS notifications may mark Photos dirty and enqueue work; never perform a library sync inside
    the APS callback or message poll.
 3. Use foreground transfer behavior for user-initiated long downloads where Android requires it.

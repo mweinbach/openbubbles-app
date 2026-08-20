@@ -8,9 +8,9 @@ description: Extend or diagnose personal iCloud Photos metadata, protected previ
 Read [../../../docs/PHOTOS_SYNC.md](../../../docs/PHOTOS_SYNC.md),
 [../../../docs/DEVELOPMENT.md](../../../docs/DEVELOPMENT.md), and the CloudKit/PCS sections of
 [../../../docs/RUST_KOTLIN.md](../../../docs/RUST_KOTLIN.md) before editing. Preserve the exact
-scope: this is an experimental personal iCloud Photos browser with explicit transfers, not Shared
-Albums and not full bidirectional sync. The only write milestone is a separately tapped JPEG
-upload; it does not authorize background mirroring or any other mutation.
+scope: this is an experimental personal iCloud Photos browser with controlled foreground
+transfers, not Shared Albums and not full bidirectional sync. Writes remain explicit JPEG uploads;
+the dormant background worker does not authorize background mirroring or any other mutation.
 
 ## Follow the ownership boundaries
 
@@ -33,8 +33,10 @@ types from `core/`, or add a Flutter Rust Bridge API.
 ## Preserve the current safe flow
 
 The metadata query is bounded and uses `NO_ASSETS`; listing must never download the library. A
-user tap fetches one small rendition, writes it to an app-owned `.part` file, verifies that the
-decrypted bytes match the expected JPEG or ISO-BMFF header, then atomically promotes the file.
+composed lazy-grid cell may fetch one small rendition, write it to an app-owned `.part` file,
+verify that the decrypted bytes match the expected JPEG or ISO-BMFF header, then atomically
+promote the file. Only explicit selection may fetch an original, using a separate transfer ID and
+cache directory.
 Both Rust and Kotlin reject mismatched bytes. A corrupt completed cache entry must be downloaded
 again rather than reported as successful.
 
@@ -43,11 +45,13 @@ transfer intent/state. Apply metadata plus its cursor in one transaction. Recove
 `Running` rows to `Queued`; keep failed rows retryable; do not infer a cloud deletion from a
 missing local cache file.
 
-JPEG selection copies an original plus a generated small preview into content-addressed private
-staging and records a `Queued` row. Selection must never upload. A second explicit row tap invokes
-the async UniFFI upload, persists attempt/failure/success state, and records the remote master ID.
-HEIC conversion, video/Live Photo uploads, albums, edits, deletes, and gallery observation remain
-blocked.
+Picker selections and manually scanned document-tree folders normalize decodable images into the
+JPEG original/preview upload contract, copy them into content-addressed private staging, and record
+`Queued` rows. Selection and folder scan must never upload. A separate explicit upload action
+invokes async UniFFI, persists attempt/failure/success state, and records the remote master ID.
+Folder access alone must never scan. Background scheduling stays absent and the compile-time
+background flag stays false until the product and protocol gates change. Video/Live Photo uploads,
+albums, edits, deletes, and automatic Android gallery observation remain blocked.
 
 Protected assets can require PCS decryption even when the enclosing CloudKit field omits its
 encrypted flag. Keep clear asset keys in memory only, never persist or log them, and rely on RFC
@@ -112,11 +116,11 @@ time window. Verify boundaries independently:
 
 1. the personal Photos container reports metadata availability;
 2. a bounded page and opaque cursor persist without downloading assets;
-3. an explicit preview reaches the expected byte count;
+3. a visible-cell preview reaches the expected byte count;
 4. the promoted cache file has the expected media header and nonzero size;
 5. SQLite records success with a blank error, while failure/retry state remains durable;
 6. the downloaded state restores after force-stop/cold launch;
-7. for upload, selection first restores as `Queued` without a write;
+7. for upload, picker/folder staging first restores as `Queued` without a write;
 8. MMCS accepts both original and preview, PCS wraps the clear 16-byte Photos FORD keys, and the atomic
    CPLMaster+CPLAsset save returns success;
 9. the returned master appears in a refreshed OpenBubbles page and on an Apple Photos device.
