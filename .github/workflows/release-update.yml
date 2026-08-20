@@ -231,6 +231,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          mkdir -p "$GITHUB_WORKSPACE/android"
           echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/android/release.jks"
           cat > "$GITHUB_WORKSPACE/android/key.properties" <<EOF
           storeFile=$GITHUB_WORKSPACE/android/release.jks
