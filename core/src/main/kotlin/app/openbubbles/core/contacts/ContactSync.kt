@@ -1,10 +1,13 @@
 package app.openbubbles.core.contacts
 
+import app.openbubbles.core.repo.StoreEntityChange
+import app.openbubbles.core.repo.StoreInvalidationCoordinators
 import app.openbubbles.db.ContactV2
 import app.openbubbles.db.ContactV2_
 import app.openbubbles.db.Handle
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import java.util.LinkedHashMap
 
 /** Explicit avatar ownership for contact updates; no persistence field is required. */
 sealed interface AvatarUpdate {
@@ -130,6 +133,7 @@ class ContactSync(private val store: BoxStore) {
 
     private val contactBox = store.boxFor(ContactV2::class.java)
     private val handleBox = store.boxFor(Handle::class.java)
+    private val invalidations = StoreInvalidationCoordinators.forStore(store)
 
     // ------------------------------------------------------------------
     // Projection cache
@@ -139,8 +143,8 @@ class ContactSync(private val store: BoxStore) {
     // rebuild these maps from full contacts + handles table scans. The maps
     // only depend on the contact and handle tables, so they are memoized and
     // rebuilt (in one pass) when those tables change: this class's own
-    // mutators mark the cache dirty synchronously, store observers catch
-    // writers outside this class, and a row-count probe catches external
+    // mutators mark the cache dirty synchronously, the store's one shared
+    // generation tracker catches outside writers, and row-count probes catch
     // inserts/deletes even before the (asynchronous) observer fires.
     // ------------------------------------------------------------------
 
@@ -148,7 +152,7 @@ class ContactSync(private val store: BoxStore) {
 
     @Volatile
     private var projectionDirty = true
-    private var projectionObserversRegistered = false
+    private var projectedGeneration = -1L
     private var projectedContactCount = -1L
     private var projectedHandleCount = -1L
 
@@ -171,28 +175,27 @@ class ContactSync(private val store: BoxStore) {
         projectionDirty = true
     }
 
-    private fun ensureProjectionObservers() {
-        if (projectionObserversRegistered) return
-        synchronized(projectionLock) {
-            if (projectionObserversRegistered) return
-            store.subscribe(ContactV2::class.java).observer { invalidateProjections() }
-            store.subscribe(Handle::class.java).observer { invalidateProjections() }
-            projectionObserversRegistered = true
-        }
-    }
-
     private fun refreshProjections() {
-        ensureProjectionObservers()
+        val generation = invalidations.generationFor(
+            StoreEntityChange.CONTACT,
+            StoreEntityChange.HANDLE,
+        )
         val contactCount = contactBox.count()
         val handleCount = handleBox.count()
         if (!projectionDirty &&
+            generation == projectedGeneration &&
             contactCount == projectedContactCount &&
             handleCount == projectedHandleCount
         ) {
             return
         }
         synchronized(projectionLock) {
+            val lockedGeneration = invalidations.generationFor(
+                StoreEntityChange.CONTACT,
+                StoreEntityChange.HANDLE,
+            )
             if (!projectionDirty &&
+                lockedGeneration == projectedGeneration &&
                 contactBox.count() == projectedContactCount &&
                 handleBox.count() == projectedHandleCount
             ) {
@@ -220,6 +223,7 @@ class ContactSync(private val store: BoxStore) {
                 }
                 projectedContactCount = contactBox.count()
                 projectedHandleCount = handleBox.count()
+                projectedGeneration = lockedGeneration
                 cachedDisplayByHandleId = byHandleId
                 cachedContactIdsByHandleId = contactIds
                 cachedDisplayByMatchKey = byMatchKey
@@ -634,6 +638,22 @@ class ContactSync(private val store: BoxStore) {
     companion object {
         private const val ICLOUD_CONTACT_PREFIX = "icloud:"
         const val DEVICE_CONTACT_PREFIX = "android:lookup:"
+        private const val ADDRESS_CACHE_ENTRIES = 4_096
+
+        private class SynchronizedLruCache<K, V>(maxEntries: Int) {
+            private val values = object : LinkedHashMap<K, V>(maxEntries, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean =
+                    size > maxEntries
+            }
+
+            fun getOrPut(key: K, create: () -> V): V = synchronized(values) {
+                values[key] ?: create().also { values[key] = it }
+            }
+        }
+
+        private val normalizedPhones = SynchronizedLruCache<String, String>(ADDRESS_CACHE_ENTRIES)
+        private val phoneVariants = SynchronizedLruCache<String, Set<String>>(ADDRESS_CACHE_ENTRIES)
+        private val addressKeys = SynchronizedLruCache<String, Set<String>>(ADDRESS_CACHE_ENTRIES)
 
         private val contactPreferenceComparator =
             compareBy<ContactV2> { contactPreference(it) }.thenBy { it.id }
@@ -669,17 +689,30 @@ class ContactSync(private val store: BoxStore) {
         fun normalizeEmail(email: String): String = withoutAddressScheme(email).lowercase()
 
         /** Digits and `+` only — `ContactV2.normalizePhoneNumber`. */
-        fun normalizePhoneNumber(phone: String): String =
-            withoutAddressScheme(phone).replace(Regex("[^\\d+]"), "")
+        fun normalizePhoneNumber(phone: String): String {
+            val withoutScheme = withoutAddressScheme(phone)
+            return normalizedPhones.getOrPut(withoutScheme) {
+                buildString(withoutScheme.length) {
+                    withoutScheme.forEach { char ->
+                        if (char == '+' || char in '0'..'9') append(char)
+                    }
+                }
+            }
+        }
 
         /** Comparable keys for one address — email or phone variants. */
         fun addressMatchKeys(address: String): Set<String> {
             val withoutScheme = withoutAddressScheme(address)
             if (withoutScheme.isEmpty()) return emptySet()
-            return if (withoutScheme.contains('@')) {
-                setOf(normalizeEmail(withoutScheme))
+            val email = withoutScheme.contains('@')
+            val normalized = if (email) {
+                normalizeEmail(withoutScheme)
             } else {
-                phoneNumberVariants(withoutScheme)
+                normalizePhoneNumber(withoutScheme)
+            }
+            if (normalized.isEmpty()) return emptySet()
+            return addressKeys.getOrPut("${if (email) 'e' else 'p'}:$normalized") {
+                if (email) setOf(normalized) else phoneNumberVariants(normalized)
             }
         }
 
@@ -701,30 +734,31 @@ class ContactSync(private val store: BoxStore) {
          * matches a handle storing "+11234567890" and vice versa.
          */
         fun phoneNumberVariants(phone: String): Set<String> {
-            val variants = mutableSetOf<String>()
             val normalized = normalizePhoneNumber(phone)
-            if (normalized.isEmpty()) return variants
-
-            variants += normalized
-            if (normalized.startsWith("+")) {
-                variants += normalized.substring(1)
-                for (i in 1..3) {
-                    if (i < normalized.length) {
-                        val withoutCountryCode = normalized.substring(i + 1)
-                        if (withoutCountryCode.isNotEmpty()) variants += withoutCountryCode
-                    }
-                }
-            } else {
-                variants += "+$normalized"
-                for (i in 1..3) {
-                    if (i < normalized.length) {
-                        val withoutPrefix = normalized.substring(i)
-                        variants += withoutPrefix
-                        variants += "+$withoutPrefix"
+            if (normalized.isEmpty()) return emptySet()
+            return phoneVariants.getOrPut(normalized) {
+                buildSet {
+                    add(normalized)
+                    if (normalized.startsWith("+")) {
+                        add(normalized.substring(1))
+                        for (i in 1..3) {
+                            if (i < normalized.length) {
+                                val withoutCountryCode = normalized.substring(i + 1)
+                                if (withoutCountryCode.isNotEmpty()) add(withoutCountryCode)
+                            }
+                        }
+                    } else {
+                        add("+$normalized")
+                        for (i in 1..3) {
+                            if (i < normalized.length) {
+                                val withoutPrefix = normalized.substring(i)
+                                add(withoutPrefix)
+                                add("+$withoutPrefix")
+                            }
+                        }
                     }
                 }
             }
-            return variants
         }
 
         /**

@@ -3,6 +3,7 @@ package app.openbubbles.core.sync
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.repo.StoreInvalidationCoordinators
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
@@ -211,6 +212,7 @@ class CloudSyncManager(
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
     private val attachmentBox = store.boxFor(Attachment::class.java)
+    private val invalidations = StoreInvalidationCoordinators.forStore(store)
     private val mutex = Mutex()
     private val cancelled = AtomicBoolean(false)
 
@@ -633,70 +635,79 @@ class CloudSyncManager(
 
     private suspend fun applyChatPage(records: List<UChatChange>, lookup: HistorySyncLookup) {
         val pendingPhotos = ArrayList<PendingGroupPhoto>()
-        records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
-            store.runInTx {
-                val tombstonesByRecordId = chatsByRecordIdsLocked(
-                    batch.filter { it.chat == null }.map(UChatChange::recordId),
-                )
-                for (record in batch) {
-                    val cloud = record.chat
-                    if (cloud == null) {
-                        tombstonesByRecordId[record.recordId]
-                            .orEmpty()
-                            .forEach { deleteChatLocked(it, lookup) }
-                        continue
-                    }
-                    if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
-                    val chat = findOrImportChatLocked(cloud, lookup)
-                    // Always refresh identifiers (Dart applies these before the
-                    // version gate).
-                    chat.chatIdentifier = cloud.chatIdentifier
-                    chat.ckRecordId = record.recordId
-                    chat.cloudGuid = cloud.groupId
-                    val localVersion = chat.groupVersion ?: 1L
-                    val cloudVersion = cloud.groupVersion?.toLong()
-                    if (cloudVersion == null || cloudVersion <= localVersion) {
-                        chat.ckSyncState = cloudVersion == localVersion
-                    } else {
-                        // Cloud is newer: apply the full chat state.
-                        chat.style = cloud.style
-                        chat.lastReadMessageGuid = cloud.lastSeenMessageGuid
-                        chat.groupVersion = cloudVersion
-                        chat.displayName = cloud.displayName
-                        chat.dbOnlyLatestMessageDate = dateFromAppleNs(cloud.lastReadMessageTimestamp)
-                        // Cloud chats include me — mirror Dart and keep all.
-                        chat.handles.clear()
-                        chat.handles.addAll(
-                            cloud.participants.map { lookup.resolveHandle(it, "iMessage") },
-                        )
-                        if (cloud.lastAddressedHandle.isNotEmpty()) {
-                            chat.usingHandle = MessageMapper.toRustHandle(cloud.lastAddressedHandle)
+        invalidations.coalesce {
+            records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                store.runInTx {
+                    val tombstonesByRecordId = chatsByRecordIdsLocked(
+                        batch.filter { it.chat == null }.map(UChatChange::recordId),
+                    )
+                    for (record in batch) {
+                        val cloud = record.chat
+                        if (cloud == null) {
+                            tombstonesByRecordId[record.recordId]
+                                .orEmpty()
+                                .forEach { deleteChatLocked(it, lookup) }
+                            continue
                         }
-                        chat.ckSyncState = true
-                    }
-                    if (cloud.hasGroupPhoto) {
-                        val fileExists = chat.customAvatarPath?.let { File(it).isFile } == true
-                        if (shouldDownloadGroupPhoto(
-                                lockChatIcon = chat.lockChatIcon,
-                                customAvatarPath = chat.customAvatarPath,
+                        if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
+                        val chat = findOrImportChatLocked(cloud, lookup)
+                        // Always refresh identifiers (Dart applies these before the
+                        // version gate).
+                        var dirty = chat.chatIdentifier != cloud.chatIdentifier ||
+                            chat.ckRecordId != record.recordId ||
+                            chat.cloudGuid != cloud.groupId
+                        chat.chatIdentifier = cloud.chatIdentifier
+                        chat.ckRecordId = record.recordId
+                        chat.cloudGuid = cloud.groupId
+                        val localVersion = chat.groupVersion ?: 1L
+                        val cloudVersion = cloud.groupVersion?.toLong()
+                        if (cloudVersion == null || cloudVersion <= localVersion) {
+                            val synced = cloudVersion == localVersion
+                            dirty = dirty || chat.ckSyncState != synced
+                            chat.ckSyncState = synced
+                        } else {
+                            // Cloud is newer: apply the full chat state.
+                            dirty = true
+                            chat.style = cloud.style
+                            chat.lastReadMessageGuid = cloud.lastSeenMessageGuid
+                            chat.groupVersion = cloudVersion
+                            chat.displayName = cloud.displayName
+                            chat.dbOnlyLatestMessageDate = dateFromAppleNs(cloud.lastReadMessageTimestamp)
+                            // Cloud chats include me — mirror Dart and keep all.
+                            chat.handles.clear()
+                            chat.handles.addAll(
+                                cloud.participants.map { lookup.resolveHandle(it, "iMessage") },
+                            )
+                            if (cloud.lastAddressedHandle.isNotEmpty()) {
+                                chat.usingHandle = MessageMapper.toRustHandle(cloud.lastAddressedHandle)
+                            }
+                            chat.ckSyncState = true
+                        }
+                        if (cloud.hasGroupPhoto) {
+                            val fileExists = chat.customAvatarPath?.let { File(it).isFile } == true
+                            if (shouldDownloadGroupPhoto(
+                                    lockChatIcon = chat.lockChatIcon,
+                                    customAvatarPath = chat.customAvatarPath,
+                                    photoAttachmentGuid = chat.photoAttachmentGuid,
+                                    recordId = record.recordId,
+                                    version = cloudVersion,
+                                    fileExists = fileExists,
+                                )
+                            ) {
+                                pendingPhotos += PendingGroupPhoto(chat.id, record.recordId, cloudVersion)
+                            }
+                        } else if (shouldClearCloudGroupPhoto(
                                 photoAttachmentGuid = chat.photoAttachmentGuid,
                                 recordId = record.recordId,
-                                version = cloudVersion,
-                                fileExists = fileExists,
+                                cloudVersion = cloudVersion,
                             )
                         ) {
-                            pendingPhotos += PendingGroupPhoto(chat.id, record.recordId, cloudVersion)
+                            clearCloudGroupPhoto(chat)
+                            dirty = true
                         }
-                    } else if (shouldClearCloudGroupPhoto(
-                            photoAttachmentGuid = chat.photoAttachmentGuid,
-                            recordId = record.recordId,
-                            cloudVersion = cloudVersion,
-                        )
-                    ) {
-                        clearCloudGroupPhoto(chat)
+                        if (dirty) chatBox.put(chat)
+                        lookup.putChat(chat)
                     }
-                    chatBox.put(chat)
-                    lookup.putChat(chat)
                 }
             }
         }
@@ -836,91 +847,93 @@ class CloudSyncManager(
     // ------------------------------------------------------------------
 
     private suspend fun applyMessagePage(records: List<UMessageChange>, lookup: HistorySyncLookup) {
-        records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
-            val transcriptBackgrounds = mutableListOf<TranscriptBackgroundUpdate>()
-            store.runInTx {
-                val cloudMessages = batch.mapNotNull(UMessageChange::message)
-                val messagesByGuid = messagesByGuidsLocked(
-                    buildSet {
-                        cloudMessages.forEach { cloud ->
-                            add(cloud.guid)
-                            cloud.associatedMessageGuid?.let(::add)
-                        }
-                    },
-                )
-                val attachmentsByGuid = attachmentsByGuidsLocked(
-                    cloudMessages.flatMap(UCloudMessage::attachmentGuids),
-                )
-                val tombstonesByRecordId = messagesByRecordIdsLocked(
-                    batch.filter { it.message == null }.map(UMessageChange::recordId),
-                )
-                for (record in batch) {
-                    val cloud = record.message
-                    if (cloud == null) {
-                        tombstonesByRecordId[record.recordId]
-                            .orEmpty()
-                            .forEach { message ->
-                                messagesByGuid.remove(message.guid)
-                                deleteMessageLocked(message)
+        val transcriptBackgrounds = mutableListOf<TranscriptBackgroundUpdate>()
+        invalidations.coalesce {
+            records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                store.runInTx {
+                    val cloudMessages = batch.mapNotNull(UMessageChange::message)
+                    val messagesByGuid = messagesByGuidsLocked(
+                        buildSet {
+                            cloudMessages.forEach { cloud ->
+                                add(cloud.guid)
+                                cloud.associatedMessageGuid?.let(::add)
                             }
-                        continue
-                    }
-                    if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
-                        // A wallpaper record must never wedge the message
-                        // zone: an undecodable payload or a chat we do not
-                        // have (deleted locally, never imported) is skipped
-                        // so the cursor keeps advancing — otherwise every
-                        // incremental sync re-fails on the same page and no
-                        // history lands after it (Dart never aborted here).
-                        val background = cloud.transcriptBackground ?: continue
-                        val chat = background.chatId
-                            ?.let(lookup::chatForTranscriptBackground)
-                            ?: lookup.chatForTranscriptBackground(cloud.chatId)
-                            ?: cloud.sender.takeIf(String::isNotEmpty)?.let { sender ->
-                                lookup.directChatForAddress(
-                                    MessageMapper.normalizeAddress(sender),
-                                    preferIMessage = true,
-                                )
-                            }
-                            ?: continue
-                        removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
-                        transcriptBackgrounds += TranscriptBackgroundUpdate(
-                            chatId = chat.id,
-                            version = background.version.toLong(),
-                            remove = background.remove,
-                            mmcsXml = background.mmcsXml,
-                        )
-                        continue
-                    }
-                    applyMessageLocked(
-                        record.recordId,
-                        cloud,
-                        lookup,
-                        messagesByGuid,
-                        attachmentsByGuid,
+                        },
                     )
-                }
-            }
-            if (transcriptBackgrounds.isNotEmpty()) {
-                val handler = requireNotNull(transcriptBackgroundHandler) {
-                    "transcript background handler is unavailable"
-                }
-                transcriptBackgrounds
-                    .sortedBy(TranscriptBackgroundUpdate::version)
-                    .forEach { update ->
-                        try {
-                            handler.apply(update)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // Apple drops the MMCS payloads of old wallpapers,
-                            // so historical records routinely fail to
-                            // download. Skip rather than abort: the next
-                            // wallpaper change (or a FULL resync while the
-                            // payload is still live) reapplies it.
+                    val attachmentsByGuid = attachmentsByGuidsLocked(
+                        cloudMessages.flatMap(UCloudMessage::attachmentGuids),
+                    )
+                    val tombstonesByRecordId = messagesByRecordIdsLocked(
+                        batch.filter { it.message == null }.map(UMessageChange::recordId),
+                    )
+                    for (record in batch) {
+                        val cloud = record.message
+                        if (cloud == null) {
+                            tombstonesByRecordId[record.recordId]
+                                .orEmpty()
+                                .forEach { message ->
+                                    messagesByGuid.remove(message.guid)
+                                    deleteMessageLocked(message)
+                                }
+                            continue
                         }
+                        if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
+                            // A wallpaper record must never wedge the message
+                            // zone: an undecodable payload or a chat we do not
+                            // have (deleted locally, never imported) is skipped
+                            // so the cursor keeps advancing — otherwise every
+                            // incremental sync re-fails on the same page and no
+                            // history lands after it (Dart never aborted here).
+                            val background = cloud.transcriptBackground ?: continue
+                            val chat = background.chatId
+                                ?.let(lookup::chatForTranscriptBackground)
+                                ?: lookup.chatForTranscriptBackground(cloud.chatId)
+                                ?: cloud.sender.takeIf(String::isNotEmpty)?.let { sender ->
+                                    lookup.directChatForAddress(
+                                        MessageMapper.normalizeAddress(sender),
+                                        preferIMessage = true,
+                                    )
+                                }
+                                ?: continue
+                            removeLegacyTranscriptBackgroundMessageLocked(cloud.guid, messagesByGuid)
+                            transcriptBackgrounds += TranscriptBackgroundUpdate(
+                                chatId = chat.id,
+                                version = background.version.toLong(),
+                                remove = background.remove,
+                                mmcsXml = background.mmcsXml,
+                            )
+                            continue
+                        }
+                        applyMessageLocked(
+                            record.recordId,
+                            cloud,
+                            lookup,
+                            messagesByGuid,
+                            attachmentsByGuid,
+                        )
                     }
+                }
             }
+        }
+        if (transcriptBackgrounds.isNotEmpty()) {
+            val handler = requireNotNull(transcriptBackgroundHandler) {
+                "transcript background handler is unavailable"
+            }
+            transcriptBackgrounds
+                .sortedBy(TranscriptBackgroundUpdate::version)
+                .forEach { update ->
+                    try {
+                        handler.apply(update)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Apple drops the MMCS payloads of old wallpapers,
+                        // so historical records routinely fail to
+                        // download. Skip rather than abort: the next
+                        // wallpaper change (or a FULL resync while the
+                        // payload is still live) reapplies it.
+                    }
+                }
         }
         // Stale cloud duplicates found on this page are dropped remotely
         // after it applied (Dart's post-page dupDeleteMessages flush).
@@ -1004,9 +1017,11 @@ class CloudSyncManager(
                 // half is nothing (the row keeps pointing at the new id).
                 pendingDuplicateMessageDeletes += oldRecordId
             }
-            existing.ckRecordId = recordId
-            existing.ckSyncState = true
-            messageBox.put(existing)
+            if (oldRecordId != recordId || existing.ckSyncState != true) {
+                existing.ckRecordId = recordId
+                existing.ckSyncState = true
+                messageBox.put(existing)
+            }
             return
         }
 
@@ -1101,30 +1116,32 @@ class CloudSyncManager(
     // ------------------------------------------------------------------
 
     private suspend fun applyAttachmentPage(records: List<UAttachmentChange>) {
-        records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
-            store.runInTx {
-                val cloudAttachments = batch.mapNotNull(UAttachmentChange::attachment)
-                val attachmentsByGuid = attachmentsByGuidsLocked(
-                    cloudAttachments.map(UCloudAttachment::guid),
-                )
-                val messagesByGuid = messagesByGuidsLocked(
-                    cloudAttachments.mapNotNull(UCloudAttachment::messageGuid),
-                )
-                val tombstonesByRecordId = attachmentsByRecordIdsLocked(
-                    batch.filter { it.attachment == null }.map(UAttachmentChange::recordId),
-                )
-                for (record in batch) {
-                    val cloud = record.attachment
-                    if (cloud == null) {
-                        tombstonesByRecordId[record.recordId]
-                            .orEmpty()
-                            .forEach { attachment ->
-                                attachmentsByGuid.remove(attachment.guid)
-                                removeAttachmentLocked(attachment)
-                            }
-                        continue
+        invalidations.coalesce {
+            records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                store.runInTx {
+                    val cloudAttachments = batch.mapNotNull(UAttachmentChange::attachment)
+                    val attachmentsByGuid = attachmentsByGuidsLocked(
+                        cloudAttachments.map(UCloudAttachment::guid),
+                    )
+                    val messagesByGuid = messagesByGuidsLocked(
+                        cloudAttachments.mapNotNull(UCloudAttachment::messageGuid),
+                    )
+                    val tombstonesByRecordId = attachmentsByRecordIdsLocked(
+                        batch.filter { it.attachment == null }.map(UAttachmentChange::recordId),
+                    )
+                    for (record in batch) {
+                        val cloud = record.attachment
+                        if (cloud == null) {
+                            tombstonesByRecordId[record.recordId]
+                                .orEmpty()
+                                .forEach { attachment ->
+                                    attachmentsByGuid.remove(attachment.guid)
+                                    removeAttachmentLocked(attachment)
+                                }
+                            continue
+                        }
+                        applyAttachmentLocked(record.recordId, cloud, attachmentsByGuid, messagesByGuid)
                     }
-                    applyAttachmentLocked(record.recordId, cloud, attachmentsByGuid, messagesByGuid)
                 }
             }
         }
@@ -1146,9 +1163,11 @@ class CloudSyncManager(
         if (existing != null) {
             existing.ckRecordId?.takeIf { it != recordId }
                 ?.let(pendingDuplicateAttachmentDeletes::add)
-            existing.ckRecordId = recordId
-            existing.metadata = existing.metadata.orEmpty() + ("cloud" to recordId)
-            attachmentBox.put(existing)
+            if (existing.ckRecordId != recordId || existing.metadata?.get("cloud") != recordId) {
+                existing.ckRecordId = recordId
+                existing.metadata = existing.metadata.orEmpty() + ("cloud" to recordId)
+                attachmentBox.put(existing)
+            }
             return
         }
 

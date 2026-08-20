@@ -442,7 +442,14 @@ object CoreGraph {
     }
 
     fun isChatBlocked(chatId: Long): Boolean =
-        store?.let { ChatRepo(it).isBlocked(chatId) } == true
+        chatRepo?.isBlocked(chatId) == true
+
+    internal fun markRelatedChatsRead(chatId: Long): List<Long> {
+        val repo = chatRepo ?: return emptyList()
+        val relatedChatIds = repo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
+        relatedChatIds.forEach(repo::markRead)
+        return relatedChatIds
+    }
 
     /** Bytes used by the attachments cache directory (0 when unavailable). */
     fun attachmentsCacheBytes(): Long {
@@ -1003,46 +1010,48 @@ private fun enrichWithEntityDetails(
 ): List<MessageItem> {
     if (store == null || items.isEmpty()) return items
     return runCatching {
-        val messageBox = store.boxFor(Message::class.java)
-        val entities = messageBox.get(items.map { it.id })
-        val byId = HashMap<Long, Message>(entities.size)
-        entities.forEach { byId[it.id] = it }
-        val replyGuids = entities.asSequence()
-            .mapNotNull { it.threadOriginatorGuid }
-            .distinct()
-            .toList()
-        val replyTargets: Map<String, Message> = if (replyGuids.isEmpty()) {
-            emptyMap()
-        } else {
-            messageBox.query(
-                Message_.guid.oneOf(replyGuids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE),
-            ).build().use { it.find() }.associateBy { it.guid }
-        }
-        items.map { item ->
-            val entity = byId[item.id] ?: return@map item
-            val (edited, unsent) = editedFlags(entity)
-            val attachments = runCatching {
-                visibleAttachmentMetas(entity.dbAttachments)
-            }.getOrDefault(emptyList())
-            val firstAttachment = attachments.firstOrNull()
-            item.copy(
-                attachmentMeta = firstAttachment,
-                attachmentMetas = attachments,
-                edited = edited,
-                unsent = unsent,
-                expressiveSendStyleId = entity.expressiveSendStyleId,
-                replyPreviewText = entity.threadOriginatorGuid?.let { guid ->
-                    val target = replyTargets[guid]
-                    val part = app.openbubbles.core.model.MessageMapper
-                        .replyPartIndex(entity.threadOriginatorPart) ?: 0L
-                    val attachment = target?.dbAttachments?.firstOrNull { row ->
-                        row.guid?.substringAfterLast('_')?.toLongOrNull() == part
-                    }
-                    attachment?.transferName
-                        ?: target?.text?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: if (target?.hasAttachments == true) "Attachment" else null
-                },
-            )
+        store.callInReadTx {
+            val messageBox = store.boxFor(Message::class.java)
+            val entities = messageBox.get(items.map { it.id })
+            val byId = HashMap<Long, Message>(entities.size)
+            entities.forEach { byId[it.id] = it }
+            val replyGuids = entities.asSequence()
+                .mapNotNull { it.threadOriginatorGuid }
+                .distinct()
+                .toList()
+            val replyTargets: Map<String, Message> = if (replyGuids.isEmpty()) {
+                emptyMap()
+            } else {
+                messageBox.query(
+                    Message_.guid.oneOf(replyGuids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE),
+                ).build().use { it.find() }.associateBy { it.guid }
+            }
+            items.map { item ->
+                val entity = byId[item.id] ?: return@map item
+                val (edited, unsent) = editedFlags(entity)
+                val attachments = runCatching {
+                    visibleAttachmentMetas(entity.dbAttachments)
+                }.getOrDefault(emptyList())
+                val firstAttachment = attachments.firstOrNull()
+                item.copy(
+                    attachmentMeta = firstAttachment,
+                    attachmentMetas = attachments,
+                    edited = edited,
+                    unsent = unsent,
+                    expressiveSendStyleId = entity.expressiveSendStyleId,
+                    replyPreviewText = entity.threadOriginatorGuid?.let { guid ->
+                        val target = replyTargets[guid]
+                        val part = app.openbubbles.core.model.MessageMapper
+                            .replyPartIndex(entity.threadOriginatorPart) ?: 0L
+                        val attachment = target?.dbAttachments?.firstOrNull { row ->
+                            row.guid?.substringAfterLast('_')?.toLongOrNull() == part
+                        }
+                        attachment?.transferName
+                            ?: target?.text?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: if (target?.hasAttachments == true) "Attachment" else null
+                    },
+                )
+            }
         }
     }.getOrDefault(items)
 }
@@ -1281,6 +1290,10 @@ internal class CoreMessageListRepository(
         enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
     },
 ) : MessageListRepository {
+    private companion object {
+        const val MAX_WARM_LOAD_ATTEMPTS = 2
+    }
+
     private class PagingWindow(initialLimit: Int) {
         val size = MutableStateFlow(initialLimit)
 
@@ -1475,12 +1488,19 @@ internal class CoreMessageListRepository(
                 return
             }
 
-            var generation: Long
-            var ui: List<MessageItem>
-            do {
-                generation = changeGeneration.get()
-                ui = withContext(Dispatchers.IO) { warmLoader(chatId, limit) }
-            } while (generation != changeGeneration.get())
+            var stableGeneration: Long? = null
+            var stableUi: List<MessageItem>? = null
+            for (attempt in 0 until MAX_WARM_LOAD_ATTEMPTS) {
+                val generation = changeGeneration.get()
+                val ui = withContext(Dispatchers.IO) { warmLoader(chatId, limit) }
+                if (generation == changeGeneration.get()) {
+                    stableGeneration = generation
+                    stableUi = ui
+                    break
+                }
+            }
+            val generation = stableGeneration ?: return
+            val ui = stableUi ?: return
 
             if (prefetch != null && chatId !in retained &&
                 (prefetch != prefetchGeneration.get() || chatId !in desired)
@@ -1828,9 +1848,7 @@ private object CoreReadReceiptSender : ReadReceiptSender {
     override suspend fun markRead(chatId: Long, messageGuid: String?) {
         AppContext.current?.let { Notifications.cancelForChat(it, chatId) }
         val store = CoreGraph.store ?: return
-        val chatRepo = ChatRepo(store)
-        val relatedChatIds = chatRepo.relatedDirectChatIds(chatId).ifEmpty { listOf(chatId) }
-        relatedChatIds.forEach(chatRepo::markRead)
+        val relatedChatIds = CoreGraph.markRelatedChatsRead(chatId)
         relatedChatIds.forEach { id ->
             val chat = store.boxFor(Chat::class.java).get(id) ?: return@forEach
             if (chat.isRpSms != true) return@forEach

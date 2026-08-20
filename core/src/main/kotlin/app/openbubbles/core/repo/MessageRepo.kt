@@ -20,11 +20,10 @@ import io.objectbox.query.QueryCondition
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
@@ -45,6 +44,7 @@ class MessageRepo(
 
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
+    private val invalidations = StoreInvalidationCoordinators.forStore(store)
 
     data class OutgoingAttachmentStage(
         val guid: String,
@@ -56,21 +56,22 @@ class MessageRepo(
 
     /** Newest-first page of messages for a chat ([offset] skips older rows). */
     fun messages(chatId: Long, limit: Int = 50, offset: Int = 0): List<MessageItem> =
-        messageQuery(conversationChatIds(chatId)).use { query ->
-            // Relation-backed fields are projected while the query's native
-            // read transaction is scoped to this worker thread.
-            projectPage(query.find(offset.toLong(), limit.toLong()))
+        store.callInReadTx {
+            messageQuery(conversationChatIds(chatId)).use { query ->
+                projectPage(query.find(offset.toLong(), limit.toLong()))
+            }
         }
 
     /** Newest-first page strictly older than [beforeId]'s time/id cursor. */
-    fun messagesBefore(chatId: Long, beforeId: Long, limit: Int): List<MessageItem> {
-        val anchor = messageBox.get(beforeId) ?: return emptyList()
-        val chatIds = conversationChatIds(chatId)
-        if (anchor.chat.targetId !in chatIds) return emptyList()
-        return messageQuery(chatIds, anchor).use { query ->
-            projectPage(query.find(0, limit.toLong()))
+    fun messagesBefore(chatId: Long, beforeId: Long, limit: Int): List<MessageItem> =
+        store.callInReadTx {
+            val anchor = messageBox.get(beforeId) ?: return@callInReadTx emptyList()
+            val chatIds = conversationChatIds(chatId)
+            if (anchor.chat.targetId !in chatIds) return@callInReadTx emptyList()
+            messageQuery(chatIds, anchor).use { query ->
+                projectPage(query.find(0, limit.toLong()))
+            }
         }
-    }
 
     /**
      * Projects a page with one batched reaction query instead of one query
@@ -81,7 +82,8 @@ class MessageRepo(
         val reactionTargets = page
             .filter { it.hasReactions && kindOf(it) == MessageKind.TEXT }
             .map { it.guid }
-        val reactionsByTarget = activeReactionsByTarget(reactionTargets)
+        val reactionChatIds = page.map { it.chat.targetId }.filter { it != 0L }.distinct()
+        val reactionsByTarget = activeReactionsByTarget(reactionTargets, reactionChatIds)
         return page.map { message -> toItem(message, reactionsByTarget[message.guid].orEmpty()) }
     }
 
@@ -92,9 +94,12 @@ class MessageRepo(
      */
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
         merge(
-            store.subscribe(Message::class.java).asFlow().map { Unit },
-            store.subscribe(Attachment::class.java).asFlow().drop(1).map { Unit },
-            store.subscribe(ContactV2::class.java).asFlow().drop(1).map { Unit },
+            flowOf(Unit),
+            invalidations.changesFor(
+                StoreEntityChange.MESSAGE,
+                StoreEntityChange.ATTACHMENT,
+                StoreEntityChange.CONTACT,
+            ),
         )
             .conflate()
             .map { messages(chatId, limit) }
@@ -107,11 +112,14 @@ class MessageRepo(
 
     /** Invalidates warmed UI projections when transcript display data changes. */
     fun observeTranscriptChanges(): Flow<Unit> =
-        combine(
-            store.subscribe(Message::class.java).asFlow(),
-            store.subscribe(Attachment::class.java).asFlow(),
-            store.subscribe(ContactV2::class.java).asFlow(),
-        ) { _, _, _ -> Unit }.conflate()
+        merge(
+            flowOf(Unit),
+            invalidations.changesFor(
+                StoreEntityChange.MESSAGE,
+                StoreEntityChange.ATTACHMENT,
+                StoreEntityChange.CONTACT,
+            ),
+        ).conflate()
 
     private fun messageQuery(chatIds: List<Long>, before: Message? = null): Query<Message> {
         var chatCondition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
@@ -144,13 +152,15 @@ class MessageRepo(
         val chatIds = conversationChatIds(chatId)
         var condition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
         chatIds.drop(1).forEach { id -> condition = condition.or(Message_.chatId.equal(id)) }
-        val found = messageBox.query(
-            condition
-                .and(Message_.isBookmarked.equal(true))
-                .and(Message_.associatedMessageGuid.isNull())
-                .and(Message_.dateDeleted.isNull()),
-        ).orderDesc(Message_.dateCreated).build().use { it.find() }
-        return projectPage(if (limit > 0) found.take(limit) else found)
+        return store.callInReadTx {
+            val found = messageBox.query(
+                condition
+                    .and(Message_.isBookmarked.equal(true))
+                    .and(Message_.associatedMessageGuid.isNull())
+                    .and(Message_.dateDeleted.isNull()),
+            ).orderDesc(Message_.dateCreated).build().use { it.find() }
+            projectPage(if (limit > 0) found.take(limit) else found)
+        }
     }
 
     fun recentlyDeleted(chatId: Long? = null, limit: Int = 0): List<MessageItem> {
@@ -162,11 +172,13 @@ class MessageRepo(
             chatIds.drop(1).forEach { id -> chatCondition = chatCondition.or(Message_.chatId.equal(id)) }
             condition = condition.and(chatCondition)
         }
-        val found = messageBox.query(condition)
-            .orderDesc(Message_.dateDeleted)
-            .orderDesc(Message_.dateCreated)
-            .build().use { it.find() }
-        return projectPage(if (limit > 0) found.take(limit) else found)
+        return store.callInReadTx {
+            val found = messageBox.query(condition)
+                .orderDesc(Message_.dateDeleted)
+                .orderDesc(Message_.dateCreated)
+                .build().use { it.find() }
+            projectPage(if (limit > 0) found.take(limit) else found)
+        }
     }
 
     fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) {
@@ -239,15 +251,17 @@ class MessageRepo(
     fun searchText(text: String, limit: Int = 25): List<MessageItem> {
         val needle = text.trim()
         if (needle.isEmpty()) return emptyList()
-        return messageBox.query(
-            Message_.text.contains(needle, QueryBuilder.StringOrder.CASE_INSENSITIVE)
-                .and(Message_.associatedMessageGuid.isNull())
-                .and(Message_.dateDeleted.isNull()),
-        )
-            .orderDesc(Message_.dateCreated)
-            .orderDesc(Message_.id)
-            .build()
-            .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+        return store.callInReadTx {
+            messageBox.query(
+                Message_.text.contains(needle, QueryBuilder.StringOrder.CASE_INSENSITIVE)
+                    .and(Message_.associatedMessageGuid.isNull())
+                    .and(Message_.dateDeleted.isNull()),
+            )
+                .orderDesc(Message_.dateCreated)
+                .orderDesc(Message_.id)
+                .build()
+                .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+        }
     }
 
     /**
@@ -263,35 +277,42 @@ class MessageRepo(
         val carriesLink = Message_.dbMetadata.notNull()
             .or(Message_.text.contains("http://", QueryBuilder.StringOrder.CASE_INSENSITIVE))
             .or(Message_.text.contains("https://", QueryBuilder.StringOrder.CASE_INSENSITIVE))
-        return messageBox.query(
-            matchesNeedle.and(carriesLink)
-                .and(Message_.associatedMessageGuid.isNull())
-                .and(Message_.dateDeleted.isNull()),
-        )
-            .orderDesc(Message_.dateCreated)
-            .orderDesc(Message_.id)
-            .build()
-            .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+        return store.callInReadTx {
+            messageBox.query(
+                matchesNeedle.and(carriesLink)
+                    .and(Message_.associatedMessageGuid.isNull())
+                    .and(Message_.dateDeleted.isNull()),
+            )
+                .orderDesc(Message_.dateCreated)
+                .orderDesc(Message_.id)
+                .build()
+                .use { query -> query.find(0, limit.toLong()).map(::toItem) }
+        }
     }
 
     /** Root plus every reply attached to the same root part, oldest first. */
     fun threadMessages(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
         val chatIds = conversationChatIds(chatId)
-        val root = messageByGuid(rootGuid)?.takeIf { it.chat.targetId in chatIds }
-        val sourceChatId = root?.chat?.targetId ?: chatId
-        val replies = messageBox.query()
-            .equal(Message_.chatId, sourceChatId)
-            .equal(Message_.threadOriginatorGuid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .isNull(Message_.associatedMessageGuid)
-            .isNull(Message_.dateDeleted)
-            .order(Message_.dateCreated)
-            .order(Message_.id)
-            .build().use { query ->
-                query.find().filter { MessageMapper.replyPartIndex(it.threadOriginatorPart) == part }
+        return store.callInReadTx {
+            val root = messageBox.query()
+                .equal(Message_.guid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+                ?.takeIf { it.chat.targetId in chatIds }
+            val sourceChatId = root?.chat?.targetId ?: chatId
+            val replies = messageBox.query()
+                .equal(Message_.chatId, sourceChatId)
+                .equal(Message_.threadOriginatorGuid, rootGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .isNull(Message_.associatedMessageGuid)
+                .isNull(Message_.dateDeleted)
+                .order(Message_.dateCreated)
+                .order(Message_.id)
+                .build().use { query ->
+                    query.find().filter { MessageMapper.replyPartIndex(it.threadOriginatorPart) == part }
+                }
+            buildList {
+                if (root != null) add(toItem(root))
+                addAll(replies.map(::toItem))
             }
-        return buildList {
-            if (root != null) add(toItem(root))
-            addAll(replies.map(::toItem))
         }
     }
 
@@ -577,11 +598,15 @@ class MessageRepo(
     }
 
     /** One `IN` query for every reacted-to message of a page, grouped by target. */
-    private fun activeReactionsByTarget(messageGuids: List<String>): Map<String, List<Message>> {
-        if (messageGuids.isEmpty()) return emptyMap()
+    private fun activeReactionsByTarget(
+        messageGuids: List<String>,
+        chatIds: List<Long>,
+    ): Map<String, List<Message>> {
+        if (messageGuids.isEmpty() || chatIds.isEmpty()) return emptyMap()
         val rows = messageBox.query(
             Message_.associatedMessageGuid
                 .oneOf(messageGuids.toTypedArray(), QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .and(Message_.chatId.oneOf(chatIds.toLongArray()))
                 .and(Message_.dateDeleted.isNull()),
         )
             .order(Message_.dateCreated)

@@ -25,8 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 
@@ -48,26 +48,24 @@ class ChatRepo(
     private val messageBox = store.boxFor(Message::class.java)
     private val handleBox = store.boxFor(Handle::class.java)
     private val contactSync = ContactSync(store)
+    private val invalidations = StoreInvalidationCoordinators.forStore(store)
 
     /** Chat DTO projection of active chats, ordered for the list UI. */
-    fun chats(limit: Int = 0): List<ChatListItem> {
-        val query = chatBox.query()
+    fun chats(limit: Int = 0): List<ChatListItem> = store.callInReadTx {
+        chatBox.query()
             .isNull(Chat_.dateDeleted)
             .orderDesc(Chat_.isPinned)
             .order(Chat_.pinIndex)
             .orderDesc(Chat_.dbOnlyLatestMessageDate)
-            .build()
-        return query.use {
-            val found = it.find()
-            val contactInfo = contactSync.displayInfoByHandleId()
-            val contactIds = contactSync.contactIdsByHandleId()
-            val addressInfo = contactSync.displayInfoByMatchKey()
-            val lookups = batchProjectionLookups(found)
-            // Project while the query and its creator thread are still alive;
-            // relation reads in toItem must not escape to a collector thread.
-            val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo, lookups)
-            if (limit > 0) grouped.take(limit) else grouped
-        }
+            .build().use { query ->
+                val found = query.find()
+                val contactInfo = contactSync.displayInfoByHandleId()
+                val contactIds = contactSync.contactIdsByHandleId()
+                val addressInfo = contactSync.displayInfoByMatchKey()
+                val lookups = batchProjectionLookups(found)
+                val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo, lookups)
+                if (limit > 0) grouped.take(limit) else grouped
+            }
     }
 
     /**
@@ -106,7 +104,7 @@ class ChatRepo(
         chatBox.query().notNull(Chat_.dateDeleted).build().use { it.count() }
 
     /** Recoverably deleted conversations, newest deletion first. */
-    fun recentlyDeleted(limit: Int = 0): List<ChatListItem> {
+    fun recentlyDeleted(limit: Int = 0): List<ChatListItem> = store.callInReadTx {
         val found = chatBox.query()
             .notNull(Chat_.dateDeleted)
             .orderDesc(Chat_.dateDeleted)
@@ -114,7 +112,7 @@ class ChatRepo(
         val contactInfo = contactSync.displayInfoByHandleId()
         val addressInfo = contactSync.displayInfoByMatchKey()
         val projected = found.map { toItem(it, contactInfo, addressInfo) }
-        return if (limit > 0) projected.take(limit) else projected
+        if (limit > 0) projected.take(limit) else projected
     }
 
     /**
@@ -142,7 +140,7 @@ class ChatRepo(
     // page load, notification, and chat mutation. The grouping only depends
     // on the chat, handle, and contact tables, so it follows ContactSync's
     // memoization pattern: mutators in this class invalidate synchronously,
-    // store observers catch outside writers, and an active-row-count probe
+    // the store's shared generation tracker catches outside writers, and an active-row-count probe
     // catches creations, soft deletes, and restores before the asynchronous
     // observer fires.
     // ------------------------------------------------------------------
@@ -151,7 +149,7 @@ class ChatRepo(
 
     @Volatile
     private var relatedDirty = true
-    private var relatedObserversRegistered = false
+    private var relatedGeneration = -1L
     private var relatedActiveChatCount = -1L
 
     @Volatile
@@ -168,37 +166,43 @@ class ChatRepo(
     private fun activeChatCount(): Long =
         chatBox.query().isNull(Chat_.dateDeleted).build().use { it.count() }
 
-    private fun ensureRelatedObservers() {
-        if (relatedObserversRegistered) return
-        synchronized(relatedLock) {
-            if (relatedObserversRegistered) return
-            store.subscribe(Chat::class.java).observer { invalidateRelatedChats() }
-            store.subscribe(Handle::class.java).observer { invalidateRelatedChats() }
-            store.subscribe(ContactV2::class.java).observer { invalidateRelatedChats() }
-            relatedObserversRegistered = true
-        }
-    }
-
     private fun refreshRelatedChats() {
-        ensureRelatedObservers()
-        if (!relatedDirty && activeChatCount() == relatedActiveChatCount) return
+        val generation = invalidations.generationFor(
+            StoreEntityChange.CHAT,
+            StoreEntityChange.HANDLE,
+            StoreEntityChange.CONTACT,
+        )
+        if (!relatedDirty && generation == relatedGeneration &&
+            activeChatCount() == relatedActiveChatCount
+        ) return
         synchronized(relatedLock) {
             val activeCount = activeChatCount()
-            if (!relatedDirty && activeCount == relatedActiveChatCount) return
+            val lockedGeneration = invalidations.generationFor(
+                StoreEntityChange.CHAT,
+                StoreEntityChange.HANDLE,
+                StoreEntityChange.CONTACT,
+            )
+            if (!relatedDirty && lockedGeneration == relatedGeneration &&
+                activeCount == relatedActiveChatCount
+            ) return
             // Clear before reading: a write landing mid-rebuild re-dirties
             // and the next read rebuilds again instead of serving a torn set.
             relatedDirty = false
-            val contactIds = contactSync.contactIdsByHandleId()
-            val byChat = HashMap<Long, Long>()
-            val byContact = HashMap<Long, MutableList<Long>>()
-            chatBox.query().isNull(Chat_.dateDeleted).build().use { query ->
-                query.find().forEach { candidate ->
-                    val contactId = directContactId(candidate, contactIds) ?: return@forEach
-                    byChat[candidate.id] = contactId
-                    byContact.getOrPut(contactId) { mutableListOf() } += candidate.id
+            val (byChat, byContact) = store.callInReadTx {
+                val contactIds = contactSync.contactIdsByHandleId()
+                val byChat = HashMap<Long, Long>()
+                val byContact = HashMap<Long, MutableList<Long>>()
+                chatBox.query().isNull(Chat_.dateDeleted).build().use { query ->
+                    query.find().forEach { candidate ->
+                        val contactId = directContactId(candidate, contactIds) ?: return@forEach
+                        byChat[candidate.id] = contactId
+                        byContact.getOrPut(contactId) { mutableListOf() } += candidate.id
+                    }
                 }
+                byChat to byContact
             }
             relatedActiveChatCount = activeCount
+            relatedGeneration = lockedGeneration
             cachedContactIdByChatId = byChat
             cachedChatIdsByContactId = byContact.mapValues { (_, ids) -> ids.distinct().sorted() }
         }
@@ -229,11 +233,15 @@ class ChatRepo(
      */
     fun observeChats(): Flow<List<ChatListItem>> =
         merge(
-            store.subscribe(Chat::class.java).asFlow().map { Unit },
+            flowOf(Unit),
             // Contact imports/relinks do not mutate Chat rows. Include their
             // invalidations so an open chat list replaces raw addresses with
             // names immediately instead of waiting for the next message.
-            store.subscribe(ContactV2::class.java).asFlow().drop(1).map { Unit },
+            invalidations.changesFor(
+                StoreEntityChange.CHAT,
+                StoreEntityChange.CONTACT,
+                StoreEntityChange.HANDLE,
+            ),
         )
             .conflate()
             .map { chats() }

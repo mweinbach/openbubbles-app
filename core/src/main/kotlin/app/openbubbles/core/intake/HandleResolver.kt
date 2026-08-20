@@ -18,6 +18,17 @@ object HandleResolver {
     fun resolve(store: BoxStore, rustHandle: String, service: String): Handle {
         val handleBox = store.boxFor(Handle::class.java)
         val address = MessageMapper.normalizeAddress(rustHandle)
+        val uniqueKey = "$address/$service"
+        // Native-created rows use this unique indexed composite. Retain the
+        // address/service fallback for Flutter-era stores whose composite was
+        // encoded differently.
+        handleBox.query()
+            .equal(
+                Handle_.uniqueAddressAndService,
+                uniqueKey,
+                QueryBuilder.StringOrder.CASE_SENSITIVE,
+            )
+            .build().use { it.findFirst() }?.let { return it }
         handleBox.query()
             .equal(Handle_.address, address, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .equal(Handle_.service, service, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -26,7 +37,7 @@ object HandleResolver {
         val handle = Handle().apply {
             this.address = address
             this.service = service
-            uniqueAddressAndService = "$address/$service"
+            uniqueAddressAndService = uniqueKey
         }
         handleBox.put(handle)
         if (handle.originalROWID == null) {

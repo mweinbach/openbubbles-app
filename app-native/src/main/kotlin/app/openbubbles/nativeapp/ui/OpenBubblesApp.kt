@@ -84,6 +84,7 @@ import app.openbubbles.nativeapp.IncomingShareRequest
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
+import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.MessageItem
@@ -355,6 +356,7 @@ fun OpenBubblesApp(
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
+    val historySyncActive by CloudSyncWiring.syncing.collectAsStateWithLifecycle()
     val accountConnection = accountConnectionUiState(
         hasLiveState = pushState != null,
         registration = registrationState,
@@ -711,6 +713,7 @@ fun OpenBubblesApp(
                         },
                         onSetSendFrom = viewModel::setSenderOverride,
                         onOpenSearch = { openSearch() },
+                        transcriptPrefetchEnabled = !historySyncActive,
                         onVisibleChatsChanged = { ids ->
                             transcriptPrefetchJob?.cancel()
                             val visibleAddresses = state.chats

@@ -10,11 +10,15 @@ import java.nio.file.Files
 import java.util.Date
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -222,6 +226,33 @@ class CoreMessageListRepositoryTest {
 
         assertTrue(repository.cached(firstChat.id).isEmpty())
         assertEquals(listOf("chat-${secondChat.id}"), repository.cached(secondChat.id).map { it.text })
+    }
+
+    @Test
+    fun `warm gives up after two invalidated loads instead of spinning`() = runBlocking {
+        val loads = AtomicInteger()
+        val changes = MessageRepo(store)
+        repository.close()
+        repository = CoreMessageListRepository(MessageRepo(store), store) { _, _ ->
+            coroutineScope {
+                val observed = async(start = CoroutineStart.UNDISPATCHED) {
+                    changes.observeTranscriptChanges().drop(1).first()
+                }
+                yield()
+                val sequence = loads.incrementAndGet()
+                store.boxFor(Message::class.java).put(Message().apply {
+                    guid = "invalidating-$sequence"
+                    chat.target = firstChat
+                })
+                withTimeout(2_000) { observed.await() }
+            }
+            listOf(messageItem(loads.get().toLong(), "unstable"))
+        }
+
+        withTimeout(5_000) { repository.prefetch(listOf(firstChat.id), limit = 10) }
+
+        assertEquals(2, loads.get())
+        assertTrue(repository.cached(firstChat.id).isEmpty())
     }
 
     private fun messageItem(id: Long, text: String) = MessageItem(

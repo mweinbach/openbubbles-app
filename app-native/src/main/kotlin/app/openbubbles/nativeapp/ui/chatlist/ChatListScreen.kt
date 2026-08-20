@@ -164,6 +164,7 @@ fun ChatListScreen(
      * Conversation ids currently on screen plus a small off-screen buffer.
      * Used to warm the newest transcripts so opening a row is instant.
      */
+    transcriptPrefetchEnabled: Boolean = true,
     onVisibleChatsChanged: (List<Long>) -> Unit = {},
 ) {
     var selectedIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
@@ -178,6 +179,9 @@ fun ChatListScreen(
             ChatListKind.Inbox -> uiState.pinned + uiState.chats
             ChatListKind.Archive -> uiState.archived
         }
+    }
+    LaunchedEffect(transcriptPrefetchEnabled) {
+        if (!transcriptPrefetchEnabled) onVisibleChatsChanged(emptyList())
     }
     fun chatById(id: Long): ChatListItem? = visibleChats.firstOrNull { it.id == id }
     fun clearSelection() {
@@ -384,6 +388,7 @@ fun ChatListScreen(
                 checkedIds = selectedIds,
                 header = header,
                 footer = footer,
+                transcriptPrefetchEnabled = transcriptPrefetchEnabled,
                 onVisibleChatsChanged = onVisibleChatsChanged,
             )
         }
@@ -478,6 +483,7 @@ private fun ChatSections(
     checkedIds: Set<Long>,
     header: @Composable ColumnScope.() -> Unit,
     footer: @Composable ColumnScope.() -> Unit,
+    transcriptPrefetchEnabled: Boolean,
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
     val itemSpecs = rememberItemAnimationSpecs()
@@ -489,10 +495,12 @@ private fun ChatSections(
     }
     val pinnedIds = remember(uiState.pinned) { uiState.pinned.map { it.id } }
 
-    LaunchedEffect(orderedIds) {
+    LaunchedEffect(orderedIds, transcriptPrefetchEnabled) {
+        if (!transcriptPrefetchEnabled) return@LaunchedEffect
         onVisibleChatsChanged(visibleTranscriptPrefetchIds(orderedIds, emptyList()))
     }
-    LaunchedEffect(listState, orderedIds, pinnedIds) {
+    LaunchedEffect(listState, orderedIds, pinnedIds, transcriptPrefetchEnabled) {
+        if (!transcriptPrefetchEnabled) return@LaunchedEffect
         snapshotFlow {
             val visible = LinkedHashSet<Long>()
             listState.layoutInfo.visibleItemsInfo.forEach { item ->
