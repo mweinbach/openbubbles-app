@@ -1,10 +1,13 @@
 package app.openbubbles.core.repo
 
+import app.openbubbles.core.contacts.ContactSync
+import app.openbubbles.db.Chat
 import app.openbubbles.db.Message
 import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -17,8 +20,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 class StoreInvalidationCoordinatorTest {
     private lateinit var store: BoxStore
@@ -57,5 +63,43 @@ class StoreInvalidationCoordinatorTest {
         store.boxFor(Message::class.java).put(Message().apply { guid = "live" })
         assertNotNull(withTimeout(2_000) { events.receive() })
         collector.cancelAndJoin()
+    }
+
+    @Test
+    fun `transient repositories share one observer owner and released owner stays inactive`() =
+        runBlocking {
+            val coordinator = StoreInvalidationCoordinators.forStore(store)
+            val chat = Chat().apply { guid = "observer-owner" }
+            store.boxFor(Chat::class.java).put(chat)
+            awaitPublisherBarrier()
+
+            repeat(25) {
+                ChatRepo(store).markRead(chat.id)
+                ContactSync(store).displayInfoByHandleId()
+                assertSame(coordinator, StoreInvalidationCoordinators.forStore(store))
+            }
+            awaitPublisherBarrier()
+
+            val generationAtRelease = coordinator.generationFor(StoreEntityChange.CHAT)
+            StoreInvalidationCoordinators.release(store)
+            chat.isArchived = true
+            store.boxFor(Chat::class.java).put(chat)
+            awaitPublisherBarrier()
+
+            assertEquals(
+                generationAtRelease,
+                coordinator.generationFor(StoreEntityChange.CHAT),
+                "a released coordinator must not receive later store invalidations",
+            )
+
+            val replacement = StoreInvalidationCoordinators.forStore(store)
+            assertNotSame(coordinator, replacement)
+            StoreInvalidationCoordinators.release(store)
+        }
+
+    private suspend fun awaitPublisherBarrier() {
+        val reached = CompletableDeferred<Unit>()
+        store.subscribe().single().observer { reached.complete(Unit) }
+        withTimeout(2_000) { reached.await() }
     }
 }

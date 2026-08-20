@@ -16,6 +16,7 @@ import app.openbubbles.core.intake.ProfileUpdatePort
 import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.repo.ChatRepo
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.core.repo.releaseStoreInvalidationObservers
 import app.openbubbles.core.send.buildSendConversation
 import app.openbubbles.core.send.selectSendingHandle
 import app.openbubbles.nativeapp.data.photos.PhotosAccountCleanup
@@ -679,7 +680,10 @@ object CoreGraph {
             } finally {
                 PushStateHolder.clear(resetError = true)
             }
-            store?.close()
+            store?.let { openStore ->
+                releaseStoreInvalidationObservers(openStore)
+                openStore.close()
+            }
         }
     }
 

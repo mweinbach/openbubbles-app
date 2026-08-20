@@ -6,6 +6,7 @@ import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
 import io.objectbox.BoxStore
+import io.objectbox.reactive.DataSubscriptionList
 import io.objectbox.reactive.SubscriptionBuilder
 import java.lang.ref.WeakReference
 import java.util.EnumSet
@@ -40,9 +41,12 @@ internal enum class StoreEntityChange {
  */
 internal class StoreInvalidationCoordinator(
     store: BoxStore,
-) {
+) : AutoCloseable {
     private val storeRef = WeakReference(store)
+    private val subscriptions = DataSubscriptionList()
     private val lock = Any()
+    @Volatile
+    private var closed = false
     private var coalescingDepth = 0
     private var changeGeneration = 0L
     private val generationByType = StoreEntityChange.entries.associateWithTo(mutableMapOf()) { 0L }
@@ -58,15 +62,21 @@ internal class StoreInvalidationCoordinator(
         // One observer set per BoxStore. Repositories consume the shared typed
         // flow instead of each transient ChatRepo/ContactSync permanently
         // registering another strong ObjectBox observer.
-        store.subscribe(Chat::class.java).onlyChanges().observer { changed(StoreEntityChange.CHAT) }
-        store.subscribe(Message::class.java).onlyChanges().observer { changed(StoreEntityChange.MESSAGE) }
-        store.subscribe(Attachment::class.java).onlyChanges().observer { changed(StoreEntityChange.ATTACHMENT) }
-        store.subscribe(ContactV2::class.java).onlyChanges().observer { changed(StoreEntityChange.CONTACT) }
-        store.subscribe(Handle::class.java).onlyChanges().observer { changed(StoreEntityChange.HANDLE) }
+        store.subscribe(Chat::class.java).onlyChanges().dataSubscriptionList(subscriptions)
+            .observer { changed(StoreEntityChange.CHAT) }
+        store.subscribe(Message::class.java).onlyChanges().dataSubscriptionList(subscriptions)
+            .observer { changed(StoreEntityChange.MESSAGE) }
+        store.subscribe(Attachment::class.java).onlyChanges().dataSubscriptionList(subscriptions)
+            .observer { changed(StoreEntityChange.ATTACHMENT) }
+        store.subscribe(ContactV2::class.java).onlyChanges().dataSubscriptionList(subscriptions)
+            .observer { changed(StoreEntityChange.CONTACT) }
+        store.subscribe(Handle::class.java).onlyChanges().dataSubscriptionList(subscriptions)
+            .observer { changed(StoreEntityChange.HANDLE) }
     }
 
     private fun changed(change: StoreEntityChange) {
         val emit = synchronized(lock) {
+            if (closed) return
             changeGeneration += 1
             generationByType[change] = changeGeneration
             if (coalescingDepth == 0) {
@@ -118,6 +128,16 @@ internal class StoreInvalidationCoordinator(
         store.subscribe().single().observer { reached.complete(Unit) }
         reached.await()
     }
+
+    /** Stop store callbacks before the owning [BoxStore] is closed. */
+    override fun close() {
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            deferredChanges.clear()
+        }
+        subscriptions.cancel()
+    }
 }
 
 internal object StoreInvalidationCoordinators {
@@ -126,6 +146,21 @@ internal object StoreInvalidationCoordinators {
     fun forStore(store: BoxStore): StoreInvalidationCoordinator = synchronized(coordinators) {
         coordinators.getOrPut(store) { StoreInvalidationCoordinator(store) }
     }
+
+    fun release(store: BoxStore) {
+        val coordinator = synchronized(coordinators) { coordinators.remove(store) }
+        coordinator?.close()
+    }
+}
+
+/**
+ * Releases the shared repository observers immediately before [BoxStore.close].
+ *
+ * The store owner must ensure no repository work can begin after this call.
+ * Normal repositories must not call it when they merely leave a screen.
+ */
+fun releaseStoreInvalidationObservers(store: BoxStore) {
+    StoreInvalidationCoordinators.release(store)
 }
 
 /**
