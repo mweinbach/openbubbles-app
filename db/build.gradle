@@ -26,10 +26,15 @@ kapt {
 // Store-compatibility guard: the Kotlin/Java-side model must stay
 // byte-identical to the Flutter app's model, or existing device stores
 // won't open. Run from CI or manually after entity changes.
+def seedObjectBoxModel = layout.projectDirectory.file("seed-objectbox-model.json")
+def objectBoxModel = layout.projectDirectory.file("objectbox-model.json")
 tasks.register("checkModelParity") {
+    inputs.files(seedObjectBoxModel, objectBoxModel)
+            .withPropertyName("objectBoxModels")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
     doLast {
-        def seed = rootProject.file("db/seed-objectbox-model.json")
-        def ours = rootProject.file("db/objectbox-model.json")
+        def seed = seedObjectBoxModel.asFile
+        def ours = objectBoxModel.asFile
         if (seed.text.trim() != ours.text.trim()) {
             throw new GradleException(
                 "db/objectbox-model.json drifted from the Flutter model — device stores would not open. " +
