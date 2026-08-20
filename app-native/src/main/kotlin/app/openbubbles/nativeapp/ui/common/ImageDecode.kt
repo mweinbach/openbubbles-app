@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.exifinterface.media.ExifInterface
 import app.openbubbles.nativeapp.data.MemoryCaches
 import app.openbubbles.nativeapp.data.extractWatchImageFromPosterSave
@@ -329,14 +330,16 @@ internal fun uriImageCacheKey(
     cacheGeneration: Int = 0,
 ): String? {
     val value = uri?.takeIf { it.isNotBlank() } ?: return null
-    val fileMeta = when {
-        value.startsWith("content://") -> ""
-        value.startsWith("file://") -> {
-            val path = value.toUri().path ?: return "uri:$value:$maxDimensionPx:$cacheGeneration"
-            File(path).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
+    val fileMeta = runCatching {
+        when {
+            value.startsWith("content://") -> ""
+            value.startsWith("file://") -> {
+                val path = value.toUri().path ?: return "uri:$value:$maxDimensionPx:$cacheGeneration"
+                File(path).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
+            }
+            else -> File(value).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
         }
-        else -> File(value).takeIf { it.isFile }?.let { ":${it.lastModified()}:${it.length()}" }.orEmpty()
-    }
+    }.getOrDefault("")
     return "uri:$value$fileMeta:$maxDimensionPx:$cacheGeneration"
 }
 
@@ -346,16 +349,24 @@ fun rememberDecodedUriImage(
     maxDimensionPx: Int = 256,
     cacheGeneration: Int = 0,
 ): DecodedImage? {
+    if (uri.isNullOrBlank()) return null
+    val isInspection = LocalInspectionMode.current
     val context = LocalContext.current
-    val cacheKey = remember(
-        uri,
-        maxDimensionPx,
-        cacheGeneration,
-        File(uri.orEmpty()).let { it.lastModified() to it.length() },
-    ) {
+    val fileMeta = remember(uri, isInspection) {
+        if (isInspection) null
+        else runCatching {
+            when {
+                uri.startsWith("content://") -> null
+                uri.startsWith("file://") -> uri.toUri().path?.let { File(it) }?.takeIf { it.isFile }?.let { it.lastModified() to it.length() }
+                else -> File(uri).takeIf { it.isFile }?.let { it.lastModified() to it.length() }
+            }
+        }.getOrNull()
+    }
+    val cacheKey = remember(uri, maxDimensionPx, cacheGeneration, fileMeta) {
         uriImageCacheKey(uri, maxDimensionPx, cacheGeneration)
     }
     return produceState<DecodedImage?>(initialValue = null, cacheKey) {
+        if (isInspection) return@produceState
         val key = cacheKey ?: return@produceState
         ImageDecodeCache.get(key)?.let {
             value = it
