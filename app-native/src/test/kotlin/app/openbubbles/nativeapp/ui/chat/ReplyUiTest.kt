@@ -165,8 +165,8 @@ class ReplyUiTest {
             endInsetFromOuter = 12f,
             outerEdgeOnRight = true,
         )
-        assertEquals(geometry.start.x, geometry.control.x)
-        assertEquals(geometry.end.y, geometry.control.y)
+        assertEquals(geometry.start.x, geometry.control1.x)
+        assertEquals(geometry.end.y, geometry.control2.y)
         assertEquals(0f, geometry.start.y)
         assertEquals(30f, geometry.end.y)
         assertEquals(20f, geometry.start.x)

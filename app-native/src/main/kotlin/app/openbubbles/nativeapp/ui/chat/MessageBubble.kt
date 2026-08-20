@@ -814,22 +814,20 @@ private fun InvisibleInkBubble(
 }
 
 /** Connector canvas footprint between the quote and the reply bubble. */
-private val ReplyConnectorWidth = 28.dp
-private val ReplyConnectorHeight = 14.dp
+private val ReplyConnectorWidth = 44.dp
+private val ReplyConnectorHeight = 26.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
-    val control: Offset,
+    val control1: Offset,
+    val control2: Offset,
     val end: Offset,
 )
 
 /**
- * Quarter-hook between the quote's bottom edge and the reply's rounded top
- * corner. Quote and reply are flush on the transcript's outer edge; the curve
- * leaves the quote vertically [startInsetFromOuter] in from that edge and
- * lands horizontally [endInsetFromOuter] in, aiming into the reply's corner
- * radius. The control point directly under the start is what keeps the launch
- * vertical and the landing horizontal.
+ * Quarter-turn cubic arc between the transcript rail and the reply's rounded top
+ * corner. Launches vertically from the rail ([startInsetFromOuter]) and lands
+ * horizontally ([endInsetFromOuter]) on the reply bubble's top edge.
  */
 internal fun replyConnectorGeometry(
     width: Float,
@@ -839,11 +837,14 @@ internal fun replyConnectorGeometry(
     outerEdgeOnRight: Boolean,
 ): ReplyConnectorGeometry {
     fun fromOuter(inset: Float) = if (outerEdgeOnRight) width - inset else inset
-    val start = Offset(fromOuter(startInsetFromOuter), 0f)
+    val startX = fromOuter(startInsetFromOuter)
+    val endX = fromOuter(endInsetFromOuter)
+    val dx = endX - startX
     return ReplyConnectorGeometry(
-        start = start,
-        control = Offset(start.x, height),
-        end = Offset(fromOuter(endInsetFromOuter), height),
+        start = Offset(startX, 0f),
+        control1 = Offset(startX, height * 0.552f),
+        control2 = Offset(startX + dx * 0.448f, height),
+        end = Offset(endX, height),
     )
 }
 
@@ -868,10 +869,10 @@ private fun ReplyQuotePreview(
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 2.dp),
+            .padding(top = 10.dp),
     ) {
         // Quoted message capsule
         Box(
@@ -892,7 +893,7 @@ private fun ReplyQuotePreview(
                         onClick = onOpen,
                     ),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) {
                     quote.senderName?.takeIf { !quote.fromMe }?.let { name ->
                         Text(
                             text = name,
@@ -912,39 +913,37 @@ private fun ReplyQuotePreview(
             }
         }
 
-        // Curved connector rail attached to the reply's top corner
+        // Curved connector rail bridging the space directly into the reply bubble
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomStart)
+                .height(ReplyConnectorHeight)
                 .padding(start = if (replyFromMe) 0.dp else incomingGutter),
-            contentAlignment = if (replyFromMe) Alignment.BottomEnd else Alignment.BottomStart,
+            contentAlignment = if (replyFromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Canvas(
                 modifier = Modifier
-                    .offset(
-                        x = if (replyFromMe) (-8).dp else 8.dp,
-                        y = 8.dp,
-                    )
+                    .offset(x = if (replyFromMe) (-10).dp else 10.dp)
                     .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
             ) {
                 val geometry = replyConnectorGeometry(
                     width = size.width,
-                    height = size.height + 4.dp.toPx(),
-                    startInsetFromOuter = 4.dp.toPx(),
-                    endInsetFromOuter = 20.dp.toPx(),
+                    height = size.height,
+                    startInsetFromOuter = 2.dp.toPx(),
+                    endInsetFromOuter = 38.dp.toPx(),
                     outerEdgeOnRight = replyFromMe == isLtr,
                 )
                 drawPath(
                     path = Path().apply {
                         moveTo(geometry.start.x, geometry.start.y)
-                        quadraticTo(
-                            geometry.control.x, geometry.control.y,
+                        cubicTo(
+                            geometry.control1.x, geometry.control1.y,
+                            geometry.control2.x, geometry.control2.y,
                             geometry.end.x, geometry.end.y,
                         )
                     },
                     color = connectorColor,
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                    style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
                 )
             }
         }
