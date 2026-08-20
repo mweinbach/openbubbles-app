@@ -78,6 +78,9 @@ wrapper token into the asset download token. `CKDPAsset.clearAssetKey` is protob
 
 ## Route the change correctly
 
+- For comparison against installed macOS Photos schemas, CloudKitDaemon descriptors, focused
+  native-client behavior, or exported originals, also load
+  [../openbubbles-apple-native-parity/SKILL.md](../openbubbles-apple-native-parity/SKILL.md).
 - For a Kotlin-visible Rust record, enum, callback, or method change, also load
   [../openbubbles-uniffi-contract-change/SKILL.md](../openbubbles-uniffi-contract-change/SKILL.md)
   and regenerate committed bindings. Rust-internal fixes do not require a surface change.
