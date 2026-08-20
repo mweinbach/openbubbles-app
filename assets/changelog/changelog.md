@@ -2,6 +2,16 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.5
+
+### Enhancements
+
+- Large iCloud history restores now do substantially less database and UI
+  refresh work by batching page updates, bounding transcript warmups, and
+  caching contact lookups.
+- CloudKit chat, message, and wallpaper downloads now skip upload blobs the
+  Android client does not use, reducing CPU and memory overhead during sync.
+
 ## v3.4.4
 
 ### Enhancements
