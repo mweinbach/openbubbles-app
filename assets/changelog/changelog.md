@@ -2,6 +2,22 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.3
+
+### Enhancements
+
+- iCloud Photos now has an adaptive gallery that loads lightweight previews
+  as they appear and downloads the full image only when you open it.
+- You can explicitly stage multiple photos or a selected folder, review the
+  queue, and upload each item to your personal iCloud Photos library.
+
+### Fixes
+
+- iCloud Photos uploads now complete the protected MMCS and PCS acceptance
+  flow used by Apple's native Photos clients.
+- The unfinished background Photos reconciliation worker remains disabled;
+  gallery refreshes and uploads only run after a visible user action.
+
 ## v3.4.2
 
 ### Enhancements
