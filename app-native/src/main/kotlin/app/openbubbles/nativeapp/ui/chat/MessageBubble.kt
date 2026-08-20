@@ -814,12 +814,12 @@ private fun InvisibleInkBubble(
 
 private const val ReplyQuoteWidthFraction = 0.76f
 private val ReplyQuoteTopPadding = 4.dp
-private val ReplyConnectorLayoutHeight = 28.dp
+private val ReplyConnectorLayoutHeight = 32.dp
 private val ReplyConnectorStrokeWidth = 2.4.dp
 private val ReplyConnectorOuterInset = 16.dp
 private val ReplyConnectorCapLength = 18.dp
 private val ReplyConnectorCornerRadius = 6.dp
-private val ReplyConnectorBottomGap = 1.5.dp
+private val ReplyConnectorBottomGap = 5.5.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
