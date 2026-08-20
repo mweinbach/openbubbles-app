@@ -55,3 +55,11 @@ db/libobjectbox-jni*
 desktopApp/libobjectbox-jni*
 core/libobjectbox-jni*
 app-native/libobjectbox-jni*
+
+# Skill reference snapshots mirror developer.android.com kb paths, which can hit
+# the broad **/build/ and **/releases patterns above; re-include them. Negations
+# must stay at the end of this file: gitignore is last-match-wins.
+!.agents/skills/**/references/android/build/
+!.agents/skills/**/references/android/build/**
+!.agents/skills/**/references/android/build/releases/
+!.agents/skills/**/references/android/build/releases/**
