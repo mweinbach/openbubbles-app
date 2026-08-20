@@ -419,6 +419,7 @@ fun ChatScreen(
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
+    val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
         { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
     }
@@ -989,6 +990,8 @@ fun ChatScreen(
                                             }
                                         }
                                     },
+                                    replyCount = replyCounts[entry.message.guid] ?: 0,
+                                    onReplyCountTap = { onOpenReplyThread(entry.message) },
                                     onDownloadSticker = { guid ->
                                         onDownloadAttachment(
                                             AttachmentMeta(

@@ -333,6 +333,10 @@ fun MessageBubble(
     replyQuote: ReplyQuote? = null,
     /** Tap on the quoted original: scroll-to-original or open the thread pane. */
     onReplyQuoteTap: () -> Unit = {},
+    /** Number of direct replies rooted at this message. */
+    replyCount: Int = 0,
+    /** Opens the focused thread rooted at this message. */
+    onReplyCountTap: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
     /** Slide the bubble toward the start edge to begin an inline reply. */
@@ -645,6 +649,21 @@ fun MessageBubble(
             if (showStatus && message.isFromMe) {
                 MessageStatusRow(status = message.status)
             }
+            if (replyCount > 0) {
+                Text(
+                    text = if (replyCount == 1) "1 Reply ›" else "$replyCount Replies ›",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(
+                            onClickLabel = "Open reply thread",
+                            role = Role.Button,
+                            onClick = onReplyCountTap,
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
             }
             message.stickers.forEach { sticker ->
                 StickerOverlay(
@@ -772,8 +791,8 @@ private fun InvisibleInkBubble(
 }
 
 /** Connector canvas footprint between the quote and the reply bubble. */
-private val ReplyConnectorWidth = 26.dp
-private val ReplyConnectorHeight = 16.dp
+private val ReplyConnectorWidth = 28.dp
+private val ReplyConnectorHeight = 14.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
@@ -828,9 +847,9 @@ private fun ReplyQuotePreview(
         horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
     ) {
         Surface(
-            shape = RoundedCornerShape(BubbleCornerRadius),
-            color = bubbleColor,
-            contentColor = bubbleContent,
+            shape = RoundedCornerShape(16.dp),
+            color = bubbleColor.copy(alpha = 0.62f),
+            contentColor = bubbleContent.copy(alpha = 0.86f),
             modifier = Modifier
                 .widthIn(max = maxWidth)
                 .clickable(
@@ -839,26 +858,26 @@ private fun ReplyQuotePreview(
                     onClick = onOpen,
                 ),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)) {
                 quote.senderName?.let { name ->
                     Text(
                         text = name,
                         style = MaterialTheme.typography.labelSmall,
-                        color = bubbleContent.copy(alpha = 0.75f),
+                        color = bubbleContent.copy(alpha = 0.68f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
                     text = quote.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 6,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-        val connectorColor = MaterialTheme.colorScheme.outlineVariant
+        val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
         Canvas(
             modifier = Modifier
                 .offset(y = (-1).dp)
@@ -882,7 +901,7 @@ private fun ReplyQuotePreview(
                     )
                 },
                 color = connectorColor,
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round),
             )
         }
     }
@@ -1182,6 +1201,7 @@ private fun MessageReplyPreview() {
                     isFromMe = false,
                 ).copy(id = 1),
                 showStatus = false,
+                replyCount = 1,
             )
             MessageBubble(
                 message = previewMessage("That's so cute", isFromMe = true, status = MessageStatus.DELIVERED)
@@ -1196,6 +1216,7 @@ private fun MessageReplyPreview() {
                 message = previewMessage("I love you more than the world itself", isFromMe = true, status = MessageStatus.DELIVERED)
                     .copy(id = 3),
                 showStatus = false,
+                replyCount = 2,
             )
             MessageBubble(
                 message = previewMessage("how is that even possible", isFromMe = false)

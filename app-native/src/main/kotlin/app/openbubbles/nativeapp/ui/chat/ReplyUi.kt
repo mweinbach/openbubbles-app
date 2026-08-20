@@ -75,6 +75,12 @@ internal fun resolveReplyScrollTarget(
     return index.takeIf { it >= 0 }
 }
 
+internal fun replyCountsByRoot(messages: List<MessageItem>): Map<String, Int> =
+    messages.asSequence()
+        .mapNotNull { it.replyToGuid }
+        .groupingBy { it }
+        .eachCount()
+
 internal fun belongsToReplyThread(message: MessageItem, rootGuid: String, part: Long): Boolean {
     if (message.guid == rootGuid) return true
     if (message.replyToGuid != rootGuid) return false

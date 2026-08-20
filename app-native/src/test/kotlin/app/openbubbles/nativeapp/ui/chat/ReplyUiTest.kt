@@ -76,6 +76,19 @@ class ReplyUiTest {
     }
 
     @Test
+    fun `reply counts are grouped by root and omit ordinary messages`() {
+        val messages = listOf(
+            message(guid = "root"),
+            message(guid = "one", replyToGuid = "root"),
+            message(guid = "two", replyToGuid = "root"),
+            message(guid = "other", replyToGuid = "another-root"),
+            message(guid = "plain"),
+        )
+
+        assertEquals(mapOf("root" to 2, "another-root" to 1), replyCountsByRoot(messages))
+    }
+
+    @Test
     fun `thread membership is part-aware`() {
         val root = message(guid = "root")
         val match = message(guid = "a", replyToGuid = "root", replyToPart = 3L)
