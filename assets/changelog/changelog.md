@@ -13,6 +13,8 @@ Below are the last few OpenGarden App release changelogs
 
 ### Fixes
 
+- Photo selection now works on Android 8 and 8.1, including correctly scaled
+  previews, EXIF orientation, and original capture timestamps.
 - iCloud Photos uploads now complete the protected MMCS and PCS acceptance
   flow used by Apple's native Photos clients.
 - The unfinished background Photos reconciliation worker remains disabled;
