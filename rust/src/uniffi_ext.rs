@@ -471,13 +471,16 @@ pub fn mark_journal_attempt(id: u64, success: bool) -> Result<(), UError> {
 }
 
 #[uniffi::export]
-pub fn ptr_to_message(ptr: String) -> Option<UPushMessage> {
-    RUNTIME.block_on(api::ptr_to_dart(ptr)).as_ref().map(conv_push)
+pub fn ptr_to_message(ptr: u64) -> Option<UPushMessage> {
+    RUNTIME
+        .block_on(api::queued_message(ptr))
+        .as_deref()
+        .map(conv_push)
 }
 
 #[uniffi::export]
-pub fn complete_message(ptr: String) {
-    RUNTIME.block_on(api::complete_msg(ptr));
+pub fn complete_message(ptr: u64) {
+    RUNTIME.block_on(api::complete_queued_message(ptr));
 }
 
 // ---------------------------------------------------------------------------

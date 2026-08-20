@@ -164,7 +164,7 @@ class NativePushService : Service(), MsgReceiver {
         scope.launch {
             try {
                 val handles = PushStateHolder.myHandles
-                val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
+                val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg) }
                 when (decoded) {
                     null -> Unit
                     UPushMessage.ProcessQueue ->
@@ -172,7 +172,7 @@ class NativePushService : Service(), MsgReceiver {
                     UPushMessage.RegistrationState -> handleRegistrationState()
                     else -> ingestAndNotify(decoded, handles, IncomingNotificationSource.LIVE)
                 }
-                runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
+                runInterruptible(Dispatchers.IO) { completeMessage(msg) }
             } catch (error: Throwable) {
                 // Leave the entry queued; Rust re-emits with backoff.
                 Log.e(TAG, "incoming message failed on attempt ${retry + 1uL} (${diagnosticKind(error)})")

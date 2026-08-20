@@ -1519,13 +1519,33 @@ pub async fn mark_queue_attempt(id: u64, success: bool) -> anyhow::Result<()> {
 }
 
 pub async fn ptr_to_dart(ptr: String) -> Option<PushMessage> {
-    let pointer: u64 = ptr.parse().unwrap();
+    let pointer: u64 = ptr.parse().ok()?;
     debug!("using pointer {pointer}");
-    QUEUED_MESSAGES.lock().await.1.get(&pointer).cloned()
+    QUEUED_MESSAGES
+        .lock()
+        .await
+        .1
+        .get(&pointer)
+        .map(|message| message.as_ref().clone())
 }
 
 pub async fn complete_msg(ptr: String) {
-    let pointer: u64 = ptr.parse().unwrap();
+    let Ok(pointer) = ptr.parse::<u64>() else {
+        return;
+    };
+    debug!("finishing pointer {pointer}");
+    QUEUED_MESSAGES.lock().await.1.remove(&pointer);
+}
+
+/// Borrow a live callback payload outside the queue lock without copying its
+/// potentially large message/attachment fields. The `Arc` snapshot remains
+/// valid until UniFFI finishes mapping even if Kotlin concurrently completes
+/// the pointer.
+pub(crate) async fn queued_message(pointer: u64) -> Option<Arc<PushMessage>> {
+    QUEUED_MESSAGES.lock().await.1.get(&pointer).cloned()
+}
+
+pub(crate) async fn complete_queued_message(pointer: u64) {
     debug!("finishing pointer {pointer}");
     QUEUED_MESSAGES.lock().await.1.remove(&pointer);
 }

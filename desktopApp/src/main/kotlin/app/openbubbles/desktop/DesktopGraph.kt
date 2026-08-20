@@ -157,13 +157,13 @@ object DesktopGraph {
             scope.launch {
                 try {
                     val handles = PushStateHolder.myHandles
-                    val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg.toString()) }
+                    val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg) }
                     when (decoded) {
                         null -> Unit
                         UPushMessage.ProcessQueue -> startQueueDrainer()
                         else -> ing.ingest(decoded, handles)
                     }
-                    runInterruptible(Dispatchers.IO) { completeMessage(msg.toString()) }
+                    runInterruptible(Dispatchers.IO) { completeMessage(msg) }
                 } catch (error: Throwable) {
                     // Leave the entry queued; Rust re-emits with backoff.
                     PushStateHolder.reportError(

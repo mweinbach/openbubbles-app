@@ -408,7 +408,11 @@ pub static MESSAGE_LOG: LazyLock<Mutex<MessageLog>> = LazyLock::new(|| {
     Mutex::new(MessageLog::create(path, file))
 });
 
-pub static QUEUED_MESSAGES: LazyLock<Mutex<(u64, HashMap<u64, PushMessage>)>> = LazyLock::new(|| Mutex::new((0, HashMap::new())));
+/// Live callback payloads remain queued until Kotlin confirms successful
+/// ingestion. Store them behind `Arc` so a UniFFI mapper can release the
+/// queue lock without deep-cloning every message field first.
+pub static QUEUED_MESSAGES: LazyLock<Mutex<(u64, HashMap<u64, Arc<PushMessage>>)>> =
+    LazyLock::new(|| Mutex::new((0, HashMap::new())));
 
 #[uniffi::export]
 impl NativePushState {
@@ -449,7 +453,7 @@ impl NativePushState {
                                 }
                                 let mut locked_messages = QUEUED_MESSAGES.lock().await;
                                 let key = locked_messages.0;
-                                locked_messages.1.insert(key, msg);
+                                locked_messages.1.insert(key, Arc::new(msg));
                                 locked_messages.0 = locked_messages.0.wrapping_add(1);
                                 drop(locked_messages);
 

@@ -2496,7 +2496,7 @@ fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_to_payload(`ptr`: Po
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_utranscriptposter_watch(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_rust_lib_bluebubbles_fn_func_complete_message(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_create_login_session(`path`: RustBuffer.ByValue,`delegate`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
@@ -2526,7 +2526,7 @@ fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_relay(`dir`: RustBuffer.B
 ): Unit
 fun uniffi_rust_lib_bluebubbles_fn_func_provision_from_validation_data(`dir`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,`extra`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+fun uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_func_read_queued_journal(uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -2673,7 +2673,7 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_complete_message() != 64391.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_complete_message() != 43569.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_create_login_session() != 66.toShort()) {
@@ -2718,7 +2718,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_provision_from_validation_data() != 1032.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message() != 44576.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_func_ptr_to_message() != 7131.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_func_read_queued_journal() != 5198.toShort()) {
@@ -20099,11 +20099,11 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 
 
 
- fun `completeMessage`(`ptr`: kotlin.String)
+ fun `completeMessage`(`ptr`: kotlin.ULong)
         =
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_complete_message(
-        FfiConverterString.lower(`ptr`),_status)
+        FfiConverterULong.lower(`ptr`),_status)
 }
 
 
@@ -20261,11 +20261,11 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 }
 
 
- fun `ptrToMessage`(`ptr`: kotlin.String): UPushMessage? {
+ fun `ptrToMessage`(`ptr`: kotlin.ULong): UPushMessage? {
             return FfiConverterOptionalTypeUPushMessage.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_func_ptr_to_message(
-        FfiConverterString.lower(`ptr`),_status)
+        FfiConverterULong.lower(`ptr`),_status)
 }
     )
     }
