@@ -407,13 +407,11 @@ fun MessageBubble(
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         Column(modifier = Modifier.fillMaxWidth()) {
         replyQuote?.let { quote ->
-            // Original-message preview bubble and curved connector rail. The
-            // quote capsule aligns with the original sender's side (mine right,
-            // theirs left); the connector rail anchors to the reply bubble's
-            // top corner.
+            // The quote keeps the original sender's transcript side, while the
+            // connector stays on the conversation's start-side thread rail. It
+            // must not jump to the replying sender's side.
             ReplyQuotePreview(
                 quote = quote,
-                replyFromMe = message.isFromMe,
                 smsChat = smsChat,
                 onOpen = onReplyQuoteTap,
                 maxWidth = maxBubbleWidth,
@@ -816,18 +814,21 @@ private fun InvisibleInkBubble(
 /** Connector canvas footprint between the quote and the reply bubble. */
 private val ReplyConnectorWidth = 44.dp
 private val ReplyConnectorHeight = 26.dp
+private val ReplyConnectorStrokeWidth = 2.4.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
+    val verticalEnd: Offset,
     val control1: Offset,
     val control2: Offset,
+    val curveEnd: Offset,
     val end: Offset,
 )
 
 /**
- * Quarter-turn cubic arc between the transcript rail and the reply's rounded top
- * corner. Launches vertically from the rail ([startInsetFromOuter]) and lands
- * horizontally ([endInsetFromOuter]) on the reply bubble's top edge.
+ * Start-side thread rail with a vertical stem, a circular quarter-turn, and a
+ * short horizontal landing. A single full-height Bézier is not equivalent: it
+ * bends for the entire stroke and reads as a detached hook rather than a rail.
  */
 internal fun replyConnectorGeometry(
     width: Float,
@@ -837,13 +838,22 @@ internal fun replyConnectorGeometry(
     outerEdgeOnRight: Boolean,
 ): ReplyConnectorGeometry {
     fun fromOuter(inset: Float) = if (outerEdgeOnRight) width - inset else inset
+
     val startX = fromOuter(startInsetFromOuter)
     val endX = fromOuter(endInsetFromOuter)
     val dx = endX - startX
+    val direction = if (dx >= 0f) 1f else -1f
+    val radius = minOf(height * 0.46f, kotlin.math.abs(dx))
+    val kappa = 0.5522848f
+    val verticalEnd = Offset(startX, height - radius)
+    val curveEnd = Offset(startX + direction * radius, height)
+
     return ReplyConnectorGeometry(
         start = Offset(startX, 0f),
-        control1 = Offset(startX, height * 0.552f),
-        control2 = Offset(startX + dx * 0.448f, height),
+        verticalEnd = verticalEnd,
+        control1 = Offset(startX, verticalEnd.y + radius * kappa),
+        control2 = Offset(curveEnd.x - direction * radius * kappa, height),
+        curveEnd = curveEnd,
         end = Offset(endX, height),
     )
 }
@@ -852,13 +862,12 @@ internal fun replyConnectorGeometry(
  * Original-message bubble stacked above a reply, the way Apple Messages
  * renders threaded replies: a solid capsule in the original sender's own
  * color carrying the original text, kept on the original's transcript side
- * (theirs left, mine right), paired with a curved connector rail anchoring
- * into the reply bubble's top corner. Tapping shows the original message.
+ * (theirs left, mine right), paired with a start-side thread rail that stays
+ * fixed even when the reply is on the opposite side. Tapping shows the original.
  */
 @Composable
 private fun ReplyQuotePreview(
     quote: ReplyQuote,
-    replyFromMe: Boolean,
     smsChat: Boolean,
     onOpen: () -> Unit,
     maxWidth: Dp,
@@ -913,37 +922,47 @@ private fun ReplyQuotePreview(
             }
         }
 
-        // Curved connector rail bridging the space directly into the reply bubble
+        // Apple-style inline replies use one start-side thread rail. The quoted
+        // message may be left or right aligned, and the reply may be from either
+        // sender, but neither changes the rail's side.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(ReplyConnectorHeight)
-                .padding(start = if (replyFromMe) 0.dp else incomingGutter),
-            contentAlignment = if (replyFromMe) Alignment.CenterEnd else Alignment.CenterStart,
+                .height(ReplyConnectorHeight),
+            contentAlignment = Alignment.CenterStart,
         ) {
             Canvas(
                 modifier = Modifier
-                    .offset(x = if (replyFromMe) (-10).dp else 10.dp)
+                    // Modifier.offset is layout-direction aware, so this moves
+                    // inward from Start in both LTR and RTL layouts.
+                    .offset(x = 10.dp)
                     .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
             ) {
+                val strokeWidth = ReplyConnectorStrokeWidth.toPx()
+                val halfStroke = strokeWidth / 2f
                 val geometry = replyConnectorGeometry(
                     width = size.width,
-                    height = size.height,
+                    // Keep both round caps and the horizontal landing inside the
+                    // canvas instead of clipping them on its top/bottom edges.
+                    height = (size.height - strokeWidth).coerceAtLeast(0f),
                     startInsetFromOuter = 2.dp.toPx(),
                     endInsetFromOuter = 38.dp.toPx(),
-                    outerEdgeOnRight = replyFromMe == isLtr,
+                    // Start is physically right in RTL and physically left in LTR.
+                    outerEdgeOnRight = !isLtr,
                 )
                 drawPath(
                     path = Path().apply {
-                        moveTo(geometry.start.x, geometry.start.y)
+                        moveTo(geometry.start.x, geometry.start.y + halfStroke)
+                        lineTo(geometry.verticalEnd.x, geometry.verticalEnd.y + halfStroke)
                         cubicTo(
-                            geometry.control1.x, geometry.control1.y,
-                            geometry.control2.x, geometry.control2.y,
-                            geometry.end.x, geometry.end.y,
+                            geometry.control1.x, geometry.control1.y + halfStroke,
+                            geometry.control2.x, geometry.control2.y + halfStroke,
+                            geometry.curveEnd.x, geometry.curveEnd.y + halfStroke,
                         )
+                        lineTo(geometry.end.x, geometry.end.y + halfStroke)
                     },
                     color = connectorColor,
-                    style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                 )
             }
         }
