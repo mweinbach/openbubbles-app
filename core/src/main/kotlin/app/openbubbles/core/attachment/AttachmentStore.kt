@@ -6,6 +6,12 @@ import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 
 /**
  * Canonical attachment disk layout, ported from the Dart app's
@@ -44,6 +50,9 @@ class AttachmentStore(
 
         /** File name used when an attachment has no usable transfer name. */
         const val DEFAULT_FILE_NAME = "unknown"
+
+        /** Suffix reserved for an incomplete app-owned attachment download. */
+        internal const val DOWNLOAD_PARTIAL_SUFFIX = ".openbubbles-partial"
 
         /**
          * Characters replaced in file/directory names — the union of the Dart
@@ -116,6 +125,19 @@ class AttachmentStore(
     }
 
     /**
+     * App-owned sibling used as the MMCS/Rust download destination. Keeping
+     * it beside the canonical payload makes the final rename stay on one
+     * filesystem, while the reserved suffix lets cleanup avoid user files.
+     */
+    @Throws(IOException::class)
+    internal fun partialPathFor(attachment: Attachment): File {
+        val finalFile = pathFor(attachment)
+        val partial = File(finalFile.parentFile, ".${finalFile.name}$DOWNLOAD_PARTIAL_SUFFIX")
+        ensureInside(finalFile.parentFile, partial)
+        return partial
+    }
+
+    /**
      * The file on disk for [attachment], or null when nothing has been
      * written yet. Mirrors `AttachmentsService.getContent`'s preference for
      * actual file presence over the persisted flag, including the fallback
@@ -125,10 +147,68 @@ class AttachmentStore(
     fun existingFile(attachment: Attachment): File? {
         if (attachment.guid == null) return null
         val primary = pathFor(attachment)
-        if (primary.isFile) return primary
+        if (isCompletePayload(primary, attachment.totalBytes, enforceExpectedSize = true)) return primary
         val converted = File(primary.path + ".png")
-        if (converted.isFile) return converted
+        // A converted image is deliberately a different encoding, so its
+        // byte length cannot be compared with the source attachment size.
+        if (isCompletePayload(converted, expectedBytes = null, enforceExpectedSize = false)) return converted
         return null
+    }
+
+    /** A completed payload must exist, be non-empty, and match a declared size. */
+    internal fun isCompletePayload(
+        file: File,
+        expectedBytes: Long?,
+        enforceExpectedSize: Boolean = true,
+    ): Boolean {
+        if (!file.isFile) return false
+        val actualBytes = file.length()
+        if (actualBytes <= 0L) return false
+        return !enforceExpectedSize || expectedBytes == null || expectedBytes <= 0L || actualBytes == expectedBytes
+    }
+
+    /** Deletes only the reserved sibling owned by the attachment downloader. */
+    @Throws(IOException::class)
+    internal fun deleteDownloadPartial(attachment: Attachment) {
+        if (attachment.guid == null) return
+        Files.deleteIfExists(partialPathFor(attachment).toPath())
+    }
+
+    /**
+     * Flushes a validated partial and atomically promotes it to the canonical
+     * payload path. The fallback is used only on filesystems which explicitly
+     * reject ATOMIC_MOVE; the files remain siblings and REPLACE_EXISTING still
+     * avoids copying bytes through the canonical path.
+     */
+    @Throws(IOException::class)
+    internal fun promoteCompletedDownload(attachment: Attachment, partial: File): File {
+        val finalFile = pathFor(attachment)
+        val expectedPartial = partialPathFor(attachment)
+        if (partial.canonicalFile != expectedPartial.canonicalFile) {
+            throw IOException("Attachment partial is not the owned sibling path")
+        }
+        if (!isCompletePayload(partial, attachment.totalBytes)) {
+            val expected = attachment.totalBytes?.takeIf { it > 0L }
+            val detail = if (expected != null) " (expected $expected bytes, found ${partial.length()})" else ""
+            throw IOException("Attachment download is empty or incomplete$detail")
+        }
+
+        // The downloader contract returns only after closing its output. Open
+        // the resulting file independently so the completed bytes reach the
+        // filesystem before the canonical name becomes visible.
+        RandomAccessFile(partial, "rw").use { it.fd.sync() }
+        try {
+            Files.move(
+                partial.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(partial.toPath(), finalFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        syncDirectoryBestEffort(finalFile.parentFile)
+        return finalFile
     }
 
     /**
@@ -142,11 +222,23 @@ class AttachmentStore(
         val primary = pathFor(attachment)
         listOf(
             primary,
+            partialPathFor(attachment),
             File(primary.path + ".png"),
             File(primary.path + ".thumbnail"),
             File(primary.path + ".png.thumbnail"),
         ).forEach { it.delete() }
         primary.parentFile?.takeIf { it.isDirectory && it.list().isNullOrEmpty() }?.delete()
+    }
+
+    /** Directory fsync is unavailable on some Android/filesystem pairs. */
+    private fun syncDirectoryBestEffort(directory: File?) {
+        if (directory == null) return
+        try {
+            FileChannel.open(directory.toPath(), StandardOpenOption.READ).use { it.force(true) }
+        } catch (_: Exception) {
+            // The file itself was synced before promotion; directory syncing
+            // is an additional durability barrier where the platform permits.
+        }
     }
 
     /**

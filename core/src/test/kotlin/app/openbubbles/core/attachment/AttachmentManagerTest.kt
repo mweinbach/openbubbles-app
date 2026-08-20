@@ -65,6 +65,7 @@ class AttachmentManagerTest {
      */
     private class FakeDownloader : AttachmentDownloader {
         val calls = mutableListOf<String>()
+        val destinations = mutableListOf<String>()
         @Volatile var failAfterWrite = false
         var stepDelayMs = 20L
         val payload = "payload-bytes!".toByteArray()
@@ -75,6 +76,7 @@ class AttachmentManagerTest {
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> {
             synchronized(calls) { calls += attachmentGuid }
+            synchronized(destinations) { destinations += destPath }
             val total = payload.size.toLong()
             onProgress(0, total)
             File(destPath).writeBytes(payload)
@@ -125,6 +127,7 @@ class AttachmentManagerTest {
         transferName: String?,
         outgoing: Boolean = false,
         downloaded: Boolean = false,
+        expectedBytes: Long? = null,
     ): Attachment {
         val message = Message().apply {
             this.guid = "msg-$guid"
@@ -138,6 +141,7 @@ class AttachmentManagerTest {
             mimeType = "application/octet-stream"
             isOutgoing = outgoing
             isDownloaded = downloaded
+            totalBytes = expectedBytes
         }
         store.runInTx {
             message.chat.target = chat
@@ -173,6 +177,8 @@ class AttachmentManagerTest {
         val file = File(rootDir, "attachments/att-1/pic.png")
         assertTrue(file.isFile)
         assertEquals(String(fake.payload), file.readText())
+        assertTrue(synchronized(fake.destinations) { fake.destinations.single() }.endsWith(".openbubbles-partial"))
+        assertTrue(!File(file.parentFile, ".pic.png.openbubbles-partial").exists())
 
         // DB row persisted: downloaded + real byte length.
         val row = stored("att-1")
@@ -225,27 +231,115 @@ class AttachmentManagerTest {
         check(failure is TransferState.Failed) { "expected Failed, got $states" }
         assertTrue(failure.error.contains("interrupted"))
 
-        val partial = File(rootDir, "attachments/att-4/doc.pdf")
+        val partial = File(rootDir, "attachments/att-4/.doc.pdf.openbubbles-partial")
         assertTrue(!partial.exists(), "partial file should be cleaned up")
+        assertTrue(!File(rootDir, "attachments/att-4/doc.pdf").exists(), "failed payload must never be published")
         assertTrue(!stored("att-4")!!.isDownloaded)
         assertNull(manager.localFile(att))
     }
 
     @Test
-    fun `file already on disk short circuits without a transfer`() = runBlocking<Unit> {
+    fun `valid file already on disk short circuits without a transfer`() = runBlocking<Unit> {
         val chat = seedChat("chat-5", "friend@icloud.com")
-        val att = seedAttachment(chat, "att-5", "pic.png")
+        val existingPayload = "already complete"
+        val att = seedAttachment(chat, "att-5", "pic.png", expectedBytes = existingPayload.length.toLong())
 
         // Simulate a file left behind by a previous run (flag drifted).
         val dir = File(rootDir, "attachments/att-5").apply { mkdirs() }
-        File(dir, "pic.png").writeText("stale")
+        File(dir, "pic.png").writeText(existingPayload)
+        val abandonedPartial = File(dir, ".pic.png.openbubbles-partial").apply { writeText("abandoned") }
 
         val states = withTimeout(5_000) { manager.download(att).toList() }
 
         assertEquals(listOf<TransferState>(TransferState.Done), states)
         assertTrue(synchronized(fake.calls) { fake.calls.isEmpty() }, "downloader must not run")
-        // The stale flag is normalized to downloaded.
+        assertTrue(!abandonedPartial.exists(), "owned partial from an earlier process must be cleaned")
+        // The drifted flag is normalized to downloaded.
         assertTrue(stored("att-5")!!.isDownloaded)
+    }
+
+    @Test
+    fun `wrong-size existing file is replaced only after a complete validated download`() = runBlocking<Unit> {
+        val chat = seedChat("chat-stale", "friend@icloud.com")
+        val att = seedAttachment(
+            chat,
+            "att-stale",
+            "pic.png",
+            expectedBytes = fake.payload.size.toLong(),
+        )
+        val canonical = File(rootDir, "attachments/att-stale/pic.png").apply {
+            parentFile.mkdirs()
+            writeText("stale")
+        }
+
+        val states = withTimeout(5_000) { manager.download(att).toList() }
+
+        assertEquals(TransferState.Done, states.last())
+        assertEquals(listOf("att-stale"), synchronized(fake.calls) { fake.calls.toList() })
+        assertEquals(fake.payload.toList(), canonical.readBytes().toList())
+        assertEquals(fake.payload.size.toLong(), canonical.length())
+        assertTrue(stored("att-stale")!!.isDownloaded)
+    }
+
+    @Test
+    fun `wrong-size completed transfer is rejected without replacing the canonical file`() = runBlocking<Unit> {
+        val chat = seedChat("chat-size", "friend@icloud.com")
+        val att = seedAttachment(
+            chat,
+            "att-size",
+            "pic.png",
+            expectedBytes = fake.payload.size + 1L,
+        )
+        val canonical = File(rootDir, "attachments/att-size/pic.png").apply {
+            parentFile.mkdirs()
+            writeText("prior")
+        }
+
+        val states = withTimeout(5_000) { manager.download(att).toList() }
+
+        val failure = states.last()
+        check(failure is TransferState.Failed) { "expected Failed, got $states" }
+        assertTrue(failure.error.contains("expected ${fake.payload.size + 1L} bytes"))
+        assertEquals("prior", canonical.readText(), "invalid replacement must not touch the canonical file")
+        assertTrue(!File(canonical.parentFile, ".pic.png.openbubbles-partial").exists())
+        assertTrue(!stored("att-size")!!.isDownloaded)
+        assertNull(manager.localFile(att), "wrong-size canonical file must not be exposed as complete")
+    }
+
+    @Test
+    fun `process restart discards abandoned partial before starting a fresh transfer`() = runBlocking<Unit> {
+        val chat = seedChat("chat-restart", "friend@icloud.com")
+        val att = seedAttachment(
+            chat,
+            "att-restart",
+            "pic.png",
+            expectedBytes = fake.payload.size.toLong(),
+        )
+        val canonical = File(rootDir, "attachments/att-restart/pic.png")
+        val partial = File(rootDir, "attachments/att-restart/.pic.png.openbubbles-partial").apply {
+            parentFile.mkdirs()
+            writeText("bytes from dead process")
+        }
+        var sawCleanStart = false
+        val restarted = AttachmentManager(
+            store,
+            rootDir,
+            AttachmentDownloader { _, destPath, _ ->
+                val destination = File(destPath)
+                assertEquals(partial.canonicalFile, destination.canonicalFile)
+                sawCleanStart = !destination.exists() && !canonical.exists()
+                destination.writeBytes(fake.payload)
+                Result.success(Unit)
+            },
+            scope,
+        )
+
+        val states = withTimeout(5_000) { restarted.download(att).toList() }
+
+        assertEquals(TransferState.Done, states.last())
+        assertTrue(sawCleanStart, "a prior process partial must not be resumed or published")
+        assertTrue(!partial.exists())
+        assertEquals(fake.payload.toList(), canonical.readBytes().toList())
     }
 
     @Test

@@ -205,16 +205,37 @@ class AttachmentStoreTest {
     }
 
     @Test
+    fun `existingFile rejects empty and wrong-size canonical payloads`() {
+        val att = attachment("att-sized", "payload.bin").apply {
+            totalBytes = 4L
+            store.boxFor(Attachment::class.java).put(this)
+        }
+        val primary = disk.pathFor(att).apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf())
+        }
+        assertNull(disk.existingFile(att))
+
+        primary.writeBytes(byteArrayOf(1, 2, 3))
+        assertNull(disk.existingFile(att))
+
+        primary.writeBytes(byteArrayOf(1, 2, 3, 4))
+        assertEquals(primary, disk.existingFile(att))
+    }
+
+    @Test
     fun `deleteLocalFiles removes payload and converted variants`() {
         val att = attachment("att-8", "d.png")
         val dir = disk.directoryFor("att-8").apply { mkdirs() }
         val primary = File(dir, "d.png").apply { writeText("x") }
         val converted = File(dir, "d.png.png").apply { writeText("x") }
         val thumb = File(dir, "d.png.thumbnail").apply { writeText("x") }
+        val partial = File(dir, ".d.png.openbubbles-partial").apply { writeText("partial") }
 
         disk.deleteLocalFiles(att)
         assertTrue(!primary.exists())
         assertTrue(!converted.exists())
         assertTrue(!thumb.exists())
+        assertTrue(!partial.exists())
     }
 }

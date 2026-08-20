@@ -74,9 +74,9 @@ sealed class TransferState {
  * image-conversion/thumbnail pipeline (later milestone).
  *
  * Semantics ported from Dart:
- * - disk presence beats the persisted `isDownloaded` flag (the flag can
- *   drift), so [download] short-circuits to [TransferState.Done] when the
- *   file already exists;
+ * - a validated disk payload beats the persisted `isDownloaded` flag (the
+ *   flag can drift), so [download] short-circuits only for a non-empty file
+ *   whose byte length matches declared metadata;
  * - one in-flight transfer per guid: concurrent callers share a single
  *   download and observe the same progress stream (Dart's controller map);
  * - staged outgoing attachments (`temp-…` guids) never download;
@@ -141,8 +141,13 @@ class AttachmentManager(
             emit(TransferState.Failed("Cannot download staged attachment $guid"))
             return@flow
         }
-        // Fast path: file already on disk (Dart prefers disk over the flag).
-        if (disk.existingFile(attachment) != null) {
+        // Read current size metadata before trusting a prior-run payload; the
+        // caller may be holding an older ObjectBox entity instance.
+        val current = attachmentBox.query()
+            .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+        if (current != null && disk.existingFile(current) != null) {
+            runCatching { disk.deleteDownloadPartial(current) }
             disk.markDownloaded(guid)
             emit(TransferState.Done)
             return@flow
@@ -188,7 +193,8 @@ class AttachmentManager(
      * progress into [InFlight.states], persists `isDownloaded` + real byte
      * length on success, and cleans up on failure.
      */
-    private suspend fun runTransfer(guid: String, entry: InFlight) = transferPermits.withPermit {
+    private suspend fun runTransfer(guid: String, entry: InFlight): Unit = transferPermits.withPermit {
+        var ownedPartial: File? = null
         try {
             val fresh = attachmentBox.query()
                 .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
@@ -204,8 +210,19 @@ class AttachmentManager(
                 return
             }
             dest.parentFile?.mkdirs()
+            val partial = try {
+                disk.partialPathFor(fresh)
+            } catch (e: IOException) {
+                finish(guid, entry, TransferState.Failed(e.message ?: "invalid attachment path"))
+                return
+            }
+            ownedPartial = partial
+            // A process may have died after writing the sibling but before
+            // promotion. It is never a completed payload and must not resume
+            // implicitly across a new downloader invocation.
+            disk.deleteDownloadPartial(fresh)
 
-            val result = downloader.download(guid, dest.absolutePath) { done, total ->
+            val result = downloader.download(guid, partial.absolutePath) { done, total ->
                 // StateFlow assignment is thread-safe; the Rust callback may
                 // fire from any thread.
                 entry.states.value = TransferState.Progress(done, total)
@@ -213,19 +230,24 @@ class AttachmentManager(
 
             result.fold(
                 onSuccess = {
-                    val size = if (dest.isFile) dest.length() else fresh.totalBytes
-                    disk.markDownloaded(guid, size)
-                    finish(guid, entry, TransferState.Done)
+                    try {
+                        val completed = disk.promoteCompletedDownload(fresh, partial)
+                        disk.markDownloaded(guid, completed.length())
+                        finish(guid, entry, TransferState.Done)
+                    } catch (cause: IOException) {
+                        partial.delete()
+                        finish(guid, entry, TransferState.Failed(cause.message ?: "download validation failed"))
+                    }
                 },
                 onFailure = { cause ->
-                    // Remove the partial file so the guid re-downloads cleanly
-                    // (Dart redownload deletes before restarting).
-                    dest.delete()
-                    File(dest.path + ".png").delete()
+                    // Never touch the canonical file on a failed replacement;
+                    // only the app-owned partial belongs to this attempt.
+                    partial.delete()
                     finish(guid, entry, TransferState.Failed(cause.message ?: "download failed"))
                 },
             )
         } catch (t: Throwable) {
+            ownedPartial?.delete()
             finish(guid, entry, TransferState.Failed(t.message ?: "download failed"))
         }
     }
