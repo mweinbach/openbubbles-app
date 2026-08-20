@@ -21,6 +21,7 @@ legacy BlueBubbles client and does not require a BlueBubbles Mac server.
 - `telephony_plus/` — Android telephony support, included as a Git submodule
   (provides the `:android-smsmms` Java MMS stack).
 - `native/` — Gradle root for the Kotlin modules (JDK 21+).
+- `legacy/flutter/` — archived documentation for the retired Flutter/GetX client.
 
 Clone with submodules included:
 
@@ -45,6 +46,15 @@ Required tooling:
 - Android SDK 36 and NDK `28.2.13676358`
 - stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
 - `protoc`
+
+### Android Studio
+
+Open `native/` as the project directory, not the repository root. Android Studio's bundled JBR is
+supported. After Gradle sync, select the `app-native` configuration and run it on an API 26+
+device or emulator. The launch activity is `app.openbubbles.nativeapp.NativeMainActivity`.
+
+The Gradle project imports `app-native/`, `core/`, `db/`, `desktopApp/`, and the required
+`telephony_plus/android-smsmms/library` module from their repository-root locations.
 
 Clone with `--recurse-submodules` (see above), provide `native/local.properties` with
 `sdk.dir`, then run:

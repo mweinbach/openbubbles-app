@@ -2,11 +2,11 @@
 
 > **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
 > The native receive path is APS → `NativePushService` → `MessageIngestor`,
-> documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+> documented in [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
 
 End-to-end flow for an inbound message: from the server socket through the database to the reactive UI state.
 
-For the outgoing half (user sends a message), see `docs/MESSAGE_SEND_FLOW.md`.
+For the outgoing half (user sends a message), see [MESSAGE_SEND_FLOW.md](MESSAGE_SEND_FLOW.md).
 
 ---
 
@@ -48,7 +48,7 @@ No parsing or routing logic lives here — raw JSON is passed directly to `Messa
 
 **`handleEvent(eventName, data, source)`** parses the raw payload into a typed `ServerPayload`, extracts the `Chat` and `Message`, then hands off to `IncomingMsgHandler.handle()` with an `IncomingPayload` that carries the parsed data and the `MessageSource` (socket or method channel).
 
-For `"new-message"` events on messages sent by this device, the handler checks whether a `tempGuid` field is present in the payload. If it is, the server is echoing back a message we sent — see `docs/MESSAGE_SEND_FLOW.md` for how the tempGuid → realGuid swap is resolved.
+For `"new-message"` events on messages sent by this device, the handler checks whether a `tempGuid` field is present in the payload. If it is, the server is echoing back a message we sent — see [MESSAGE_SEND_FLOW.md](MESSAGE_SEND_FLOW.md) for how the tempGuid → realGuid swap is resolved.
 
 **Key file:** `lib/services/backend/action_handler.dart`
 
@@ -106,7 +106,7 @@ Routing by `MessageEventType`:
 
 4. **Chat hydration** — calls `_hydrateChat()`.
 
-5. **Persist GUID swap / field update** — calls `_replaceMessage()` which goes through `MessageInterface.replaceMessage()` (see `docs/MESSAGE_SEND_FLOW.md`).
+5. **Persist GUID swap / field update** — calls `_replaceMessage()` which goes through `MessageInterface.replaceMessage()` (see [MESSAGE_SEND_FLOW.md](MESSAGE_SEND_FLOW.md)).
 
 6. **Persist attachment GUID swaps** — calls `_replaceAttachments()`.
 

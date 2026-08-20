@@ -2,11 +2,11 @@
 
 > **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
 > The native send path is `ChatViewModel` → `CoreSender` (temp guid → UniFFI → echo ingest),
-> documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+> documented in [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
 
 End-to-end flow for an outbound message: from the user tapping Send through the API call, the race between the socket response and the HTTP response, and the tempGuid → realGuid swap that merges them.
 
-For the inbound half of this flow (after the server echoes the message back), see `docs/MESSAGE_RECEIVE_FLOW.md`.
+For the inbound half of this flow (after the server echoes the message back), see [MESSAGE_RECEIVE_FLOW.md](MESSAGE_RECEIVE_FLOW.md).
 
 ---
 
@@ -149,7 +149,7 @@ The server sends a "new-message" socket event (or Firebase push on Android) with
 
 - **If `tempGuid` is null** (out-of-order event — the server sent the real GUID before the client registered the tracker): The real GUID is added to `MessageHandlerSvc.outOfOrderTempGuids` in `action_handler.dart`. The handler waits 500ms, then checks again. If the tracker arrived in the meantime, the swap proceeds normally; if not, the event is treated as a regular new message.
 
-When `IncomingMessageHandler` processes the item, `_processNewMessage()` routes to `_processUpdatedMessage()` for the GUID swap (see `docs/MESSAGE_RECEIVE_FLOW.md`).
+When `IncomingMessageHandler` processes the item, `_processNewMessage()` routes to `_processUpdatedMessage()` for the GUID swap (see [MESSAGE_RECEIVE_FLOW.md](MESSAGE_RECEIVE_FLOW.md)).
 
 ---
 

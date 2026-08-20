@@ -16,12 +16,14 @@ start from [AGENTS.md](AGENTS.md). The executable change loop and evidence hando
    Android SDK/NDK versions listed in `README.md`, stable Rust, the Android Rust
    targets, and `protoc`.
 3. Create `native/local.properties` containing your Android SDK path.
-4. Keep secrets and local device state out of Git.
+4. Open `native/` as the Android Studio project.
+5. Keep secrets and local device state out of Git.
 
 The Gradle settings reject runtimes older than JDK 21 with an actionable error.
 The Android build compiles `rust/` directly with Cargo and the pinned NDK through
 `app-native/cargo-android.gradle`; it must not require Dart, Flutter, or Cargokit.
-Retained Flutter/FRB files are compatibility or reference material, not the native build path.
+Historical Flutter documentation lives under `legacy/flutter/`. Retained FRB Rust sources are
+compatibility surface, not the Kotlin API or Android build path.
 
 ## Code ownership by module
 

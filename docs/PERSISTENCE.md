@@ -1,7 +1,7 @@
 # Persistence
 
-ObjectBox store shared with the retired Flutter client. The contract is the model file, not
-`docs/models.md`.
+ObjectBox store shared with the retired Flutter client. The contract is the model file, not the
+[retired Dart model notes](../legacy/flutter/docs/models.md).
 
 ## Store
 

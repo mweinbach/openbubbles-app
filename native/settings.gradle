@@ -38,6 +38,8 @@ if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
     )
 }
 
+rootProject.name = "OpenBubbles"
+
 include ":app-native"
 project(":app-native").projectDir = file("../app-native")
 include ":android-smsmms"

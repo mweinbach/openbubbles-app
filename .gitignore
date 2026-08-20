@@ -21,21 +21,9 @@ mise.toml
 # is commented out by default.
 .vscode/settings.json
 
-# Retired Flutter/Dart/Pub artifacts retained by local tooling
-**/doc/api/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-.pub-cache/
-.pub/
+# Build outputs
 /build/
 **/build/
-pubspeck.lock
-
-# Web related
-
-# Exceptions to above rules.
-!/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 
 #signing
 **/android/key.properties
@@ -45,37 +33,23 @@ pubspeck.lock
 **/android/keystore
 **/releases
 
-#objectbox
-.dart_tool/*
-
 #private keys
 *.env
 .vscode/launch.json
-/lib/models/html/giphy.dart
-
-/android/app/.cxx/
-
-# FVM Version Cache
-.fvm/
-.fvmrc
 
 .claude/projects
 
 # Native (no-Dart) gradle build
 native/local.properties
 native/.gradle/
-android/local.properties
-android/.gradle/
-android/.kotlin/
+native/gradle/gradle-daemon-jvm.properties
 .kotlin/
 /build-native/
 db/objectbox-model.json.bak
-windows/flutter/ephemeral/
 
 # Tool droppings / build artifacts
 codegen_logs
 .codex
-android/.project
 db/libobjectbox-jni*
 desktopApp/libobjectbox-jni*
 core/libobjectbox-jni*

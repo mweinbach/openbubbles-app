@@ -2,7 +2,7 @@
 
 > **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
 > Do not copy GetX, isolates, `lib/`, sockets, or Dart ObjectBox patterns.
-> Native: [AGENTS.md](../AGENTS.md), [UI.md](UI.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+> Native: [AGENTS.md](../../../AGENTS.md), [UI.md](../../../docs/UI.md), [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
 
 Step-by-step recipes for the most frequent changes in this codebase. Each recipe lists the files to touch in order.
 

@@ -2,7 +2,7 @@
 
 > **Historical Flutter / BlueBubbles only.** Not the implementation architecture.
 > Entity names may help Flutter-backup migration. The live contract is `db/`
-> and [PERSISTENCE.md](PERSISTENCE.md). Do not run `dart run build_runner`.
+> and [PERSISTENCE.md](../../../docs/PERSISTENCE.md). Do not run `dart run build_runner`.
 
 ---
 

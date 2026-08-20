@@ -12,14 +12,15 @@ Platform UI and lifecycle stay in `app-native/` and `desktopApp/`. Apple protoco
 
 ## How
 
-JDK 21 or newer; Android Studio's bundled JBR is recommended. Gradle root is `native/` (not the repo root). Submodules required.
+JDK 21 or newer; Android Studio's bundled JBR is recommended. Gradle root is `native/` (not the
+repo root). Open `native/` as the Android Studio project. Submodules required.
 
 ### Native build boundary
 
 - Android compiles `rust/` directly with Cargo and NDK `28.2.13676358` through
   `app-native/cargo-android.gradle`. Dart, Flutter, and Cargokit are not build prerequisites.
-- Do not route Gradle or CI through `rust_builder/cargokit/`, `run_build_tool.sh`, or any Dart tool.
-  That directory and the retired Flutter client are reference/migration material only.
+- The retired Flutter application and Cargokit tooling are removed. Do not reintroduce Dart,
+  Flutter, or Cargokit into Gradle, CI, or the application tree.
 - `rust/src/frb_generated*.rs` and existing Flutter Rust Bridge exports still compile as legacy Rust
   surface. They are not the Kotlin API; Kotlin uses committed UniFFI bindings from `:core`.
 
@@ -111,5 +112,4 @@ Do not load Wear, CameraX, Play Billing, Engage, TV, or glasses skills for this 
 
 ## Historical (do not implement from)
 
-`docs/DECISIONS.md`, `docs/COMMON_TASKS.md`, `docs/MESSAGE_*_FLOW.md`, and `docs/models.md`
-describe the retired Dart client.
+`legacy/flutter/docs/` describes the retired Dart client. It is historical reference only.
