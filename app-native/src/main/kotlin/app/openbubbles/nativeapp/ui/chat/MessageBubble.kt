@@ -814,8 +814,9 @@ private fun InvisibleInkBubble(
 
 private const val ReplyQuoteWidthFraction = 0.76f
 private val ReplyQuoteTopPadding = 4.dp
-private val ReplyConnectorLayoutHeight = 32.dp
+private val ReplyConnectorLayoutHeight = 40.dp
 private val ReplyConnectorStrokeWidth = 2.4.dp
+private val ReplyConnectorTopGap = 8.dp
 private val ReplyConnectorOuterInset = 16.dp
 private val ReplyConnectorCapLength = 18.dp
 private val ReplyConnectorCornerRadius = 6.dp
@@ -930,9 +931,11 @@ private fun ReplyQuotePreview(
         ) {
             val strokeWidth = ReplyConnectorStrokeWidth.toPx()
             val halfStroke = strokeWidth / 2f
+            val topGap = ReplyConnectorTopGap.toPx()
+            val verticalOffset = topGap + halfStroke
             val geometry = replyConnectorGeometry(
                 width = size.width,
-                height = (size.height - strokeWidth).coerceAtLeast(0f),
+                height = (size.height - strokeWidth - topGap).coerceAtLeast(0f),
                 outerInset = ReplyConnectorOuterInset.toPx(),
                 capLength = ReplyConnectorCapLength.toPx(),
                 cornerRadius = ReplyConnectorCornerRadius.toPx(),
@@ -941,14 +944,14 @@ private fun ReplyQuotePreview(
             )
             drawPath(
                 path = Path().apply {
-                    moveTo(geometry.start.x, geometry.start.y + halfStroke)
-                    lineTo(geometry.horizontalEnd.x, geometry.horizontalEnd.y + halfStroke)
+                    moveTo(geometry.start.x, geometry.start.y + verticalOffset)
+                    lineTo(geometry.horizontalEnd.x, geometry.horizontalEnd.y + verticalOffset)
                     cubicTo(
-                        geometry.control1.x, geometry.control1.y + halfStroke,
-                        geometry.control2.x, geometry.control2.y + halfStroke,
-                        geometry.curveEnd.x, geometry.curveEnd.y + halfStroke,
+                        geometry.control1.x, geometry.control1.y + verticalOffset,
+                        geometry.control2.x, geometry.control2.y + verticalOffset,
+                        geometry.curveEnd.x, geometry.curveEnd.y + verticalOffset,
                     )
-                    lineTo(geometry.end.x, geometry.end.y + halfStroke)
+                    lineTo(geometry.end.x, geometry.end.y + verticalOffset)
                 },
                 color = connectorColor,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
