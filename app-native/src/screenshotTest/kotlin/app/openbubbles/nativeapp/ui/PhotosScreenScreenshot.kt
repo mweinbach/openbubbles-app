@@ -72,6 +72,7 @@ fun PhotosScreenScreenshot() {
             onRefresh = {},
             onLoadMore = {},
             onPreviewVisible = {},
+            onPreviewHidden = {},
             onRetryPreview = {},
             onSelect = {},
             onCloseSelected = {},
