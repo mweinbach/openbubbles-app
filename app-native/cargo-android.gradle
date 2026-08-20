@@ -235,27 +235,31 @@ androidComponents {
 // surface. UniFFI reads exported metadata, which is profile-independent, so
 // use the debug cdylib instead of paying the shipping release profile's LTO
 // cost merely to regenerate Kotlin declarations.
+def uniffiRustDirectory = layout.projectDirectory.dir("../rust")
+def uniffiLibraryName
+if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+    uniffiLibraryName = "rust_lib_bluebubbles.dll"
+} else if (Os.isFamily(Os.FAMILY_MAC)) {
+    uniffiLibraryName = "librust_lib_bluebubbles.dylib"
+} else {
+    uniffiLibraryName = "librust_lib_bluebubbles.so"
+}
+def uniffiDebugLibrary = uniffiRustDirectory.file("target/debug/${uniffiLibraryName}")
+def committedUniffiBindings = layout.projectDirectory.file(
+        "../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
 tasks.register("checkUniffiBindings") {
     doLast {
         def tmp = File.createTempDir()
         tmp.deleteOnExit()
         injected.execOps.exec {
-            workingDir file("../rust")
+            workingDir uniffiRustDirectory.asFile
             executable cargoExecutable
             args "build", "--locked"
             if (protocExecutable) environment "PROTOC", protocExecutable
         }
-        def libraryName
-        if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS)) {
-            libraryName = "rust_lib_bluebubbles.dll"
-        } else if (org.apache.tools.ant.taskdefs.condition.Os.isFamily(org.apache.tools.ant.taskdefs.condition.Os.FAMILY_MAC)) {
-            libraryName = "librust_lib_bluebubbles.dylib"
-        } else {
-            libraryName = "librust_lib_bluebubbles.so"
-        }
-        def libraryFile = file("../rust/target/debug/${libraryName}")
+        def libraryFile = uniffiDebugLibrary.asFile
         injected.execOps.exec {
-            workingDir file("../rust")
+            workingDir uniffiRustDirectory.asFile
             executable cargoExecutable
             args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
                     "--library", libraryFile.absolutePath,
@@ -264,7 +268,7 @@ tasks.register("checkUniffiBindings") {
             if (protocExecutable) environment "PROTOC", protocExecutable
         }
         def generated = new File(tmp, "uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
-        def committed = file("../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt")
+        def committed = committedUniffiBindings.asFile
         if (!generated.exists()) {
             throw new GradleException("bindgen produced no kotlin file in temp dir")
         }
