@@ -12,12 +12,13 @@ start from [AGENTS.md](AGENTS.md). The executable change loop and evidence hando
    repositories; see
    [docs/rust-backend/foundations/submodules.md](docs/rust-backend/foundations/submodules.md)
    for the full tree, access requirements, and the pointer-bump workflow.
-2. Install JDK 21, the Android SDK/NDK versions listed in `README.md`, stable
-   Rust, the Android Rust targets, and `protoc`.
+2. Use Android Studio's bundled JBR or another JDK 21+ installation, plus the
+   Android SDK/NDK versions listed in `README.md`, stable Rust, the Android Rust
+   targets, and `protoc`.
 3. Create `native/local.properties` containing your Android SDK path.
 4. Keep secrets and local device state out of Git.
 
-The Gradle settings reject non-JDK-21 runtimes with an actionable error.
+The Gradle settings reject runtimes older than JDK 21 with an actionable error.
 The Android build compiles `rust/` directly with Cargo and the pinned NDK through
 `app-native/cargo-android.gradle`; it must not require Dart, Flutter, or Cargokit.
 Retained Flutter/FRB files are compatibility or reference material, not the native build path.

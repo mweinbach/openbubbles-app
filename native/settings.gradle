@@ -31,10 +31,10 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
 }
 
-if (JavaVersion.current() != JavaVersion.VERSION_21) {
+if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
     throw new GradleException(
-        "OpenBubbles native builds require JDK 21; current runtime is ${JavaVersion.current()}. " +
-        "Set JAVA_HOME to a JDK 21 installation and retry."
+        "OpenBubbles native builds require JDK 21 or newer; current runtime is ${JavaVersion.current()}. " +
+        "Use Android Studio's bundled JBR or set JAVA_HOME to a compatible JDK and retry."
     )
 }
 

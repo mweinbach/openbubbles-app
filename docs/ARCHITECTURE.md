@@ -32,7 +32,7 @@ There is no `:shared` KMP module. It was removed (AGP 9). Put shared behavior in
 | `desktopApp/` | Compose Desktop shell. Same `:core`/`:db`; data in `~/.openbubbles-natives`. Feature-incomplete. |
 | `rust/` | UniFFI API Kotlin calls. |
 | `rustpush/` | Apple protocols (submodule). |
-| `native/` | Gradle root. JDK 21 required. |
+| `native/` | Gradle root. JDK 21+ required; Android Studio's bundled JBR is recommended. |
 | `:android-smsmms` | Java MMS stack from the `telephony_plus` submodule. |
 
 Details: [UI.md](UI.md), [RUST_KOTLIN.md](RUST_KOTLIN.md), [PERSISTENCE.md](PERSISTENCE.md).

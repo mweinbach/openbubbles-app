@@ -12,7 +12,7 @@ Platform UI and lifecycle stay in `app-native/` and `desktopApp/`. Apple protoco
 
 ## How
 
-JDK 21 only. Gradle root is `native/` (not the repo root). Submodules required.
+JDK 21 or newer; Android Studio's bundled JBR is recommended. Gradle root is `native/` (not the repo root). Submodules required.
 
 ### Native build boundary
 

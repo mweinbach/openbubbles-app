@@ -20,7 +20,7 @@ legacy BlueBubbles client and does not require a BlueBubbles Mac server.
   (with nested `apple-private-apis` and `open-absinthe` submodules of its own).
 - `telephony_plus/` — Android telephony support, included as a Git submodule
   (provides the `:android-smsmms` Java MMS stack).
-- `native/` — Gradle root for the Kotlin modules (JDK 21).
+- `native/` — Gradle root for the Kotlin modules (JDK 21+).
 
 Clone with submodules included:
 
@@ -41,7 +41,7 @@ See [AGENTS.md](AGENTS.md) for agent/contributor orientation,
 
 Required tooling:
 
-- JDK 21 (`.java-version` is checked in; other JDKs are rejected explicitly)
+- JDK 21 or newer (Android Studio's bundled JBR is recommended)
 - Android SDK 36 and NDK `28.2.13676358`
 - stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
 - `protoc`
