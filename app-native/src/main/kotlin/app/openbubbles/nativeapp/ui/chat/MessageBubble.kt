@@ -417,9 +417,6 @@ fun MessageBubble(
                 } else {
                     0.dp
                 },
-                replyFromMe = message.isFromMe,
-                replyLeadingInset = gutterWidth,
-                replyWidthPx = contentSize.width,
             )
         }
         SwipeToReplyBox(
@@ -817,9 +814,12 @@ private fun InvisibleInkBubble(
 
 private const val ReplyQuoteWidthFraction = 0.76f
 private val ReplyQuoteTopPadding = 4.dp
-private val ReplyConnectorDrawHeight = 28.dp
-private val ReplyConnectorLayoutHeight = 24.dp
+private val ReplyConnectorLayoutHeight = 28.dp
 private val ReplyConnectorStrokeWidth = 2.4.dp
+private val ReplyConnectorOuterInset = 16.dp
+private val ReplyConnectorCapLength = 18.dp
+private val ReplyConnectorCornerRadius = 6.dp
+private val ReplyConnectorBottomGap = 1.5.dp
 
 internal data class ReplyConnectorGeometry(
     val start: Offset,
@@ -831,54 +831,41 @@ internal data class ReplyConnectorGeometry(
 )
 
 /**
- * A reply connector leaves the center-facing edge of the quoted bubble and
- * turns downward into the center-facing edge of the reply. This is the rotated
- * counterpart of the old rail: horizontal from the source, vertical into the
- * target, rather than a detached vertical hook at the transcript edge.
+ * Detached start-side thread marker: a short inward cap turns down alongside
+ * the reply without touching either bubble. The visual relationship remains
+ * clear without reading as a literal wire between messages.
  */
 internal fun replyConnectorGeometry(
-    sourceX: Float,
-    targetX: Float,
+    width: Float,
     height: Float,
+    outerInset: Float,
+    capLength: Float,
+    cornerRadius: Float,
+    bottomGap: Float,
+    outerEdgeOnRight: Boolean,
 ): ReplyConnectorGeometry {
-    val dx = targetX - sourceX
-    val direction = if (dx >= 0f) 1f else -1f
-    val radius = minOf(height * 0.45f, kotlin.math.abs(dx) * 0.45f)
+    val outerX = if (outerEdgeOnRight) width - outerInset else outerInset
+    val inward = if (outerEdgeOnRight) -1f else 1f
+    val verticalEnd = (height - bottomGap).coerceAtLeast(0f)
+    val radius = minOf(cornerRadius, capLength, verticalEnd)
     val kappa = 0.5522848f
-    val horizontalEnd = Offset(targetX - direction * radius, 0f)
-    val curveEnd = Offset(targetX, radius)
+    val horizontalEnd = Offset(outerX + inward * radius, 0f)
+    val curveEnd = Offset(outerX, radius)
 
     return ReplyConnectorGeometry(
-        start = Offset(sourceX, 0f),
+        start = Offset(outerX + inward * capLength, 0f),
         horizontalEnd = horizontalEnd,
-        control1 = Offset(horizontalEnd.x + direction * radius * kappa, 0f),
-        control2 = Offset(targetX, radius - radius * kappa),
+        control1 = Offset(horizontalEnd.x - inward * radius * kappa, 0f),
+        control2 = Offset(outerX, radius - radius * kappa),
         curveEnd = curveEnd,
-        end = Offset(targetX, height),
+        end = Offset(outerX, verticalEnd),
     )
-}
-
-/** Physical x-coordinate of the bubble edge that faces the transcript center. */
-internal fun centerFacingBubbleAnchor(
-    containerWidth: Float,
-    bubbleWidth: Float,
-    leadingInset: Float,
-    isFromMe: Boolean,
-    isLtr: Boolean,
-): Float {
-    val anchor = when {
-        isLtr && isFromMe -> containerWidth - bubbleWidth
-        isLtr -> leadingInset + bubbleWidth
-        isFromMe -> bubbleWidth
-        else -> containerWidth - leadingInset - bubbleWidth
-    }
-    return anchor.coerceIn(0f, containerWidth)
 }
 
 /**
  * Smaller, quieter original-message capsule stacked above a reply. The quote
- * stays on its author's transcript side, while the connector follows the
- * center-facing edges of both bubbles. Tapping shows the original.
+ * stays on its author's transcript side, while a detached marker sits along
+ * the transcript start edge. Tapping shows the original.
  */
 @Composable
 private fun ReplyQuotePreview(
@@ -887,9 +874,6 @@ private fun ReplyQuotePreview(
     onOpen: () -> Unit,
     maxWidth: Dp,
     quoteLeadingInset: Dp,
-    replyFromMe: Boolean,
-    replyLeadingInset: Dp,
-    replyWidthPx: Int,
     modifier: Modifier = Modifier,
 ) {
     val (bubbleColor, bubbleContent) = when {
@@ -903,9 +887,6 @@ private fun ReplyQuotePreview(
     }
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
-    var quoteSize by remember(quote.text, quote.fromMe) {
-        mutableStateOf(androidx.compose.ui.unit.IntSize.Zero)
-    }
 
     Column(
         modifier = modifier
@@ -925,7 +906,6 @@ private fun ReplyQuotePreview(
                 contentColor = bubbleContent,
                 modifier = Modifier
                     .widthIn(max = maxWidth * ReplyQuoteWidthFraction)
-                    .onSizeChanged { quoteSize = it }
                     .clickable(
                         onClickLabel = quote.senderName?.let { "Show original message from $it" }
                             ?: if (quote.fromMe) "Show your original message" else "Show original message",
@@ -950,28 +930,14 @@ private fun ReplyQuotePreview(
         ) {
             val strokeWidth = ReplyConnectorStrokeWidth.toPx()
             val halfStroke = strokeWidth / 2f
-            val quoteWidth = quoteSize.width.takeIf { it > 0 }?.toFloat()
-                ?: maxWidth.toPx() * ReplyQuoteWidthFraction
-            val replyWidth = replyWidthPx.takeIf { it > 0 }?.toFloat()
-                ?: maxWidth.toPx()
             val geometry = replyConnectorGeometry(
-                sourceX = centerFacingBubbleAnchor(
-                    containerWidth = size.width,
-                    bubbleWidth = quoteWidth,
-                    leadingInset = quoteLeadingInset.toPx(),
-                    isFromMe = quote.fromMe,
-                    isLtr = isLtr,
-                ),
-                targetX = centerFacingBubbleAnchor(
-                    containerWidth = size.width,
-                    bubbleWidth = replyWidth,
-                    leadingInset = replyLeadingInset.toPx(),
-                    isFromMe = replyFromMe,
-                    isLtr = isLtr,
-                ),
-                // Paint a few dp into the following row; the reply draws over
-                // the cap so the connector visibly terminates inside it.
-                height = (ReplyConnectorDrawHeight.toPx() - strokeWidth).coerceAtLeast(0f),
+                width = size.width,
+                height = (size.height - strokeWidth).coerceAtLeast(0f),
+                outerInset = ReplyConnectorOuterInset.toPx(),
+                capLength = ReplyConnectorCapLength.toPx(),
+                cornerRadius = ReplyConnectorCornerRadius.toPx(),
+                bottomGap = ReplyConnectorBottomGap.toPx(),
+                outerEdgeOnRight = !isLtr,
             )
             drawPath(
                 path = Path().apply {

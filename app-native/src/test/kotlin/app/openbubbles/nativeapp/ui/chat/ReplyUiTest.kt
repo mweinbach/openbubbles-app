@@ -157,64 +157,43 @@ class ReplyUiTest {
     }
 
     @Test
-    fun `connector leaves quote horizontally and enters reply vertically`() {
+    fun `connector is a detached left side bracket`() {
         val geometry = replyConnectorGeometry(
-            sourceX = 48f,
-            targetX = 12f,
+            width = 100f,
             height = 30f,
+            outerInset = 8f,
+            capLength = 18f,
+            cornerRadius = 6f,
+            bottomGap = 4f,
+            outerEdgeOnRight = false,
         )
         assertEquals(geometry.start.y, geometry.control1.y)
         assertEquals(geometry.start.y, geometry.horizontalEnd.y)
         assertEquals(geometry.end.x, geometry.control2.x)
         assertEquals(geometry.end.x, geometry.curveEnd.x)
         assertEquals(0f, geometry.start.y)
-        assertEquals(30f, geometry.end.y)
-        assertEquals(48f, geometry.start.x)
-        assertEquals(12f, geometry.end.x)
+        assertEquals(26f, geometry.end.y)
+        assertEquals(26f, geometry.start.x)
+        assertEquals(14f, geometry.horizontalEnd.x)
+        assertEquals(8f, geometry.end.x)
     }
 
     @Test
-    fun `center facing anchors follow sender side and mirror in rtl`() {
-        assertEquals(
-            32f,
-            centerFacingBubbleAnchor(
-                containerWidth = 100f,
-                bubbleWidth = 24f,
-                leadingInset = 8f,
-                isFromMe = false,
-                isLtr = true,
-            ),
+    fun `connector mirrors to the right side in rtl`() {
+        val geometry = replyConnectorGeometry(
+            width = 100f,
+            height = 30f,
+            outerInset = 8f,
+            capLength = 18f,
+            cornerRadius = 6f,
+            bottomGap = 4f,
+            outerEdgeOnRight = true,
         )
-        assertEquals(
-            76f,
-            centerFacingBubbleAnchor(
-                containerWidth = 100f,
-                bubbleWidth = 24f,
-                leadingInset = 8f,
-                isFromMe = true,
-                isLtr = true,
-            ),
-        )
-        assertEquals(
-            68f,
-            centerFacingBubbleAnchor(
-                containerWidth = 100f,
-                bubbleWidth = 24f,
-                leadingInset = 8f,
-                isFromMe = false,
-                isLtr = false,
-            ),
-        )
-        assertEquals(
-            24f,
-            centerFacingBubbleAnchor(
-                containerWidth = 100f,
-                bubbleWidth = 24f,
-                leadingInset = 8f,
-                isFromMe = true,
-                isLtr = false,
-            ),
-        )
+        assertEquals(74f, geometry.start.x)
+        assertEquals(86f, geometry.horizontalEnd.x)
+        assertEquals(92f, geometry.curveEnd.x)
+        assertEquals(92f, geometry.end.x)
+        assertEquals(26f, geometry.end.y)
     }
 
     @Test
