@@ -316,7 +316,7 @@ class NativeMainActivity : FragmentActivity() {
     }
 
     private fun syncContacts() {
-        lifecycleScope.launch {
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             DeviceContacts.read(this@NativeMainActivity).applySuccessfulSnapshot { snapshot ->
                 CoreGraph.syncDeviceContacts(snapshot)
             }

@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import android.provider.ContactsContract
 import app.openbubbles.core.contacts.ContactSync
 import app.openbubbles.core.contacts.DeviceContactSnapshot
 import kotlin.test.Test
@@ -57,5 +58,34 @@ class DeviceContactsReadResultTest {
             ),
         )
         assertFalse(providerSnapshotIsStable(original, original.dropLast(1)))
+    }
+
+    @Test
+    fun `provider address selection prefers normalized phones and keeps email text`() {
+        assertEquals(
+            "+15551234567",
+            preferredContactAddress(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                "(555) 123-4567",
+                "+15551234567",
+            ),
+        )
+        assertEquals(
+            "friend@example.com",
+            preferredContactAddress(
+                ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+                "friend@example.com",
+                null,
+            ),
+        )
+        assertEquals(
+            "(555) 123-4567",
+            preferredContactAddress(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                "(555) 123-4567",
+                null,
+            ),
+        )
+        assertEquals(null, preferredContactAddress("unsupported", "value", null))
     }
 }

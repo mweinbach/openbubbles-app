@@ -1,16 +1,21 @@
 package app.openbubbles.core.contacts
 
+import app.openbubbles.core.repo.StoreEntityChange
+import app.openbubbles.core.repo.StoreInvalidationCoordinators
 import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Handle
 import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -145,6 +150,48 @@ class ContactSyncTest {
 
         assertEquals("Mom", contactByNativeId("42")?.nickname)
         assertTrue(sync.icloudContacts().isEmpty())
+    }
+
+    @Test
+    fun `identical contact and relation snapshot does not publish another write`() = runBlocking {
+        val handle = seedHandle("friend@icloud.com")
+        val contact = RawContact(
+            id = "${ContactSync.DEVICE_CONTACT_PREFIX}friend",
+            displayName = "Friend",
+            firstName = "Friendly",
+            lastName = "Person",
+            avatarUpdate = AvatarUpdate.Clear,
+            addresses = listOf("Friend@iCloud.com"),
+        )
+        val snapshot = DeviceContactSnapshot(
+            contacts = listOf(contact),
+            legacyNativeIds = emptyMap(),
+        )
+        sync.reconcileDeviceSnapshot(snapshot)
+        val originalId = contactByNativeId(contact.id)!!.id
+        val coordinator = StoreInvalidationCoordinators.forStore(store)
+
+        // Coalescing an empty block places a deterministic barrier after every
+        // preceding ObjectBox publisher notification.
+        coordinator.coalesce { }
+        val generation = coordinator.generationFor(StoreEntityChange.CONTACT)
+        val projection = sync.displayInfoByMatchKey()
+
+        sync.reconcileDeviceSnapshot(snapshot)
+        coordinator.coalesce { }
+
+        val stored = contactByNativeId(contact.id)!!
+        assertEquals(generation, coordinator.generationFor(StoreEntityChange.CONTACT))
+        assertSame(projection, sync.displayInfoByMatchKey())
+        assertEquals(originalId, stored.id)
+        assertEquals(setOf(handle.id), stored.handles.map { it.id }.toSet())
+
+        sync.reconcileDeviceSnapshot(
+            snapshot.copy(contacts = listOf(contact.copy(displayName = "Updated Friend"))),
+        )
+        coordinator.coalesce { }
+        assertTrue(coordinator.generationFor(StoreEntityChange.CONTACT) > generation)
+        assertEquals("Updated Friend", contactByNativeId(contact.id)?.displayName)
     }
 
     // ------------------------------------------------------------------
@@ -359,6 +406,33 @@ class ContactSyncTest {
     }
 
     @Test
+    fun `display info match-key projection resolves normalized unlinked addresses`() {
+        sync.upsertContacts(
+            listOf(
+                raw(
+                    "android:projected",
+                    displayName = "Android Friend",
+                    avatarPath = "content://android/friend",
+                    addresses = listOf("Friend@iCloud.com"),
+                ),
+                raw(
+                    "icloud:projected",
+                    displayName = "iCloud Friend",
+                    addresses = listOf("friend@icloud.com"),
+                ),
+            ),
+        )
+
+        assertEquals(
+            HandleDisplayInfo("iCloud Friend", "content://android/friend"),
+            ContactSync.displayInfoForMatchKeys(
+                "MAILTO:FRIEND@ICLOUD.COM",
+                sync.displayInfoByMatchKey(),
+            ),
+        )
+    }
+
+    @Test
     fun `iCloud contact wins and native contact becomes fallback`() {
         val handle = seedHandle("friend@icloud.com")
         sync.upsertContacts(
@@ -489,8 +563,12 @@ class ContactSyncTest {
 
         val fromBare = ContactSync.phoneNumberVariants("1234567890")
         assertTrue("+1234567890" in fromBare)
-        assertTrue("234567890" in fromBare)
-        assertTrue("+234567890" in fromBare)
+        assertTrue("+11234567890" in fromBare)
+
+        val international = ContactSync.phoneNumberVariants("+442071234567")
+        assertTrue("442071234567" in international)
+        assertFalse("2071234567" in international)
+        assertFalse("71234567" in international)
     }
 
     @Test

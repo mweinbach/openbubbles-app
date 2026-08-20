@@ -148,34 +148,30 @@ object DeviceContacts {
 
     private fun readAddresses(context: Context): Map<String, List<String>> {
         val byId = mutableMapOf<String, MutableList<String>>()
-        val emailCursor = context.contentResolver.query(
-            ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+        val dataCursor = context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
             arrayOf(
-                ContactsContract.CommonDataKinds.Email.CONTACT_ID,
-                ContactsContract.CommonDataKinds.Email.ADDRESS,
+                ContactsContract.Data.CONTACT_ID,
+                ContactsContract.Data.MIMETYPE,
+                ContactsContract.Data.DATA1,
+                ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER,
             ),
-            null, null, null,
-        ) ?: error("ContactsProvider returned no email cursor")
-        emailCursor.use { cursor ->
+            "${ContactsContract.Data.MIMETYPE} IN (?, ?)",
+            arrayOf(
+                ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+            ),
+            null,
+        ) ?: error("ContactsProvider returned no address cursor")
+        dataCursor.use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0) ?: continue
-                val email = cursor.getString(1) ?: continue
-                byId.getOrPut(id) { mutableListOf() }.add(email)
-            }
-        }
-        val phoneCursor = context.contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(
-                ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
-                ContactsContract.CommonDataKinds.Phone.NUMBER,
-            ),
-            null, null, null,
-        ) ?: error("ContactsProvider returned no phone cursor")
-        phoneCursor.use { cursor ->
-            while (cursor.moveToNext()) {
-                val id = cursor.getString(0) ?: continue
-                val number = cursor.getString(1) ?: continue
-                byId.getOrPut(id) { mutableListOf() }.add(number)
+                val address = preferredContactAddress(
+                    mimeType = cursor.getString(1),
+                    rawAddress = cursor.getString(2),
+                    normalizedPhone = cursor.getString(3),
+                ) ?: continue
+                byId.getOrPut(id) { mutableListOf() }.add(address)
             }
         }
         return byId.mapValues { (_, addresses) -> addresses.distinct() }
@@ -202,4 +198,15 @@ object DeviceContacts {
         fun revision(): ContactProviderRevision =
             ContactProviderRevision(rowId, lookupKey, updatedAtMillis)
     }
+}
+
+internal fun preferredContactAddress(
+    mimeType: String?,
+    rawAddress: String?,
+    normalizedPhone: String?,
+): String? = when (mimeType) {
+    ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE ->
+        normalizedPhone?.takeIf(String::isNotBlank) ?: rawAddress?.takeIf(String::isNotBlank)
+    ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> rawAddress?.takeIf(String::isNotBlank)
+    else -> null
 }

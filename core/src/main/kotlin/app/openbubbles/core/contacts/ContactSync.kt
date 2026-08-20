@@ -238,11 +238,20 @@ class ContactSync(private val store: BoxStore) {
      * handles (the ToMany is rebuilt from the current address list).
      * Returns the persisted rows in input order.
      */
-    fun upsertContacts(rawContacts: List<RawContact>): List<ContactV2> = store.callInTx {
-        val (emailHandles, phoneHandles) = buildHandleIndexes()
-
-        rawContacts.map { raw -> upsertOne(raw, emailHandles, phoneHandles) }
-    }.also { invalidateProjections() }
+    fun upsertContacts(rawContacts: List<RawContact>): List<ContactV2> {
+        var changed = false
+        val contacts = store.callInTx {
+            val (emailHandles, phoneHandles) = buildHandleIndexes()
+            rawContacts.map { raw ->
+                val existing = findContactByNativeId(raw.id)
+                upsertOne(raw, existing, emailHandles, phoneHandles).also { outcome ->
+                    changed = changed || outcome.changed
+                }.contact
+            }
+        }
+        if (changed) invalidateProjections()
+        return contacts
+    }
 
     /**
      * Applies a complete device-provider snapshot. Stale Android rows are
@@ -254,8 +263,9 @@ class ContactSync(private val store: BoxStore) {
      * id without trusting a ContactsProvider row id that may have been
      * recycled for a different person.
      */
-    fun reconcileDeviceSnapshot(snapshot: DeviceContactSnapshot): DeviceContactReconcileResult =
-        store.callInTx {
+    fun reconcileDeviceSnapshot(snapshot: DeviceContactSnapshot): DeviceContactReconcileResult {
+        var changed = false
+        val result = store.callInTx {
             val byNativeId = contactBox.all
                 .mapNotNull { contact -> contact.nativeContactId?.let { it to contact } }
                 .toMap(mutableMapOf())
@@ -272,26 +282,36 @@ class ContactSync(private val store: BoxStore) {
                 contactBox.put(legacy)
                 byNativeId.remove(legacyId)
                 byNativeId[raw.id] = legacy
+                changed = true
                 migrated++
             }
 
             val (emailHandles, phoneHandles) = buildHandleIndexes()
-            snapshot.contacts.forEach { raw -> upsertOne(raw, emailHandles, phoneHandles) }
+            snapshot.contacts.forEach { raw ->
+                val outcome = upsertOne(raw, byNativeId[raw.id], emailHandles, phoneHandles)
+                byNativeId[raw.id] = outcome.contact
+                changed = changed || outcome.changed
+            }
 
             val present = snapshot.contacts.mapTo(HashSet()) { it.id }
-            val stale = contactBox.all.filter { contact ->
+            val stale = byNativeId.values.filter { contact ->
                 val nativeId = contact.nativeContactId ?: return@filter false
                 (isStableDeviceContactId(nativeId) || isLegacyDeviceContactId(nativeId)) &&
                     nativeId !in present
             }
-            stale.forEach(::deleteContact)
+            stale.forEach { contact ->
+                changed = deleteContact(contact) || changed
+            }
 
             DeviceContactReconcileResult(
                 upserted = snapshot.contacts.size,
                 migratedLegacyIds = migrated,
                 removed = stale.size,
             )
-        }.also { invalidateProjections() }
+        }
+        if (changed) invalidateProjections()
+        return result
+    }
 
     /**
      * Rebuilds every stored contact relation against the current handle table.
@@ -331,7 +351,9 @@ class ContactSync(private val store: BoxStore) {
             linkedContacts = linkedContacts,
             linkedHandles = linkedHandleIds.size,
         )
-    }.also { invalidateProjections() }
+    }.also { result ->
+        if (result.changedContacts > 0) invalidateProjections()
+    }
 
     /**
      * Removes contacts by their platform-stable ids. This is intentionally
@@ -344,7 +366,9 @@ class ContactSync(private val store: BoxStore) {
                 .equal(ContactV2_.nativeContactId, nativeId, QueryBuilder.StringOrder.CASE_SENSITIVE)
                 .build().use { it.findFirst() }
         }.count(::deleteContact)
-    }.also { invalidateProjections() }
+    }.also { removed ->
+        if (removed > 0) invalidateProjections()
+    }
 
     private fun deleteContact(contact: ContactV2): Boolean {
         // Flush the ToMany change before deleting the source row so no stale
@@ -359,48 +383,78 @@ class ContactSync(private val store: BoxStore) {
         return raw.addresses.any { address -> addressMatchKeys(address).any(existingKeys::contains) }
     }
 
+    private data class UpsertOutcome(
+        val contact: ContactV2,
+        val changed: Boolean,
+    )
+
+    private fun findContactByNativeId(nativeContactId: String): ContactV2? =
+        contactBox.query()
+            .equal(ContactV2_.nativeContactId, nativeContactId, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+
     private fun upsertOne(
         raw: RawContact,
+        existing: ContactV2?,
         emailHandles: Map<String, Set<Handle>>,
         phoneHandles: Map<String, Set<Handle>>,
-    ): ContactV2 {
-        val existing = contactBox.query()
-            .equal(ContactV2_.nativeContactId, raw.id, QueryBuilder.StringOrder.CASE_SENSITIVE)
-            .build().use { it.findFirst() }
+    ): UpsertOutcome {
         val contact = existing ?: ContactV2()
-
-        contact.nativeContactId = raw.id
-        if (raw.displayName != null) contact.displayName = raw.displayName
-        contact.firstName = raw.firstName
-        contact.lastName = raw.lastName
-        contact.addresses = raw.addresses.map { normalizeAddress(it) }.filter { it.isNotEmpty() }
-        when (val avatar = raw.avatarUpdate) {
-            AvatarUpdate.Keep -> {}
-            AvatarUpdate.Clear -> contact.avatarPath = null
-            is AvatarUpdate.Set -> contact.avatarPath = avatar.path
+        val displayName = raw.displayName ?: contact.displayName
+        val addresses = raw.addresses.map { normalizeAddress(it) }.filter { it.isNotEmpty() }
+        val avatarPath = when (val avatar = raw.avatarUpdate) {
+            AvatarUpdate.Keep -> contact.avatarPath
+            AvatarUpdate.Clear -> null
+            is AvatarUpdate.Set -> avatar.path
         }
         // CardDAV re-sends the whole card, so a null there is a real removal.
         // Device reads never carry these and must not clear legacy rows.
+        val nickname: String?
+        val company: String?
         if (isICloudContactId(raw.id)) {
-            contact.nickname = raw.nickname
-            contact.company = raw.company
+            nickname = raw.nickname
+            company = raw.company
         } else {
-            raw.nickname?.let { contact.nickname = it }
-            raw.company?.let { contact.company = it }
+            nickname = raw.nickname ?: contact.nickname
+            company = raw.company ?: contact.company
         }
+
+        val matched = matchedHandles(addresses, emailHandles, phoneHandles)
+        val relationChanged = contact.handles.mapTo(HashSet()) { it.id } !=
+            matched.mapTo(HashSet()) { it.id }
+        val scalarChanged = existing == null ||
+            contact.nativeContactId != raw.id ||
+            contact.displayName != displayName ||
+            contact.firstName != raw.firstName ||
+            contact.lastName != raw.lastName ||
+            contact.addresses != addresses ||
+            contact.avatarPath != avatarPath ||
+            contact.nickname != nickname ||
+            contact.company != company ||
+            !contact.isNative
+        if (!scalarChanged && !relationChanged) return UpsertOutcome(contact, changed = false)
+
+        contact.nativeContactId = raw.id
+        contact.displayName = displayName
+        contact.firstName = raw.firstName
+        contact.lastName = raw.lastName
+        contact.addresses = addresses
+        contact.avatarPath = avatarPath
+        contact.nickname = nickname
+        contact.company = company
         contact.isNative = true
 
-        // Re-link handles from the (normalized) address list.
-        val matched = matchedHandles(contact.addresses, emailHandles, phoneHandles)
-        contact.handles.clear()
-        contact.handles.addAll(matched)
+        if (relationChanged) {
+            contact.handles.clear()
+            contact.handles.addAll(matched)
+        }
 
         try {
             contactBox.put(contact)
         } catch (_: io.objectbox.exception.UniqueViolationException) {
             // Lost a race against a concurrent sync with the same id.
         }
-        return contact
+        return UpsertOutcome(contact, changed = true)
     }
 
     private fun buildHandleIndexes(
@@ -727,11 +781,12 @@ class ContactSync(private val store: BoxStore) {
         }
 
         /**
-         * Normalized phone variants for matching — the port of Dart's
-         * `_getPhoneNumberVariants`: the bare normalized form plus
-         * country-code-stripped (`+1`, `+44`, … 1–3 digits) and
-         * country-code-prefixed forms, so a contact storing "1234567890"
-         * matches a handle storing "+11234567890" and vice versa.
+         * Conservative phone variants for matching.
+         *
+         * ContactsProvider normally supplies an E.164 `NORMALIZED_NUMBER`, so
+         * exact plus/no-plus forms cover the common path. Retain the unambiguous
+         * NANP 1 + 10-digit equivalence for legacy rows, but never strip an
+         * arbitrary 1-3 digit prefix: that can merge unrelated people.
          */
         fun phoneNumberVariants(phone: String): Set<String> {
             val normalized = normalizePhoneNumber(phone)
@@ -740,21 +795,16 @@ class ContactSync(private val store: BoxStore) {
                 buildSet {
                     add(normalized)
                     if (normalized.startsWith("+")) {
-                        add(normalized.substring(1))
-                        for (i in 1..3) {
-                            if (i < normalized.length) {
-                                val withoutCountryCode = normalized.substring(i + 1)
-                                if (withoutCountryCode.isNotEmpty()) add(withoutCountryCode)
-                            }
-                        }
+                        val digits = normalized.substring(1)
+                        add(digits)
+                        if (digits.length == 11 && digits.startsWith('1')) add(digits.substring(1))
                     } else {
                         add("+$normalized")
-                        for (i in 1..3) {
-                            if (i < normalized.length) {
-                                val withoutPrefix = normalized.substring(i)
-                                add(withoutPrefix)
-                                add("+$withoutPrefix")
-                            }
+                        if (normalized.length == 10) {
+                            add("1$normalized")
+                            add("+1$normalized")
+                        } else if (normalized.length == 11 && normalized.startsWith('1')) {
+                            add(normalized.substring(1))
                         }
                     }
                 }
