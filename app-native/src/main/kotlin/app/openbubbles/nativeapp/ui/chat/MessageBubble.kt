@@ -411,25 +411,17 @@ fun MessageBubble(
             // thread rail itself is always anchored to the far-left transcript
             // gutter, matching Apple Messages rather than following my quote
             // out toward the screen edge.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = if (!quote.fromMe && showAvatarGutter) {
-                            SenderAvatarSize + SenderAvatarSpacing
-                        } else {
-                            0.dp
-                        },
-                    ),
-                contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
-            ) {
-                ReplyQuotePreview(
-                    quote = quote,
-                    smsChat = smsChat,
-                    onOpen = onReplyQuoteTap,
-                    maxWidth = maxBubbleWidth,
-                )
-            }
+            ReplyQuotePreview(
+                quote = quote,
+                smsChat = smsChat,
+                onOpen = onReplyQuoteTap,
+                maxWidth = maxBubbleWidth,
+                incomingGutter = if (showAvatarGutter) {
+                    SenderAvatarSize + SenderAvatarSpacing
+                } else {
+                    0.dp
+                },
+            )
         }
         SwipeToReplyBox(
             enabled = onSwipeReply != null,
@@ -868,12 +860,15 @@ private fun ReplyQuotePreview(
     smsChat: Boolean,
     onOpen: () -> Unit,
     maxWidth: Dp,
+    incomingGutter: Dp,
     modifier: Modifier = Modifier,
 ) {
     val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = if (quote.fromMe) 0.dp else incomingGutter),
             contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
@@ -909,22 +904,27 @@ private fun ReplyQuotePreview(
         }
         val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = incomingGutter),
             contentAlignment = Alignment.CenterStart,
         ) {
             Canvas(
                 modifier = Modifier
-                    .offset(y = (-1).dp)
+                    .offset(x = 8.dp, y = (-1).dp)
                     .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
             ) {
-                // Apple keeps this rail in the far-left transcript gutter even
-                // when the quoted original was mine and remains end-aligned.
+                // The rail stays in the far-left transcript gutter. For an
+                // incoming quoted message it curls outward from that quote;
+                // for my quoted message it curls the opposite way, into the
+                // incoming reply's top-left corner. Using the same direction
+                // for both creates the detached backwards hook seen on device.
                 val geometry = replyConnectorGeometry(
                     width = size.width,
                     height = size.height + 8.dp.toPx(),
                     startInsetFromOuter = 18.dp.toPx(),
                     endInsetFromOuter = 6.dp.toPx(),
-                    outerEdgeOnRight = false,
+                    outerEdgeOnRight = quote.fromMe,
                 )
                 drawPath(
                     path = Path().apply {

@@ -187,6 +187,22 @@ class ReplyUiTest {
     }
 
     @Test
+    fun `one to one chats do not reserve group sender chrome`() {
+        val messages = listOf(
+            message(id = 1, guid = "a", fromMe = false, senderAddress = "emily@icloud.com"),
+            message(id = 2, guid = "b", fromMe = false, senderAddress = "+15551234567"),
+        )
+
+        val direct = buildConversationEntries(messages, showSenderNames = false)
+            .filterIsInstance<ConversationEntry.Message>()
+        assertTrue(direct.none { it.showSenderName || it.showAvatar })
+
+        val group = buildConversationEntries(messages, showSenderNames = true)
+            .filterIsInstance<ConversationEntry.Message>()
+        assertTrue(group.any { it.showSenderName || it.showAvatar })
+    }
+
+    @Test
     fun `reply bubbles do not tighten into the previous same-author run`() {
         val root = message(id = 1, guid = "root", text = "original", fromMe = true)
         val follow = message(id = 2, guid = "follow", text = "and another", fromMe = true)

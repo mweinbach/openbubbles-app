@@ -407,14 +407,11 @@ fun ChatScreen(
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var pendingSticker by remember { mutableStateOf<OutgoingAttachment?>(null) }
 
-    // Group chats (two or more distinct other senders in the transcript)
-    // label incoming runs with the sender's name.
-    val isGroupChat = remember(uiState.messages) {
-        uiState.messages.asSequence()
-            .mapNotNull { it.senderAddress }
-            .distinct()
-            .count() >= 2
-    }
+    // The persisted chat contract is authoritative. Inferring a group from
+    // historical sender handles misclassifies 1:1 chats when the same contact
+    // has replied from multiple aliases, which adds an unnecessary avatar/name
+    // gutter and leaves the reply rail visually detached from their bubble.
+    val isGroupChat = uiState.chat?.isGroup == true
     val entries = remember(uiState.messages, isGroupChat) {
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
