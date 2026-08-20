@@ -188,4 +188,22 @@ class TranscriptBackgroundStoreTest {
         missingCustom.writeBytes(byteArrayOf(2))
         assertEquals(missingCustom.absolutePath, item.effectiveBackgroundPath())
     }
+
+    @Test
+    fun `transcript package size is bounded before allocation`() {
+        assertFalse(supportedTranscriptBackgroundPackageSize(0))
+        assertTrue(supportedTranscriptBackgroundPackageSize(MAX_TRANSCRIPT_BACKGROUND_PACKAGE_BYTES))
+        assertFalse(supportedTranscriptBackgroundPackageSize(MAX_TRANSCRIPT_BACKGROUND_PACKAGE_BYTES + 1))
+
+        val small = File(cacheDir, "small-poster.zip").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        assertTrue(readTranscriptBackgroundPackage(small).contentEquals(byteArrayOf(1, 2, 3)))
+
+        val oversized = File(cacheDir, "oversized-poster.zip")
+        java.io.RandomAccessFile(oversized, "rw").use {
+            it.setLength(MAX_TRANSCRIPT_BACKGROUND_PACKAGE_BYTES + 1)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            readTranscriptBackgroundPackage(oversized)
+        }
+    }
 }

@@ -19,6 +19,24 @@ import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UPosterKind
 import uniffi.rust_lib_bluebubbles.parsePoster
 
+internal const val MAX_TRANSCRIPT_BACKGROUND_PACKAGE_BYTES = 32L * 1024L * 1024L
+
+internal fun supportedTranscriptBackgroundPackageSize(bytes: Long): Boolean =
+    bytes in 1L..MAX_TRANSCRIPT_BACKGROUND_PACKAGE_BYTES
+
+/** Rejects an oversized app-owned download before allocating its byte array for UniFFI. */
+internal fun readTranscriptBackgroundPackage(payload: File): ByteArray {
+    val declaredSize = payload.length()
+    require(payload.isFile && supportedTranscriptBackgroundPackageSize(declaredSize)) {
+        "transcript background package has an unsupported size"
+    }
+    return payload.readBytes().also { bytes ->
+        check(bytes.size.toLong() == declaredSize) {
+            "transcript background package changed while being read"
+        }
+    }
+}
+
 internal class TranscriptBackgroundStore(
     private val store: BoxStore,
     private val filesDir: File,
@@ -38,7 +56,7 @@ internal class TranscriptBackgroundStore(
             val state = stateProvider()
                 ?: error("push state unavailable for transcript background")
             state.downloadMmcs(mmcsXml, payload.absolutePath, null)
-            parsePoster(payload.readBytes()).use { poster ->
+            parsePoster(readTranscriptBackgroundPackage(payload)).use { poster ->
                 val image = wallpaperBytesFromParsedPoster(poster)
                 if (image.isEmpty() && poster.kind() !is UPosterKind.TranscriptDynamic &&
                     poster.kind() !is UPosterKind.TranscriptGradient
