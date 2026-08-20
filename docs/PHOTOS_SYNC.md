@@ -121,13 +121,19 @@ The 2026-08-19 static audit established that:
   UniFFI. Running, failure, retry count, success, and the returned remote master ID persist in the
   existing versioned Photos transfer table. Re-selecting content that already succeeded returns
   the prior completed row.
-- Rust validates both JPEGs and their dimensions, prepares MMCS v2 resources for the original and
-  preview in one upload batch, and keeps the 32-byte clear resource keys in memory only. Each key
-  is RFC 3394-wrapped with its new CPLMaster record key and field-authenticated before record
-  serialization; no clear key crosses UniFFI or persistence.
-- The CPL master name and resource fingerprint fields use the MMCS v2 FORD reference signature
-  (`0x01`), distinct from the total asset signature (`0x04`). A deterministic CPLAsset UUID acts
-  as the content retry anchor. CPLMaster and CPLAsset are submitted together with zone isolation.
+- Rust validates both JPEGs and their dimensions, prepares the original and preview in one MMCS
+  v2 upload batch using Photos' 16-byte FORD key and wire version `0x03`, and keeps the clear
+  resource keys in memory only. PCS RFC 3394-wraps each resource key directly with its new
+  CPLMaster record key; protected metadata fields use the field name alone as authenticated data.
+  No clear key crosses UniFFI or persistence.
+- CloudKit's upload-token response is decoded as Apple's nested `CKDPAsset` plus wrapper token and
+  expiration. The returned owner, URLs, requestor, record identifier, signatures, and other
+  authorization fields are preserved rather than reconstructed. The wrapper token becomes the
+  asset download token, and the clear asset key uses protobuf field 20.
+- The CPL master record name uses the MMCS v2 FORD reference signature (`0x01`), while
+  `resOriginalFingerprint` and `resJPEGThumbFingerprint` use their resources' total asset
+  signatures (`0x04`). A deterministic CPLAsset UUID acts as the content retry anchor. CPLMaster
+  and CPLAsset are submitted together with zone isolation.
   The asset-to-master reference is an owning CloudKit reference. Record fields preserve CPL's
   exact mixed acronym casing, including `assetHDRType`, `fullSizeJPEGSource`, the
   `resJPEGThumb*` family, and the exceptional lowercase-`d` `importGroupId`.
@@ -140,8 +146,8 @@ legacy message store.
 
 Host evidence on 2026-08-19:
 
-- full `rustpush` library suite after the PCS/MMCS/upload-schema fixes: 39 passed, 2 manual-network tests
-  ignored;
+- full `rustpush` library suite after the PCS/MMCS/upload-schema fixes: 47 passed, 2 manual-network
+  tests ignored;
 - Rust facade regression coverage proves a staged preview can be rewound and read before atomic
   promotion;
 - the combined `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`,
@@ -151,8 +157,8 @@ Host evidence on 2026-08-19:
 - the updated light/dark Photos screenshot goldens: passed and were inspected;
 - upload coordinator coverage proves durable original/preview/metadata promotion, same-content
   idempotence, JPEG-only validation, explicit execution, persisted remote ID, and retry state;
-- the final upload-capable debug APK is 323,690,808 bytes with SHA-256
-  `eb368536e4d159361b085ca42ffb704985d6f168b993f591900e7a250ce83e1b`;
+- the final upload-capable debug APK is 323,792,632 bytes with SHA-256
+  `b3cbadcf8b35ebbd463976b9feab726b74afd6c649a1981db381db99ea968527`;
 - the earlier preview-only debug APK had SHA-256
   `93afd838c32d830f36a3943eab6e5b14ee6350db3c83fbf52596534af7afda29`.
 
@@ -186,26 +192,30 @@ Device evidence on 2026-08-19:
 - The upload-capable APK installed in place on the same Pixel and exposed `Upload to iCloud` only
   after the live 60-record metadata list. Selecting the authorized 1,600-by-1,200 disposable JPEG
   created a 43.7 KB `Queued` transfer and required a separate upload tap.
-- The first authorized attempt uploaded both MMCS resources, then failed locally before the CPL
-  record request because the PCS asset wrapper accepted only legacy 16-byte keys. The wrapper now
-  round-trips both 16-byte and MMCS v2 32-byte keys. The second authorized attempt passed that
-  boundary and reached the atomic CPL record save, which Apple rejected.
-- Comparison with the separately authorized Apple Photos oracle showed that the request used the
-  `0x04` total signature where CPL uses the `0x01` FORD reference fingerprint. Later
-  `BAD_SYNTAX` responses isolated three record-shape mismatches: `masterRef` must be owning; CPL
-  preserves acronyms in `assetHDRType`, `fullSizeJPEGSource`, and `resJPEGThumb*`; and the installed
-  Photos schema spells the import field `importGroupId`, not `importGroupID`.
-- After those corrections, the authorized disposable JPEG uploaded successfully. OpenBubbles
-  reported `Uploaded to iCloud Photos` for all 43,716 staged bytes, then a fresh server page
-  returned the new 1,600-by-1,200 image with a 34,386-byte original, 9,330-byte preview, and
-  2026-08-19 16:42:56 local timestamp. The durable transfer row is `Upload` / `Succeeded`, has a
-  cleared error, records 43,716 of 43,716 bytes, and its returned master ID joins the refreshed
-  catalog row. The source JPEG was 34,386 bytes with SHA-256
+- Early authorized attempts isolated the CPL request requirements: `masterRef` must be owning;
+  CPL preserves acronyms in `assetHDRType`, `fullSizeJPEGSource`, and `resJPEGThumb*`; the schema
+  spells `importGroupId` with a lowercase `d`; protected metadata uses field-name-only PCS AAD;
+  and Photos' MMCS v2 resources use 16-byte FORD keys rather than the generic 32-byte profile.
+- Runtime inspection of macOS's `CloudKitDaemon` protobuf descriptors then exposed two wire
+  mismatches. The asset upload response is a nested `CKDPAsset` with the token on its wrapper, not
+  an `AssetUploadData` plus a base64-encoded inner protobuf; and `CKDPAsset.clearAssetKey` is field
+  20. Preserving Apple's returned asset authorization fields stopped the Mac client from failing
+  to unwrap the uploaded resources.
+- The Mac Photos process next reported a resource fingerprint scheme mismatch: it received
+  MMCSv2 where it expected MMCSv1. The master record name must use the `0x01` FORD reference
+  signature, but the resource fingerprint fields must use the `0x04` total signatures. Four
+  disposable records created by the earlier probes were repaired with their original FORD keys,
+  corrected upload authorization, and corrected fingerprints; the subsequent native Mac change
+  batch completed without PCS or partial-failure errors.
+- A fresh upload of `218.jpg` then completed on Pixel 10 Pro Fold `58201FDCG003BG`.
+  OpenBubbles reported `Uploaded to iCloud Photos` for all 43,716 staged bytes. The 1,600-by-1,200
+  source JPEG was 34,386 bytes with SHA-256
   `4bc8da09ee6aa4765c11f8efba533862932ec596f0d8f5fd22355e9b040d4ed8`.
-- A narrow check of the Mac Photos library did not yet find the new item. The successful atomic
-  CloudKit save, refreshed remote page, and matching durable receipt prove this explicit iCloud
-  upload, but Apple-device appearance remains a separate pending evidence tier and this is not
-  claimed as general two-way sync.
+- Native macOS Photos found exactly one media item named `218.jpg`. Exporting its unmodified
+  original produced a 34,386-byte, 1,600-by-1,200 JFIF JPEG with the identical SHA-256
+  `4bc8da09ee6aa4765c11f8efba533862932ec596f0d8f5fd22355e9b040d4ed8`. This proves the full
+  Android staging -> encrypted MMCS -> atomic CPL save -> native Apple Photos fetch/decrypt path
+  byte-for-byte. Direct visual confirmation on an iPhone was not available in this run.
 - The upload trace also revealed pre-existing PCS and MMCS debug statements containing key or raw
   receipt material. Those statements were removed. Upload errors exposed to Kotlin contain only
   fixed local diagnostics or Apple enum names, never raw records or response text.
@@ -219,8 +229,8 @@ separate catalog persistence, explicit image-preview download, retry, atomic cac
 cold-start restoration. The sampled 60 records contained no videos, so the small-video rendition
 is still host-only. ADP behavior, originals, Live Photos, incremental change application,
 background work and delete remain unvalidated. The narrow, explicit JPEG write path is implemented
-and live-proven through MMCS, the atomic CPL save, a refreshed remote page, and the persisted
-receipt; appearance in another Apple Photos client remains pending.
+and live-proven through MMCS, the atomic CPL save, a refreshed remote page, the persisted receipt,
+and an identical original exported by native macOS Photos. This is not general two-way sync.
 
 ## Ownership and proposed architecture
 
@@ -319,8 +329,9 @@ like sync.
 ### Slice 5: mutations
 
 The explicit JPEG upload milestone is the only remote mutation currently exposed. It has durable
-device evidence through MMCS, the atomic CPL record commit, refreshed metadata, and the persisted
-success receipt. Keep all broader mutation work blocked:
+device evidence through MMCS, the atomic CPL record commit, refreshed metadata, the persisted
+success receipt, and byte-identical export from native macOS Photos. Keep all broader mutation
+work blocked:
 
 - HEIC, video, and Live Photo uploads or automatic gallery observation;
 - album creation/membership changes;

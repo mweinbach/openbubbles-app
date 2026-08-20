@@ -52,9 +52,11 @@ blocked.
 Protected assets can require PCS decryption even when the enclosing CloudKit field omits its
 encrypted flag. Keep clear asset keys in memory only, never persist or log them, and rely on RFC
 3394 integrity rather than key-shape guesses when selecting unwrap candidates. Legacy MMCS keys
-are 16 bytes and MMCS v2 FORD keys are 32 bytes; RFC 3394 wraps them to 24 and 40 bytes
-respectively. CPL uses the FORD reference signature (`0x01`) for the master record name/resource
-fingerprint and keeps it distinct from the total asset signature (`0x04`). Error messages crossing
+are 16 bytes, the Photos MMCS v2 upload profile uses a 16-byte FORD key with wire version `0x03`,
+and the generic MMCS v2 profile uses a 32-byte FORD key with wire version `0x04`; RFC 3394 wraps
+the clear keys to 24 and 40 bytes respectively. CPL uses the FORD reference signature (`0x01`)
+for the master record name, while resource fingerprint fields use the total asset signature
+(`0x04`). Error messages crossing
 UniFFI must be fixed byte-free categories, safe Apple enum names, or a narrow allowlist of local
 diagnostics. Never log a PCS key, MMCS receipt, raw CloudKit response, record, or signed URL.
 
@@ -63,6 +65,12 @@ schema's exact field spelling: `assetHDRType`, `fullSizeJPEGSource`, `resJPEGThu
 `importGroupId` (lowercase `d`, despite the surrounding acronym-preserving names). The read-only
 `CPLSchema-com.apple.photos*.plist` resources installed with macOS Photos are a safe field-name
 oracle; log only names and wire types when live schema comparison is unavoidable.
+
+Photos encrypts protected record fields with the field name alone as PCS AAD, including when the
+record uses a custom per-record key and the zone has no default record key. The upload-token
+response carries a nested `CKDPAsset` plus a wrapper token and expiration; preserve the nested
+owner, URLs, requestor, record identifier, signatures, and authorization fields, then map the
+wrapper token into the asset download token. `CKDPAsset.clearAssetKey` is protobuf field 20.
 
 ## Route the change correctly
 
@@ -109,7 +117,7 @@ time window. Verify boundaries independently:
 5. SQLite records success with a blank error, while failure/retry state remains durable;
 6. the downloaded state restores after force-stop/cold launch;
 7. for upload, selection first restores as `Queued` without a write;
-8. MMCS accepts both original and preview, PCS consumes the clear 16/32-byte keys, and the atomic
+8. MMCS accepts both original and preview, PCS wraps the clear 16-byte Photos FORD keys, and the atomic
    CPLMaster+CPLAsset save returns success;
 9. the returned master appears in a refreshed OpenBubbles page and on an Apple Photos device.
 
