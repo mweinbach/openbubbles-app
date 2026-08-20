@@ -628,41 +628,67 @@ fun MessageBubble(
                     }
                 }
             }
-            if (message.edited) {
-                Text(
-                    text = "Edited",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (replyCount > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(horizontal = 6.dp),
-                )
-            }
-            if (showDeliveryTimestamp && message.isFromMe) {
-                deliveryTimestamp(message)?.let { timestamp ->
+                ) {
+                    if (message.edited) {
+                        Text(
+                            text = "Edited",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (showDeliveryTimestamp && message.isFromMe) {
+                        deliveryTimestamp(message)?.let { timestamp ->
+                            Text(
+                                text = "${timestamp.label} ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp.epochMs))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (showStatus && message.isFromMe) {
+                        MessageStatusRow(status = message.status)
+                    }
                     Text(
-                        text = "${timestamp.label} ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp.epochMs))}",
+                        text = if (replyCount == 1) "1 Reply ›" else "$replyCount Replies ›",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clickable(
+                                onClickLabel = "Open reply thread",
+                                role = Role.Button,
+                                onClick = onReplyCountTap,
+                            )
+                            .padding(vertical = 2.dp),
+                    )
+                }
+            } else {
+                if (message.edited) {
+                    Text(
+                        text = "Edited",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 6.dp),
                     )
                 }
-            }
-            if (showStatus && message.isFromMe) {
-                MessageStatusRow(status = message.status)
-            }
-            if (replyCount > 0) {
-                Text(
-                    text = if (replyCount == 1) "1 Reply ›" else "$replyCount Replies ›",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable(
-                            onClickLabel = "Open reply thread",
-                            role = Role.Button,
-                            onClick = onReplyCountTap,
+                if (showDeliveryTimestamp && message.isFromMe) {
+                    deliveryTimestamp(message)?.let { timestamp ->
+                        Text(
+                            text = "${timestamp.label} ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp.epochMs))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp),
                         )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                    }
+                }
+                if (showStatus && message.isFromMe) {
+                    MessageStatusRow(status = message.status)
+                }
             }
             }
             message.stickers.forEach { sticker ->
@@ -847,18 +873,18 @@ private fun ReplyQuotePreview(
         horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = bubbleColor.copy(alpha = 0.62f),
-            contentColor = bubbleContent.copy(alpha = 0.86f),
+            shape = RoundedCornerShape(14.dp),
+            color = bubbleColor.copy(alpha = 0.48f),
+            contentColor = bubbleContent.copy(alpha = 0.78f),
             modifier = Modifier
-                .widthIn(max = maxWidth)
+                .widthIn(max = maxWidth * 0.84f)
                 .clickable(
                     onClickLabel = "Show original message",
                     role = Role.Button,
                     onClick = onOpen,
                 ),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                 quote.senderName?.let { name ->
                     Text(
                         text = name,
@@ -870,7 +896,7 @@ private fun ReplyQuotePreview(
                 }
                 Text(
                     text = quote.text,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

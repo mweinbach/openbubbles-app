@@ -420,6 +420,7 @@ fun ChatScreen(
     }
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
+    val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
         { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
     }
@@ -967,11 +968,15 @@ fun ChatScreen(
                                         senderNames[it]
                                             ?: ContactDisplayWarmCache.peek(it)?.displayName
                                     },
-                                    replyQuote = resolveReplyQuote(
-                                        entry.message,
-                                        messagesByGuid,
-                                        senderNames,
-                                    ),
+                                    replyQuote = if (entry.message.guid in repliesWithContext) {
+                                        null
+                                    } else {
+                                        resolveReplyQuote(
+                                            entry.message,
+                                            messagesByGuid,
+                                            senderNames,
+                                        )
+                                    },
                                     onReplyQuoteTap = {
                                         val target = resolveReplyScrollTarget(
                                             entries,

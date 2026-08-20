@@ -89,6 +89,19 @@ class ReplyUiTest {
     }
 
     @Test
+    fun `adjacent replies keep context without repeating the root quote`() {
+        val root = message(id = 1, guid = "root")
+        val reply = message(id = 2, guid = "reply", replyToGuid = "root")
+        val adjacent = buildConversationEntries(listOf(root, reply))
+        assertEquals(setOf("reply"), repliesWithInlineContext(adjacent))
+
+        val separated = buildConversationEntries(
+            listOf(root, message(id = 2, guid = "middle"), reply.copy(id = 3, date = 3)),
+        )
+        assertTrue(repliesWithInlineContext(separated).isEmpty())
+    }
+
+    @Test
     fun `thread membership is part-aware`() {
         val root = message(guid = "root")
         val match = message(guid = "a", replyToGuid = "root", replyToPart = 3L)

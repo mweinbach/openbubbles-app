@@ -81,6 +81,23 @@ internal fun replyCountsByRoot(messages: List<MessageItem>): Map<String, Int> =
         .groupingBy { it }
         .eachCount()
 
+/**
+ * Replies directly following their root (or another reply in the same thread)
+ * already read as one connected block and do not repeat the root as a quote.
+ * A quote only reappears when unrelated chronology separates the reply from
+ * its thread context, matching Apple Messages' lightweight inline threads.
+ */
+internal fun repliesWithInlineContext(entries: List<ConversationEntry>): Set<String> = buildSet {
+    val messageEntries = entries.filterIsInstance<ConversationEntry.Message>()
+    messageEntries.forEachIndexed { index, entry ->
+        val rootGuid = entry.message.replyToGuid ?: return@forEachIndexed
+        val adjacent = messageEntries.getOrNull(index + 1)?.message
+        if (adjacent?.guid == rootGuid || adjacent?.replyToGuid == rootGuid) {
+            add(entry.message.guid)
+        }
+    }
+}
+
 internal fun belongsToReplyThread(message: MessageItem, rootGuid: String, part: Long): Boolean {
     if (message.guid == rootGuid) return true
     if (message.replyToGuid != rootGuid) return false
