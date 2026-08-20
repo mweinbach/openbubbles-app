@@ -3803,9 +3803,18 @@ impl NativePushState {
     pub async fn query_transcript_backgrounds(&self) -> Result<Vec<UMessageChange>, UError> {
         let client = cloud_messages_client(self.shared())?;
         drive_ffi(async move {
-            let items = api::query_transcript_backgrounds(&client)
-                .await
-                .map_err(sync_err)?;
+            let items = match tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                api::query_transcript_backgrounds(&client),
+            ).await {
+                Ok(result) => result.map_err(sync_err)?,
+                Err(_) => {
+                    log::warn!("Transcript background query timed out");
+                    return Err(UError::Failed {
+                        reason: "transcript background query timed out".to_string(),
+                    });
+                }
+            };
             Ok(items
                 .into_iter()
                 .map(|(record_id, message)| UMessageChange {

@@ -778,31 +778,40 @@ object PushStateHolder {
 }
 
 private object NativeProfileUpdatePort : ProfileUpdatePort {
+    private const val TAG = "ProfileUpdate"
+
     override suspend fun receive(
         senderAddress: String,
         profileJson: String,
         kind: ProfileMessageKind,
     ): IncomingProfile? {
         if (kind == ProfileMessageKind.SharingUpdate) return null
-        val record = PushStateHolder.state?.fetchProfile(profileJson) ?: return null
+        val state = PushStateHolder.state ?: return null
+        val record = runCatching { state.fetchProfile(profileJson) }
+            .onFailure { Log.w(TAG, "shared profile fetch failed", it) }
+            .getOrNull() ?: return null
         val image = record.poster?.let { poster ->
             runCatching {
                 val parsed = parseCallPoster(poster)
                 parsed.lowResImage().takeIf(ByteArray::isNotEmpty)
                     ?: parsed.photoFiles(0u).map { PosterImageFile(it.filename, it.data) }.let(::wallpaperBytesFromPhotoFiles)
-            }.getOrNull()
+            }.onFailure { Log.w(TAG, "shared poster parse failed", it) }
+                .getOrNull()
         }?.takeIf(ByteArray::isNotEmpty) ?: record.image?.takeIf(ByteArray::isNotEmpty)
         val posterPath = image?.let { bytes ->
-            val context = AppContext.current ?: return@let null
-            val directory = File(context.filesDir, "shared_profiles").apply { mkdirs() }
-            val destination = File(directory, "${senderAddress.hashCode().toUInt()}.img")
-            val temporary = File(directory, "${destination.name}.tmp")
-            temporary.writeBytes(bytes)
-            if (!temporary.renameTo(destination)) {
-                destination.writeBytes(bytes)
-                temporary.delete()
-            }
-            destination.absolutePath
+            runCatching {
+                val context = AppContext.current ?: return@runCatching null
+                val directory = File(context.filesDir, "shared_profiles").apply { mkdirs() }
+                val destination = File(directory, "${senderAddress.hashCode().toUInt()}.img")
+                val temporary = File(directory, "${destination.name}.tmp")
+                temporary.writeBytes(bytes)
+                if (!temporary.renameTo(destination)) {
+                    destination.writeBytes(bytes)
+                    temporary.delete()
+                }
+                destination.absolutePath
+            }.onFailure { Log.w(TAG, "shared poster persist failed", it) }
+                .getOrNull()
         }
         return IncomingProfile(
             displayName = record.name.ifBlank {

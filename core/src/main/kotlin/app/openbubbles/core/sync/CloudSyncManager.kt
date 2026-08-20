@@ -307,25 +307,32 @@ class CloudSyncManager(
 
                 // 4. Message zone. Incremental FetchRecordChanges never
                 // re-emits a type-138 wallpaper the cursor already passed,
-                // so query those records independently first. If the query
-                // is empty or unavailable and we have not backfilled yet,
-                // rewind the message zone once.
+                // so query those records independently first. Treat this as
+                // a one-time best-effort migration: full repair still walks
+                // the message zone, and repeatedly retrying a pathological
+                // CloudKit query can monopolize the device on every startup.
+                // Never turn a routine incremental sync into a full message
+                // history rewind just because the optional query is empty.
                 update(SyncPhase.MESSAGES)
-                val queriedBackgrounds = try {
-                    port.transcriptBackgrounds()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
+                val shouldQueryBackgrounds = mode == SyncMode.INCREMENTAL &&
+                    !syncStore.wallpaperBackfillDone()
+                val queriedBackgrounds = if (shouldQueryBackgrounds) {
+                    try {
+                        port.transcriptBackgrounds()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else {
                     null
                 }
                 if (!queriedBackgrounds.isNullOrEmpty()) {
                     applyMessagePage(queriedBackgrounds, lookup)
                 }
-                val rewindWallpapers = !syncStore.wallpaperBackfillDone() &&
-                    queriedBackgrounds.isNullOrEmpty()
                 val messagesComplete = syncPages(
                     zone = "Message",
-                    initialCursor = if (mode == SyncMode.INCREMENTAL && !rewindWallpapers) {
+                    initialCursor = if (mode == SyncMode.INCREMENTAL) {
                         syncStore.messageCursor()
                     } else {
                         null
@@ -348,7 +355,7 @@ class CloudSyncManager(
                 if (!messagesComplete) {
                     return@withContext finish(cancelledFlag = true)
                 }
-                if (queriedBackgrounds != null || rewindWallpapers || mode == SyncMode.FULL) {
+                if (shouldQueryBackgrounds || mode == SyncMode.FULL) {
                     syncStore.saveWallpaperBackfillDone(true)
                 }
 

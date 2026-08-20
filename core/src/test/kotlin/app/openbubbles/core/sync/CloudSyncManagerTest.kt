@@ -706,6 +706,7 @@ class CloudSyncManagerTest {
         runSync()
 
         val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        syncStore.saveWallpaperBackfillDone(false)
         port.chatPages += chatPage()
         port.messagePages += messagePage()
         port.transcriptBackgroundRecords = listOf(
@@ -740,7 +741,26 @@ class CloudSyncManagerTest {
     }
 
     @Test
-    fun `empty wallpaper query rewinds the message zone once`() {
+    fun `completed wallpaper backfill skips the direct query`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(cursor = byteArrayOf(20))
+        runSync()
+
+        port.calls.clear()
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(cursor = byteArrayOf(21))
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertFalse(port.calls.contains("transcript-backgrounds"))
+        assertTrue(syncStore.wallpaperBackfillDone())
+    }
+
+    @Test
+    fun `empty wallpaper query preserves the incremental message cursor`() {
         port.chatPages += chatPage(
             UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
         )
@@ -750,37 +770,35 @@ class CloudSyncManagerTest {
 
         syncStore.saveWallpaperBackfillDone(false)
         port.chatPages += chatPage()
-        port.messagePages += messagePage(
-            UMessageChange(
-                "rec-background-rewind",
-                cloudMessage(
-                    "rec-background-rewind",
-                    guid = "background-rewind",
-                    chatId = "iMessage;-;+15551234567",
-                    text = null,
-                    msgType = 138,
-                    transcriptBackground = UTranscriptBackground(
-                        version = 4uL,
-                        chatId = null,
-                        remove = false,
-                        mmcsXml = "<plist/>",
-                    ),
-                ),
-                blob = byteArrayOf(),
-            ),
-            cursor = byteArrayOf(21),
-        )
+        port.messagePages += messagePage(cursor = byteArrayOf(21))
 
         val summary = runSync(SyncMode.INCREMENTAL)
 
         assertNull(summary.error)
         assertEquals(2, port.messageCursorsReceived.size)
-        assertNull(port.messageCursorsReceived[1])
-        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
-        assertEquals(
-            listOf(TranscriptBackgroundUpdate(chat.id, 4, remove = false, mmcsXml = "<plist/>")),
-            backgroundUpdates,
+        assertTrue(port.messageCursorsReceived[1]!!.contentEquals(byteArrayOf(20)))
+        assertTrue(backgroundUpdates.isEmpty())
+        assertTrue(syncStore.wallpaperBackfillDone())
+    }
+
+    @Test
+    fun `failed wallpaper query preserves the incremental cursor and records the attempt`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
         )
+        port.messagePages += messagePage(cursor = byteArrayOf(20))
+        runSync()
+
+        syncStore.saveWallpaperBackfillDone(false)
+        port.transcriptBackgroundsError = "temporary query failure"
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(cursor = byteArrayOf(21))
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertEquals(2, port.messageCursorsReceived.size)
+        assertTrue(port.messageCursorsReceived[1]!!.contentEquals(byteArrayOf(20)))
         assertTrue(syncStore.wallpaperBackfillDone())
     }
 
