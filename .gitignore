@@ -24,6 +24,12 @@ mise.toml
 # Build outputs
 /build/
 **/build/
+# Skill reference snapshots mirror developer.android.com kb paths, which can
+# contain `build` segments (e.g. references/android/build/...); re-include them.
+!.agents/skills/**/references/android/build/
+!.agents/skills/**/references/android/build/**
+!.agents/skills/**/references/android/build/releases/
+!.agents/skills/**/references/android/build/releases/**
 
 #signing
 **/android/key.properties
