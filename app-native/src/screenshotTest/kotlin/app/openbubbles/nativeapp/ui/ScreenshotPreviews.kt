@@ -623,6 +623,56 @@ fun ChatScreenReplyScreenshot() {
     }
 }
 
+/** Reverse inline reply: incoming quote above an outgoing reply. */
+@PreviewTest
+@Preview(name = "chat-reply-reverse", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reply-reverse-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenReverseReplyScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        val original = message(
+            1,
+            "yes exposure therapy",
+            fromMe = false,
+        ).copy(guid = "incoming-root", senderAddress = "mark@icloud.com")
+        val middle = message(
+            2,
+            "I'm going to maybe get some soon",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "outgoing-middle")
+        val reply = message(
+            3,
+            "Grrrr ok fine",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(
+            guid = "outgoing-child",
+            replyToGuid = "incoming-root",
+            replyPreviewText = original.text,
+        )
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Mark",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(original, middle, reply),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
 /**
  * Tapbacks: the pill overlaps the bubble's top corner (leading for incoming,
  * trailing for outgoing) with the two-dot tail stepping back toward the

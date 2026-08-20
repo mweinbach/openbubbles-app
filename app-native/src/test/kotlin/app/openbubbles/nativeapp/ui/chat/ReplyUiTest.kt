@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import androidx.compose.ui.geometry.Offset
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -157,43 +158,65 @@ class ReplyUiTest {
     }
 
     @Test
-    fun `connector is a detached left side bracket`() {
+    fun `top connector runs from quote center into the rail`() {
         val geometry = replyConnectorGeometry(
-            width = 100f,
-            height = 30f,
-            outerInset = 8f,
-            capLength = 18f,
+            railX = 8f,
+            anchorX = 80f,
+            startY = 10f,
+            endY = 50f,
             cornerRadius = 6f,
-            bottomGap = 4f,
-            outerEdgeOnRight = false,
+            bend = ReplyConnectorBend.Top,
         )
         assertEquals(geometry.start.y, geometry.control1.y)
         assertEquals(geometry.start.y, geometry.horizontalEnd.y)
         assertEquals(geometry.end.x, geometry.control2.x)
         assertEquals(geometry.end.x, geometry.curveEnd.x)
-        assertEquals(0f, geometry.start.y)
-        assertEquals(26f, geometry.end.y)
-        assertEquals(26f, geometry.start.x)
+        assertEquals(80f, geometry.start.x)
+        assertEquals(10f, geometry.start.y)
         assertEquals(14f, geometry.horizontalEnd.x)
         assertEquals(8f, geometry.end.x)
+        assertEquals(50f, geometry.end.y)
     }
 
     @Test
-    fun `connector mirrors to the right side in rtl`() {
+    fun `bottom connector reverses from the rail into reply center`() {
         val geometry = replyConnectorGeometry(
-            width = 100f,
-            height = 30f,
-            outerInset = 8f,
-            capLength = 18f,
+            railX = 8f,
+            anchorX = 80f,
+            startY = 10f,
+            endY = 50f,
             cornerRadius = 6f,
-            bottomGap = 4f,
-            outerEdgeOnRight = true,
+            bend = ReplyConnectorBend.Bottom,
         )
-        assertEquals(74f, geometry.start.x)
-        assertEquals(86f, geometry.horizontalEnd.x)
-        assertEquals(92f, geometry.curveEnd.x)
-        assertEquals(92f, geometry.end.x)
-        assertEquals(26f, geometry.end.y)
+        assertEquals(8f, geometry.start.x)
+        assertEquals(10f, geometry.start.y)
+        assertEquals(8f, geometry.horizontalEnd.x)
+        assertEquals(44f, geometry.horizontalEnd.y)
+        assertEquals(14f, geometry.curveEnd.x)
+        assertEquals(50f, geometry.curveEnd.y)
+        assertEquals(80f, geometry.end.x)
+        assertEquals(50f, geometry.end.y)
+    }
+
+    @Test
+    fun `bubble anchor uses center facing edge and vertical center`() {
+        val bounds = androidx.compose.ui.geometry.Rect(10f, 20f, 50f, 60f)
+        assertEquals(
+            Offset(10f, 40f),
+            centerFacingBubbleAnchor(bounds, isFromMe = true, isLtr = true),
+        )
+        assertEquals(
+            Offset(50f, 40f),
+            centerFacingBubbleAnchor(bounds, isFromMe = false, isLtr = true),
+        )
+        assertEquals(
+            Offset(50f, 40f),
+            centerFacingBubbleAnchor(bounds, isFromMe = true, isLtr = false),
+        )
+        assertEquals(
+            Offset(10f, 40f),
+            centerFacingBubbleAnchor(bounds, isFromMe = false, isLtr = false),
+        )
     }
 
     @Test
