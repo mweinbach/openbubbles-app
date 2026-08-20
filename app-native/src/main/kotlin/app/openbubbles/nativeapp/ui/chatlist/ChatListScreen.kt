@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chatlist
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -98,6 +97,7 @@ import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.settings.SettingsChoiceItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 import kotlinx.coroutines.flow.collectLatest
@@ -1098,12 +1098,14 @@ private fun EmptyState(
 
 // --------------------------------------------------------------------- previews
 
+private const val PREVIEW_NOW_MILLIS = 1_760_000_000_000L
+
 @Preview(name = "Messages phone", showBackground = true, widthDp = 411, heightDp = 891)
 @Preview(name = "Messages tablet", showBackground = true, widthDp = 900, heightDp = 600)
 @Composable
 private fun ChatListScreenPreview() {
-    val now = System.currentTimeMillis()
-    OpenBubblesTheme {
+    val now = PREVIEW_NOW_MILLIS
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListScreen(
             uiState = ChatListUiState(
                 pinned = listOf(
@@ -1153,17 +1155,16 @@ private fun ChatListScreenPreview() {
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun ChatListRowPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListRow(
             chat = ChatListItem(
                 id = 1,
                 title = "Alex Chen",
                 snippet = "sounds good — see you at the trailhead",
-                date = System.currentTimeMillis() - 52 * 60_000L,
+                date = PREVIEW_NOW_MILLIS - 52 * 60_000L,
                 unread = 2,
                 pinned = false,
                 avatarColor = 0xFF34C759,
@@ -1173,16 +1174,16 @@ private fun ChatListRowPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun ChatListRowUnreadPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatListRow(
             chat = ChatListItem(
                 id = 2,
                 title = "Design Team",
                 snippet = "Maya: pushed the new mocks to Figma",
-                date = System.currentTimeMillis() - 18 * 60_000L,
+                date = PREVIEW_NOW_MILLIS - 18 * 60_000L,
                 unread = 12,
                 pinned = true,
                 avatarColor = 0xFFAF52DE,

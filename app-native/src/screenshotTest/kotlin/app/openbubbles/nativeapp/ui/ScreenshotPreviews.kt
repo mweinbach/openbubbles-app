@@ -55,7 +55,7 @@ private const val FIXED_NOW = 1_760_000_000_000L
 @Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true)
 @Preview(name = "tablet", device = Devices.TABLET, showBackground = true)
 @Preview(name = "desktop", device = Devices.DESKTOP, showBackground = true)
-annotation class FormFactorPreviews
+annotation class ScreenshotFormFactorPreviews
 
 private fun sampleState() = ChatListUiState(
     pinned = listOf(
@@ -148,7 +148,7 @@ private fun sampleState() = ChatListUiState(
 
 /** Compact Messages-style app bar, flat rows, and the width cap on wide windows. */
 @PreviewTest
-@FormFactorPreviews
+@ScreenshotFormFactorPreviews
 @Preview(name = "landscape-phone", widthDp = 891, heightDp = 411, showBackground = true)
 @Preview(name = "landscape-tablet", widthDp = 1280, heightDp = 800, showBackground = true)
 @Composable
@@ -834,7 +834,7 @@ fun ChatScreenSmsScreenshot() {
 
 /** Preference groups: Messages-style segmented list, foldable small app bar. */
 @PreviewTest
-@FormFactorPreviews
+@ScreenshotFormFactorPreviews
 @Composable
 fun SettingsScreenScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {

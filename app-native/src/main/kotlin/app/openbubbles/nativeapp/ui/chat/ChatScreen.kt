@@ -3,7 +3,6 @@ package app.openbubbles.nativeapp.ui.chat
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.content.res.Configuration
 import androidx.core.content.FileProvider
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -168,6 +167,7 @@ import app.openbubbles.nativeapp.ui.effects.SendEffectOption
 import app.openbubbles.nativeapp.ui.effects.SendEffectPickerSheet
 import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
@@ -1568,11 +1568,10 @@ private fun TypingDots(modifier: Modifier = Modifier) {
 
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun TypingIndicatorPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             TypingIndicatorRow(senderAddress = "emma@icloud.com")
             TypingIndicatorRow(senderAddress = null)
@@ -1580,10 +1579,10 @@ private fun TypingIndicatorPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun MessageInputBarPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageInputBar(
                 value = "",

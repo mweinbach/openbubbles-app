@@ -2,7 +2,6 @@ package app.openbubbles.nativeapp.ui.chatinfo
 
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.foundation.Image
@@ -64,7 +63,6 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -77,6 +75,7 @@ import app.openbubbles.nativeapp.ui.findmy.FindMyPort
 import app.openbubbles.nativeapp.ui.findmy.FmPoint
 import app.openbubbles.nativeapp.ui.findmy.RustFindMyPort
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -674,11 +673,10 @@ internal fun openLocationInMaps(context: Context, name: String, point: FmPoint) 
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun ContactDetailsCardPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ContactDetailsCard(
             details = ContactDetails(
                 displayName = "Mark Linsangan",
@@ -689,7 +687,7 @@ private fun ContactDetailsCardPreview() {
             ),
             location = ContactLocationUi.Located(
                 friendName = "Mark Linsangan",
-                point = FmPoint(37.7749, -122.4194, 18.0, System.currentTimeMillis() - 8 * 60_000),
+                point = FmPoint(37.7749, -122.4194, 18.0, 1_759_999_520_000L),
             ),
             sharedContent = listOf(
                 SharedContentPreview("1", "trailhead.jpg", attachmentGuid = "a1", isImage = true),
@@ -708,10 +706,10 @@ private fun ContactDetailsCardPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun ContactLocationStatesPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             val sample = ContactDetails(
                 displayName = "Mom",

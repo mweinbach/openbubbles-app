@@ -23,6 +23,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 
 /**
  * Bottom sheet listing the iMessage send effects (long-press the send button
@@ -144,11 +145,10 @@ fun PendingEffectChip(
 
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun PendingEffectChipPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Row(modifier = Modifier.padding(16.dp)) {
             PendingEffectChip(
                 option = SendEffectCatalog.byId("com.apple.messages.effect.CKConfettiEffect")

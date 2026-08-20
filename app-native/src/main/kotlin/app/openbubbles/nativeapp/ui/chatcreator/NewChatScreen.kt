@@ -93,6 +93,7 @@ import app.openbubbles.nativeapp.sms.SmsPermissions
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.theme.ServiceColorPair
 import app.openbubbles.nativeapp.ui.theme.iMessageServiceColors
 import app.openbubbles.nativeapp.ui.theme.serviceColors
@@ -775,18 +776,10 @@ private fun PermissionCard(
 // Previews
 // ---------------------------------------------------------------------------
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun NewChatScreenPreview() {
-    OpenBubblesTheme {
-        NewChatScreen(onChatOpened = {}, onBack = {})
-    }
-}
-
-@Preview(showBackground = true, uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES)
-@Composable
-private fun NewChatScreenDarkPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         NewChatScreen(onChatOpened = {}, onBack = {})
     }
 }

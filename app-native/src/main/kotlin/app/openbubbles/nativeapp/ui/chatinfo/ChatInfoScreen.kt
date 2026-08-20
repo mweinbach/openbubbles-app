@@ -1,7 +1,6 @@
 package app.openbubbles.nativeapp.ui.chatinfo
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -77,7 +76,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.ChatListItem
@@ -100,6 +98,7 @@ import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -884,17 +883,16 @@ fun rememberParticipantRows(addresses: List<String>): List<ParticipantRow> {
 
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun ChatInfoScreenPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatInfoScreen(
             chat = ChatListItem(
                 id = 1,
                 title = "Family",
                 snippet = null,
-                date = System.currentTimeMillis(),
+                date = 1_760_000_000_000L,
                 unread = 0,
                 pinned = true,
                 avatarColor = 0xFF7C4FDF,
@@ -1004,17 +1002,16 @@ private fun ChatLocalOptions(
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun ChatInfoDirectScreenPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         ChatInfoScreen(
             chat = ChatListItem(
                 id = 2,
                 title = "Mark Linsangan",
                 snippet = null,
-                date = System.currentTimeMillis(),
+                date = 1_760_000_000_000L,
                 unread = 0,
                 pinned = false,
                 avatarColor = 0xFF006C4C,

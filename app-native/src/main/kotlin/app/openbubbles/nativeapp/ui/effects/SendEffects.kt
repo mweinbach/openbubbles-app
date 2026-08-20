@@ -922,7 +922,7 @@ internal class LoveSimulator(origin: Offset?, random: Random) : EffectSimulator(
 /** Renders one deterministic mid-effect frame (static preview, no animation). */
 @Composable
 private fun EffectStaticFramePreview(effect: SendScreenEffect, atSeconds: Float = 2f) {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Box(
             modifier = Modifier
                 .fillMaxSize()

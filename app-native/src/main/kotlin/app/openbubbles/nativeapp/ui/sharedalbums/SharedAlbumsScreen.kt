@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.sharedalbums
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
@@ -47,6 +45,7 @@ import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
 import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
 import app.openbubbles.nativeapp.ui.settings.SettingsToggleItem
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -268,10 +267,10 @@ private fun AlbumDialog(
     )
 }
 
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreviews
 @Composable
 private fun SharedAlbumsPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         SharedAlbumsScreen(
             uiState = SharedAlbumsUiState(
                 loading = false,

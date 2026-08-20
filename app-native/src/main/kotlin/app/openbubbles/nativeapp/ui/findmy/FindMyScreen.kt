@@ -2,7 +2,6 @@ package app.openbubbles.nativeapp.ui.findmy
 
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.foundation.background
@@ -60,6 +59,7 @@ import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -495,19 +495,18 @@ private fun fakeState(failRefresh: Boolean = false): FindMyUiState {
     )
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun FindMyScreenPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         FindMyScreen(uiState = fakeState(), onRefresh = {}, onBack = {})
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun FindMyScreenOfflinePreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         FindMyScreen(
             uiState = fakeState(failRefresh = true)
                 .copy(refreshErrors = listOf("Devices: offline"), refreshing = true),
@@ -517,10 +516,10 @@ private fun FindMyScreenOfflinePreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun FindMyScreenEmptyPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         FindMyScreen(
             uiState = FindMyUiState(loading = false, unavailable = true),
             onRefresh = {},

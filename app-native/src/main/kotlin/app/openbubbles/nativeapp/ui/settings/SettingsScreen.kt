@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.settings
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,8 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.tooling.preview.Devices
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,6 +58,8 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.ui.adaptive.settingsTwoPaneSplit
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.FormFactorPreviews
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -361,10 +360,8 @@ fun SettingsScreen(
 
 // --------------------------------------------------------------------- previews
 
-@Preview(name = "phone", device = Devices.PHONE, showBackground = true)
-@Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true)
-@Preview(name = "tablet", device = Devices.TABLET, showBackground = true)
-@Preview(name = "dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@FormFactorPreviews
+@LightDarkPreviews
 @Composable
 private fun SettingsScreenPreview() {
     OpenBubblesTheme(dynamicColor = false) {

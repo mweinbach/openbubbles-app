@@ -312,6 +312,8 @@ class RustFindMyPort(
 }
 
 /** Deterministic sample data for previews (and offline UI testing). */
+private const val PREVIEW_NOW_MILLIS = 1_760_000_000_000L
+
 class FakeFindMyPort(
     private val failRefresh: Boolean = false,
 ) : FindMyPort {
@@ -321,12 +323,12 @@ class FakeFindMyPort(
         FmDeviceUi(
             id = "d1", name = "Max's iPhone", model = "iPhone 16 Pro",
             batteryPercent = 78, batteryStatus = "Charging",
-            location = FmPoint(37.7749, -122.4194, 65.0, System.currentTimeMillis() - 120_000),
+            location = FmPoint(37.7749, -122.4194, 65.0, PREVIEW_NOW_MILLIS - 120_000),
         ),
         FmDeviceUi(
             id = "d2", name = "MacBook Pro", model = "MacBook Pro 14\"",
             batteryPercent = 42,
-            location = FmPoint(37.3349, -122.0090, 240.0, System.currentTimeMillis() - 43 * 60_000),
+            location = FmPoint(37.3349, -122.0090, 240.0, PREVIEW_NOW_MILLIS - 43 * 60_000),
         ),
         FmDeviceUi(id = "d3", name = "Apple Watch", batteryPercent = null, location = null),
     )
@@ -334,7 +336,7 @@ class FakeFindMyPort(
     private val friends = listOf(
         FmFriendUi(
             id = "f1", name = "Mom", address = "mom@icloud.com",
-            location = FmPoint(40.7128, -74.0060, 18.0, System.currentTimeMillis() - 8 * 60_000),
+            location = FmPoint(40.7128, -74.0060, 18.0, PREVIEW_NOW_MILLIS - 8 * 60_000),
         ),
         FmFriendUi(id = "f2", name = "+1 (555) 010-9999", location = null),
     )
@@ -342,11 +344,11 @@ class FakeFindMyPort(
     private val items = listOf(
         FmItemUi(
             id = "i1", name = "Keys", emoji = "🔑", batteryPercent = 88,
-            location = FmPoint(37.7799, -122.4150, 12.0, System.currentTimeMillis() - 60_000),
+            location = FmPoint(37.7799, -122.4150, 12.0, PREVIEW_NOW_MILLIS - 60_000),
         ),
         FmItemUi(
             id = "i2", name = "Backpack", emoji = "🎒", sharedBy = "mom@icloud.com",
-            location = FmPoint(37.7700, -122.4100, 400.0, System.currentTimeMillis() - 3 * 3_600_000),
+            location = FmPoint(37.7700, -122.4100, 400.0, PREVIEW_NOW_MILLIS - 3 * 3_600_000),
         ),
     )
 

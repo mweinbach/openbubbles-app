@@ -2,8 +2,11 @@ package app.openbubbles.nativeapp.ui.common
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import app.openbubbles.nativeapp.data.ContactDisplay
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -106,6 +111,21 @@ fun ChatAvatar(
                 lineHeight = (size.value * 0.36f).sp,
                 style = MaterialTheme.typography.labelLarge,
             )
+        }
+    }
+}
+
+@LightDarkPreviews
+@Composable
+private fun ChatAvatarPreview() {
+    OpenBubblesTheme(dynamicColor = false) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChatAvatar(title = "Alex Chen", avatarColor = 0xFF34C759)
+            ChatAvatar(title = "Family", avatarColor = 0xFF6750A4, size = 64.dp)
         }
     }
 }

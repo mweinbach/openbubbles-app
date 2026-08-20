@@ -68,7 +68,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -82,6 +81,7 @@ import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 
 private val SearchContentMaxWidth = 840.dp
 
@@ -600,10 +600,10 @@ private val PreviewChat = ChatListItem(
     avatarColor = 0xFF006C4C,
 )
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun SearchScreenPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         SearchScreen(
             uiState = SearchUiState(
                 query = "coffee",
@@ -646,10 +646,10 @@ private fun SearchScreenPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun SearchScreenEmptyPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         SearchScreen(
             uiState = SearchUiState(),
             onQueryChange = {},

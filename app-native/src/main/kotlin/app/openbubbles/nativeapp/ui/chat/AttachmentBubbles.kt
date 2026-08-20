@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chat
 
-import android.content.res.Configuration
 import android.widget.VideoView
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -53,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.common.FallbackAspectRatio
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
@@ -632,11 +632,10 @@ private fun mimeIcon(mime: String?): ImageVector = when {
 
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun AttachmentBubblesPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AttachmentContent(
                 attachment = AttachmentMeta(

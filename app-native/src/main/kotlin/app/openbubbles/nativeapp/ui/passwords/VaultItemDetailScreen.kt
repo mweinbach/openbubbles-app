@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.passwords
 
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.login.QrScannerSheet
@@ -66,6 +64,7 @@ import app.openbubbles.nativeapp.ui.settings.SettingsGroupSpacing
 import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
 import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.delay
@@ -588,10 +587,10 @@ internal fun formatVerificationCode(code: String): String {
     return compact.chunked(groupSize).joinToString(" ")
 }
 
-@Preview(name = "password", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreviews
 @Composable
 private fun VaultPasswordDetailPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         VaultItemDetailScreen(
             uiState = VaultItemDetailUiState(
                 item = VaultItemUi(
@@ -608,10 +607,10 @@ private fun VaultPasswordDetailPreview() {
     }
 }
 
-@Preview(name = "code", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreviews
 @Composable
 private fun VaultCodeDetailPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         VaultItemDetailScreen(
             uiState = VaultItemDetailUiState(
                 item = VaultItemUi(
@@ -621,7 +620,7 @@ private fun VaultCodeDetailPreview() {
                     username = "person@example.com",
                 ),
                 secret = "123456",
-                secretExpiresAtSeconds = System.currentTimeMillis() / 1000L + 30,
+                secretExpiresAtSeconds = 4_102_444_830L,
             ),
             onBack = {}, onRequestReveal = {}, onRefreshCode = {}, onCopy = {},
             onDelete = {}, onAddTotp = {},

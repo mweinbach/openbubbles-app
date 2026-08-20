@@ -76,6 +76,7 @@ import app.openbubbles.nativeapp.ui.settings.SettingsGroup
 import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
 import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -708,11 +709,12 @@ private val VaultCategory.icon get() = when (this) {
     VaultCategory.Groups -> Icons.Filled.Badge
 }
 
-@Preview(name = "phone", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
-@Preview(name = "foldable", device = Devices.FOLDABLE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
+@Preview(name = "Phone", device = Devices.PHONE, showBackground = true)
+@Preview(name = "Foldable", device = Devices.FOLDABLE, showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun PasswordsPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         PasswordsScreen(
             uiState = PasswordsUiState(
                 loading = false,

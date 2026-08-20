@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.photos
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -77,7 +76,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.core.photos.PhotoMediaKind
 import app.openbubbles.core.photos.PhotoSummary
@@ -91,6 +89,7 @@ import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -631,10 +630,10 @@ private fun PhotoTransfer.progressFraction(): Float =
 private fun PhotoTransfer.percentLabel(): String =
     if (totalBytes > 0) "${(progressFraction() * 100).toInt()}%" else ""
 
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreviews
 @Composable
 private fun PhotosPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         PhotosScreen(
             uiState = PhotosUiState(
                 loading = false,

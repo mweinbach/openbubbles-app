@@ -382,7 +382,7 @@ private fun ViewerMessage(text: String) {
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun AttachmentViewerPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         AttachmentViewerScreen(
             guid = "demo-image-1",
             provider = object : AttachmentProvider {

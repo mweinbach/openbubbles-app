@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.passwords
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +46,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
 import app.openbubbles.nativeapp.ui.settings.SettingsDetailMaxWidth
@@ -56,6 +54,7 @@ import app.openbubbles.nativeapp.ui.settings.SettingsGroupSpacing
 import app.openbubbles.nativeapp.ui.settings.SettingsInfoItem
 import app.openbubbles.nativeapp.ui.settings.SettingsRowTone
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 
 /**
  * One shared-password group as its own page, in the same iOS-Passwords-like
@@ -363,10 +362,10 @@ internal val VaultGroupMemberUi.supportingText: String
         return if (displayName == address) state else "$address • $state"
     }
 
-@Preview(name = "group", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreviews
 @Composable
 private fun VaultGroupDetailPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         VaultGroupDetailScreen(
             uiState = VaultGroupDetailUiState(
                 groupId = "family",

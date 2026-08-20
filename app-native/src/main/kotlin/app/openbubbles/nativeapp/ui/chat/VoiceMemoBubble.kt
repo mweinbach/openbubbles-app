@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chat
 
-import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -50,13 +49,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.ui.common.formatBytes
 import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
@@ -391,8 +390,7 @@ internal fun WavySeekBar(
 
 // --------------------------------------------------------------------- previews
 
-@Preview(showBackground = true, name = "voice-memo")
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "voice-memo-dark")
+@LightDarkPreviews
 @Composable
 private fun VoiceMemoBubblePreview() {
     OpenBubblesTheme(dynamicColor = false) {

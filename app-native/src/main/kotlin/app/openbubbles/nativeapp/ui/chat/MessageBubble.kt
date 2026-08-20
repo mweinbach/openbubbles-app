@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chat
 
-import android.content.res.Configuration
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -69,7 +68,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -92,6 +90,7 @@ import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedBytes
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import app.openbubbles.nativeapp.ui.theme.smsServiceColors
 import java.io.File
 import java.text.DateFormat
@@ -1072,6 +1071,8 @@ fun TimeSeparatorRow(day: String, time: String, modifier: Modifier = Modifier) {
 
 // --------------------------------------------------------------------- previews
 
+private const val PREVIEW_NOW_MILLIS = 1_760_000_000_000L
+
 private fun previewMessage(
     text: String,
     isFromMe: Boolean,
@@ -1081,17 +1082,16 @@ private fun previewMessage(
     id = 1L,
     text = text,
     isFromMe = isFromMe,
-    date = System.currentTimeMillis(),
+    date = PREVIEW_NOW_MILLIS,
     status = status,
     isGroupEvent = false,
     reactionEmoji = reaction,
 )
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun MessageBubblePreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageBubble(
                 message = previewMessage("hey! still on for the hike saturday?", isFromMe = false, reaction = "❤️"),
@@ -1117,10 +1117,10 @@ private fun MessageBubblePreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun MessageGroupingPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageBubble(
                 message = previewMessage("running 5 behind", isFromMe = false)
@@ -1152,11 +1152,10 @@ private fun MessageGroupingPreview() {
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun MessageReplyPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageBubble(
                 message = previewMessage(
@@ -1191,10 +1190,10 @@ private fun MessageReplyPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun MessageAttachmentPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageBubble(
                 message = previewMessage("", isFromMe = false).copy(
@@ -1220,8 +1219,7 @@ private fun MessageAttachmentPreview() {
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun MessageRichLinkPreview() {
     val preview = RichLinkPreview(
@@ -1234,7 +1232,7 @@ private fun MessageRichLinkPreview() {
         iconBytes = null,
         iconMime = null,
     )
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageBubble(
                 message = previewMessage(
@@ -1255,10 +1253,10 @@ private fun MessageRichLinkPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun MessageStatusRowPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             MessageStatusRow(status = MessageStatus.SENDING)
             MessageStatusRow(status = MessageStatus.SENT)
@@ -1269,10 +1267,10 @@ private fun MessageStatusRowPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun UploadProgressRowPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         Column {
             UploadProgressRow(done = 1_200_000, total = 2_411_520)
             UploadProgressRow(done = 90_000, total = 0)

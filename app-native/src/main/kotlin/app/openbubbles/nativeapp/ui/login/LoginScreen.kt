@@ -2,7 +2,6 @@ package app.openbubbles.nativeapp.ui.login
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.content.res.Configuration
 import android.webkit.WebView
 import androidx.core.net.toUri
 import androidx.compose.foundation.background
@@ -70,6 +69,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material3.LocalTextStyle
 import app.openbubbles.nativeapp.ui.common.pillTextFieldColors
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -641,11 +641,10 @@ private object NoopEvents : LoginEvents {
     override fun retry() = Unit
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun LoginFormPreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         LoginScreenBody(
             state = LoginScreen.Form(
                 savedUsername = FakeLoginHandle.PREVIEW_USERNAME,
@@ -659,11 +658,10 @@ private fun LoginFormPreview() {
     }
 }
 
-@Preview(showBackground = true)
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@LightDarkPreviews
 @Composable
 private fun LoginDeviceCodePreview() {
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         LoginScreenBody(
             state = LoginScreen.DeviceCode(busy = false, error = null),
             events = NoopEvents,
@@ -675,14 +673,14 @@ private fun LoginDeviceCodePreview() {
 
 /** Live-flow preview driven by the [FakeLoginHandle] (fully interactive in
  *  the IDE's interactive mode; static rendering shows the initial form). */
-@Preview(showBackground = true)
+@LightDarkPreviews
 @Composable
 private fun LoginFakeFlowPreview() {
     val previewViewModel = remember {
         LoginViewModel(CoroutineScope(Dispatchers.Unconfined), FakeLoginHandle())
     }
     val state by previewViewModel.screen.collectAsState()
-    OpenBubblesTheme {
+    OpenBubblesTheme(dynamicColor = false) {
         LoginScreenBody(
             state = state,
             events = previewViewModel,
