@@ -843,11 +843,11 @@ private const val ReplyQuoteWidthFraction = 0.76f
 private val ReplyQuoteTopPadding = 4.dp
 private val ReplyConnectorInterMessageSpace = 48.dp
 private val ReplyConnectorStrokeWidth = 2.4.dp
-private val ReplyConnectorTopGap = 8.dp
+private val ReplyConnectorDetachedGap = 18.dp
 private val ReplyConnectorOuterInset = 16.dp
 private val ReplyConnectorCapLength = 18.dp
+private val ReplyConnectorVerticalLength = 28.dp
 private val ReplyConnectorCornerRadius = 6.dp
-private val ReplyConnectorBubbleGap = 10.dp
 
 internal enum class ReplyConnectorBend { Top, Bottom }
 
@@ -867,9 +867,8 @@ internal data class ReplyConnectorGeometry(
 )
 
 /**
- * One-bend connector between a start-side rail and a bubble's center-facing
- * edge. A top bend runs from the quote into the rail; a bottom bend reverses
- * the path so the rail turns into the reply below.
+ * Compact one-bend marker on the start-side rail. Its top or bottom cap points
+ * toward the related bubble at that bubble's vertical center without touching.
  */
 internal fun replyConnectorGeometry(
     railX: Float,
@@ -916,16 +915,6 @@ internal fun replyConnectorGeometry(
     }
 }
 
-/** Bubble edge facing the transcript center, anchored at the bubble's vertical center. */
-internal fun centerFacingBubbleAnchor(
-    bounds: Rect,
-    isFromMe: Boolean,
-    isLtr: Boolean,
-): Offset = Offset(
-    x = if (isFromMe == isLtr) bounds.left else bounds.right,
-    y = bounds.center.y,
-)
-
 @Composable
 private fun ReplyConnectorOverlay(
     bounds: ReplyConnectorBounds,
@@ -952,39 +941,43 @@ private fun ReplyConnectorOverlay(
         } else {
             size.width - ReplyConnectorOuterInset.toPx()
         }
+        val inward = if (isLtr) 1f else -1f
+        val markerTipX = railX + inward * ReplyConnectorCapLength.toPx()
+        val detachedGap = ReplyConnectorDetachedGap.toPx() + halfStroke
+        val verticalLength = ReplyConnectorVerticalLength.toPx()
 
         val geometry = when {
             quoteFromMe -> {
-                val anchor = centerFacingBubbleAnchor(quoteBounds, quoteFromMe, isLtr)
+                val startY = quoteBounds.center.y
                 replyConnectorGeometry(
                     railX = railX,
-                    anchorX = anchor.x,
-                    startY = anchor.y,
-                    endY = replyBounds.top - ReplyConnectorBubbleGap.toPx() - halfStroke,
+                    anchorX = markerTipX,
+                    startY = startY,
+                    endY = minOf(startY + verticalLength, replyBounds.top - detachedGap),
                     cornerRadius = ReplyConnectorCornerRadius.toPx(),
                     bend = ReplyConnectorBend.Top,
                 )
             }
 
             replyFromMe -> {
-                val anchor = centerFacingBubbleAnchor(replyBounds, replyFromMe, isLtr)
+                val endY = replyBounds.center.y
                 replyConnectorGeometry(
                     railX = railX,
-                    anchorX = anchor.x,
-                    startY = quoteBounds.bottom + ReplyConnectorTopGap.toPx() + halfStroke,
-                    endY = anchor.y,
+                    anchorX = markerTipX,
+                    startY = maxOf(endY - verticalLength, quoteBounds.bottom + detachedGap),
+                    endY = endY,
                     cornerRadius = ReplyConnectorCornerRadius.toPx(),
                     bend = ReplyConnectorBend.Bottom,
                 )
             }
 
             else -> {
-                val inward = if (isLtr) 1f else -1f
+                val startY = quoteBounds.bottom + detachedGap
                 replyConnectorGeometry(
                     railX = railX,
-                    anchorX = railX + inward * ReplyConnectorCapLength.toPx(),
-                    startY = quoteBounds.bottom + ReplyConnectorTopGap.toPx() + halfStroke,
-                    endY = replyBounds.top - ReplyConnectorBubbleGap.toPx() - halfStroke,
+                    anchorX = markerTipX,
+                    startY = startY,
+                    endY = minOf(startY + verticalLength, replyBounds.top - detachedGap),
                     cornerRadius = ReplyConnectorCornerRadius.toPx(),
                     bend = ReplyConnectorBend.Top,
                 )
