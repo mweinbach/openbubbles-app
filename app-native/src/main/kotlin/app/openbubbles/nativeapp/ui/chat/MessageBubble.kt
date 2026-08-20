@@ -392,8 +392,12 @@ fun MessageBubble(
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .padding(
-                top = if (message.reactionEmoji != null) 3.dp + ReactionRowExtraTopPadding else 3.dp,
-                bottom = 3.dp,
+                top = when {
+                    message.reactionEmoji != null -> 3.dp + ReactionRowExtraTopPadding
+                    message.replyToGuid != null -> 9.dp
+                    else -> 3.dp
+                },
+                bottom = if (replyCount > 0) 8.dp else 3.dp,
             ),
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
@@ -403,10 +407,10 @@ fun MessageBubble(
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         Column(modifier = Modifier.fillMaxWidth()) {
         replyQuote?.let { quote ->
-            // The quote keeps the original message's transcript side — their
-            // quote floats left, mine right — even when the reply sits on the
-            // opposite side, the way Apple Messages anchors the quoted
-            // original above a threaded reply.
+            // The quote keeps the original message's transcript side. The
+            // thread rail itself is always anchored to the far-left transcript
+            // gutter, matching Apple Messages rather than following my quote
+            // out toward the screen edge.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -867,69 +871,75 @@ private fun ReplyQuotePreview(
     modifier: Modifier = Modifier,
 ) {
     val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
-    Column(
-        modifier = modifier,
-        // The connector hangs from the quote's outer corner.
-        horizontalAlignment = if (quote.fromMe) Alignment.End else Alignment.Start,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = bubbleColor.copy(alpha = 0.48f),
-            contentColor = bubbleContent.copy(alpha = 0.78f),
-            modifier = Modifier
-                .widthIn(max = maxWidth * 0.84f)
-                .clickable(
-                    onClickLabel = "Show original message",
-                    role = Role.Button,
-                    onClick = onOpen,
-                ),
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                quote.senderName?.let { name ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = bubbleColor.copy(alpha = 0.48f),
+                contentColor = bubbleContent.copy(alpha = 0.78f),
+                modifier = Modifier
+                    .widthIn(max = maxWidth * 0.84f)
+                    .clickable(
+                        onClickLabel = "Show original message",
+                        role = Role.Button,
+                        onClick = onOpen,
+                    ),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    quote.senderName?.let { name ->
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = bubbleContent.copy(alpha = 0.68f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
-                        text = name,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = bubbleContent.copy(alpha = 0.68f),
-                        maxLines = 1,
+                        text = quote.text,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(
-                    text = quote.text,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+            }
+        }
+        val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .offset(y = (-1).dp)
+                    .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
+            ) {
+                // Apple keeps this rail in the far-left transcript gutter even
+                // when the quoted original was mine and remains end-aligned.
+                val geometry = replyConnectorGeometry(
+                    width = size.width,
+                    height = size.height + 8.dp.toPx(),
+                    startInsetFromOuter = 18.dp.toPx(),
+                    endInsetFromOuter = 6.dp.toPx(),
+                    outerEdgeOnRight = false,
+                )
+                drawPath(
+                    path = Path().apply {
+                        moveTo(geometry.start.x, geometry.start.y)
+                        quadraticTo(
+                            geometry.control.x, geometry.control.y,
+                            geometry.end.x, geometry.end.y,
+                        )
+                    },
+                    color = connectorColor,
+                    style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round),
                 )
             }
         }
-        val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-        val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
-        Canvas(
-            modifier = Modifier
-                .offset(y = (-1).dp)
-                .size(width = ReplyConnectorWidth, height = ReplyConnectorHeight),
-        ) {
-            // The curve runs past the canvas into the stack gap below so it
-            // lands toward the reply's top corner; Canvas does not clip.
-            val geometry = replyConnectorGeometry(
-                width = size.width,
-                height = size.height + 6.dp.toPx(),
-                startInsetFromOuter = 18.dp.toPx(),
-                endInsetFromOuter = 6.dp.toPx(),
-                outerEdgeOnRight = quote.fromMe == isLtr,
-            )
-            drawPath(
-                path = Path().apply {
-                    moveTo(geometry.start.x, geometry.start.y)
-                    quadraticTo(
-                        geometry.control.x, geometry.control.y,
-                        geometry.end.x, geometry.end.y,
-                    )
-                },
-                color = connectorColor,
-                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round),
-            )
-        }
+        Spacer(Modifier.height(4.dp))
     }
 }
 
