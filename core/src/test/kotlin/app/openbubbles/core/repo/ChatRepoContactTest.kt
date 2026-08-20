@@ -578,4 +578,16 @@ class ChatRepoContactTest {
         store.boxFor(Chat::class.java).put(chat)
         return chat
     }
+
+    @Test
+    fun `direct chat falls back to handle poster as transcript background`() {
+        val handle = handle("friend@icloud.com").apply {
+            posterPath = "/shared_profiles/friend.img"
+        }
+        store.boxFor(Handle::class.java).put(handle)
+        chat("iMessage;-;friend@icloud.com", handle, "hello", 100L)
+
+        val item = ChatRepo(store).chats().single()
+        assertEquals("/shared_profiles/friend.img", item.transcriptBackgroundPath)
+    }
 }

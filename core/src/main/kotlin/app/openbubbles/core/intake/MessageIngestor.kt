@@ -268,6 +268,9 @@ class MessageIngestor(
     }
 
     private fun ingestNormal(inst: UMessageInst, msg: UMessage.Normal, myHandles: Set<String>): Chat? {
+        msg.profileJson?.let { profileJson ->
+            ingestProfile(inst, profileJson, ProfileMessageKind.Share, myHandles)
+        }
         // Dart: skip empty messages (no text and no attachment parts).
         if (MessageMapper.rawText(msg.parts).isEmpty() && !MessageMapper.hasAttachmentParts(msg.parts)) return null
         val chat = chatForInst(inst, myHandles) ?: return null
@@ -281,6 +284,9 @@ class MessageIngestor(
     }
 
     private fun ingestReaction(inst: UMessageInst, msg: UMessage.React, myHandles: Set<String>): Chat? {
+        msg.profileJson?.let { profileJson ->
+            ingestProfile(inst, profileJson, ProfileMessageKind.Share, myHandles)
+        }
         val chat = chatForInst(inst, myHandles) ?: return null
         persistMapped(MessageMapper.mapReaction(inst, msg, myHandles), chat, inst, myHandles)
         return chat

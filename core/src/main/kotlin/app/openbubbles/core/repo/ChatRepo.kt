@@ -524,7 +524,8 @@ class ChatRepo(
             avatarPath = groupPhoto ?: identity?.info?.avatar,
             isGroup = isGroup,
             customBackgroundPath = chat.customBackgroundPath,
-            transcriptBackgroundPath = chat.transcriptPosterPath,
+            transcriptBackgroundPath = chat.transcriptPosterPath
+                ?: (if (!isGroup) identity?.info?.poster ?: otherHandle(chat)?.posterPath else null),
             transcriptBackgroundVersion = chat.transcriptBackgroundVersion,
             senderOverride = chat.senderOverride,
             receivedOnHandle = chat.usingHandle,
@@ -592,11 +593,16 @@ class ChatRepo(
         // legacy posters without a version fall back to recency. Path and
         // version must come from the same member or the store's version
         // check would compare mismatched rows.
+        val identity = canonical.contactInfo
+        val directPoster = if (!canonical.item.isGroup) {
+            identity?.poster
+                ?: otherHandle(canonical.chat)?.posterPath
+                ?: byRecency.firstNotNullOfOrNull { otherHandle(it.chat)?.posterPath }
+        } else null
         val syncedBackground = group
             .filter { it.item.transcriptBackgroundVersion != null }
             .maxByOrNull { it.item.transcriptBackgroundVersion!! }
             ?: byRecency.firstOrNull { it.item.transcriptBackgroundPath != null }
-        val identity = canonical.contactInfo
         return canonical.item.copy(
             title = identity?.name?.takeIf(String::isNotBlank) ?: canonical.item.title,
             snippet = newest.item.snippet,
@@ -608,7 +614,7 @@ class ChatRepo(
             archived = group.all { it.item.archived },
             avatarPath = newest.item.avatarPath ?: identity?.avatar,
             customBackgroundPath = byRecency.firstNotNullOfOrNull { it.item.customBackgroundPath },
-            transcriptBackgroundPath = syncedBackground?.item?.transcriptBackgroundPath,
+            transcriptBackgroundPath = syncedBackground?.item?.transcriptBackgroundPath ?: directPoster,
             transcriptBackgroundVersion = syncedBackground?.item?.transcriptBackgroundVersion,
             memberChatIds = group.map { it.chat.id }.distinct().sorted(),
             preferredChatId = newest.chat.id,

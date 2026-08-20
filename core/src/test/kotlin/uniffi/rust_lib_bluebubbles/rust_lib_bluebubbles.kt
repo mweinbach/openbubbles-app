@@ -16606,7 +16606,8 @@ sealed class UMessage {
         val `voice`: kotlin.Boolean,
         val `isSms`: kotlin.Boolean,
         val `appJson`: kotlin.String?,
-        val `linkJson`: kotlin.String?) : UMessage() {
+        val `linkJson`: kotlin.String?,
+        val `profileJson`: kotlin.String?) : UMessage() {
         companion object
     }
 
@@ -16618,7 +16619,8 @@ sealed class UMessage {
         /**
          * Attachment/object body for sticker and app-extension reactions.
          */
-        val `parts`: List<UIndexedPart>) : UMessage() {
+        val `parts`: List<UIndexedPart>,
+        val `profileJson`: kotlin.String?) : UMessage() {
         companion object
     }
 
@@ -16768,6 +16770,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterBoolean.read(buf),
                 FfiConverterOptionalString.read(buf),
                 FfiConverterOptionalString.read(buf),
+                FfiConverterOptionalString.read(buf),
                 )
             2 -> UMessage.React(
                 FfiConverterString.read(buf),
@@ -16775,6 +16778,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeUIndexedPart.read(buf),
+                FfiConverterOptionalString.read(buf),
                 )
             3 -> UMessage.Rename(
                 FfiConverterString.read(buf),
@@ -16863,6 +16867,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 + FfiConverterBoolean.allocationSize(value.`isSms`)
                 + FfiConverterOptionalString.allocationSize(value.`appJson`)
                 + FfiConverterOptionalString.allocationSize(value.`linkJson`)
+                + FfiConverterOptionalString.allocationSize(value.`profileJson`)
             )
         }
         is UMessage.React -> {
@@ -16874,6 +16879,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 + FfiConverterString.allocationSize(value.`reactionJson`)
                 + FfiConverterString.allocationSize(value.`toText`)
                 + FfiConverterSequenceTypeUIndexedPart.allocationSize(value.`parts`)
+                + FfiConverterOptionalString.allocationSize(value.`profileJson`)
             )
         }
         is UMessage.Rename -> {
@@ -17063,6 +17069,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterBoolean.write(value.`isSms`, buf)
                 FfiConverterOptionalString.write(value.`appJson`, buf)
                 FfiConverterOptionalString.write(value.`linkJson`, buf)
+                FfiConverterOptionalString.write(value.`profileJson`, buf)
                 Unit
             }
             is UMessage.React -> {
@@ -17072,6 +17079,7 @@ public object FfiConverterTypeUMessage : FfiConverterRustBuffer<UMessage>{
                 FfiConverterString.write(value.`reactionJson`, buf)
                 FfiConverterString.write(value.`toText`, buf)
                 FfiConverterSequenceTypeUIndexedPart.write(value.`parts`, buf)
+                FfiConverterOptionalString.write(value.`profileJson`, buf)
                 Unit
             }
             is UMessage.Rename -> {

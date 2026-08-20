@@ -98,6 +98,7 @@ data class DeviceContactReconcileResult(
 data class HandleDisplayInfo(
     val name: String?,
     val avatar: String?,
+    val poster: String? = null,
 )
 
 /** Result of rebuilding contact -> handle relations after new handles arrive. */
@@ -514,6 +515,7 @@ class ContactSync(private val store: BoxStore) {
         return HandleDisplayInfo(
             name = name,
             avatar = fromHandle?.avatar ?: fromAddress?.avatar,
+            poster = fromHandle?.poster ?: fromAddress?.poster ?: handle.posterPath,
         )
     }
 
@@ -623,6 +625,7 @@ class ContactSync(private val store: BoxStore) {
     private fun displayInfoOf(contact: ContactV2): HandleDisplayInfo = HandleDisplayInfo(
         name = computedDisplayName(contact).takeIf { it.isNotEmpty() },
         avatar = contact.avatarPath,
+        poster = contact.posterPath,
     )
 
     private fun contactsByPreference(): List<ContactV2> =
@@ -748,6 +751,7 @@ class ContactSync(private val store: BoxStore) {
             return HandleDisplayInfo(
                 name = preferred.name ?: fallback.name,
                 avatar = preferred.avatar ?: fallback.avatar,
+                poster = preferred.poster ?: fallback.poster,
             )
         }
 

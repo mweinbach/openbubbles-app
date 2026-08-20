@@ -92,6 +92,7 @@ class InteractivePayloadTest {
                     isSms = false,
                     appJson = appJson,
                     linkJson = null,
+                    profileJson = null,
                 ),
                 sentTimestamp = 1uL,
                 sendDelivered = false,
@@ -110,6 +111,7 @@ class InteractivePayloadTest {
                 isSms = false,
                 appJson = appJson,
                 linkJson = null,
+                profileJson = null,
             ),
             myHandles = setOf("mailto:me@example.com"),
         )

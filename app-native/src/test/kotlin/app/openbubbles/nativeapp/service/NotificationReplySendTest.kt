@@ -158,6 +158,7 @@ class NotificationReplySendTest {
             isSms = false,
             appJson = null,
             linkJson = null,
+            profileJson = null,
         ),
         sentTimestamp = 1_700_000_000_000uL,
         sendDelivered = false,

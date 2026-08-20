@@ -196,6 +196,7 @@ object SmsPushBuilder {
         isSms = true,
         appJson = null,
         linkJson = null,
+        profileJson = null,
     )
 
     private fun sha256Prefix(input: String, length: Int): String {

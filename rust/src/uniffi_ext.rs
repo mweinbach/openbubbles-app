@@ -156,6 +156,7 @@ pub enum UMessage {
         is_sms: bool,
         app_json: Option<String>,
         link_json: Option<String>,
+        profile_json: Option<String>,
     },
     React {
         to_uuid: String,
@@ -164,6 +165,7 @@ pub enum UMessage {
         to_text: String,
         /// Attachment/object body for sticker and app-extension reactions.
         parts: Vec<UIndexedPart>,
+        profile_json: Option<String>,
     },
     Rename { new_name: String },
     ChangeParticipants { new_participants: Vec<String>, group_version: u64 },
@@ -302,6 +304,7 @@ fn conv_message(m: &Message) -> UMessage {
             is_sms: matches!(n.service, MessageType::SMS { .. }),
             app_json: n.app.as_ref().map(app_json),
             link_json: n.link_meta.as_ref().map(j),
+            profile_json: n.embedded_profile.as_ref().map(j),
         },
         Message::React(r) => UMessage::React {
             to_uuid: r.to_uuid.clone(),
@@ -309,6 +312,7 @@ fn conv_message(m: &Message) -> UMessage {
             reaction_json: j(&r.reaction),
             to_text: r.to_text.clone(),
             parts: reaction_parts(&r.reaction),
+            profile_json: r.embedded_profile.as_ref().map(j),
         },
         Message::RenameMessage(RenameMessage { new_name }) => UMessage::Rename { new_name: new_name.clone() },
         Message::ChangeParticipants(ChangeParticipantMessage { new_participants, group_version }) => {

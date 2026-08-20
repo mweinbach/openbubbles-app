@@ -110,6 +110,7 @@ class MessageIngestorTest {
             isSms = sms,
             appJson = null,
             linkJson = null,
+            profileJson = null,
         ),
         sentTimestamp = timestamp,
         sendDelivered = false,
@@ -444,6 +445,7 @@ class MessageIngestorTest {
                 parts = emptyList(),
                 effect = null, replyGuid = null, replyPart = null, subject = null,
                 voice = false, isSms = false, appJson = null, linkJson = null,
+                profileJson = null,
             ),
             sentTimestamp = 1_700_000_000_000uL,
             sendDelivered = false,
@@ -471,6 +473,7 @@ class MessageIngestorTest {
                 isSms = false,
                 appJson = appJson,
                 linkJson = null,
+                profileJson = null,
             ),
             sentTimestamp = 1_700_000_000_000uL,
             sendDelivered = false,
@@ -502,6 +505,7 @@ class MessageIngestorTest {
                 ),
                 effect = null, replyGuid = null, replyPart = null, subject = null,
                 voice = false, isSms = false, appJson = null, linkJson = null,
+                profileJson = null,
             ),
             sentTimestamp = 1_700_000_000_000uL,
             sendDelivered = false,
@@ -972,6 +976,7 @@ class MessageIngestorTest {
                 isSms = false,
                 appJson = null,
                 linkJson = null,
+                profileJson = null,
             ),
             sentTimestamp = 1_700_000_000_000uL,
             sendDelivered = false,
@@ -1101,6 +1106,7 @@ class MessageIngestorTest {
                     message = UMessage.React(
                         toUuid = "target-1", toPart = 0uL, reactionJson = reactionJson, toText = "react to me",
                         parts = emptyList(),
+                        profileJson = null,
                     ),
                     sentTimestamp = 1_700_000_100_000uL, sendDelivered = false, verificationFailed = false,
                 )
@@ -1141,6 +1147,7 @@ class MessageIngestorTest {
                             reactionJson = json,
                             toText = "react to me",
                             parts = emptyList(),
+                            profileJson = null,
                         ),
                         sentTimestamp = timestamp,
                         sendDelivered = false,
@@ -1190,6 +1197,7 @@ class MessageIngestorTest {
                                     extension,
                                 ),
                             ),
+                            profileJson = null,
                         ),
                         sentTimestamp = timestamp,
                         sendDelivered = false,
@@ -1657,6 +1665,61 @@ class MessageIngestorTest {
 
         assertEquals(listOf(ProfileMessageKind.SharingUpdate), received)
         assertNull(chatBox().get(chat.id).handles.single().formattedAddress)
+    }
+
+    @Test
+    fun `embedded profile in normal message updates handle poster`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        ingestor.close()
+        val received = mutableListOf<ProfileMessageKind>()
+        val profileScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+        ingestor = MessageIngestor(
+            store,
+            scope = profileScope,
+            profileUpdatePort = object : ProfileUpdatePort {
+                override suspend fun receive(
+                    senderAddress: String,
+                    profileJson: String,
+                    kind: ProfileMessageKind,
+                ): IncomingProfile {
+                    assertEquals("friend@icloud.com", senderAddress)
+                    assertEquals("embedded-profile-json", profileJson)
+                    received += kind
+                    return IncomingProfile("Emily", "/tmp/emily-poster.img")
+                }
+            },
+        )
+        ingestor.ingest(
+            push(
+                UMessageInst(
+                    id = "normal-with-profile",
+                    sender = friend,
+                    conversation = conversation(me, friend),
+                    message = UMessage.Normal(
+                        parts = listOf(UIndexedPart(UPart.Text("Hello with poster", ""), null, null)),
+                        effect = null,
+                        replyGuid = null,
+                        replyPart = null,
+                        subject = null,
+                        voice = false,
+                        isSms = false,
+                        appJson = null,
+                        linkJson = null,
+                        profileJson = "embedded-profile-json",
+                    ),
+                    sentTimestamp = 1_700_000_000_000uL,
+                    sendDelivered = false,
+                    verificationFailed = false,
+                ),
+            ),
+            myHandles,
+        )
+        profileScope.coroutineContext[kotlinx.coroutines.Job]!!.children.toList().joinAll()
+
+        val handle = chatBox().get(chat.id).handles.single()
+        assertEquals("Emily", handle.formattedAddress)
+        assertEquals("/tmp/emily-poster.img", handle.posterPath)
+        assertEquals(listOf(ProfileMessageKind.Share), received)
     }
 
     @Test
