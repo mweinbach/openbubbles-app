@@ -109,11 +109,12 @@ device acceptance.
 
 ## Releases and self-updates
 
-The app updates itself from GitHub Releases — no Play Store. Every push to
-`main` with code changes makes the `Self-update release` GitHub Action build
-the production-signed APK and publish it with an `update.json` feed; installed
-devices check daily and on app open, then download, verify (SHA-256 +
-signature), and install with one tap.
+The app updates itself without the Play Store. A version bump on `main` makes
+the `Self-update release` GitHub Action build the production-signed APK.
+Version 3.4.7 is the final GitHub bridge release; its installed updater reads
+Update Ledger's Sparkle appcast, and versions 3.5.0 onward are published only
+to Ledger. Devices download, verify (SHA-256 + signature), and install with one
+tap.
 
 To cut a named version:
 

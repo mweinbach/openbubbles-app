@@ -120,7 +120,7 @@ internal fun UpdateSheetContent(
             )
             SettingsActionItem(
                 title = if (checking) "Checking for updates…" else "Check now",
-                supporting = "GitHub Releases feed",
+                supporting = "Update Ledger appcast",
                 onClick = onCheckNow,
                 index = 2,
                 count = 3,

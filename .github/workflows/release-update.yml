@@ -1,6 +1,7 @@
-# Builds the production-signed release APK and publishes it as a self-update
-# GitHub Release (APK + update.json feed). Devices running the app pick the
-# release up through the in-app updater (app-native .../update/).
+# Builds the production-signed release APK and publishes it to Update Ledger.
+# Version 3.4.7 is the final bridge release also published to GitHub Releases;
+# 3.5.0 and newer exist only in Ledger. The installed client consumes Ledger's
+# Sparkle appcast directly and has no GitHub update fallback.
 #
 # Signing material lives in repository secrets (KEYSTORE_BASE64,
 # KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD); the keystore itself is never
@@ -131,6 +132,11 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Validate Update Ledger publication access
+        env:
+          UPDATE_LEDGER_API_KEY: ${{ secrets.UPDATE_LEDGER_API_KEY }}
+        run: test -n "$UPDATE_LEDGER_API_KEY" || { echo "missing UPDATE_LEDGER_API_KEY repository secret" >&2; exit 1; }
+
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -250,18 +256,68 @@ jobs:
           [ -n "$GRADLE_NAME" ] && [ -n "$GRADLE_CODE" ] || { echo "cannot read version from app-native/build.gradle" >&2; exit 1; }
           case "$GRADLE_CODE" in ''|*[!0-9]*) echo "versionCode is not numeric: $GRADLE_CODE" >&2; exit 1 ;; esac
 
-          # Latest published versionCode, or 0 when no release exists yet.
-          # (gh api writes the 404 body to stdout, so the call is guarded by
-          # exit status and every parsed value is re-validated as numeric.)
-          PREV=0
-          if gh api "repos/${{ github.repository }}/releases/latest" > latest-release.json 2>/dev/null; then
-            PREV_ASSET=$(jq -r '[.assets[] | select(.name == "update.json") | .url][0] // empty' latest-release.json)
-            if [ -n "$PREV_ASSET" ]; then
-              PREV=$(gh api "$PREV_ASSET" -H "Accept: application/octet-stream" | jq -r '.versionCode')
+          PUBLISH_GITHUB=$(python3 - "$GRADLE_NAME" <<'PY'
+          import re
+          import sys
+          match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", sys.argv[1])
+          if not match:
+              raise SystemExit("versionName must be MAJOR.MINOR.PATCH")
+          print("true" if tuple(map(int, match.groups())) <= (3, 4, 7) else "false")
+          PY
+          )
+
+          LEDGER_URL="https://update-ledger.mweinbach.chatgpt.site/api/v1/update/openbubbles?channel=stable&current=0&build=0"
+          LEDGER_CODE=0
+          LEDGER_NAME=""
+          LEDGER_REVISION=""
+          if curl -fsS "$LEDGER_URL" > ledger-latest.json; then
+            LEDGER_CODE=$(jq -r '.manifest.versionCode // 0' ledger-latest.json)
+            LEDGER_NAME=$(jq -r '.manifest.versionName // empty' ledger-latest.json)
+            LEDGER_REVISION=$(jq -r '.release.sourceRevision // empty' ledger-latest.json)
+          fi
+          case "$LEDGER_CODE" in ''|*[!0-9]*) LEDGER_CODE=0 ;; esac
+
+          # Re-running a commit already accepted by Ledger republishes that
+          # exact build instead of consuming another Android versionCode.
+          CODE=""
+          if [ "$LEDGER_NAME" = "$GRADLE_NAME" ] && [ "$LEDGER_REVISION" = "$GITHUB_SHA" ]; then
+            CODE="$LEDGER_CODE"
+            echo "reusing Ledger build $CODE already published for commit $GITHUB_SHA"
+          fi
+
+          # The 3.4.7 bridge can also recover from a Ledger failure after its
+          # GitHub mirror was published.
+          if [ -z "$CODE" ] && [ "$PUBLISH_GITHUB" = true ] && \
+              gh api "repos/${{ github.repository }}/releases?per_page=30" > recent-releases.json 2>/dev/null; then
+            SAME_ASSET=$(jq -r --arg sha "$GITHUB_SHA" \
+              '[.[] | select(.target_commitish == $sha) | .assets[] | select(.name == "update.json") | .url][0] // empty' \
+              recent-releases.json)
+            if [ -n "$SAME_ASSET" ]; then
+              gh api "$SAME_ASSET" -H "Accept: application/octet-stream" > same-update.json
+              SAME_NAME=$(jq -r '.versionName // empty' same-update.json)
+              SAME_CODE=$(jq -r '.versionCode // empty' same-update.json)
+              case "$SAME_CODE" in ''|*[!0-9]*) SAME_CODE="" ;; esac
+              if [ "$SAME_NAME" = "$GRADLE_NAME" ] && [ -n "$SAME_CODE" ]; then
+                CODE="$SAME_CODE"
+                echo "reusing build $CODE already published for commit $GITHUB_SHA"
+              fi
             fi
           fi
-          case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
-          [ "$PREV" -lt "$GRADLE_CODE" ] && CODE="$GRADLE_CODE" || CODE=$((PREV + 1))
+
+          # Allocate after the greatest build known to either destination.
+          if [ -z "$CODE" ]; then
+            GITHUB_CODE=0
+            if [ "$PUBLISH_GITHUB" = true ] && \
+                gh api "repos/${{ github.repository }}/releases/latest" > latest-release.json 2>/dev/null; then
+              PREV_ASSET=$(jq -r '[.assets[] | select(.name == "update.json") | .url][0] // empty' latest-release.json)
+              if [ -n "$PREV_ASSET" ]; then
+                GITHUB_CODE=$(gh api "$PREV_ASSET" -H "Accept: application/octet-stream" | jq -r '.versionCode')
+              fi
+            fi
+            case "$GITHUB_CODE" in ''|*[!0-9]*) GITHUB_CODE=0 ;; esac
+            [ "$LEDGER_CODE" -gt "$GITHUB_CODE" ] && PREV="$LEDGER_CODE" || PREV="$GITHUB_CODE"
+            [ "$PREV" -lt "$GRADLE_CODE" ] && CODE="$GRADLE_CODE" || CODE=$((PREV + 1))
+          fi
 
           # Stamp the build (runner-local; gradle stays the floor for humans).
           sed -i "s/^[[:space:]]*versionCode .*/        versionCode $CODE/" app-native/build.gradle
@@ -277,12 +333,14 @@ jobs:
             echo "tag=v${GRADLE_NAME}-${CODE}"
             echo "display=$DISPLAY"
             echo "asset=openbubbles-${GRADLE_NAME}-${CODE}.apk"
+            echo "publish_github=$PUBLISH_GITHUB"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
         run: ./gradlew :app-native:assembleRelease --console=plain
 
       - name: Stage assets and write update feed
+        id: assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -300,6 +358,10 @@ jobs:
 
           SHA256=$(shasum -a 256 "${{ steps.ver.outputs.asset }}" | awk '{print $1}')
           BYTES=$(wc -c < "${{ steps.ver.outputs.asset }}" | tr -d ' ')
+          {
+            echo "sha256=$SHA256"
+            echo "bytes=$BYTES"
+          } >> "$GITHUB_OUTPUT"
 
           # Release notes, in order of preference:
           #   1. workflow_dispatch `notes` input
@@ -321,22 +383,53 @@ jobs:
             fi
           fi
 
-          python3 scripts/update-feed.py \
-            --code "${{ steps.ver.outputs.version_code }}" \
-            --display "${{ steps.ver.outputs.display }}" \
-            --asset "${{ steps.ver.outputs.asset }}" \
-            --sha256 "$SHA256" \
-            --bytes "$BYTES" \
-            --notes-file release-notes.md > update.json
-          cat update.json
+          if [ "${{ steps.ver.outputs.publish_github }}" = true ]; then
+            python3 scripts/update-feed.py \
+              --code "${{ steps.ver.outputs.version_code }}" \
+              --display "${{ steps.ver.outputs.display }}" \
+              --asset "${{ steps.ver.outputs.asset }}" \
+              --sha256 "$SHA256" \
+              --bytes "$BYTES" \
+              --notes-file release-notes.md > update.json
+            cat update.json
+          fi
 
-      - name: Publish GitHub release
+      - name: Publish final GitHub bridge release
+        if: steps.ver.outputs.publish_github == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.ver.outputs.tag }}" \
-            "${{ steps.ver.outputs.asset }}" update.json \
-            --repo "${{ github.repository }}" \
-            --target "$GITHUB_SHA" \
-            --title "OpenBubbles ${{ steps.ver.outputs.display }}" \
-            --notes-file release-notes.md
+          TAG="${{ steps.ver.outputs.tag }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "${{ steps.ver.outputs.asset }}" update.json \
+              --clobber --repo "${{ github.repository }}"
+            gh release edit "$TAG" \
+              --repo "${{ github.repository }}" \
+              --target "$GITHUB_SHA" \
+              --title "OpenBubbles ${{ steps.ver.outputs.display }}" \
+              --notes-file release-notes.md
+          else
+            gh release create "$TAG" \
+              "${{ steps.ver.outputs.asset }}" update.json \
+              --repo "${{ github.repository }}" \
+              --target "$GITHUB_SHA" \
+              --title "OpenBubbles ${{ steps.ver.outputs.display }}" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Publish Update Ledger artifact and feeds
+        env:
+          UPDATE_LEDGER_BASE_URL: https://update-ledger.mweinbach.chatgpt.site
+          UPDATE_LEDGER_PROJECT: openbubbles
+          UPDATE_LEDGER_API_KEY: ${{ secrets.UPDATE_LEDGER_API_KEY }}
+          UPDATE_CHANNEL: stable
+          UPDATE_FILE: ${{ steps.ver.outputs.asset }}
+          UPDATE_VERSION: ${{ steps.ver.outputs.version_name }}
+          UPDATE_BUILD: ${{ steps.ver.outputs.version_code }}
+          UPDATE_TITLE: OpenBubbles ${{ steps.ver.outputs.display }}
+          UPDATE_NOTES_FILE: release-notes.md
+          UPDATE_SHA256: ${{ steps.assets.outputs.sha256 }}
+          UPDATE_MIN_VERSION_CODE: '0'
+          UPDATE_SOURCE_REVISION: ${{ github.sha }}
+        run: node scripts/publish-update-ledger.mjs

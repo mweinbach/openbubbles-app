@@ -1,12 +1,17 @@
 # Releases and self-updates
 
-Devices update themselves from GitHub Releases — no Play Store. Each release
-carries two assets:
+Devices update themselves without the Play Store. Update Ledger stores the
+production-signed APK and exposes the Sparkle-compatible appcast consumed by
+the Android client. Downloads always verify the exact byte count, SHA-256, and
+Android signing identity.
 
-- `openbubbles-<version>-<code>.apk` — the production-signed universal APK
-  (arm64-v8a + x86_64)
-- `update.json` — the feed the in-app updater reads
-  (`app-native/.../update/GitHubUpdateSource.kt`)
+The migration boundary is explicit:
+
+- **3.4.7** is the final release published to GitHub Releases. It is the bridge
+  build that installs the Ledger-only appcast client on existing devices.
+- **3.5.0 and newer** are published only to Update Ledger. The app has no
+  runtime GitHub update source or fallback.
+
 ## Publishing a release
 
 **Automatic (version-bump only):** a push to `main` triggers the
@@ -15,7 +20,11 @@ carries two assets:
 version bump, not every green main. The workflow's `version` job compares
 the push's before/after versions and skips the build when they match.
 It builds the signed APK, verifies the signing certificate, computes the
-SHA-256, writes `update.json`, and publishes the release.
+SHA-256, writes `update.json`, uploads the APK to Update Ledger in bounded
+multipart chunks, and publishes Ledger's JSON and appcast feeds. For versions
+through 3.4.7 only, it also publishes the GitHub bridge release.
+The Ledger release record is accepted only after its R2 object matches the
+declared project, channel, build, filename, size, and checksum metadata.
 
 **Manual (always publishes):** Actions → Self-update release →
 Run workflow → optionally fill in `notes`. Use this to re-publish the
@@ -23,7 +32,16 @@ current version or to release without bumping gradle.
 
 **Local:** `scripts/publish-update.sh --set --version-name X.Y.Z
 --version-code N [--notes "..."]` does the same from a machine holding the
-production keystore. Use it when CI is down or for pre-main test publishes.
+production keystore for a GitHub release. It is a legacy/emergency path after
+the 3.4.7 cutoff; the automated Action is the canonical Ledger publisher.
+
+## Update Ledger credentials
+
+The repository secret `UPDATE_LEDGER_API_KEY` is the write-only project key.
+It is exposed only to the final Ledger publication step. Public clients need
+no secret to read `/api/v1/update/openbubbles`, the appcast, or artifacts.
+Rotating the project key requires replacing this Actions secret before the
+next release.
 
 ## Version numbers
 

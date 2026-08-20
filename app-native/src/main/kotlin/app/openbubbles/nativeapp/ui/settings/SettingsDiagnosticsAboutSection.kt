@@ -99,7 +99,7 @@ internal fun rememberDiagnosticsAboutSection(
     }
 
     // ------------------------------------------------------------------
-    // Self-update (GitHub Releases feed + PackageInstaller)
+    // Self-update (Update Ledger appcast + PackageInstaller)
     // ------------------------------------------------------------------
     var updateBusy by remember { mutableStateOf(false) }
     var updateStatus by remember { mutableStateOf<String?>(null) }

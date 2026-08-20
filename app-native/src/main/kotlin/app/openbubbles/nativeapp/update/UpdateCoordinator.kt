@@ -16,7 +16,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import app.openbubbles.nativeapp.R
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -91,20 +90,20 @@ object UpdateCoordinator {
     }
 
     suspend fun checkNow(context: Context): CheckResult = withContext(Dispatchers.IO) {
-        val source = GitHubUpdateSource(
-            token = { UpdateSettings.githubToken(context) },
-        )
+        val installedCode = installedVersionCode(context)
         val feed = try {
-            source.fetch()
-        } catch (e: GitHubUpdateSource.SourceException.NoReleases) {
-            UpdateSettings.recordCheck(context)
-            return@withContext CheckResult.Done(UpdateDecision.UpToDate, false)
-        } catch (e: GitHubUpdateSource.SourceException) {
-            return@withContext CheckResult.Failed(e.message ?: "update check failed")
+            UpdateLedgerSource().fetch(installedCode)
+        } catch (ledgerError: UpdateLedgerSource.SourceException) {
+            Log.w(TAG, "Update Ledger check failed", ledgerError)
+            return@withContext CheckResult.Failed(
+                ledgerError.message ?: "update check failed",
+            )
         }
         UpdateSettings.recordCheck(context)
+        if (feed == null) {
+            return@withContext CheckResult.Done(UpdateDecision.UpToDate, false)
+        }
 
-        val installedCode = installedVersionCode(context)
         val decision = UpdateDecision.evaluate(
             installedCode = installedCode,
             manifest = feed.manifest,
@@ -141,8 +140,7 @@ object UpdateCoordinator {
         val dir = UpdateDownloader.updatesDir(context.cacheDir)
         val target = UpdateDownloader.apkFileFor(dir, feed.manifest.versionCode)
         val downloader = UpdateDownloader(
-            client = GitHubUpdateSource.defaultClient(),
-            token = { UpdateSettings.githubToken(context) },
+            client = UpdateLedgerSource.defaultClient(),
         )
         if (!target.isFile) {
             downloader.download(feed, dir)

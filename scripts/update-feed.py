@@ -5,9 +5,9 @@ Usage: update-feed.py --code N --display NAME --asset FILE --sha256 HEX
        --bytes N --notes-file PATH
 
 Notes are read from a file (safe for markdown content) and truncated to
-4000 characters. Output is the exact schema the app's
-GitHubUpdateSource/UpdateManifest decode; keep it in sync with
-app-native/.../update/UpdateModels.kt.
+4000 characters. This legacy feed is generated only for GitHub bridge releases
+through 3.4.7; installed versions from 3.4.7 onward read the Update Ledger
+appcast instead.
 """
 import argparse
 import json

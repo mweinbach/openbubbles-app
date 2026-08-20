@@ -25,7 +25,7 @@ class UpdateDownloaderTest {
             bytes = sizeOverride,
         )
 
-    private fun client() = GitHubUpdateSource.defaultClient()
+    private fun client() = UpdateLedgerSource.defaultClient()
 
     @Test
     fun `verified download lands at the versioned path with no partial file`() {
@@ -35,13 +35,13 @@ class UpdateDownloaderTest {
         val dir = File(Files.createTempDirectory("ob-update-test").toFile(), "updates")
         val feed = UpdateFeed(manifest(payload), server.url("/apk").toString())
 
-        val file = UpdateDownloader(client(), { "t" }).download(feed, dir)
+        val file = UpdateDownloader(client()).download(feed, dir)
 
         assertEquals(File(dir, "openbubbles-42.apk"), file)
         assertTrue(file.length() == payload.size.toLong())
         assertTrue(dir.listFiles()!!.all { !it.name.endsWith(".part") })
         val request = server.takeRequest()
-        assertEquals("Bearer t", request.getHeader("Authorization"))
+        assertEquals(null, request.getHeader("Authorization"))
         assertEquals("application/octet-stream", request.getHeader("Accept"))
         server.shutdown()
     }
@@ -55,7 +55,7 @@ class UpdateDownloaderTest {
         val bad = manifest(payload).copy(sha256 = "deadbeef")
 
         assertFailsWith<UpdateDownloader.DownloadException.HashMismatch> {
-            UpdateDownloader(client(), { "t" }).download(UpdateFeed(bad, server.url("/apk").toString()), dir)
+            UpdateDownloader(client()).download(UpdateFeed(bad, server.url("/apk").toString()), dir)
         }
         assertEquals(0, dir.listFiles()?.size ?: 0)
         server.shutdown()
@@ -70,7 +70,7 @@ class UpdateDownloaderTest {
         val wrongSize = manifest(payload, sizeOverride = 2000)
 
         val e = assertFailsWith<UpdateDownloader.DownloadException.SizeMismatch> {
-            UpdateDownloader(client(), { "t" })
+            UpdateDownloader(client())
                 .download(UpdateFeed(wrongSize, server.url("/apk").toString()), dir)
         }
         assertEquals(1000L, e.got)
@@ -87,24 +87,23 @@ class UpdateDownloaderTest {
         val m = manifest(ByteArray(10))
 
         val e = assertFailsWith<UpdateDownloader.DownloadException.Http> {
-            UpdateDownloader(client(), { "t" }).download(UpdateFeed(m, server.url("/apk").toString()), dir)
+            UpdateDownloader(client()).download(UpdateFeed(m, server.url("/apk").toString()), dir)
         }
         assertEquals(503, e.code)
         server.shutdown()
     }
 
     @Test
-    fun `missing token downloads unauthenticated`() {
+    fun `Update Ledger download is unauthenticated`() {
         val payload = ByteArray(64)
         val server = MockWebServer().apply {
             start()
             enqueue(MockResponse().setBody(okio.Buffer().write(payload)))
         }
         val dir = File(Files.createTempDirectory("ob-update-test").toFile(), "updates")
-        val m = manifest(payload)
 
-        val file = UpdateDownloader(client(), { null })
-            .download(UpdateFeed(m, server.url("/apk").toString()), dir)
+        val file = UpdateDownloader(client())
+            .download(UpdateFeed(manifest(payload), server.url("/apk").toString()), dir)
 
         assertTrue(file.isFile)
         assertEquals(null, server.takeRequest().getHeader("Authorization"))

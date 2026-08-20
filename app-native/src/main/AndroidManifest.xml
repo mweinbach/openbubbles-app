@@ -41,7 +41,7 @@
         android:name="android.permission.WRITE_SMS"
         tools:ignore="SystemPermissionTypo" />
 
-    <!-- Self-update (GitHub Releases feed + PackageInstaller in-place
+    <!-- Self-update (Update Ledger appcast + PackageInstaller in-place
          install of this same package). The user grants the per-app
          "Install unknown apps" toggle on first use. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

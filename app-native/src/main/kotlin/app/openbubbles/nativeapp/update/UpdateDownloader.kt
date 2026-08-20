@@ -15,7 +15,6 @@ import java.security.MessageDigest
  */
 class UpdateDownloader(
     private val client: OkHttpClient,
-    private val token: () -> String?,
 ) {
     sealed class DownloadException(message: String, cause: Throwable? = null) :
         Exception(message, cause) {
@@ -46,8 +45,6 @@ class UpdateDownloader(
         val builder = Request.Builder()
             .url(feed.apkAssetUrl)
             .header("Accept", "application/octet-stream")
-        // Public-repo feeds need no auth; send a stored token when present.
-        token()?.let { builder.header("Authorization", "Bearer $it") }
 
         try {
             client.newCall(builder.build()).execute().use { response ->

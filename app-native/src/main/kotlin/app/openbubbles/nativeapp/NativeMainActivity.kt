@@ -236,7 +236,7 @@ class NativeMainActivity : FragmentActivity() {
         uiReleaseJob = null
         if (uiDetached) renderUi()
         // Self-update: schedule the twice-daily check and run a throttled (1h)
-        // on-open check. No-op without a stored GitHub token.
+        // on-open check against Update Ledger's appcast.
         app.openbubbles.nativeapp.update.UpdateCoordinator.maybeCheckOnAppOpen(this)
     }
 

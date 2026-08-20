@@ -3,10 +3,15 @@ package app.openbubbles.nativeapp.update
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/** A fetched Ledger manifest paired with its immutable artifact URL. */
+data class UpdateFeed(
+    val manifest: UpdateManifest,
+    val apkAssetUrl: String,
+)
+
 /**
- * In-app update feed, published as the `update.json` asset of each GitHub
- * Release by [scripts/publish-update.sh]. Fields the updater refuses to guess
- * are required; cosmetic ones default.
+ * In-app update metadata parsed from Update Ledger's Sparkle appcast. Fields
+ * the updater refuses to guess are required; cosmetic ones default.
  */
 @Serializable
 data class UpdateManifest(

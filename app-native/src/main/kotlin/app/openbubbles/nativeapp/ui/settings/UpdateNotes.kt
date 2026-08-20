@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Minimal renderer for the project's release notes. The feed
- * (`update.json` → `UpdateManifest.notes`) carries the body of one
+ * (Update Ledger appcast → `UpdateManifest.notes`) carries the body of one
  * `## vX.Y.Z` section of assets/changelog/changelog.md, so the input is a
  * constrained markdown: `#`-headings, `-` bullets (4-space nesting),
  * paragraphs, `**bold**`, `*italic*`, `` `code` `` and `[text](url)` links.
