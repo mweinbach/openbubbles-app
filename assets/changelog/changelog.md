@@ -2,6 +2,23 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.4
+
+### Enhancements
+
+- Inline replies now use compact quoted-message capsules on the original
+  sender's side, with quiet direction-aware markers that show the relationship
+  without touching either message bubble.
+
+### Fixes
+
+- One-to-one chat backgrounds and contact posters now fall back to embedded or
+  full-size profile images when lightweight preview data is unavailable.
+- Wallpaper and profile refreshes now tolerate missing records and failed
+  native updates instead of aborting the rest of the sync.
+- Settings no longer crashes while the push connection state is temporarily
+  unavailable.
+
 ## v3.4.3
 
 ### Enhancements
