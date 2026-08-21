@@ -185,27 +185,30 @@ jobs:
           key: ${{ runner.os }}-ndk-28.2.13676358
 
       # Cargo registry/git checkouts plus the host target dirs (rustpush unit
-      # tests, UniFFI check). restore-keys keep stale-but-useful deps when
-      # lockfiles move; Cargo rebuilds only what changed.
-      - name: Cache Cargo registry and host builds
-        uses: actions/cache@v5
+      # tests, UniFFI check). Unique primary key so this run can save;
+      # restore-keys prefix-matches the newest previous cache (GitHub cache
+      # is write-once). Prefix still matches older lockfile-hash keys.
+      - name: Restore Cargo registry and host builds
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             rust/target
             rustpush/target
-          key: ${{ runner.os }}-cargo-host-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-host-
+          key: ${{ runner.os }}-cargo-host-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-host-
 
       # The Android arm64 cdylib builds (debug/release) via
       # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
-      - name: Cache Android Cargo builds
-        uses: actions/cache@v5
+      - name: Restore Android Cargo builds
+        uses: actions/cache/restore@v5
         with:
           path: build-native/app-native/cargo-android/target
-          key: ${{ runner.os }}-cargo-android-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-android-
+          key: ${{ runner.os }}-cargo-android-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-android-
 
       - name: Set up fake Fairplay keys
         run: |
@@ -338,6 +341,26 @@ jobs:
 
       - name: Build signed release APK
         run: ./gradlew :app-native:assembleRelease :app-native:uploadCrashlyticsSymbolFileRelease --console=plain
+
+      - name: Save Cargo registry and host builds
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+            rustpush/target
+          key: ${{ runner.os }}-cargo-host-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save Android Cargo builds
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: build-native/app-native/cargo-android/target
+          key: ${{ runner.os }}-cargo-android-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stage assets and write update feed
         id: assets
