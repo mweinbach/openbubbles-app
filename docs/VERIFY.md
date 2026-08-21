@@ -52,6 +52,10 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Vault catalog — `:core` covers the catalog contract, site-key canonicalization, the credential
+  provider lookup reducer, and the field crypto envelope; `:app-native` pins the SQLite schema,
+  its migration guard, and the cleanup table list. None of it proves system provider selection,
+  Chrome delegation, biometric prompts, or a real AndroidKeyStore key, which are device evidence.
 - Optional screenshots — visual review of list, chat, and onboarding chrome. They are not a
   routine correctness gate and do not cover settings, login, Find My, or effects. They also do not
   prove touch/gesture arbitration, IME behavior, TalkBack order, platform authentication, predictive

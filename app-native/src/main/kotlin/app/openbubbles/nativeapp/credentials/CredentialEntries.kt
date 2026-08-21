@@ -13,6 +13,7 @@ import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.CredentialEntry
 import androidx.credentials.provider.PasswordCredentialEntry
 import androidx.credentials.provider.PublicKeyCredentialEntry
+import app.openbubbles.nativeapp.R
 import app.openbubbles.core.passwords.VaultCatalog
 import app.openbubbles.core.passwords.VaultCredentialRequest
 import app.openbubbles.core.passwords.VaultItemKind
@@ -130,19 +131,11 @@ internal object CredentialEntries {
 
             VaultLookupPlan.NoCredentials -> BeginGetCredentialResponse(emptyList())
 
-            VaultLookupPlan.ConsultBackend -> {
+            // ConsultBackend has a running backend and RequireUnlock does not,
+            // but both need an authoritative answer, so both wait for one and
+            // fall back to the unlock action if it never arrives.
+            VaultLookupPlan.ConsultBackend, VaultLookupPlan.RequireUnlock -> {
                 val live = state ?: awaitPushState(context)
-                if (live == null) {
-                    unlockOrEmpty(context, query, offerUnlock)
-                } else {
-                    val records = hydrate(catalog, live, query)
-                    VaultCatalogSync.refresh(context, live)
-                    BeginGetCredentialResponse(entries(context, query, records))
-                }
-            }
-
-            VaultLookupPlan.RequireUnlock -> {
-                val live = awaitPushState(context)
                 if (live == null) {
                     unlockOrEmpty(context, query, offerUnlock)
                 } else {
@@ -166,7 +159,7 @@ internal object CredentialEntries {
         return BeginGetCredentialResponse(
             authenticationActions = listOf(
                 AuthenticationAction(
-                    context.getString(app.openbubbles.nativeapp.R.string.credential_unlock_action),
+                    context.getString(R.string.credential_unlock_action),
                     PendingIntent.getActivity(
                         context,
                         UNLOCK_REQUEST_CODE,

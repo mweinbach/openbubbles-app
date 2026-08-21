@@ -191,7 +191,7 @@ class CredentialCreateActivity : FragmentActivity() {
                             }
 
                             updateLastUsed()
-                            VaultCatalogSync.refresh(applicationContext, service)
+                            VaultCatalogSync.refreshNow(applicationContext, service)
 
                             // Set the CreateCredentialResponse as the result of the Activity
                             PendingIntentHandler.setCreateCredentialResponse(
@@ -219,7 +219,7 @@ class CredentialCreateActivity : FragmentActivity() {
                         }
 
                         updateLastUsed()
-                        VaultCatalogSync.refresh(applicationContext, service)
+                        VaultCatalogSync.refreshNow(applicationContext, service)
 
                         PendingIntentHandler.setCreateCredentialResponse(
                             result,

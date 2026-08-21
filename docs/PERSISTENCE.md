@@ -15,6 +15,35 @@ ObjectBox store shared with the retired Flutter client. The contract is the mode
 
 `:db` is `kotlin-jvm`. Callers pass the directory. No Android types here.
 
+## Separate databases
+
+Some features carry their own SQLite file instead of ObjectBox entities. `objectbox-model.json` is
+an in-place-upgrade compatibility boundary, so a feature that only needs a disposable local cache
+must not grow tables there.
+
+| File | Owner | Holds |
+|---|---|---|
+| `openbubbles-photos.db` | [`PhotosSqliteCatalog`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/data/photos/PhotosSqliteCatalog.kt) | Photo metadata, its continuation cursor, transfer rows — see [PHOTOS_SYNC.md](PHOTOS_SYNC.md) |
+| `openbubbles-vault.db` | [`VaultSqliteCatalog`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/data/passwords/VaultSqliteCatalog.kt) | iCloud Keychain **metadata** for the Passwords screen and the Android credential provider |
+
+The vault catalog exists because the Android Credential Manager provider and the legacy Autofill
+service are bound cold by the system and cannot wait for a keychain sync. Rules:
+
+- Rows carry identity and labels only. Passwords, TOTP seeds, Wi-Fi keys, and passkey private keys
+  stay in the Rust keychain state and are read for the lifetime of one request. The schema test
+  fails if a column that could hold a secret appears.
+- Label columns are sealed with an AndroidKeyStore AES-GCM key; sites are found through a keyed
+  HMAC blind index rather than a plaintext host column. The keys are deliberately not
+  user-authentication bound, because the system starts the provider in the background.
+- Each item kind's rows and its sync marker are published in one transaction. The marker is what
+  separates "listed and found nothing" from "never listed"; a per-site hydration replaces only
+  that site and never advances a marker.
+- [`VaultCatalogSync`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/data/passwords/VaultCatalogSync.kt)
+  is the only writer, generation-scoped per [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md). Losing the
+  keychain clique clears the catalog instead of freezing it.
+- The contract, the site-key canonicalization, the provider lookup reducer, and the field crypto
+  live in `core/.../passwords/` so they are host-testable; only the SQLite layer is Android.
+
 ## Model contract
 
 - Live: `db/objectbox-model.json`

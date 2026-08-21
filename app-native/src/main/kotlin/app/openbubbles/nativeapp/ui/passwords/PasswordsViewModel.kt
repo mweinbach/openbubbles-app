@@ -615,7 +615,7 @@ class PasswordsViewModel(
                 requestCatalogRefresh = {
                     val context = AppContext.current
                     val state = PushStateHolder.state
-                    if (context != null && state != null) VaultCatalogSync.refresh(context, state)
+                    if (context != null && state != null) VaultCatalogSync.refreshNow(context, state)
                 },
             )
         }

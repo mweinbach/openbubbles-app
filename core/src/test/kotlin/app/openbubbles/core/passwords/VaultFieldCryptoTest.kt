@@ -1,5 +1,6 @@
 package app.openbubbles.core.passwords
 
+import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.test.Test
@@ -46,12 +47,19 @@ class VaultFieldCryptoTest {
 
     @Test
     fun aTamperedRowIsRejectedRatherThanDecoded() {
-        val sealed = crypto.seal("ada@example.com")
-        val flipped = sealed.toCharArray().also { chars ->
-            val last = chars.lastIndex
-            chars[last] = if (chars[last] == 'A') 'B' else 'A'
-        }.concatToString()
-        assertFailsWith<VaultCatalogUnreadable> { crypto.open(flipped) }
+        val raw = Base64.getDecoder().decode(crypto.seal("ada@example.com"))
+        // Flip one ciphertext byte just past the 12-byte nonce.
+        raw[12] = (raw[12].toInt() xor 0x01).toByte()
+        val tampered = Base64.getEncoder().withoutPadding().encodeToString(raw)
+        assertFailsWith<VaultCatalogUnreadable> { crypto.open(tampered) }
+    }
+
+    @Test
+    fun aTamperedNonceIsRejectedToo() {
+        val raw = Base64.getDecoder().decode(crypto.seal("ada@example.com"))
+        raw[0] = (raw[0].toInt() xor 0x01).toByte()
+        val tampered = Base64.getEncoder().withoutPadding().encodeToString(raw)
+        assertFailsWith<VaultCatalogUnreadable> { crypto.open(tampered) }
     }
 
     @Test
