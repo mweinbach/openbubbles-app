@@ -52,6 +52,9 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Photos timeline — `PhotosTimelineTest` covers filtering, hidden-asset exclusion, capture-vs-added
+  ordering, day/month/year sections across time zones, section-key uniqueness, the pinch threshold,
+  and the info-sheet rows. It does not prove preview decoding, paging against iCloud, or transfers.
 - Map and Find My tracking — `MapGeometryTest` covers projection round-trips, antimeridian wrap,
   tile coverage at fractional zoom, pan clamping, pinch anchoring, bounding-box fit, and the scale
   bar; `FindMyTrackingTest` covers target ordering, session tracks, staleness, and every row string;

@@ -164,6 +164,27 @@ This slice has host coverage but no new hardware protocol claim. In particular, 
 original videos, converted HEIC uploads, multi-file batches, and folder batches still require
 device evidence before they can be described as live-proven.
 
+### Implemented timeline and viewer slice (host-verified only)
+
+The library reads as a timeline instead of one flat grid. This is presentation only: no new UniFFI
+call, no additional field, and no change to what the bounded listing requests.
+
+- `ui/photos/PhotosTimeline.kt` is pure: it filters (All / Favorites / Videos), drops hidden assets,
+  orders by capture time falling back to added time, groups into day/month/year sections, decides the
+  pinch density step, and formats the info sheet. `PhotosTimelineTest` is the oracle for all of it.
+- Grouping is client-side over the pages already loaded. The protocol still pages by Apple's
+  added-date index, so a section can grow as later pages arrive; the grid must not be described as a
+  complete date-ordered library until the incremental catalog of slice 3 exists.
+- Hidden assets are now excluded from the grid. The flag was already stored; showing them contradicted
+  what it is for.
+- The viewer is a pager over the same timeline. Only the **settled** page is selected, which is what
+  requests an original — flicking through the library does not start a download per page. Pinch-zoom
+  and pan are claimed only when zoomed in or with two fingers, so paging and zooming never fight.
+- The info sheet shows only listing metadata (name, date, dimensions, size, kind, favourite) and says
+  in as many words that location, people, and captions are never requested.
+- Density has app-bar buttons as well as a pinch, and adding to the library moved to a single explicit
+  action button. Nothing about the timeline triggers a refresh, a transfer, or an upload.
+
 The database is intentionally an Android implementation behind the Android-free `PhotosCatalog`
 contract. It does not add entities to `db/objectbox-model.json` and cannot move or rewrite the
 legacy message store.

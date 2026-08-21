@@ -120,6 +120,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Chat info | `ui/chatinfo/ChatInfoScreen.kt`, `ContactSheet.kt` | hoisted `AppGraph.chatInfo*`; 1:1 shows the contact card, group participants open a contact sheet |
 | Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
 | Find My | `ui/findmy/FindMyScreen.kt`, `FindMyViewModel.kt`, `FindMyTargets.kt`, `ui/map/*` | VM + `FindMyPort`; in-app map, live tracking, session tracks |
+| Photos | `ui/photos/PhotosScreen.kt`, `PhotosViewModel.kt`, `PhotosTimeline.kt` | VM + `PhotosPort`; dated timeline at day/month/year density, filters, pager viewer with info sheet. Grouping is client-side over loaded pages; see [PHOTOS_SYNC.md](PHOTOS_SYNC.md) for the protocol boundary |
 | Attachment viewer | `ui/attachmentviewer/AttachmentViewerScreen.kt` | `AttachmentProvider` |
 | Login / provision | `ui/login/LoginScreen.kt`, `LoginViewModel.kt`, `ProvisionScreen.kt` | VM + `RustLoginHandle` |
 | Onboarding | `ui/onboarding/*` | local steps; embeds login |
