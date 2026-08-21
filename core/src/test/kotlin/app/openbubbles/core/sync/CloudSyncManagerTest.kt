@@ -202,6 +202,7 @@ class CloudSyncManagerTest {
         groupVersion: UInt? = 1u,
         lastReadTimestamp: Long = 0,
         hasGroupPhoto: Boolean = false,
+        transcriptBackground: UTranscriptBackground? = null,
     ) = UCloudChat(
         guid = guid,
         style = style,
@@ -215,6 +216,7 @@ class CloudSyncManagerTest {
         lastSeenMessageGuid = null,
         lastReadMessageTimestamp = lastReadTimestamp,
         hasGroupPhoto = hasGroupPhoto,
+        transcriptBackground = transcriptBackground,
     )
 
     private fun cloudMessage(
@@ -502,6 +504,96 @@ class CloudSyncManagerTest {
         val refreshed = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
         assertEquals(normal.id, refreshed.dbLatestMessage.targetId)
         assertEquals(normal.dateCreated, refreshed.dbOnlyLatestMessageDate)
+    }
+
+    @Test
+    fun `chat record background restores without a type-138 message`() {
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-chat",
+                cloudChat("rec-chat").copy(
+                    transcriptBackground = UTranscriptBackground(
+                        version = 790448843634210048uL,
+                        chatId = "iMessage;-;+15551234567",
+                        remove = false,
+                        mmcsXml = "<plist><dict/></plist>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        runSync()
+
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals(
+            listOf(
+                TranscriptBackgroundUpdate(
+                    chat.id,
+                    790448843634210048,
+                    remove = false,
+                    mmcsXml = "<plist><dict/></plist>",
+                ),
+            ),
+            backgroundUpdates,
+        )
+    }
+
+    @Test
+    fun `older chat record background does not clobber newer applied wallpaper`() {
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-chat",
+                cloudChat("rec-chat"),
+                blob = byteArrayOf(),
+            ),
+        )
+        runSync()
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        store.boxFor(Chat::class.java).get(chat.id).apply {
+            transcriptBackgroundVersion = 9L
+        }.also { store.boxFor(Chat::class.java).put(it) }
+        backgroundUpdates.clear()
+
+        port.chatPages += chatPage(
+            UChatChange(
+                "rec-chat",
+                cloudChat("rec-chat").copy(
+                    transcriptBackground = UTranscriptBackground(
+                        version = 5uL,
+                        chatId = "iMessage;-;+15551234567",
+                        remove = false,
+                        mmcsXml = "<plist/>",
+                    ),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        runSync(SyncMode.INCREMENTAL)
+
+        assertTrue(backgroundUpdates.isEmpty())
+    }
+
+    @Test
+    fun `chat record without a background never clears an applied wallpaper`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        runSync()
+        val chat = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        store.boxFor(Chat::class.java).get(chat.id).apply {
+            transcriptBackgroundVersion = 9L
+        }.also { store.boxFor(Chat::class.java).put(it) }
+        backgroundUpdates.clear()
+
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+
+        runSync(SyncMode.INCREMENTAL)
+
+        assertTrue(backgroundUpdates.isEmpty())
     }
 
     @Test

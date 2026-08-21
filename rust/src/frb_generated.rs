@@ -14698,6 +14698,18 @@ const _: fn() = || {
         let _: Vec<String> = CloudProp.legacy_group_identifiers;
         let _: Option<String> = CloudProp.group_photo_guid;
         let _: Option<Date> = CloudProp.last_modification_date;
+        let _: Option<crate::api::api::CloudBackgroundProperties> = CloudProp.background_properties;
+    }
+    {
+        let CloudBackgroundProperties = None::<crate::api::api::CloudBackgroundProperties>.unwrap();
+        let _: Option<String> = CloudBackgroundProperties.background_id;
+        let _: Option<String> = CloudBackgroundProperties.key;
+        let _: Option<String> = CloudBackgroundProperties.url;
+        let _: Option<String> = CloudBackgroundProperties.signature;
+        let _: Option<u64> = CloudBackgroundProperties.version;
+        let _: Option<u32> = CloudBackgroundProperties.payload_version;
+        let _: Option<u64> = CloudBackgroundProperties.file_size;
+        let _: Option<String> = CloudBackgroundProperties.object_id;
     }
     {
         let CloudProp001 = None::<crate::api::api::CloudProp001>.unwrap();
@@ -17920,6 +17932,8 @@ impl SseDecode for crate::api::api::CloudProp {
         let mut var_legacyGroupIdentifiers = <Vec<String>>::sse_decode(deserializer);
         let mut var_groupPhotoGuid = <Option<String>>::sse_decode(deserializer);
         let mut var_lastModificationDate = <Option<Date>>::sse_decode(deserializer);
+        let mut var_backgroundProperties =
+            <Option<crate::api::api::CloudBackgroundProperties>>::sse_decode(deserializer);
         return crate::api::api::CloudProp {
             gpufc: var_gpufc,
             pv: var_pv,
@@ -17930,7 +17944,45 @@ impl SseDecode for crate::api::api::CloudProp {
             legacy_group_identifiers: var_legacyGroupIdentifiers,
             group_photo_guid: var_groupPhotoGuid,
             last_modification_date: var_lastModificationDate,
+            background_properties: var_backgroundProperties,
         };
+    }
+}
+
+impl SseDecode for crate::api::api::CloudBackgroundProperties {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_backgroundId = <Option<String>>::sse_decode(deserializer);
+        let mut var_key = <Option<String>>::sse_decode(deserializer);
+        let mut var_url = <Option<String>>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_version = <Option<u64>>::sse_decode(deserializer);
+        let mut var_payloadVersion = <Option<u32>>::sse_decode(deserializer);
+        let mut var_fileSize = <Option<u64>>::sse_decode(deserializer);
+        let mut var_objectId = <Option<String>>::sse_decode(deserializer);
+        return crate::api::api::CloudBackgroundProperties {
+            background_id: var_backgroundId,
+            key: var_key,
+            url: var_url,
+            signature: var_signature,
+            version: var_version,
+            payload_version: var_payloadVersion,
+            file_size: var_fileSize,
+            object_id: var_objectId,
+        };
+    }
+}
+
+impl SseDecode for Option<crate::api::api::CloudBackgroundProperties> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::api::CloudBackgroundProperties>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
     }
 }
 
@@ -24990,6 +25042,7 @@ impl flutter_rust_bridge::IntoDart for FrbWrapper<crate::api::api::CloudProp> {
             self.0.legacy_group_identifiers.into_into_dart().into_dart(),
             self.0.group_photo_guid.into_into_dart().into_dart(),
             self.0.last_modification_date.into_into_dart().into_dart(),
+            self.0.background_properties.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -25002,6 +25055,33 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<crate::api::api::CloudProp>>
     for crate::api::api::CloudProp
 {
     fn into_into_dart(self) -> FrbWrapper<crate::api::api::CloudProp> {
+        self.into()
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for FrbWrapper<crate::api::api::CloudBackgroundProperties> {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.0.background_id.into_into_dart().into_dart(),
+            self.0.key.into_into_dart().into_dart(),
+            self.0.url.into_into_dart().into_dart(),
+            self.0.signature.into_into_dart().into_dart(),
+            self.0.version.into_into_dart().into_dart(),
+            self.0.payload_version.into_into_dart().into_dart(),
+            self.0.file_size.into_into_dart().into_dart(),
+            self.0.object_id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for FrbWrapper<crate::api::api::CloudBackgroundProperties>
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<crate::api::api::CloudBackgroundProperties>>
+    for crate::api::api::CloudBackgroundProperties
+{
+    fn into_into_dart(self) -> FrbWrapper<crate::api::api::CloudBackgroundProperties> {
         self.into()
     }
 }
@@ -30379,6 +30459,34 @@ impl SseEncode for crate::api::api::CloudProp {
         <Vec<String>>::sse_encode(self.legacy_group_identifiers, serializer);
         <Option<String>>::sse_encode(self.group_photo_guid, serializer);
         <Option<Date>>::sse_encode(self.last_modification_date, serializer);
+        <Option<crate::api::api::CloudBackgroundProperties>>::sse_encode(
+            self.background_properties,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::api::CloudBackgroundProperties {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.background_id, serializer);
+        <Option<String>>::sse_encode(self.key, serializer);
+        <Option<String>>::sse_encode(self.url, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<u64>>::sse_encode(self.version, serializer);
+        <Option<u32>>::sse_encode(self.payload_version, serializer);
+        <Option<u64>>::sse_encode(self.file_size, serializer);
+        <Option<String>>::sse_encode(self.object_id, serializer);
+    }
+}
+
+impl SseEncode for Option<crate::api::api::CloudBackgroundProperties> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::api::CloudBackgroundProperties>::sse_encode(value, serializer);
+        }
     }
 }
 
