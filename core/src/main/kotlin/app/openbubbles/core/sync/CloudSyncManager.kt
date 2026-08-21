@@ -1135,6 +1135,7 @@ class CloudSyncManager(
             dateDelivered = cloud.dateDeliveredNs?.let(::dateFromAppleNs)
             associatedMessageType = reactionTypeFromCode(cloud.associatedMessageType)
             associatedMessageGuid = cloud.associatedMessageGuid
+            associatedMessagePart = cloud.associatedMessagePart?.toLong()
             threadOriginatorGuid = cloud.threadOriginatorGuid
             threadOriginatorPart = cloud.threadOriginatorPart
             associatedMessageEmoji = cloud.associatedMessageEmoji

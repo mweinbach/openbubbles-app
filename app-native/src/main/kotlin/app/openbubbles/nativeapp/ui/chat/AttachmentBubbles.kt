@@ -1,11 +1,9 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import android.widget.VideoView
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -126,6 +124,7 @@ fun AttachmentContent(
     fromMe: Boolean = false,
     smsChat: Boolean = false,
     onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val effectiveShape = shape ?: AttachmentShape
     when (AttachmentMedia.kind(attachment.mime, attachment.uti, attachment.name)) {
@@ -135,7 +134,12 @@ fun AttachmentContent(
             onDownloadAttachment = onDownloadAttachment,
             fromMe = fromMe,
             smsChat = smsChat,
-            modifier = modifier,
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
+            modifier = modifier.messagePartGestures(
+                onOpenActions = onLongPress,
+                onDoubleTapActions = onDoubleTap,
+            ),
             shape = effectiveShape,
         )
         AttachmentMediaKind.IMAGE -> if (attachment.livePhotoMotionGuid != null) {
@@ -145,6 +149,7 @@ fun AttachmentContent(
                 onOpenAttachment = onOpenAttachment,
                 onDownloadAttachment = onDownloadAttachment,
                 onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
                 modifier = modifier,
                 shape = effectiveShape,
             )
@@ -154,6 +159,8 @@ fun AttachmentContent(
                 attachmentFile = attachmentFile,
                 onOpenAttachment = onOpenAttachment,
                 onDownloadAttachment = onDownloadAttachment,
+                onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
                 modifier = modifier,
                 shape = effectiveShape,
             )
@@ -163,6 +170,8 @@ fun AttachmentContent(
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
             modifier = modifier,
             shape = effectiveShape,
         )
@@ -171,6 +180,8 @@ fun AttachmentContent(
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
             modifier = modifier,
             shape = effectiveShape,
         )
@@ -180,6 +191,8 @@ fun AttachmentContent(
                 attachmentFile = attachmentFile,
                 onOpenAttachment = onOpenAttachment,
                 onDownloadAttachment = onDownloadAttachment,
+                onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
                 modifier = modifier,
                 shape = effectiveShape,
             )
@@ -189,6 +202,8 @@ fun AttachmentContent(
                 attachmentFile = attachmentFile,
                 onOpenAttachment = onOpenAttachment,
                 onDownloadAttachment = onDownloadAttachment,
+                onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
                 modifier = modifier,
                 shape = effectiveShape,
             )
@@ -196,7 +211,6 @@ fun AttachmentContent(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LivePhotoAttachmentBubble(
     attachment: AttachmentMeta,
@@ -204,6 +218,7 @@ private fun LivePhotoAttachmentBubble(
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     onLongPress: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
@@ -242,15 +257,17 @@ private fun LivePhotoAttachmentBubble(
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(aspect)
-            .combinedClickable(
-                enabled = stillFile != null,
-                onClick = {
-                    if (motionFile != null) playing = true else onOpenAttachment(attachment.guid)
+            .messagePartGestures(
+                onClick = stillFile?.let {
+                    {
+                        if (motionFile != null) playing = true else onOpenAttachment(attachment.guid)
+                    }
                 },
-                onLongClick = {
+                onOpenActions = {
                     if (motionFile != null) playing = true
                     onLongPress?.invoke()
                 },
+                onDoubleTapActions = onDoubleTap,
             ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -326,6 +343,8 @@ private fun ImageAttachmentBubble(
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onLongPress: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
@@ -340,7 +359,15 @@ private fun ImageAttachmentBubble(
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(aspect)
-            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
+            .messagePartGestures(
+                onClick = if (file != null) {
+                    { onOpenAttachment(attachment.guid) }
+                } else {
+                    null
+                },
+                onOpenActions = onLongPress,
+                onDoubleTapActions = onDoubleTap,
+            ),
     ) {
         val image = decoded?.image
         if (image != null) {
@@ -369,6 +396,8 @@ private fun VideoAttachmentBubble(
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onLongPress: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
@@ -382,7 +411,15 @@ private fun VideoAttachmentBubble(
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(aspect)
-            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
+            .messagePartGestures(
+                onClick = if (file != null) {
+                    { onOpenAttachment(attachment.guid) }
+                } else {
+                    null
+                },
+                onOpenActions = onLongPress,
+                onDoubleTapActions = onDoubleTap,
+            ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val image = poster?.image
@@ -430,6 +467,8 @@ private fun PdfAttachmentBubble(
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onLongPress: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
@@ -441,6 +480,8 @@ private fun PdfAttachmentBubble(
             attachmentFile = attachmentFile,
             onOpenAttachment = onOpenAttachment,
             onDownloadAttachment = onDownloadAttachment,
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
             modifier = modifier,
             shape = shape,
         )
@@ -453,7 +494,11 @@ private fun PdfAttachmentBubble(
             .widthIn(max = ImageBubbleMaxWidth)
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(preview.aspectRatio)
-            .clickable { onOpenAttachment(attachment.guid) },
+            .messagePartGestures(
+                onClick = { onOpenAttachment(attachment.guid) },
+                onOpenActions = onLongPress,
+                onDoubleTapActions = onDoubleTap,
+            ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Image(
@@ -487,6 +532,8 @@ private fun FileAttachmentRow(
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
+    onLongPress: (() -> Unit)?,
+    onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
@@ -496,7 +543,15 @@ private fun FileAttachmentRow(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .widthIn(max = ImageBubbleMaxWidth)
-            .clickable(enabled = file != null) { onOpenAttachment(attachment.guid) },
+            .messagePartGestures(
+                onClick = if (file != null) {
+                    { onOpenAttachment(attachment.guid) }
+                } else {
+                    null
+                },
+                onOpenActions = onLongPress,
+                onDoubleTapActions = onDoubleTap,
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),

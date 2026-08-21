@@ -2,27 +2,35 @@ package app.openbubbles.nativeapp.ui
 
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chat.MessageBubble
 import app.openbubbles.nativeapp.ui.chat.NewMessagesJumpPill
 import app.openbubbles.nativeapp.ui.chat.ReplyTarget
 import app.openbubbles.nativeapp.ui.chat.ReplyThreadState
+import app.openbubbles.nativeapp.ui.chat.TapbackPickerOverlay
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
+import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetailsCard
@@ -801,6 +809,75 @@ fun ChatScreenTapbackScreenshot() {
 }
 
 /**
+ * The centered reaction picker a double-tap opens: a "who reacted" card above
+ * the floating tapback pill, over a dimmed transcript. Reduce motion is forced
+ * so the surface renders settled instead of mid grow-in.
+ */
+@PreviewTest
+@Preview(name = "chat-reaction-picker", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reaction-picker-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun MessageReactionPickerScreenshot() {
+    val reactorNames = mapOf(
+        "alex@icloud.com" to "Alex Chen",
+        "mark@icloud.com" to "Mark Reed",
+    )
+    // reactionIndex mirrors the protocol order the projection assigns, so the
+    // pill marks my love tapback as selected the way a live row would.
+    val reactions = listOf(
+        MessageReactionUi(
+            emoji = "\u2764\uFE0F",
+            senderAddress = "alex@icloud.com",
+            isFromMe = false,
+            reactionIndex = 0,
+        ),
+        MessageReactionUi(
+            emoji = "\u2764\uFE0F",
+            senderAddress = null,
+            isFromMe = true,
+            reactionIndex = 0,
+        ),
+        MessageReactionUi(
+            emoji = "\uD83D\uDE02",
+            senderAddress = "mark@icloud.com",
+            isFromMe = false,
+            reactionIndex = 3,
+        ),
+    )
+    OpenBubblesTheme(dynamicColor = false) {
+        CompositionLocalProvider(LocalReduceMotion provides true) {
+            Surface {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                        MessageBubble(
+                            message = message(1, "we got the permit!!", fromMe = false)
+                                .copy(reactions = reactions, reactionEmoji = "\u2764\uFE0F"),
+                            showStatus = false,
+                        )
+                        MessageBubble(
+                            message = message(
+                                2,
+                                "picking up the rental at nine",
+                                fromMe = true,
+                                status = MessageStatus.DELIVERED,
+                            ).copy(reactionEmoji = "\uD83D\uDC4D"),
+                            showStatus = true,
+                        )
+                    }
+                    TapbackPickerOverlay(
+                        reactions = reactions,
+                        resolveName = { address -> reactorNames[address] },
+                        onReact = { _, _, _ -> },
+                        onCustomReaction = {},
+                        onDismiss = {},
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * The "New messages" jump pill in both scopes. It is rendered standalone
  * because its visibility is a runtime viewport decision: a static ChatScreen
  * preview always establishes a baseline at the bottom, which is exactly the
@@ -983,9 +1060,12 @@ fun ChatScreenSmsScreenshot() {
                     avatarColor = 0xFF3949AB,
                     isSms = true,
                 ),
+                // The green identity is per row, not per chat: a merged contact
+                // conversation carries iMessage and SMS rows side by side.
                 messages = listOf(
-                    message(1, "carrier thread below", fromMe = false),
-                    message(2, "green bubble out", fromMe = true, status = MessageStatus.SENT),
+                    message(1, "carrier thread below", fromMe = false).copy(isSms = true),
+                    message(2, "green bubble out", fromMe = true, status = MessageStatus.SENT)
+                        .copy(isSms = true),
                 ),
             ),
             onInputChange = {},

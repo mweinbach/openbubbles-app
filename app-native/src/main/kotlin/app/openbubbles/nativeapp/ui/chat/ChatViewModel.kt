@@ -22,6 +22,7 @@ import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingVideoDecision
 import app.openbubbles.nativeapp.data.OutgoingVideoMetadata
@@ -136,7 +137,13 @@ data class OutgoingSendEvent(
 )
 
 private data class OptimisticEdit(val token: Long, val text: String)
-private data class OptimisticReaction(val token: Long, val emoji: String)
+private data class OptimisticReaction(
+    val token: Long,
+    val emoji: String,
+    val reactionIndex: Int,
+    val targetPart: Long,
+    val enable: Boolean,
+)
 private data class OptimisticUnsend(val token: Long)
 private data class OptimisticSticker(
     val token: Long,
@@ -349,7 +356,7 @@ class ChatViewModel(
                 observeMessageEffects(list)
                 observeIncomingReadState(list)
                 observePendingOutgoingSend(list)
-                reconcileOptimisticOverlays(list)
+                reconcileOptimisticOverlays(list + replyThread.value?.messages.orEmpty())
             }
             .stateIn(
                 viewModelScope,
@@ -438,7 +445,14 @@ class ChatViewModel(
         }.combine(replyingTo) { state, reply ->
             state.copy(replyingTo = reply)
         }.combine(replyThread) { state, thread ->
-            state.copy(replyThread = thread?.let { mergeReplyThread(it, state.messages) })
+            state.copy(
+                replyThread = thread?.let {
+                    val optimisticThread = it.copy(
+                        messages = applyOptimisticOverlays(it.messages, optimisticMessageOverlays.value),
+                    )
+                    mergeReplyThread(optimisticThread, state.messages)
+                },
+            )
         }.combine(editingMessage) { state, editing ->
             state.copy(editingMessage = editing)
         }.combine(actionError) { state, error ->
@@ -866,14 +880,20 @@ class ChatViewModel(
         if (wasEditing) input.value = ""
     }
 
-    fun react(message: MessageItem, part: Long, reactionIndex: Int, emoji: String? = null) {
+    fun react(
+        message: MessageItem,
+        part: Long,
+        reactionIndex: Int,
+        emoji: String? = null,
+        enable: Boolean = true,
+    ) {
         val display = emoji ?: TAPBACK_EMOJI.getOrNull(reactionIndex) ?: return
         val token = optimisticToken()
         updateOptimisticOverlay(message.guid) { overlay ->
-            overlay.copy(reaction = OptimisticReaction(token, display))
+            overlay.copy(reaction = OptimisticReaction(token, display, reactionIndex, part, enable))
         }
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 messageActions.react(
                     chatId = sourceChatId(message),
                     messageGuid = message.guid,
@@ -881,11 +901,29 @@ class ChatViewModel(
                     messagePart = part,
                     reactionIndex = reactionIndex,
                     emoji = emoji,
+                    enable = enable,
                 )
-            }.onFailure { failure ->
+            }
+            if (result.isSuccess) refreshOpenReplyThread(message)
+            result.onFailure { failure ->
                 removeOptimisticReaction(message.guid, token)
                 actionError.value = failure.message ?: "Could not send reaction"
             }
+        }
+    }
+
+    private suspend fun refreshOpenReplyThread(message: MessageItem) {
+        val current = replyThread.value ?: return
+        if (current.messages.none { it.guid == message.guid }) return
+        val loaded = runCatching {
+            messageRepository.thread(sourceChatId(message), current.rootGuid, current.part)
+        }.getOrNull() ?: return
+        val source = current.sourceMessage ?: message
+        val refreshed = ensureThreadContains(loaded, source)
+        val latest = replyThread.value
+        if (latest?.rootGuid == current.rootGuid && latest.part == current.part) {
+            replyThread.value = latest.copy(messages = refreshed, loading = false)
+            reconcileOptimisticOverlays(messages.value + refreshed)
         }
     }
 
@@ -1063,7 +1101,15 @@ class ChatViewModel(
             val persisted = persistedByGuid[guid] ?: return@mapNotNull guid to overlay
             val updated = overlay.copy(
                 edit = overlay.edit?.takeUnless { persisted.edited && persisted.text == it.text },
-                reaction = overlay.reaction?.takeUnless { persisted.reactionEmoji == it.emoji },
+                reaction = overlay.reaction?.takeUnless { pending ->
+                    val persistedMatch = persisted.reactions.any { reaction ->
+                        reaction.isFromMe &&
+                            reaction.targetPart == pending.targetPart &&
+                            reaction.emoji == pending.emoji &&
+                            (reaction.reactionIndex < 0 || reaction.reactionIndex == pending.reactionIndex)
+                    }
+                    if (pending.enable) persistedMatch else !persistedMatch
+                },
                 unsend = overlay.unsend?.takeUnless { persisted.unsent },
                 stickers = overlay.stickers.filterNot { sticker ->
                     sticker.expectedAttachmentGuid?.let { expected ->
@@ -1081,11 +1127,34 @@ class ChatViewModel(
         overlays: Map<String, OptimisticMessageOverlay>,
     ): List<MessageItem> = list.map { message ->
         val overlay = overlays[message.guid] ?: return@map message
+        val optimisticReactions = overlay.reaction?.let { pending ->
+            val retained = message.reactions.filterNot {
+                it.isFromMe && it.targetPart == pending.targetPart
+            }
+            if (pending.enable) {
+                retained + MessageReactionUi(
+                    emoji = pending.emoji,
+                    senderAddress = null,
+                    isFromMe = true,
+                    targetPart = pending.targetPart,
+                    reactionIndex = pending.reactionIndex,
+                )
+            } else {
+                retained
+            }
+        }
         message.copy(
             text = overlay.edit?.text ?: message.text,
             edited = message.edited || overlay.edit != null,
             unsent = message.unsent || overlay.unsend != null,
-            reactionEmoji = overlay.reaction?.emoji ?: message.reactionEmoji,
+            reactionEmoji = optimisticReactions?.lastOrNull()?.emoji ?: if (overlay.reaction != null) {
+                null
+            } else {
+                message.reactionEmoji
+            },
+            // One active tapback per sender and target part: an optimistic
+            // reaction replaces only my persisted reaction on that part.
+            reactions = optimisticReactions ?: message.reactions,
             stickers = message.stickers + overlay.stickers.map { it.placement },
         )
     }

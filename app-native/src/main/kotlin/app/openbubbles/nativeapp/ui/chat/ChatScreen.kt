@@ -111,6 +111,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -132,6 +133,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -198,10 +200,6 @@ private val ConversationContentMaxWidth = 840.dp
 
 /** Per-picking cap for the multi-select system photo picker. */
 private const val PhotoPickerMaxItems = 10
-
-/** iMessage tapback set, in the order the protocol indexes them. */
-private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
-private val CustomReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
 
 /** Accept one emoji grapheme, including flags, skin tones, and ZWJ families. */
 internal fun normalizeCustomReaction(raw: String): String? {
@@ -400,7 +398,7 @@ fun ChatScreen(
     onReplyFromThread: (MessageItem, Long) -> Unit = { _, _ -> },
     onSendSticker: (MessageItem, Long, OutgoingAttachment, StickerTransform) -> Unit = { _, _, _, _ -> },
     onEdit: (MessageItem) -> Unit = {},
-    onReact: (MessageItem, Long, Int, String?) -> Unit = { _, _, _, _ -> },
+    onReact: (MessageItem, Long, Int, String?, Boolean) -> Unit = { _, _, _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
@@ -422,6 +420,10 @@ fun ChatScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    // Double-tap opens the centered reaction picker; long-press keeps the full
+    // action sheet. Only one of the two is ever presented.
+    var reactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    var customReactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     val pendingStickerState = remember { mutableStateOf<OutgoingAttachment?>(null) }
@@ -431,11 +433,14 @@ fun ChatScreen(
     // historical sender handles misclassifies 1:1 chats when the same contact
     // has replied from multiple aliases, which adds an unnecessary avatar/name
     // gutter and leaves the reply rail visually detached from their bubble.
+    val openThread = uiState.replyThread
     val isGroupChat = uiState.chat?.isGroup == true
     val entries = remember(uiState.messages, isGroupChat) {
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
-    val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
+    val messagesByGuid = remember(uiState.messages, openThread?.messages) {
+        (uiState.messages + openThread?.messages.orEmpty()).associateBy { it.guid }
+    }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
@@ -463,7 +468,6 @@ fun ChatScreen(
             }
         }
     }
-    val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
     // Tapping a reply quote scrolls to the original and pulses it; the guid
@@ -662,11 +666,16 @@ fun ChatScreen(
     // rows (best effort). Rows peek ContactDisplayWarmCache while this map
     // fills, so warm names paint on the first frame.
     val senderNames = remember { mutableStateMapOf<String, String>() }
-    LaunchedEffect(uiState.messages) {
+    LaunchedEffect(uiState.messages, uiState.replyThread?.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
-        val addresses = uiState.messages
-            .filter { !it.isFromMe && it.senderAddress != null }
-            .mapNotNull { it.senderAddress }
+        val visibleMessages = uiState.messages + uiState.replyThread?.messages.orEmpty()
+        val addresses = visibleMessages
+            .flatMap { message ->
+                buildList {
+                    if (!message.isFromMe) message.senderAddress?.let(::add)
+                    message.reactions.filterNot { it.isFromMe }.mapNotNullTo(this) { it.senderAddress }
+                }
+            }
             .distinct()
         val names = withContext(Dispatchers.IO) {
             addresses.mapNotNull { address ->
@@ -974,7 +983,12 @@ fun ChatScreen(
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrimAlpha)))
         }
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (reactionTarget != null) Modifier.clearAndSetSemantics { }
+                    else Modifier,
+                ),
             containerColor = when {
                 background != null -> Color.Transparent
                 LocalIsMultiPane.current -> MaterialTheme.colorScheme.surface
@@ -1176,8 +1190,13 @@ fun ChatScreen(
                         onDownloadAttachment = onDownloadAttachment,
                         onReply = onReplyFromThread,
                         onLongPressPart = { message, part ->
-                            if (message.status != MessageStatus.SENDING) {
+                            if (canOpenMessageActions(message)) {
                                 selectedAction = SelectedMessageAction(message, part)
+                            }
+                        },
+                        onDoubleTapPart = { message, part ->
+                            if (canDoubleTapMessageActions(message)) {
+                                reactionTarget = SelectedMessageAction(message, part)
                             }
                         },
                         onDownloadSticker = { guid ->
@@ -1238,7 +1257,7 @@ fun ChatScreen(
                                     showSenderName = entry.showSenderName,
                                     showAvatarGutter = isGroupChat,
                                     showAvatar = entry.showAvatar,
-                                    smsChat = smsChat,
+                                    smsChat = entry.message.isSms,
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
@@ -1287,10 +1306,15 @@ fun ChatScreen(
                                             ),
                                         )
                                     },
-                                    onLongPressPart = if (entry.message.status == MessageStatus.SENDING) {
-                                        null
-                                    } else {
+                                    onLongPressPart = if (canOpenMessageActions(entry.message)) {
                                         { part -> selectedAction = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
+                                    },
+                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message)) {
+                                        { part -> reactionTarget = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
                                     },
                                     onSwipeReply = if (canSwipeReply(entry.message)) {
                                         { part -> onReply(entry.message, part) }
@@ -1369,6 +1393,51 @@ fun ChatScreen(
                 )
             }
         }
+
+        // Centered reaction picker. It lives inside the chat pane so a
+        // list-detail layout dims the conversation rather than the whole app,
+        // and it reads the live row so "who reacted" updates while it is open.
+        reactionTarget?.let { selection ->
+            val live = messagesByGuid[selection.message.guid]
+            val eligible = live?.let(::canDoubleTapMessageActions) == true
+            LaunchedEffect(selection.message.guid, eligible) {
+                if (!eligible) reactionTarget = null
+            }
+            if (live != null && eligible) {
+                TapbackPickerOverlay(
+                    reactions = reactionsForPart(live.reactions, selection.part),
+                    resolveName = { address ->
+                        senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
+                    },
+                    onReact = { index, emoji, enable ->
+                        reactionTarget = null
+                        onReact(live, selection.part, index, emoji, enable)
+                    },
+                    onCustomReaction = {
+                        reactionTarget = null
+                        customReactionTarget = SelectedMessageAction(live, selection.part)
+                    },
+                    onDismiss = { reactionTarget = null },
+                )
+            }
+        }
+    }
+
+    customReactionTarget?.let { selection ->
+        val live = messagesByGuid[selection.message.guid]
+        val eligible = live?.let(::canDoubleTapMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) customReactionTarget = null
+        }
+        if (live != null && eligible) {
+            CustomReactionDialog(
+                onReact = { emoji ->
+                    customReactionTarget = null
+                    onReact(live, selection.part, CustomReactionIndex, emoji, true)
+                },
+                onDismiss = { customReactionTarget = null },
+            )
+        }
     }
 
     // Effect picker sheet (long-press the send button).
@@ -1383,18 +1452,27 @@ fun ChatScreen(
     }
 
     selectedAction?.let { selection ->
-        val message = selection.message
+        val message = messagesByGuid[selection.message.guid]
+        val eligible = message?.let(::canOpenMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) selectedAction = null
+        }
+        if (message != null && eligible) key(message.guid, selection.part) {
         MessageActionSheet(
             message = message,
+            selectedPart = selection.part,
             chatGuid = uiState.chat?.guid.orEmpty(),
             chatTitle = uiState.chat?.title.orEmpty(),
-            isSms = uiState.chat?.isSms == true,
+            // Contact-grouped transcripts can contain iMessage rows even when
+            // their representative conversation is SMS. Actions route through
+            // the row's source chat, so eligibility must use that same service.
+            isSms = message.isSms,
             isGroup = uiState.chat?.isGroup == true,
             attachmentFile = attachmentFile,
             onDownloadAttachment = onDownloadAttachment,
-            onReact = { index, emoji ->
+            onReact = { index, emoji, enable ->
                 selectedAction = null
-                onReact(message, selection.part, index, emoji)
+                onReact(message, selection.part, index, emoji, enable)
             },
             onReply = {
                 selectedAction = null
@@ -1402,7 +1480,7 @@ fun ChatScreen(
             },
             onSticker = {
                 selectedAction = null
-                stickerTarget = selection
+                stickerTarget = SelectedMessageAction(message, selection.part)
                 pickSticker.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
@@ -1476,6 +1554,7 @@ fun ChatScreen(
             },
             onDismiss = { selectedAction = null },
         )
+        }
     }
 
     val placementTarget = stickerTarget

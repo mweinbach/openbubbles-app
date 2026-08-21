@@ -160,6 +160,7 @@ internal fun ReplyThreadPane(
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     onReply: (MessageItem, Long) -> Unit,
     onLongPressPart: ((MessageItem, Long) -> Unit)?,
+    onDoubleTapPart: ((MessageItem, Long) -> Unit)?,
     onDownloadSticker: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -322,17 +323,22 @@ internal fun ReplyThreadPane(
                         showStatus = message.id == lastFromMeId ||
                             message.status == MessageStatus.FAILED,
                         showSenderName = showSender,
-                        smsChat = smsChat,
+                        smsChat = message.isSms,
                         attachmentFile = attachmentFile,
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
                         senderDisplayName = message.senderAddress?.let { senderNames[it] },
                         replyQuote = null,
                         onDownloadSticker = onDownloadSticker,
-                        onLongPressPart = if (message.status == MessageStatus.SENDING) {
-                            null
-                        } else {
+                        onLongPressPart = if (canOpenMessageActions(message)) {
                             onLongPressPart?.let { callback -> { part -> callback(message, part) } }
+                        } else {
+                            null
+                        },
+                        onDoubleTapPart = if (canDoubleTapMessageActions(message)) {
+                            onDoubleTapPart?.let { callback -> { part -> callback(message, part) } }
+                        } else {
+                            null
                         },
                         onSwipeReply = if (canSwipeReply(message)) {
                             { part -> onReply(message, part) }

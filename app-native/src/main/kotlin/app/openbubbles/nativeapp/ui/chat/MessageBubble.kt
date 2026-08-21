@@ -4,10 +4,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -51,6 +49,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,7 +85,6 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.StickerPlacement
-import app.openbubbles.nativeapp.data.displayTextForRichLink
 import app.openbubbles.nativeapp.ui.effects.isInvisibleInk
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -200,13 +199,13 @@ private fun StickerOverlay(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RichLinkCard(
     preview: RichLinkPreview,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
     onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
     val previewImage = rememberDecodedBytes(preview.imageBytes, maxDimensionPx = 640)
@@ -226,16 +225,10 @@ private fun RichLinkCard(
         } else {
             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         },
-        modifier = modifier.then(
-            if (onLongPress != null) {
-                Modifier.combinedClickable(
-                    onClick = openLink,
-                    onLongClick = onLongPress,
-                    onLongClickLabel = "Message actions",
-                )
-            } else {
-                Modifier.clickable(onClick = openLink)
-            },
+        modifier = modifier.messagePartGestures(
+            onClick = openLink,
+            onOpenActions = onLongPress,
+            onDoubleTapActions = onDoubleTap,
         ),
     ) {
         Column {
@@ -312,7 +305,6 @@ private fun RichLinkCard(
  * group chats, and an optional delivery status row under my latest outgoing
  * message.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: MessageItem,
@@ -343,6 +335,8 @@ fun MessageBubble(
     onReplyCountTap: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
+    /** Double-tap shortcut into the reaction picker (iMessage only). */
+    onDoubleTapPart: ((Long) -> Unit)? = null,
     /** Slide the bubble toward the start edge to begin an inline reply. */
     onSwipeReply: ((Long) -> Unit)? = null,
     /** True when this conversation is carrier SMS — outgoing bubbles go green. */
@@ -363,30 +357,20 @@ fun MessageBubble(
         }
     }
     val shape = bubbleShape(tightTop, tightBottom)
-    val attachments = message.attachmentMetas.ifEmpty {
-        listOfNotNull(message.attachmentMeta)
-    }
+    val attachments = messageAttachments(message)
     val richLink = message.richLink
     val interactivePayload = message.interactivePayload
-    val displayText = if (richLink != null) {
-        displayTextForRichLink(message.text, richLink.url)
-    } else {
-        message.text
-    }
-    val showTextBubble =
-        (displayText.isNotBlank() || !message.subject.isNullOrBlank()) && interactivePayload == null
+    val displayText = messageDisplayText(message)
+    val showTextBubble = messageShowsTextBubble(message)
     val invisibleInk = isInvisibleInk(message.expressiveSendStyleId)
     val embedRichLink = richLink != null && showTextBubble && !invisibleInk
     // Attachment-only messages take the grouping shape directly; stacked
     // attachment + text keeps the standalone attachment radius.
     val attachmentShape = if (attachments.size == 1 && message.text.isBlank() && message.subject.isNullOrBlank()) shape else null
-    val attachmentParts = attachments.mapTo(hashSetOf()) { it.partIndex }
-    val textPart = message.replyPartLocators.keys.firstOrNull { it !in attachmentParts } ?: 0L
-    val defaultReplyPart = when {
-        showTextBubble -> textPart
-        attachments.isNotEmpty() -> attachments.last().partIndex
-        else -> textPart
-    }
+    val textPart = messageTextPart(message)
+    val defaultReplyPart = defaultMessageActionPart(message)
+    val openActions = onLongPressPart
+    val doubleTapActions = onDoubleTapPart?.takeUnless { smsChat }
     val avatarGutter = showAvatarGutter && !message.isFromMe
     // Pop the tapback only when it lands while the row is on screen; rows that
     // scroll in already reacted render it settled.
@@ -441,14 +425,26 @@ fun MessageBubble(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (onSwipeReply != null) {
+                    if (onSwipeReply != null || openActions != null || doubleTapActions != null) {
                         Modifier.semantics {
-                            customActions = listOf(
-                                CustomAccessibilityAction("Reply") {
-                                    onSwipeReply.invoke(defaultReplyPart)
-                                    true
-                                },
-                            )
+                            customActions = buildList {
+                                if (onSwipeReply != null) {
+                                    add(
+                                        CustomAccessibilityAction("Reply") {
+                                            onSwipeReply.invoke(defaultReplyPart)
+                                            true
+                                        },
+                                    )
+                                }
+                                if (openActions != null) {
+                                    add(
+                                        CustomAccessibilityAction(MessageActionsLabel) {
+                                            openActions.invoke(defaultReplyPart)
+                                            true
+                                        },
+                                    )
+                                }
+                            }
                         }
                     } else {
                         Modifier
@@ -503,11 +499,24 @@ fun MessageBubble(
             interactivePayload?.let { payload ->
                 InteractiveBalloon(
                     payload = payload,
-                    onLongPress = onLongPressPart?.let { callback -> { callback(textPart) } },
+                    onLongPress = openActions?.let { callback -> { callback(textPart) } },
+                    modifier = Modifier.reactionAccessibilityAction(
+                        doubleTapActions?.let { callback -> { callback(textPart) } },
+                    ),
+                    onDoubleClick = doubleTapActions?.let { callback -> { callback(textPart) } },
                 )
             }
-            attachments.forEachIndexed { index, attachment ->
-                Box {
+            attachments.forEachIndexed { attachmentIndex, attachment ->
+                val reactionSummary = bubbleReactionSummary(message, attachment.partIndex)
+                Box(
+                    modifier = Modifier.padding(
+                        top = if (attachmentIndex > 0 && reactionSummary != null) {
+                            ReactionChipRise - 3.dp
+                        } else {
+                            0.dp
+                        },
+                    ),
+                ) {
                     AttachmentContent(
                         attachment = attachment,
                         attachmentFile = attachmentFile,
@@ -516,27 +525,19 @@ fun MessageBubble(
                         shape = attachmentShape,
                         fromMe = message.isFromMe,
                         smsChat = smsChat,
-                        onLongPress = if (attachment.livePhotoMotionGuid != null) {
-                            onLongPressPart?.let { callback -> { callback(attachment.partIndex) } }
-                        } else {
-                            null
+                        onLongPress = openActions?.let { callback ->
+                            { callback(attachment.partIndex) }
                         },
-                        modifier = if (attachment.livePhotoMotionGuid == null && onLongPressPart != null) {
-                            Modifier.combinedClickable(
-                                // Audio plays inline; the viewer stays for
-                                // everything else.
-                                onClick = {
-                                    if (!attachment.isAudio) onOpenAttachment(attachment.guid)
-                                },
-                                onLongClick = { onLongPressPart(attachment.partIndex) },
-                            )
-                        } else {
-                            Modifier
+                        onDoubleTap = doubleTapActions?.let { callback ->
+                            { callback(attachment.partIndex) }
                         },
+                        modifier = Modifier.reactionAccessibilityAction(
+                            doubleTapActions?.let { callback -> { callback(attachment.partIndex) } },
+                        ),
                     )
-                    message.reactionEmoji?.takeIf { index == attachments.lastIndex }?.let { emoji ->
+                    reactionSummary?.let { summary ->
                         ReactionChip(
-                            emoji = emoji,
+                            summary = summary,
                             isFromMe = message.isFromMe,
                             popIn = reactionPopsIn,
                             modifier = Modifier.align(
@@ -550,6 +551,7 @@ fun MessageBubble(
                 UploadProgressRow(done = progress.first, total = progress.second)
             }
             if (embedRichLink) {
+                val reactionSummary = bubbleReactionSummary(message, textPart)
                 Box {
                     CombinedTextAndLinkBubble(
                         text = displayText,
@@ -557,36 +559,47 @@ fun MessageBubble(
                         shape = shape,
                         isFromMe = message.isFromMe,
                         smsChat = smsChat,
-                        onLongPress = onLongPressPart?.let { callback ->
+                        modifier = Modifier.reactionAccessibilityAction(
+                            doubleTapActions?.let { callback -> { callback(textPart) } },
+                        ),
+                        onLongPress = openActions?.let { callback ->
+                            { callback(textPart) }
+                        },
+                        onDoubleTap = doubleTapActions?.let { callback ->
                             { callback(textPart) }
                         },
                     )
-                    if (attachments.isEmpty()) {
-                        message.reactionEmoji?.let { emoji ->
-                            ReactionChip(
-                                emoji = emoji,
-                                isFromMe = message.isFromMe,
-                                popIn = reactionPopsIn,
-                                modifier = Modifier.align(
-                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
-                                ),
-                            )
-                        }
+                    reactionSummary?.let { summary ->
+                        ReactionChip(
+                            summary = summary,
+                            isFromMe = message.isFromMe,
+                            popIn = reactionPopsIn,
+                            modifier = Modifier.align(
+                                if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                            ),
+                        )
                     }
                 }
             } else {
                 richLink?.let { preview ->
+                    val reactionSummary = bubbleReactionSummary(message, textPart)
                     Box {
                         RichLinkCard(
                             preview = preview,
-                            onLongPress = onLongPressPart?.let { callback ->
+                            modifier = Modifier.reactionAccessibilityAction(
+                                doubleTapActions?.let { callback -> { callback(textPart) } },
+                            ),
+                            onLongPress = openActions?.let { callback ->
+                                { callback(textPart) }
+                            },
+                            onDoubleTap = doubleTapActions?.let { callback ->
                                 { callback(textPart) }
                             },
                         )
-                        if (attachments.isEmpty() && !showTextBubble) {
-                            message.reactionEmoji?.let { emoji ->
+                        if (!showTextBubble) {
+                            reactionSummary?.let { summary ->
                                 ReactionChip(
-                                    emoji = emoji,
+                                    summary = summary,
                                     isFromMe = message.isFromMe,
                                     popIn = reactionPopsIn,
                                     modifier = Modifier.align(
@@ -598,6 +611,7 @@ fun MessageBubble(
                     }
                 }
                 if (showTextBubble) {
+                    val reactionSummary = bubbleReactionSummary(message, textPart)
                     Box {
                         if (invisibleInk) {
                             InvisibleInkBubble(
@@ -605,7 +619,13 @@ fun MessageBubble(
                                 text = displayText,
                                 shape = shape,
                                 smsChat = smsChat,
-                                onLongPress = onLongPressPart?.let { callback ->
+                                modifier = Modifier.reactionAccessibilityAction(
+                                    doubleTapActions?.let { callback -> { callback(textPart) } },
+                                ),
+                                onLongPress = openActions?.let { callback ->
+                                    { callback(textPart) }
+                                },
+                                onDoubleTap = doubleTapActions?.let { callback ->
                                     { callback(textPart) }
                                 },
                             )
@@ -615,14 +635,18 @@ fun MessageBubble(
                                 shape = shape,
                                 color = bubbleColor,
                                 contentColor = bubbleContent,
-                                modifier = if (onLongPressPart != null) {
-                                    Modifier.combinedClickable(
-                                        onClick = {},
-                                        onLongClick = { onLongPressPart(textPart) },
+                                modifier = Modifier
+                                    .reactionAccessibilityAction(
+                                        doubleTapActions?.let { callback -> { callback(textPart) } },
                                     )
-                                } else {
-                                    Modifier
-                                },
+                                    .messagePartGestures(
+                                        onOpenActions = openActions?.let { callback ->
+                                            { callback(textPart) }
+                                        },
+                                        onDoubleTapActions = doubleTapActions?.let { callback ->
+                                            { callback(textPart) }
+                                        },
+                                    ),
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                     MessageSubject(message.subject)
@@ -632,17 +656,15 @@ fun MessageBubble(
                                 }
                             }
                         }
-                        if (attachments.isEmpty()) {
-                            message.reactionEmoji?.let { emoji ->
-                                ReactionChip(
-                                    emoji = emoji,
-                                    isFromMe = message.isFromMe,
-                                    popIn = reactionPopsIn,
-                                    modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
-                                    ),
-                                )
-                            }
+                        reactionSummary?.let { summary ->
+                            ReactionChip(
+                                summary = summary,
+                                isFromMe = message.isFromMe,
+                                popIn = reactionPopsIn,
+                                modifier = Modifier.align(
+                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                                ),
+                            )
                         }
                     }
                 }
@@ -754,7 +776,6 @@ private fun MessageSubject(subject: String?) {
  * Invisible-ink bubble (com.apple.MobileSMS.expressivesend.invisibleink): the
  * text renders blurred until tapped, then reveals for 3s and re-hides.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CombinedTextAndLinkBubble(
     text: String,
@@ -764,21 +785,16 @@ private fun CombinedTextAndLinkBubble(
     smsChat: Boolean,
     modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val (bubbleColor, bubbleContent) = bubbleColors(isFromMe, smsChat)
     Surface(
         shape = shape,
         color = bubbleColor,
         contentColor = bubbleContent,
-        modifier = modifier.then(
-            if (onLongPress != null) {
-                Modifier.combinedClickable(
-                    onClick = {},
-                    onLongClick = onLongPress,
-                )
-            } else {
-                Modifier
-            },
+        modifier = modifier.messagePartGestures(
+            onOpenActions = onLongPress,
+            onDoubleTapActions = onDoubleTap,
         ),
     ) {
         Column {
@@ -791,12 +807,12 @@ private fun CombinedTextAndLinkBubble(
                 preview = preview,
                 embedded = true,
                 onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
             )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InvisibleInkBubble(
     message: MessageItem,
@@ -805,6 +821,7 @@ private fun InvisibleInkBubble(
     modifier: Modifier = Modifier,
     smsChat: Boolean = false,
     onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     var revealed by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(revealed, message.id) {
@@ -818,15 +835,10 @@ private fun InvisibleInkBubble(
         shape = shape,
         color = bubbleColor,
         contentColor = bubbleContent,
-        modifier = modifier.then(
-            if (onLongPress != null) {
-                Modifier.combinedClickable(
-                    onClick = { revealed = !revealed },
-                    onLongClick = onLongPress,
-                )
-            } else {
-                Modifier.clickable { revealed = !revealed }
-            },
+        modifier = modifier.messagePartGestures(
+            onClick = { revealed = !revealed },
+            onOpenActions = onLongPress,
+            onDoubleTapActions = onDoubleTap,
         ),
     ) {
         Text(
@@ -1088,11 +1100,13 @@ internal fun reactionTailDirection(isFromMe: Boolean, isLtr: Boolean): Float =
 /**
  * iOS-style tapback: a pill overlapping the bubble's top corner with a
  * two-dot thought-bubble tail descending toward the bubble, popping in on a
- * spatial spring when the reaction lands while visible.
+ * spatial spring when the reaction lands while visible. Several distinct
+ * reactions share one pill, so a busy message keeps a single anchored badge
+ * instead of a row of overlapping ones.
  */
 @Composable
 private fun ReactionChip(
-    emoji: String,
+    summary: BubbleReactionSummary,
     isFromMe: Boolean,
     modifier: Modifier = Modifier,
     popIn: Boolean = false,
@@ -1141,14 +1155,27 @@ private fun ReactionChip(
                 drawCircle(outline, bigRadius, big, style = Stroke(strokeWidth))
                 drawCircle(fill, smallRadius, small)
                 drawCircle(outline, smallRadius, small, style = Stroke(strokeWidth))
-            },
+            }
+            .clearAndSetSemantics { contentDescription = summary.label },
     ) {
-        Text(
-            text = emoji,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(4.dp),
-        )
+        val shown = summary.emojis.take(BubbleReactionEmojiLimit)
+        val overflow = summary.emojis.size - shown.size
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            shown.forEach { emoji ->
+                Text(text = emoji, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+            if (overflow > 0) {
+                Text(
+                    text = "+$overflow",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
