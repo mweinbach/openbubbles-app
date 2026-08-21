@@ -1169,7 +1169,11 @@ fun ChatScreen(
             message = message,
             chatGuid = uiState.chat?.guid.orEmpty(),
             chatTitle = uiState.chat?.title.orEmpty(),
-            isSms = uiState.chat?.isSms == true,
+            // Either signal is enough to hide tapbacks: a merged contact
+            // conversation carries SMS rows in an iMessage chat, and a row
+            // staged before projection has not learned its service yet.
+            // Offering a tapback SIM SMS cannot carry is worse than omitting one.
+            isSms = message.isSms || uiState.chat?.isSms == true,
             isGroup = uiState.chat?.isGroup == true,
             attachmentFile = attachmentFile,
             onDownloadAttachment = onDownloadAttachment,
