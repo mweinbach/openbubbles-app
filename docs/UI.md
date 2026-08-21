@@ -47,9 +47,8 @@ Status ticks only on the latest outgoing or FAILED. Group events and unsends are
 Slide a bubble toward the start edge to begin an inline reply (long-press still opens the action sheet).
 A reply shows a smaller original-message bubble above it; tapping that quote focuses the thread
 in the conversation instead of opening a sheet. Replies that already sit directly under their
-original (or under another reply in the same run) drop the quote and share one rail: the stroke
-starts on the original, turns with the same elbow as the quote marker, and continues to the last
-reply instead of dying at the first.
+original drop the quote. The existing corner marker still hooks the first reply in a consecutive
+run; following replies sit with ordinary bubble spacing and no second marker.
 
 Content width caps at 840.dp on list, transcript, and Find My.
 

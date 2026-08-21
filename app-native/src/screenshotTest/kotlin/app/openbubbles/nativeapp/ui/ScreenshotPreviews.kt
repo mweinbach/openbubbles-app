@@ -674,9 +674,9 @@ fun ChatScreenReverseReplyScreenshot() {
 }
 
 /**
- * Adjacent multi-reply cluster. The original stays in the transcript with
- * its reply-count label; the two children drop their quotes and share one
- * rail that originates on the parent and ends on the last reply.
+ * Adjacent two-reply run. The original stays in the transcript with its
+ * reply-count label; the first child keeps the existing corner marker and
+ * the second sits tight underneath without a second stroke.
  */
 @PreviewTest
 @Preview(name = "chat-reply-cluster", device = Devices.PHONE, showBackground = true)

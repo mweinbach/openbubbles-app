@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.ui.chat
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
@@ -110,83 +109,37 @@ class ReplyUiTest {
         val second = message(id = 3, guid = "two", replyToGuid = "root")
         val entries = buildConversationEntries(listOf(root, first, second))
         assertEquals(setOf("one", "two"), repliesWithInlineContext(entries))
+        assertEquals(setOf("two"), followingRepliesInRun(entries))
     }
 
     @Test
-    fun `a timestamp separator breaks inline reply context`() {
+    fun `the first reply in a run is not a following sibling`() {
         val root = message(id = 1, guid = "root")
-        val reply = message(
-            id = 2,
-            guid = "reply",
-            replyToGuid = "root",
-        ).copy(date = root.date + 2 * 60 * 60 * 1000L)
+        val reply = message(id = 2, guid = "reply", replyToGuid = "root")
         val entries = buildConversationEntries(listOf(root, reply))
-        assertTrue(repliesWithInlineContext(entries).isEmpty())
-        assertTrue(inlineReplyClusters(entries).none { it.attachedToRoot })
+        assertTrue(followingRepliesInRun(entries).isEmpty())
     }
 
     @Test
-    fun `adjacent replies form one attached cluster`() {
+    fun `unrelated chronology keeps both replies as first of their own run`() {
         val root = message(id = 1, guid = "root")
-        val first = message(id = 2, guid = "one", replyToGuid = "root")
-        val second = message(id = 3, guid = "two", replyToGuid = "root")
-        val clusters = inlineReplyClusters(buildConversationEntries(listOf(root, first, second)))
-
-        assertEquals(1, clusters.size)
-        val cluster = clusters.single()
-        assertEquals("root", cluster.rootGuid)
-        assertEquals(1L, cluster.rootMessageId)
-        assertEquals(listOf(2L, 3L), cluster.replyMessageIds)
-        assertTrue(cluster.attachedToRoot)
-        assertTrue(cluster.drawsRail())
-        assertEquals(listOf(1L, 2L, 3L), cluster.trackedMessageIds())
+        val middle = message(id = 2, guid = "middle")
+        val first = message(id = 3, guid = "one", replyToGuid = "root")
+        val later = message(id = 5, guid = "later")
+        val second = message(id = 6, guid = "two", replyToGuid = "root")
+        val entries = buildConversationEntries(listOf(root, middle, first, later, second))
+        assertTrue(followingRepliesInRun(entries).isEmpty())
     }
 
     @Test
-    fun `unrelated chronology detaches the cluster from the root`() {
+    fun `siblings after a quoted first reply still sit tight`() {
         val root = message(id = 1, guid = "root")
         val middle = message(id = 2, guid = "middle")
         val first = message(id = 3, guid = "one", replyToGuid = "root")
         val second = message(id = 4, guid = "two", replyToGuid = "root")
-        val clusters = inlineReplyClusters(
-            buildConversationEntries(listOf(root, middle, first, second)),
-        )
-
-        assertEquals(1, clusters.size)
-        val cluster = clusters.single()
-        assertFalse(cluster.attachedToRoot)
-        assertNull(cluster.rootMessageId)
-        assertEquals(listOf(3L, 4L), cluster.replyMessageIds)
-        assertTrue(cluster.drawsRail())
-        assertEquals(listOf(3L, 4L), cluster.trackedMessageIds())
-    }
-
-    @Test
-    fun `a lone quoted reply does not draw a cluster rail`() {
-        val root = message(id = 1, guid = "root")
-        val middle = message(id = 2, guid = "middle")
-        val reply = message(id = 3, guid = "child", replyToGuid = "root")
-        val clusters = inlineReplyClusters(
-            buildConversationEntries(listOf(root, middle, reply)),
-        )
-
-        assertEquals(1, clusters.size)
-        assertFalse(clusters.single().drawsRail())
-    }
-
-    @Test
-    fun `reply parts do not share a cluster`() {
-        val root = message(id = 1, guid = "root")
-        val partZero = message(id = 2, guid = "a", replyToGuid = "root", replyToPart = 0L)
-        val partOne = message(id = 3, guid = "b", replyToGuid = "root", replyToPart = 1L)
-        val clusters = inlineReplyClusters(
-            buildConversationEntries(listOf(root, partZero, partOne)),
-        )
-
-        assertEquals(2, clusters.size)
-        assertEquals(listOf(0L, 1L), clusters.map { it.part })
-        assertTrue(clusters[0].attachedToRoot)
-        assertFalse(clusters[1].attachedToRoot)
+        val entries = buildConversationEntries(listOf(root, middle, first, second))
+        assertEquals(setOf("two"), followingRepliesInRun(entries))
+        assertEquals(setOf("two"), repliesWithInlineContext(entries))
     }
 
     @Test
@@ -315,87 +268,20 @@ class ReplyUiTest {
     }
 
     @Test
-    fun `attached opposite-side rail starts on the parent and ends on the last reply`() {
-        val root = Rect(left = 200f, top = 0f, right = 400f, bottom = 40f)
-        val first = Rect(left = 20f, top = 60f, right = 300f, bottom = 110f)
-        val last = Rect(left = 20f, top = 120f, right = 180f, bottom = 160f)
-        val geometry = clusterRail(
-            root = root,
-            rootFromMe = true,
-            replies = listOf(
-                ReplyClusterMember(first, fromMe = false),
-                ReplyClusterMember(last, fromMe = false),
-            ),
-            attachedToRoot = true,
+    fun `marker hooks the first reply when the quote is hidden`() {
+        val reply = Rect(left = 20f, top = 60f, right = 300f, bottom = 120f)
+        val geometry = connector(
+            quote = null,
+            reply = reply,
+            replyFromMe = false,
         )
 
-        assertNotNull(geometry)
-        // Parent is outgoing: leave its inner (left) edge with a little daylight.
-        assertEquals(197f, geometry.armStart.x)
-        assertEquals(14f, geometry.armStart.y)
-        // Spine sits in the incoming run's outer gutter, not on the bubbles.
-        assertEquals(17f, geometry.corner.x)
-        assertEquals(14f, geometry.corner.y)
-        assertEquals(17f, geometry.spineEnd.x)
-        // Ends on the last reply, not the first.
-        assertEquals(134f, geometry.spineEnd.y)
-        assertTrue(geometry.spineEnd.y > first.bottom)
-    }
-
-    @Test
-    fun `attached same-side rail hooks under the parent then continues to the last reply`() {
-        val root = Rect(left = 20f, top = 0f, right = 200f, bottom = 40f)
-        val first = Rect(left = 20f, top = 60f, right = 300f, bottom = 110f)
-        val last = Rect(left = 20f, top = 120f, right = 240f, bottom = 170f)
-        val geometry = clusterRail(
-            root = root,
-            rootFromMe = false,
-            replies = listOf(
-                ReplyClusterMember(first, fromMe = false),
-                ReplyClusterMember(last, fromMe = false),
-            ),
-            attachedToRoot = true,
-        )
-
-        assertNotNull(geometry)
-        assertEquals(17f, geometry.corner.x)
-        assertEquals(17f, geometry.spineEnd.x)
+        assertEquals(34f, geometry.corner.x)
+        assertEquals(34f, geometry.legEnd.x)
+        assertEquals(46f, geometry.armStart.x)
+        assertEquals(geometry.corner.y + 2f, geometry.armStart.y)
+        assertEquals(reply.top - 3f, geometry.legEnd.y)
         assertEquals(43f, geometry.corner.y)
-        assertEquals(134f, geometry.spineEnd.y)
-    }
-
-    @Test
-    fun `detached sibling run is a vertical continuation past the quoted reply`() {
-        val first = Rect(left = 20f, top = 60f, right = 300f, bottom = 110f)
-        val last = Rect(left = 20f, top = 120f, right = 180f, bottom = 160f)
-        val geometry = clusterRail(
-            root = null,
-            rootFromMe = true,
-            replies = listOf(
-                ReplyClusterMember(first, fromMe = false),
-                ReplyClusterMember(last, fromMe = false),
-            ),
-            attachedToRoot = false,
-        )
-
-        assertNotNull(geometry)
-        assertEquals(geometry.armStart, geometry.corner)
-        assertEquals(17f, geometry.spineEnd.x)
-        assertEquals(first.top - 3f, geometry.armStart.y)
-        assertEquals(134f, geometry.spineEnd.y)
-    }
-
-    @Test
-    fun `cluster rail keeps the corner at the top of a long spine`() {
-        val geometry = ReplyClusterRailGeometry(
-            armStart = Offset(200f, 10f),
-            corner = Offset(34f, 10f),
-            spineEnd = Offset(34f, 220f),
-        )
-        // The turn is budgeted at the top; the remaining 210px is a plumb
-        // run, which is the whole point of not reusing replyConnectorPath.
-        assertEquals(10f, geometry.corner.y)
-        assertTrue(geometry.spineEnd.y - geometry.corner.y > 100f)
     }
 
     @Test
@@ -409,27 +295,8 @@ class ReplyUiTest {
         assertEquals(30f, geometry.corner.x)
     }
 
-    private fun clusterRail(
-        root: Rect?,
-        rootFromMe: Boolean,
-        replies: List<ReplyClusterMember>,
-        attachedToRoot: Boolean,
-        isLtr: Boolean = true,
-    ) = replyClusterRailGeometry(
-        root = root,
-        rootFromMe = rootFromMe,
-        replies = replies,
-        attachedToRoot = attachedToRoot,
-        isLtr = isLtr,
-        edgeInset = 14f,
-        armLength = 12f,
-        cornerLength = 14f,
-        clearance = 3f,
-        tipDrop = 2f,
-    )
-
     private fun connector(
-        quote: Rect,
+        quote: Rect?,
         reply: Rect,
         replyFromMe: Boolean,
         isLtr: Boolean = true,

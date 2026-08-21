@@ -84,117 +84,34 @@ internal fun replyCountsByRoot(messages: List<MessageItem>): Map<String, Int> =
 /**
  * Replies directly following their root (or another reply in the same thread)
  * already read as one connected block and do not repeat the root as a quote.
- * A quote only reappears when unrelated chronology — or a timestamp
- * separator — sits between the reply and its thread context, matching Apple
- * Messages' lightweight inline threads.
+ * A quote only reappears when unrelated chronology separates the reply from
+ * its thread context, matching Apple Messages' lightweight inline threads.
  */
 internal fun repliesWithInlineContext(entries: List<ConversationEntry>): Set<String> = buildSet {
-    entries.forEachIndexed { index, entry ->
-        val message = (entry as? ConversationEntry.Message)?.message ?: return@forEachIndexed
-        val root = message.replyThreadKey() ?: return@forEachIndexed
-        val adjacent = (entries.getOrNull(index + 1) as? ConversationEntry.Message)?.message
-            ?: return@forEachIndexed
-        if (adjacent.guid == root.guid || adjacent.replyThreadKey() == root) {
-            add(message.guid)
+    val messageEntries = entries.filterIsInstance<ConversationEntry.Message>()
+    messageEntries.forEachIndexed { index, entry ->
+        val rootGuid = entry.message.replyToGuid ?: return@forEachIndexed
+        val adjacent = messageEntries.getOrNull(index + 1)?.message
+        if (adjacent?.guid == rootGuid || adjacent?.replyToGuid == rootGuid) {
+            add(entry.message.guid)
         }
-    }
-}
-
-internal data class ReplyThreadKey(val guid: String, val part: Long)
-
-internal fun MessageItem.replyThreadKey(): ReplyThreadKey? {
-    val guid = replyToGuid ?: return null
-    return ReplyThreadKey(guid, replyToPart ?: 0L)
-}
-
-/**
- * One visually consecutive run of replies to the same root part.
- *
- * [replyMessageIds] is oldest-first (visual top to bottom in the reversed
- * transcript). [attachedToRoot] is true when the original sits immediately
- * above the first reply, so the rail can originate on that bubble instead
- * of repeating it as a quote.
- */
-internal data class InlineReplyCluster(
-    val rootGuid: String,
-    val part: Long,
-    val rootMessageId: Long?,
-    val replyMessageIds: List<Long>,
-    val attachedToRoot: Boolean,
-) {
-    /** A rail is only needed when the run is attached to its root, or a quoted reply has siblings below it. */
-    fun drawsRail(): Boolean = attachedToRoot || replyMessageIds.size > 1
-
-    fun trackedMessageIds(): List<Long> = buildList {
-        if (attachedToRoot) {
-            rootMessageId?.let { add(it) }
-        }
-        addAll(replyMessageIds)
     }
 }
 
 /**
- * Groups replies that follow each other (or their root) without an
- * unrelated bubble or timestamp in between. Separators and group-event
- * rows break a run so the rail never crosses a caption.
+ * Later siblings in a consecutive same-thread run. The list is newest-first,
+ * so the visual neighbor above a row is `index + 1`. Those following replies
+ * sit tight under the first and do not draw a second marker.
  */
-internal fun inlineReplyClusters(entries: List<ConversationEntry>): List<InlineReplyCluster> {
-    val clusters = mutableListOf<InlineReplyCluster>()
-    var runKey: ReplyThreadKey? = null
-    var runReplies = mutableListOf<MessageItem>()
-    var attachedRoot: MessageItem? = null
-    var pendingRoot: MessageItem? = null
-
-    fun flush() {
-        val key = runKey
-        if (key != null && runReplies.isNotEmpty()) {
-            clusters += InlineReplyCluster(
-                rootGuid = key.guid,
-                part = key.part,
-                rootMessageId = attachedRoot?.id,
-                replyMessageIds = runReplies.map { it.id },
-                attachedToRoot = attachedRoot != null,
-            )
-        }
-        runKey = null
-        runReplies = mutableListOf()
-        attachedRoot = null
-    }
-
-    // Newest-first entries render index 0 at the bottom; walk oldest-first
-    // so a run is collected top to bottom.
-    for (entry in entries.asReversed()) {
-        when (entry) {
-            is ConversationEntry.TimeSeparator -> {
-                flush()
-                pendingRoot = null
-            }
-            is ConversationEntry.Message -> {
-                val message = entry.message
-                if (!message.rendersAsBubble()) {
-                    flush()
-                    pendingRoot = null
-                    continue
-                }
-                val key = message.replyThreadKey()
-                if (key != null) {
-                    if (runKey == key) {
-                        runReplies += message
-                    } else {
-                        flush()
-                        runKey = key
-                        runReplies += message
-                        attachedRoot = pendingRoot?.takeIf { it.guid == key.guid }
-                    }
-                } else {
-                    flush()
-                }
-                pendingRoot = message
-            }
+internal fun followingRepliesInRun(entries: List<ConversationEntry>): Set<String> = buildSet {
+    val messageEntries = entries.filterIsInstance<ConversationEntry.Message>()
+    messageEntries.forEachIndexed { index, entry ->
+        val rootGuid = entry.message.replyToGuid ?: return@forEachIndexed
+        val adjacent = messageEntries.getOrNull(index + 1)?.message ?: return@forEachIndexed
+        if (adjacent.replyToGuid == rootGuid) {
+            add(entry.message.guid)
         }
     }
-    flush()
-    return clusters
 }
 
 internal fun belongsToReplyThread(message: MessageItem, rootGuid: String, part: Long): Boolean {

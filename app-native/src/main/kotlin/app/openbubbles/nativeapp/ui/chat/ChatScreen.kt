@@ -269,7 +269,7 @@ sealed interface ConversationEntry {
 private fun MessageItem.authorKey(): Pair<Boolean, String?> = isFromMe to senderAddress
 
 /** True when this message renders as a bubble (rows like group events break runs). */
-internal fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
+private fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
 
 /** A quiet gap this long (or a day change) starts a new timestamped cluster. */
 private const val TimeSeparatorGapMillis = 60 * 60 * 1000L
@@ -419,15 +419,7 @@ fun ChatScreen(
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
-    val replyClusters = remember(entries) { inlineReplyClusters(entries) }
-    val clusterMemberIds = remember(replyClusters) {
-        replyClusters.asSequence()
-            .filter { it.drawsRail() }
-            .flatMap { it.trackedMessageIds() }
-            .toSet()
-    }
-    val clusterBounds = remember { ReplyClusterBoundsStore() }
-    val messagesById = remember(uiState.messages) { uiState.messages.associateBy { it.id } }
+    val followingReplies = remember(entries) { followingRepliesInRun(entries) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
         { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
     }
@@ -945,16 +937,7 @@ fun ChatScreen(
                     )
                     uiState.messages.isEmpty() && !isTyping ->
                         ChatEmptyState(Modifier.fillMaxSize())
-                    else -> Box(Modifier.fillMaxSize()) {
-                        if (clusterMemberIds.isNotEmpty()) {
-                            ReplyClusterRailOverlay(
-                                clusters = replyClusters,
-                                store = clusterBounds,
-                                messagesById = messagesById,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    LazyColumn(
+                    else -> LazyColumn(
                         state = listState,
                         reverseLayout = true,
                         modifier = Modifier.fillMaxSize(),
@@ -1011,6 +994,10 @@ fun ChatScreen(
                                             senderNames,
                                         )
                                     },
+                                    showReplyMarker = entry.message.replyToGuid != null &&
+                                        entry.message.guid !in followingReplies &&
+                                        entry.message.guid in repliesWithContext,
+                                    tightInThread = entry.message.guid in followingReplies,
                                     onReplyQuoteTap = {
                                         val target = resolveReplyScrollTarget(
                                             entries,
@@ -1053,11 +1040,6 @@ fun ChatScreen(
                                     } else {
                                         null
                                     },
-                                    onBubbleBoundsInRoot = if (entry.message.id in clusterMemberIds) {
-                                        { bounds -> clusterBounds.set(entry.message.id, bounds) }
-                                    } else {
-                                        null
-                                    },
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .animateItem(
                                             fadeInSpec = itemSpecs.fadeIn,
@@ -1094,7 +1076,6 @@ fun ChatScreen(
                                 }
                             }
                         }
-                    }
                     }
                 }
             }
