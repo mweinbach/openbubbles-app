@@ -6,5 +6,6 @@
     <string name="facetime_accept">Accept</string>
     <string name="credential_no_email">No Email</string>
     <string name="credential_no_password">No Password</string>
+    <string name="credential_unlock_action">Unlock iCloud Keychain</string>
     <string name="icloud_contacts_account_label">iCloud contacts (OpenGarden)</string>
 </resources>

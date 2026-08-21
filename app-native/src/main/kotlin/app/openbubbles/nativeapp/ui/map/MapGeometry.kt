@@ -194,6 +194,25 @@ data class MapViewport(
     }
 }
 
+internal data class ProjectedTrailPoint(val x: Float, val y: Float)
+
+/** Splits a trail when camera-relative world copies diverge at the antimeridian. */
+internal fun MapViewport.projectTrailSegments(points: List<GeoPoint>): List<List<ProjectedTrailPoint>> {
+    if (points.isEmpty()) return emptyList()
+    val splitThreshold = WebMercator.worldSizePx(camera.zoom) / 2.0
+    val segments = mutableListOf<MutableList<ProjectedTrailPoint>>()
+    points.forEach { point ->
+        val projected = ProjectedTrailPoint(projectX(point.longitude), projectY(point.latitude))
+        val current = segments.lastOrNull()
+        if (current == null || current.lastOrNull()?.let { kotlin.math.abs(projected.x - it.x) > splitThreshold } == true) {
+            segments += mutableListOf(projected)
+        } else {
+            current += projected
+        }
+    }
+    return segments.filter { it.size >= 2 }
+}
+
 /** Pans the camera by a screen-pixel delta, keeping it inside the projection. */
 fun MapCamera.panBy(dxPx: Float, dyPx: Float, viewportHeightPx: Float): MapCamera {
     val worldSize = WebMercator.worldSizePx(zoom)
@@ -252,17 +271,19 @@ fun cameraFor(
     }
     val south = points.minOf { WebMercator.clampLatitude(it.latitude) }
     val north = points.maxOf { WebMercator.clampLatitude(it.latitude) }
-    val west = points.minOf { WebMercator.wrapLongitude(it.longitude) }
-    val east = points.maxOf { WebMercator.wrapLongitude(it.longitude) }
-    val center = GeoPoint((south + north) / 2, (west + east) / 2)
+    val longitudeArc = shortestLongitudeArc(points.map { it.longitude })
+    val projectedSouth = WebMercator.projectY(south, 0.0)
+    val projectedNorth = WebMercator.projectY(north, 0.0)
+    val center = GeoPoint(
+        latitude = WebMercator.unprojectLatitude((projectedSouth + projectedNorth) / 2, 0.0),
+        longitude = longitudeArc.center,
+    )
     val usableWidth = max(1f, widthPx - paddingPx)
     val usableHeight = max(1f, heightPx - paddingPx)
     // Find the largest zoom at which the whole span still fits both axes.
     var zoom = WebMercator.MAX_ZOOM
     while (zoom > WebMercator.MIN_ZOOM) {
-        val spanX = abs(
-            WebMercator.projectX(east, zoom) - WebMercator.projectX(west, zoom),
-        )
+        val spanX = longitudeArc.spanDegrees / 360.0 * WebMercator.worldSizePx(zoom)
         val spanY = abs(
             WebMercator.projectY(south, zoom) - WebMercator.projectY(north, zoom),
         )
@@ -270,6 +291,31 @@ fun cameraFor(
         zoom -= 0.25
     }
     return MapCamera(center, WebMercator.clampZoom(zoom))
+}
+
+internal data class LongitudeArc(val center: Double, val spanDegrees: Double)
+
+/** Smallest circular arc containing every longitude, including antimeridian crossings. */
+internal fun shortestLongitudeArc(longitudes: List<Double>): LongitudeArc {
+    if (longitudes.isEmpty()) return LongitudeArc(center = 0.0, spanDegrees = 0.0)
+    val normalized = longitudes.map { WebMercator.wrapLongitude(it) + 180.0 }.sorted()
+    var largestGap = -1.0
+    var arcStart = normalized.first()
+    normalized.indices.forEach { index ->
+        val current = normalized[index]
+        val next = if (index == normalized.lastIndex) normalized.first() + 360.0 else normalized[index + 1]
+        val gap = next - current
+        if (gap > largestGap) {
+            largestGap = gap
+            arcStart = next % 360.0
+        }
+    }
+    val span = (360.0 - largestGap).coerceIn(0.0, 360.0)
+    val centerNormalized = (arcStart + span / 2.0) % 360.0
+    return LongitudeArc(
+        center = WebMercator.wrapLongitude(centerNormalized - 180.0),
+        spanDegrees = span,
+    )
 }
 
 /**

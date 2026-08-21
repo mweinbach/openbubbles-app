@@ -650,13 +650,19 @@ object ICloudContactSync {
                 System.currentTimeMillis() - previous.lastSuccessMs < AUTO_SYNC_FRESHNESS_MS
             ) {
                 // A fresh CardDAV snapshot can still predate handles created
-                // by the concurrently running CloudKit history import.
-                CoreGraph.relinkContacts()?.let { result ->
-                    Log.i(
-                        "ICloudContactSync",
-                        "iCloud Contacts relinked: ${result.linkedContacts}/${result.contacts} contacts, " +
-                            "${result.linkedHandles}/${result.handles} handles, ${result.changedContacts} changed",
-                    )
+                // by a CloudKit history import that is running right now, so
+                // bind them here. When no import is in flight the completed
+                // sync's own relink already covered every handle; a full
+                // contacts-by-handles rematch on every reconnect is wasted
+                // write-transaction work.
+                if (CloudSyncWiring.syncing.value) {
+                    CoreGraph.relinkContacts()?.let { result ->
+                        Log.i(
+                            "ICloudContactSync",
+                            "iCloud Contacts relinked: ${result.linkedContacts}/${result.contacts} contacts, " +
+                                "${result.linkedHandles}/${result.handles} handles, ${result.changedContacts} changed",
+                        )
+                    }
                 }
                 return@withContext previous
             }

@@ -217,6 +217,7 @@ class PhotosBrowser(
     suspend fun next(snapshot: PhotosSnapshot): PhotosSnapshot {
         val cursor = snapshot.nextCursor ?: return snapshot
         val page = port.page(cursor = cursor, limit = pageSize)
+        check(page.nextCursor != cursor) { "iCloud Photos cursor did not advance" }
         return snapshot.copy(
             assets = (snapshot.assets + page.assets).distinctBy(PhotoSummary::id),
             nextCursor = page.nextCursor,

@@ -16,6 +16,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.TranscriptBackgroundStore
@@ -642,6 +643,7 @@ class NativePushService : Service(), MsgReceiver {
                 blocked = target?.let { CoreGraph.isChatBlocked(it.id) } == true,
                 notificationsEnabled = runtimeState.notificationsEnabled,
                 activeMatchingNotification = runtimeState.activeMatchingNotification,
+                initialHistoryDownloadActive = InitialHistoryDownload.isPending(this),
             ),
         )
         if (disposition == IncomingNotificationDisposition.NOT_PERSISTED) {

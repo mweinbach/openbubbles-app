@@ -44,6 +44,23 @@ class PhotosBrowserTest {
     fun `page size stays inside ffi bound`() {
         assertFailsWith<IllegalArgumentException> { PhotosBrowser(FakePhotosPort(), 101) }
     }
+
+    @Test
+    fun `non advancing cursor fails instead of repeating the same page`() = runBlocking {
+        val port = FakePhotosPort(
+            pages = ArrayDeque(
+                listOf(
+                    PhotosPage(listOf(photo("master-1")), "1"),
+                    PhotosPage(listOf(photo("master-2")), "1"),
+                ),
+            ),
+        )
+        val browser = PhotosBrowser(port)
+        val initial = browser.initial()
+
+        assertFailsWith<IllegalStateException> { browser.next(initial) }
+        assertEquals(listOf(null, "1"), port.cursors)
+    }
 }
 
 private class FakePhotosPort(

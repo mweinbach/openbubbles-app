@@ -21,6 +21,13 @@ private const val MAX_SELECTED_IMAGE_BYTES = 25L * 1024L * 1024L
 private const val PROFILE_IMAGE_EDGE = 1_024
 private const val GROUP_ICON_EDGE = 570
 
+/**
+ * The streamed source exceeded the bounded-copy ceiling. Distinct from other
+ * IO failures so callers can offer size reduction instead of a generic error.
+ */
+internal class DraftTooLargeException(maxBytes: Long) :
+    IOException("File is larger than ${maxBytes / (1024 * 1024)} MB")
+
 /** Copies at most [maxBytes], failing before an untrusted provider can fill app storage. */
 @Throws(IOException::class)
 internal fun copyWithByteLimit(input: InputStream, output: File, maxBytes: Long): Long {
@@ -32,7 +39,7 @@ internal fun copyWithByteLimit(input: InputStream, output: File, maxBytes: Long)
             val read = input.read(buffer)
             if (read < 0) break
             if (written > maxBytes - read) {
-                throw IOException("File is larger than ${maxBytes / (1024 * 1024)} MB")
+                throw DraftTooLargeException(maxBytes)
             }
             sink.write(buffer, 0, read)
             written += read

@@ -10,6 +10,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -109,6 +110,26 @@ class FindMyViewModelTest {
         assertTrue(port.refreshes > running)
 
         model.setVisible(false)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `hiding the screen cancels an in-flight live refresh`() = runTest(dispatcher) {
+        val port = CancelAwarePort()
+        val model = FindMyViewModel(port, liveIntervalMs = 1_000L)
+        advanceUntilIdle()
+
+        model.setVisible(true)
+        advanceTimeBy(1_000L)
+        runCurrent()
+        assertTrue(port.liveStarted.isCompleted)
+        assertTrue(model.uiState.value.refreshing)
+
+        model.setVisible(false)
+        runCurrent()
+
+        assertTrue(port.liveCancelled.isCompleted)
+        assertFalse(model.uiState.value.refreshing)
         advanceUntilIdle()
     }
 
@@ -223,5 +244,41 @@ private class ParallelRefreshPort : FindMyPort {
         itemsStarted.complete(Unit)
         itemsRelease.await()
         return listOf(FmItemUi("item", "Keys"))
+    }
+}
+
+private class CancelAwarePort : FindMyPort {
+    val liveStarted = CompletableDeferred<Unit>()
+    val liveCancelled = CompletableDeferred<Unit>()
+    private var deviceRefreshes = 0
+    private var friendRefreshes = 0
+    private var itemRefreshes = 0
+
+    override fun isAvailable(): Boolean = true
+    override suspend fun devices(): List<FmDeviceUi> = emptyList()
+    override suspend fun friends(): List<FmFriendUi> = emptyList()
+    override suspend fun items(): List<FmItemUi> = emptyList()
+
+    override suspend fun refreshDevices(): List<FmDeviceUi> {
+        deviceRefreshes += 1
+        if (deviceRefreshes == 1) return emptyList()
+        liveStarted.complete(Unit)
+        try {
+            awaitCancellation()
+        } finally {
+            liveCancelled.complete(Unit)
+        }
+    }
+
+    override suspend fun refreshFriends(): List<FmFriendUi> {
+        friendRefreshes += 1
+        if (friendRefreshes == 1) return emptyList()
+        awaitCancellation()
+    }
+
+    override suspend fun refreshItems(): List<FmItemUi> {
+        itemRefreshes += 1
+        if (itemRefreshes == 1) return emptyList()
+        awaitCancellation()
     }
 }

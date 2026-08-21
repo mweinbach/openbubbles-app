@@ -62,6 +62,8 @@ class SurfaceSwipePolicyTest {
         assertNull(resolve(dragX = 0f, dragY = -600f))
         assertNull(resolve(dragX = -threshold, dragY = threshold))
         assertNull(resolve(dragX = -threshold * 2, dragY = -threshold * 2))
+        // Includes movement accumulated before horizontal touch slop was crossed.
+        assertNull(resolve(dragX = -threshold * 2, dragY = threshold * 1.1f))
     }
 
     @Test

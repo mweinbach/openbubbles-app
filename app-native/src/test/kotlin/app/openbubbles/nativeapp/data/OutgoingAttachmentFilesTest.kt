@@ -4,6 +4,10 @@ import java.nio.file.Files
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.db.Attachment
+import app.openbubbles.db.Message
+import app.openbubbles.db.MyObjectBox
 import kotlin.coroutines.Continuation
 import kotlinx.coroutines.test.runTest
 import kotlin.test.assertContentEquals
@@ -14,6 +18,9 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
 import org.junit.Test
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UIndexedPart
+import uniffi.rust_lib_bluebubbles.UMessage
+import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.USendAttachmentsRequest
 
@@ -23,9 +30,12 @@ class OutgoingAttachmentFilesTest {
         val root = Files.createTempDirectory("outgoing-limit").toFile()
         val partial = root.resolve("payload.part")
         try {
-            assertFailsWith<IOException> {
+            // The typed too-large signal lets video staging offer compression
+            // instead of a generic read failure; it must stay an IOException.
+            val failure = assertFailsWith<DraftTooLargeException> {
                 copyWithByteLimit(ByteArrayInputStream(ByteArray(9)), partial, maxBytes = 8)
             }
+            assertTrue(failure is IOException)
             assertTrue(partial.length() <= 8L)
         } finally {
             root.deleteRecursively()
@@ -275,6 +285,108 @@ class OutgoingAttachmentFilesTest {
     }
 
     @Test
+    fun `partial send promotes every returned display attachment before ingest`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.jpeg",
+                        mime = "image/jpeg",
+                        name = "first.jpg",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0", "temp-message_att1"),
+        )
+
+        assertFalse(plan.complete)
+        assertEquals(1, plan.rawAttachmentCount)
+        assertEquals(
+            listOf("temp-message_att0" to "real-message_0"),
+            plan.promotions,
+        )
+    }
+
+    @Test
+    fun `user-selected SMIL attachment remains durable`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.smil",
+                        mime = "application/smil",
+                        name = "presentation.smil",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0"),
+        )
+
+        assertTrue(plan.complete)
+        assertEquals(1, plan.rawAttachmentCount)
+        assertEquals(listOf("real-message_0"), plan.persistedAttachmentGuids)
+        assertEquals(
+            listOf("temp-message_att0" to "real-message_0"),
+            plan.promotions,
+        )
+    }
+
+    @Test
+    fun `user-selected SMIL preserves later attachment identity`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.smil",
+                        mime = "application/smil",
+                        name = "presentation.smil",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 1uL,
+                        uti = "public.jpeg",
+                        mime = "image/jpeg",
+                        name = "photo.jpg",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0", "temp-message_att1"),
+        )
+
+        assertTrue(plan.complete)
+        assertEquals(
+            listOf(
+                "temp-message_att0" to "real-message_0",
+                "temp-message_att1" to "real-message_1",
+            ),
+            plan.promotions,
+        )
+    }
+
+    @Test
     fun `iMessage attachment send binding stays compact and suspending`() {
         val method = NativePushState::class.java.methods.single { it.name == "sendAttachments" }
 
@@ -283,4 +395,17 @@ class OutgoingAttachmentFilesTest {
         assertEquals(UProgressCallback::class.java, method.parameterTypes[1])
         assertEquals(Continuation::class.java, method.parameterTypes.last())
     }
+
+    private fun normalWith(vararg parts: UIndexedPart) = UMessage.Normal(
+        parts = parts.toList(),
+        effect = null,
+        replyGuid = null,
+        replyPart = null,
+        subject = null,
+        voice = false,
+        isSms = false,
+        appJson = null,
+        linkJson = null,
+        profileJson = null,
+    )
 }

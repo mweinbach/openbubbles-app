@@ -74,10 +74,16 @@ object MessageMapper {
      * - Attachment contributes a single space and an Attachment row with
      *   guid `"<msgId>_<partIdx>"` (partIdx = explicit idx or the running
      *   attachment count). `iris` (live-photo sidecar) and `smil` parts are
-     *   skipped, matching Dart.
+     *   skipped by default, matching Dart's incoming-MMS behavior. A staged
+     *   outgoing iMessage can preserve a user-selected SMIL file explicitly.
      * - Object parts (app payloads) contribute nothing to the text.
      */
-    fun mapParts(parts: List<UIndexedPart>, msgId: String, isOutgoing: Boolean): Pair<String, List<Attachment>> {
+    fun mapParts(
+        parts: List<UIndexedPart>,
+        msgId: String,
+        isOutgoing: Boolean,
+        preserveSmilAttachments: Boolean = false,
+    ): Pair<String, List<Attachment>> {
         val text = StringBuilder()
         val attachments = ArrayList<Attachment>()
         var bodyRunCount = 0L
@@ -93,7 +99,9 @@ object MessageMapper {
                     bodyRunCount += 1
                 }
                 is UPart.Attachment -> {
-                    if (part.mime == "application/smil") continue // MMS layout, no display value
+                    if (part.mime == "application/smil" && !preserveSmilAttachments) {
+                        continue // MMS layout, no display value
+                    }
                     attachments += Attachment().apply {
                         guid = if (part.iris) "${msgId}_${fieldIdx}_iris" else "${msgId}_$fieldIdx"
                         uti = part.uti
@@ -145,7 +153,10 @@ object MessageMapper {
      * metadata. Kotlin `String.length` is UTF-16 code units, matching NSRange
      * and the Dart implementation this native port replaces.
      */
-    fun encodeReplyPartLocators(parts: List<UIndexedPart>): String? {
+    fun encodeReplyPartLocators(
+        parts: List<UIndexedPart>,
+        preserveSmilAttachments: Boolean = false,
+    ): String? {
         val locators = linkedMapOf<Long, String>()
         var bodyOffset = 0
         var bodyRunCount = 0L
@@ -156,7 +167,12 @@ object MessageMapper {
                 is UPart.Text -> fieldIdx to part.text.length
                 is UPart.Mention -> fieldIdx to part.text.length
                 is UPart.Attachment -> {
-                    if (part.iris || part.mime == "application/smil") continue
+                    if (
+                        part.iris ||
+                        (part.mime == "application/smil" && !preserveSmilAttachments)
+                    ) {
+                        continue
+                    }
                     bodyRunCount to 1
                 }
                 is UPart.Object -> continue
@@ -203,10 +219,20 @@ object MessageMapper {
      * `UMessage.Normal` → Message entity (reflectMessageDyn's Message_Message
      * branch, minus SMS staging logic which the ingestor owns).
      */
-    fun mapNormal(inst: UMessageInst, normal: UMessage.Normal, myHandles: Set<String>): Mapped {
+    fun mapNormal(
+        inst: UMessageInst,
+        normal: UMessage.Normal,
+        myHandles: Set<String>,
+        preserveSmilAttachments: Boolean = false,
+    ): Mapped {
         val sender = requireNotNull(inst.sender) { "Normal message without sender" }
         val isFromMe = myHandles.contains(sender)
-        val (text, attachments) = mapParts(normal.parts, inst.id, isFromMe)
+        val (text, attachments) = mapParts(
+            normal.parts,
+            inst.id,
+            isFromMe,
+            preserveSmilAttachments = preserveSmilAttachments,
+        )
 
         val appBalloon = normal.appJson != null
         val message = Message().apply {
@@ -217,7 +243,10 @@ object MessageMapper {
             subject = normal.subject
             threadOriginatorGuid = normal.replyGuid
             threadOriginatorPart = normal.replyPart
-            dbAttributedBody = encodeReplyPartLocators(normal.parts)
+            dbAttributedBody = encodeReplyPartLocators(
+                normal.parts,
+                preserveSmilAttachments = preserveSmilAttachments,
+            )
             expressiveSendStyleId = normal.effect
             hasAttachments = attachments.isNotEmpty()
             // App balloons / link previews: keep the raw JSON the rust layer

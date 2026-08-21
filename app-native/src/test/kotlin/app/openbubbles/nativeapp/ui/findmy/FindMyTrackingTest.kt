@@ -66,6 +66,7 @@ class FindMyTargetsTest {
                     id = "d",
                     name = "Phone",
                     model = "iPhone 16",
+                    deviceClass = "Watch",
                     batteryPercent = 80,
                     batteryStatus = "Charging",
                     location = FmPoint(1.0, 2.0, 30.0, NOW, address = "1 Market St"),
@@ -82,6 +83,7 @@ class FindMyTargetsTest {
         )
         val (deviceTarget, friendTarget, itemTarget) = targets
         assertTrue(deviceTarget.located && deviceTarget.lostMode && deviceTarget.thisDevice)
+        assertEquals("Watch", deviceTarget.deviceClass)
         assertEquals("1 Market St", deviceTarget.point?.address)
         assertEquals("mom@icloud.com", friendTarget.address)
         assertTrue(friendTarget.locating)
@@ -101,6 +103,33 @@ class FindMyTargetsTest {
     }
 }
 
+class FindMyPaneSplitTest {
+    @Test
+    fun `separating hinge becomes the exact pane gutter`() {
+        val split = findMyPaneSplit(
+            containerWidthDp = 900f,
+            hingeLeftDp = 430f,
+            hingeRightDp = 450f,
+        )
+
+        assertTrue(split.usesHinge)
+        assertEquals(430f, split.panelWidthDp)
+        assertEquals(20f, split.gutterWidthDp)
+    }
+
+    @Test
+    fun `edge hinge falls back to the regular split`() {
+        val split = findMyPaneSplit(
+            containerWidthDp = 700f,
+            hingeLeftDp = 120f,
+            hingeRightDp = 140f,
+        )
+
+        assertFalse(split.usesHinge)
+        assertEquals(380f, split.panelWidthDp)
+    }
+}
+
 /** Session tracks. */
 class FindMyTrailTest {
     @Test
@@ -116,6 +145,14 @@ class FindMyTrailTest {
         val point = FmPoint(1.0, 1.0, timestampMs = NOW)
         val once = appendTrail(emptyList(), point)
         assertEquals(once, appendTrail(once, point.copy()))
+    }
+
+    @Test
+    fun `an older cached fix cannot reverse a chronological track`() {
+        val newest = FmPoint(1.0, 1.0, timestampMs = NOW)
+        val older = FmPoint(2.0, 2.0, timestampMs = NOW - 60_000)
+
+        assertEquals(listOf(newest), appendTrail(listOf(newest), older))
     }
 
     @Test

@@ -9,6 +9,10 @@
     <!-- Optional "save iCloud contacts to phone" mirror; requested at
          runtime only when the user enables that toggle. -->
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <!-- MediaStore writes require this runtime permission through Android 9. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -339,6 +343,13 @@
             android:name="app.openbubbles.nativeapp.credentials.CredentialGetActivity"
             android:label="OpenGarden"
             android:taskAffinity=".CredentialGet"
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
+            tools:targetApi="34" />
+
+        <activity
+            android:name="app.openbubbles.nativeapp.credentials.CredentialUnlockActivity"
+            android:label="OpenGarden"
+            android:taskAffinity=".CredentialUnlock"
             android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
             tools:targetApi="34" />
 

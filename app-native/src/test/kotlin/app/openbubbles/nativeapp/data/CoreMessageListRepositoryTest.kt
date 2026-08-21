@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import app.openbubbles.core.repo.MessageRepo
+import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Message
 import app.openbubbles.db.MyObjectBox
@@ -10,15 +11,13 @@ import java.nio.file.Files
 import java.util.Date
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -205,6 +204,140 @@ class CoreMessageListRepositoryTest {
         assertEquals("new message", repository.cached(firstChat.id).last().text)
     }
 
+    /**
+     * The reported stranding: the payload lands while the conversation is
+     * open, but no attachment column changes (the row already claims
+     * downloaded and the byte length already matches), so only the projected
+     * payload identity can tell the mounted bubble to look at disk again.
+     */
+    @Test
+    fun `a promoted payload reaches the collected transcript metadata`() = runBlocking {
+        val payloadRoot = Files.createTempDirectory("ob-ui-message-payload").toFile()
+        try {
+            repository.close()
+            repository = CoreMessageListRepository(
+                MessageRepo(store, attachmentsRoot = payloadRoot),
+                store,
+            )
+            val messages = store.boxFor(Message::class.java)
+            val attachments = store.boxFor(Attachment::class.java)
+            val bytes = "promoted-payload".toByteArray()
+            val newest = messages.all.maxBy { it.dateCreated!!.time }
+            val attachment = Attachment().apply {
+                guid = "att-promoted_0"
+                transferName = "photo.jpg"
+                mimeType = "image/jpeg"
+                isDownloaded = true
+                totalBytes = bytes.size.toLong()
+                message.target = newest
+            }
+            attachments.put(attachment)
+            messages.put(newest.apply { hasAttachments = true })
+
+            val pages = Channel<List<MessageItem>>(Channel.UNLIMITED)
+            val collector = launch {
+                repository.messages(firstChat.id, limit = 30, before = null).collect(pages::send)
+            }
+            try {
+                withTimeout(10_000) {
+                    var meta = pages.receive().last().attachmentMeta
+                    while (meta == null) meta = pages.receive().last().attachmentMeta
+                    assertEquals(null, meta.payloadStamp)
+
+                    val payload = File(payloadRoot, "attachments/att-promoted_0/photo.jpg").apply {
+                        parentFile?.mkdirs()
+                        writeBytes(bytes)
+                    }
+                    attachments.put(attachments.get(attachment.id))
+
+                    var stamped = pages.receive().last().attachmentMeta?.payloadStamp
+                    while (stamped == null) {
+                        stamped = pages.receive().last().attachmentMeta?.payloadStamp
+                    }
+                    assertTrue(stamped.endsWith(":${bytes.size}:${payload.lastModified()}"))
+                }
+            } finally {
+                collector.cancel()
+            }
+        } finally {
+            payloadRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `attachment completion updates the collected transcript in place`() = runBlocking {
+        val messages = store.boxFor(Message::class.java)
+        val attachments = store.boxFor(Attachment::class.java)
+        val newest = messages.all.maxBy { it.dateCreated!!.time }
+        val attachment = Attachment().apply {
+            guid = "att-pending_0"
+            transferName = "photo.jpg"
+            mimeType = "image/jpeg"
+            isDownloaded = false
+            message.target = newest
+        }
+        attachments.put(attachment)
+        messages.put(newest.apply { hasAttachments = true })
+
+        val pages = Channel<List<MessageItem>>(Channel.UNLIMITED)
+        val collector = launch {
+            repository.messages(firstChat.id, limit = 30, before = null).collect(pages::send)
+        }
+        try {
+            withTimeout(10_000) {
+                var page = pages.receive()
+                while (page.lastOrNull()?.attachmentMeta == null) page = pages.receive()
+                assertEquals(false, page.last().attachmentMeta?.downloaded)
+
+                attachments.put(attachments.get(attachment.id).apply { isDownloaded = true })
+
+                while (page.last().attachmentMeta?.downloaded != true) page = pages.receive()
+            }
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun `attachment completion after a new message updates the collected transcript`() = runBlocking {
+        val messages = store.boxFor(Message::class.java)
+        val attachments = store.boxFor(Attachment::class.java)
+
+        val pages = Channel<List<MessageItem>>(Channel.UNLIMITED)
+        val collector = launch {
+            repository.messages(firstChat.id, limit = 30, before = null).collect(pages::send)
+        }
+        try {
+            withTimeout(10_000) {
+                pages.receive()
+                val incoming = Message().apply {
+                    guid = "first-101"
+                    dateCreated = Date(101)
+                    hasAttachments = true
+                    chat.target = firstChat
+                }
+                messages.put(incoming)
+                val attachment = Attachment().apply {
+                    guid = "att-live_0"
+                    transferName = "photo.jpg"
+                    mimeType = "image/jpeg"
+                    isDownloaded = false
+                    message.target = incoming
+                }
+                attachments.put(attachment)
+
+                var page = pages.receive()
+                while (page.lastOrNull()?.attachmentMeta == null) page = pages.receive()
+
+                attachments.put(attachments.get(attachment.id).apply { isDownloaded = true })
+
+                while (page.last().attachmentMeta?.downloaded != true) page = pages.receive()
+            }
+        } finally {
+            collector.cancel()
+        }
+    }
+
     @Test
     fun `obsolete prefetch cannot repopulate an evicted snapshot`() = runBlocking {
         val firstStarted = CompletableDeferred<Unit>()
@@ -231,20 +364,19 @@ class CoreMessageListRepositoryTest {
     @Test
     fun `warm gives up after two invalidated loads instead of spinning`() = runBlocking {
         val loads = AtomicInteger()
-        val changes = MessageRepo(store)
         repository.close()
         repository = CoreMessageListRepository(MessageRepo(store), store) { _, _ ->
-            coroutineScope {
-                val observed = async(start = CoroutineStart.UNDISPATCHED) {
-                    changes.observeTranscriptChanges().drop(1).first()
-                }
-                yield()
-                val sequence = loads.incrementAndGet()
-                store.boxFor(Message::class.java).put(Message().apply {
-                    guid = "invalidating-$sequence"
-                    chat.target = firstChat
-                })
-                withTimeout(2_000) { observed.await() }
+            val before = repository.observedChangeGeneration()
+            val sequence = loads.incrementAndGet()
+            store.boxFor(Message::class.java).put(Message().apply {
+                guid = "invalidating-$sequence"
+                chat.target = firstChat
+            })
+            // The load is only discarded when the repository itself has seen
+            // the invalidation, so wait for its counter and not for a second
+            // collector of the same store signal.
+            withTimeout(2_000) {
+                while (repository.observedChangeGeneration() == before) delay(1)
             }
             listOf(messageItem(loads.get().toLong(), "unstable"))
         }
