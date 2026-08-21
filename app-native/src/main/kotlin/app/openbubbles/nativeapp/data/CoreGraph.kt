@@ -70,6 +70,7 @@ import kotlinx.coroutines.channels.awaitClose
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
+import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.UPushMessage
@@ -130,7 +131,15 @@ object CoreGraph {
     }
     private val messageRepo: MessageRepo? by lazy {
         val chats = chatRepo ?: return@lazy null
-        store?.let { MessageRepo(it, chats) }
+        store?.let {
+            MessageRepo(
+                it,
+                chats,
+                // The rendering projection needs the payload identity so a
+                // completed download reaches an open transcript.
+                attachmentsRoot = AppContext.current?.dataDir?.let { dir -> File(dir, "app_flutter") },
+            )
+        }
     }
     val ingestor: MessageIngestor? by lazy {
         val st = store ?: return@lazy null
@@ -977,6 +986,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
             scale = sticker.scale,
             effectType = sticker.effectType,
             downloaded = sticker.downloaded,
+            payload = sticker.payload,
         )
     },
     chatId = item.chatId,
@@ -992,7 +1002,10 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
 internal fun isImageAttachment(mime: String?, uti: String?, name: String? = null): Boolean =
     AttachmentMedia.isImage(mime, uti, name)
 
-internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
+internal fun attachmentToMeta(
+    attachment: Attachment,
+    payloadStamp: String? = null,
+) = AttachmentMeta(
     guid = attachment.guid,
     mime = attachment.mimeType,
     name = attachment.transferName,
@@ -1005,10 +1018,19 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
     uti = attachment.uti,
     livePhotoMotionGuid = attachment.metadata?.get("livePhotoMotionGuid") as? String,
     isLivePhotoMotion = attachment.metadata?.get("livePhotoMotion") == true,
+    payloadStamp = payloadStamp,
 )
 
-internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<AttachmentMeta> {
-    val metas = attachments.map(::attachmentToMeta)
+/**
+ * @param payloadStamps disk identity per attachment row id, taken from the
+ *   transcript projection so the payload is stat-ed once per page instead of
+ *   once per rendering stage.
+ */
+internal fun visibleAttachmentMetas(
+    attachments: List<Attachment>,
+    payloadStamps: Map<Long, String?> = emptyMap(),
+): List<AttachmentMeta> {
+    val metas = attachments.map { attachmentToMeta(it, payloadStamps[it.id]) }
     val metasByGuid = metas.associateBy(AttachmentMeta::guid)
     val hiddenMotionGuids = metas.filter(AttachmentMeta::isLivePhotoMotion).mapTo(mutableSetOf(), AttachmentMeta::guid)
     val inferredMotionByStill = metas.asSequence()
@@ -1028,6 +1050,7 @@ internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<Attachm
         meta.copy(
             livePhotoMotionGuid = motionGuid,
             livePhotoMotionDownloaded = motionGuid?.let { metasByGuid[it]?.downloaded } == true,
+            livePhotoMotionPayloadStamp = motionGuid?.let { metasByGuid[it]?.payloadStamp },
         )
     }
 }
@@ -1081,12 +1104,22 @@ private fun editedFlags(entity: Message): Pair<Boolean, Boolean> {
 }
 
 /**
+ * Disk identity per attachment row id, as resolved by the core transcript
+ * projection. Reusing it keeps the payload stat on one stage of the pipeline.
+ */
+private fun payloadStampsOf(page: List<app.openbubbles.core.model.MessageItem>): Map<Long, String?> =
+    page.asSequence()
+        .flatMap { it.attachmentStamps.asSequence() }
+        .associate { it.id to it.payload }
+
+/**
  * Fills the display fields (attachment metadata, edited/unsent flags) the
  * core MessageItem does not carry yet, using one batched entity read.
  */
 private fun enrichWithEntityDetails(
     items: List<MessageItem>,
     store: BoxStore?,
+    payloadStamps: Map<Long, String?> = emptyMap(),
 ): List<MessageItem> {
     if (store == null || items.isEmpty()) return items
     return runCatching {
@@ -1110,7 +1143,7 @@ private fun enrichWithEntityDetails(
                 val entity = byId[item.id] ?: return@map item
                 val (edited, unsent) = editedFlags(entity)
                 val attachments = runCatching {
-                    visibleAttachmentMetas(entity.dbAttachments)
+                    visibleAttachmentMetas(entity.dbAttachments, payloadStamps)
                 }.getOrDefault(emptyList())
                 val firstAttachment = attachments.firstOrNull()
                 item.copy(
@@ -1379,7 +1412,7 @@ internal class CoreMessageListRepository(
     private val store: BoxStore?,
     private val warmLoader: suspend (Long, Int) -> List<MessageItem> = { chatId, limit ->
         val page = repo.messages(chatId, limit)
-        enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+        enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page)).asReversed()
     },
 ) : MessageListRepository {
     private companion object {
@@ -1484,7 +1517,8 @@ internal class CoreMessageListRepository(
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
         val cursor = before ?: return emptyList()
         val older = repo.messagesBefore(chatId, beforeId = cursor, limit = count)
-        val olderUi = enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
+        val olderUi = enrichWithEntityDetails(older.map(::coreMessageToUi), store, payloadStampsOf(older))
+            .asReversed()
         if (older.isNotEmpty()) {
             val paging = window(chatId, count)
             paging.size.value += older.size
@@ -1500,11 +1534,10 @@ internal class CoreMessageListRepository(
         return olderUi
     }
 
-    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> =
-        enrichWithEntityDetails(
-            repo.threadMessages(chatId, rootGuid, part).map(::coreMessageToUi),
-            store,
-        )
+    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
+        val page = repo.threadMessages(chatId, rootGuid, part)
+        return enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page))
+    }
 
     override fun release(chatId: Long) {
         retained.remove(chatId)
@@ -1564,7 +1597,7 @@ internal class CoreMessageListRepository(
                 paging.size.value += newlyPrepended
             }
         }
-        val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+        val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page)).asReversed()
         rememberSnapshot(chatId, ui, requestedLimit, changeGeneration.get())
         return ui
     }
@@ -1635,6 +1668,14 @@ internal class CoreMessageListRepository(
         }
         return selected
     }
+
+    /**
+     * Invalidations this repository has already folded into its own state.
+     * Warm loads are only accepted when this does not move while they run, so
+     * a test proving that has to wait on this counter rather than on its own
+     * separate collector of the same store signal.
+     */
+    internal fun observedChangeGeneration(): Long = changeGeneration.get()
 
     internal fun close() {
         cacheScope.cancel()
@@ -2487,6 +2528,47 @@ internal object UploadProgressBoard {
 internal fun attachmentSendProgressCallback(): UProgressCallback? = null
 
 /**
+ * Boundary logging for composed sends records only counts and presence flags —
+ * never captions, file names, handles, or attachment bytes.
+ */
+private const val ATTACHMENT_SEND_TAG = "CoreAttachmentSender"
+
+internal data class ReturnedAttachmentPlan(
+    val rawAttachmentCount: Int,
+    val persistedAttachmentGuids: List<String>,
+    val promotions: List<Pair<String, String>>,
+    val complete: Boolean,
+)
+
+/**
+ * Keep transport completeness separate from the default incoming-message
+ * mapper. Every part at this outgoing iMessage boundary came from the user's
+ * selected files, including an arbitrary application/smil file, so all of
+ * them remain displayable and durable.
+ */
+internal fun returnedAttachmentPlan(
+    normal: UMessage.Normal?,
+    messageGuid: String,
+    stagedGuids: List<String>,
+): ReturnedAttachmentPlan {
+    val rawAttachmentCount = normal?.parts.orEmpty().count { it.part is UPart.Attachment }
+    val persistedAttachmentGuids = normal?.let {
+        MessageMapper.mapParts(
+            it.parts,
+            messageGuid,
+            isOutgoing = true,
+            preserveSmilAttachments = true,
+        ).second.map { item -> item.guid }
+    }.orEmpty()
+    return ReturnedAttachmentPlan(
+        rawAttachmentCount = rawAttachmentCount,
+        persistedAttachmentGuids = persistedAttachmentGuids,
+        promotions = stagedGuids.zip(persistedAttachmentGuids),
+        complete = rawAttachmentCount == stagedGuids.size,
+    )
+}
+
+/**
  * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
  * semantics: stage optimistically under a temp guid with placeholder
  * attachment rows (payloads copied into the canonical store layout so the
@@ -2581,12 +2663,21 @@ internal object CoreAttachmentSender : AttachmentSender {
             CoreGraphStageHolder.messageRepo(store)
                 .failOutgoing(prepared.tempGuid, "Not connected to Apple push")
             UploadProgressBoard.clear(progressGuid)
+            Log.w(
+                ATTACHMENT_SEND_TAG,
+                "attachment send staged as failed with no push state (files=${prepared.payloads.size})",
+            )
             return OutgoingAttachmentSend(prepared.messageId)
         }
 
         graph.launchBackground {
             var failureLookupGuid = prepared.tempGuid
             try {
+                Log.i(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send request files=${prepared.payloads.size} " +
+                        "caption=${caption?.isNotBlank() == true} subject=${subject != null}",
+                )
                 val inst = pushState.sendAttachments(
                     USendAttachmentsRequest(
                         conversation = prepared.conversation,
@@ -2606,16 +2697,21 @@ internal object CoreAttachmentSender : AttachmentSender {
                 )
                 failureLookupGuid = inst.id
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
-                val realAttachmentGuids = normal?.let {
-                    MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.map { item -> item.guid }
-                }.orEmpty()
-                if (realAttachmentGuids.size == prepared.stagedGuids.size) {
-                    // Move payloads before ingest so the bubble does not lose
-                    // its local preview when the guid swaps to the Rust id.
-                    prepared.stagedGuids.zip(realAttachmentGuids).forEach { (local, real) ->
-                        prepared.disk.promoteLocalDirectory(local, real)
-                    }
+                val returned = returnedAttachmentPlan(normal, inst.id, prepared.stagedGuids)
+                // Move every returned payload before ingest. Even an
+                // incomplete response promotes the subset whose ObjectBox
+                // rows the echo is about to move to real guids.
+                returned.promotions.forEach { (local, real) ->
+                    prepared.disk.promoteLocalDirectory(local, real)
                 }
+                Log.i(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send returned parts=${normal?.parts?.size ?: 0} " +
+                        "attachments=${returned.rawAttachmentCount} " +
+                        "persisted=${returned.persistedAttachmentGuids.size} " +
+                        "staged=${prepared.stagedGuids.size} " +
+                        "caption=${caption?.isNotBlank() == true}",
+                )
                 // Promote to the Rust staging guid so the echo and SendConfirm
                 // receipts find the row (same swap Dart performs).
                 val messageBox = store.boxFor(Message::class.java)
@@ -2634,15 +2730,28 @@ internal object CoreAttachmentSender : AttachmentSender {
                         }
                 }
                 ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                if (!returned.complete) {
+                    // The accepted message does not carry the attachment set we
+                    // staged, so this send is not a success. Surface it after
+                    // ingest (which does not clear the error); returned files
+                    // were promoted above and the missing subset stays staged.
+                    Log.w(
+                        ATTACHMENT_SEND_TAG,
+                        "attachment part set incomplete: returned=${returned.rawAttachmentCount} " +
+                            "staged=${prepared.stagedGuids.size}",
+                    )
+                    CoreGraphStageHolder.messageRepo(store).failOutgoing(
+                        inst.id,
+                        "Only ${returned.rawAttachmentCount} of ${prepared.stagedGuids.size} attachments were sent",
+                    )
+                }
             } catch (failure: Throwable) {
                 val marked = CoreGraphStageHolder.messageRepo(store)
                     .failOutgoing(failureLookupGuid, "Attachment send failed (${failure.javaClass.simpleName})")
-                if (marked == null) {
-                    android.util.Log.w(
-                        "CoreAttachmentSender",
-                        "attachment send failed but no staged row exists (${failure.javaClass.simpleName})",
-                    )
-                }
+                Log.w(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send failed (${failure.javaClass.simpleName}) marked=${marked != null}",
+                )
             } finally {
                 UploadProgressBoard.clear(progressGuid)
             }
