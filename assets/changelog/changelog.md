@@ -2,6 +2,36 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.1
+
+### Enhancements
+
+- Message history now mirrors everything in Messages in iCloud by default, so
+  your conversations match your other devices. Limiting how much is kept on
+  this phone is an explicit opt-in; it never made the download faster, and the
+  setup step and Settings now say so plainly. Photos and files still stay in
+  iCloud until you open them.
+- Photos uploads carry native capture metadata (time zone and location), and
+  an opt-in camera backup can send new camera photos to iCloud automatically,
+  with an add action in the Photos app bar.
+- Downloaded iCloud Photos originals can be saved to the phone's gallery
+  (DCIM/iCloud) or shared directly from the viewer.
+- The attachment upload progress bar in the composer now matches the photo's
+  width, and the filled strip around the composer is gone.
+
+### Fixes
+
+- First-run sign-in no longer leaves a second Apple push connection alive that
+  fought the live service for the same push slot, which caused a constant
+  reconnect loop, high battery and CPU use, and delayed incoming messages
+  during and after the initial history download.
+- A push connection that drops right after connecting now backs off before
+  reconnecting instead of retrying several times a second.
+- iCloud history requests are bounded so a stalled fetch surfaces and is
+  retried instead of hanging the download; a run that stops early is
+  restarted automatically, and the progress line no longer reads as stuck
+  ("0 so far") while it works through already-synced or deleted records.
+
 ## v3.5.0
 
 ### Enhancements
