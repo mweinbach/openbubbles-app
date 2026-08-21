@@ -95,8 +95,9 @@ internal fun HistoryDownloadLockScreen(
     // job to wait for, so the restored lock must issue a cursor-resuming run.
     var startRequested by remember { mutableStateOf(false) }
     var connectionUnavailable by rememberSaveable { mutableStateOf(false) }
+    var connectionAttempt by rememberSaveable { mutableStateOf(0) }
 
-    LaunchedEffect(context, pushState) {
+    LaunchedEffect(context, pushState, connectionAttempt) {
         connectionUnavailable = false
         if (context == null || pushState != null) return@LaunchedEffect
         delay(HISTORY_CONNECTION_WAIT_MS)
@@ -129,6 +130,7 @@ internal fun HistoryDownloadLockScreen(
         onRetry = {
             connectionUnavailable = false
             startRequested = false
+            connectionAttempt += 1
             context?.let(NativePushService::start)
         },
         onDismiss = onDismiss,

@@ -565,14 +565,24 @@ fun OpenBubblesApp(
     var onboardingComplete by remember(onboardingPrefs) {
         androidx.compose.runtime.mutableStateOf(onboardingPrefs?.getBoolean("onboarding_complete", false) ?: true)
     }
+    // Sign-in installs the push state mid-onboarding (the keychain and
+    // history steps need a live connection), so latch the flow open instead
+    // of letting the arriving state dismiss it. This durable latch also tells
+    // a freshly restored process to revive the Apple session before rendering
+    // those post-sign-in steps.
+    var onboardingActive by remember(onboardingPrefs) {
+        androidx.compose.runtime.mutableStateOf(
+            context?.let(InitialHistoryDownload::isPostSignInOnboardingActive) == true,
+        )
+    }
 
     // A force-stop or process restart clears the in-memory holder even though
     // IDS registration remains on disk. Returning users must restore the live
     // state when the activity becomes usable again; boot broadcasts alone are
     // insufficient because Android suppresses them for force-stopped apps.
-    LaunchedEffect(context, onboardingComplete) {
+    LaunchedEffect(context, onboardingComplete, onboardingActive) {
         val ctx = context ?: return@LaunchedEffect
-        if (!onboardingComplete) return@LaunchedEffect
+        if (!onboardingComplete && !onboardingActive) return@LaunchedEffect
         val hasRegistration = withContext(Dispatchers.IO) {
             runCatching { hasSavedUsers(ctx.filesDir.absolutePath) }.getOrDefault(false)
         }
@@ -584,14 +594,6 @@ fun OpenBubblesApp(
         }
     }
 
-    // Sign-in installs the push state mid-onboarding (the keychain and
-    // history steps need a live connection), so latch the flow open instead
-    // of letting the arriving state dismiss it.
-    var onboardingActive by remember(onboardingPrefs) {
-        androidx.compose.runtime.mutableStateOf(
-            context?.let(InitialHistoryDownload::isPostSignInOnboardingActive) == true,
-        )
-    }
     if ((pushState == null || onboardingActive) && !onboardingComplete && context != null) {
         OnboardingScreen(
             resumeAfterSignIn = onboardingActive,

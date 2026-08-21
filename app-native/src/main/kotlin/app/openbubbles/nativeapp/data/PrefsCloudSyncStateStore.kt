@@ -101,8 +101,12 @@ object CloudSyncWiring {
         // mode (battery saver) drives its own single sync instead. The armed
         // first-run backfill owns the single-flight slot behind the lock
         // screen, so connecting must not start a competing incremental pass.
-        if (autoSync &&
-            !InitialHistoryDownload.isPending(context) &&
+        if (InitialHistoryDownload.isPending(context)) {
+            // The service can restore the Apple session before any activity is
+            // composed. Resume the durable, cursor-backed initial download in
+            // that process too so its notification lock cannot strand users.
+            startInitialHistorySync(context.applicationContext)
+        } else if (autoSync &&
             !InitialHistoryDownload.isPostSignInOnboardingActive(context)
         ) {
             val now = System.currentTimeMillis()
