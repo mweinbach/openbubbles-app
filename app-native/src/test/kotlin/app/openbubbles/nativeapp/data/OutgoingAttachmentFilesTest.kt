@@ -14,6 +14,9 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
 import org.junit.Test
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UIndexedPart
+import uniffi.rust_lib_bluebubbles.UMessage
+import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.USendAttachmentsRequest
 
@@ -275,6 +278,61 @@ class OutgoingAttachmentFilesTest {
     }
 
     @Test
+    fun `partial send promotes every returned display attachment before ingest`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.jpeg",
+                        mime = "image/jpeg",
+                        name = "first.jpg",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0", "temp-message_att1"),
+        )
+
+        assertFalse(plan.complete)
+        assertEquals(1, plan.rawAttachmentCount)
+        assertEquals(
+            listOf("temp-message_att0" to "real-message_0"),
+            plan.promotions,
+        )
+    }
+
+    @Test
+    fun `transport completeness counts raw SMIL attachment parts`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.smil",
+                        mime = "application/smil",
+                        name = "presentation.smil",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0"),
+        )
+
+        assertTrue(plan.complete)
+        assertEquals(1, plan.rawAttachmentCount)
+        assertTrue(plan.persistedAttachmentGuids.isEmpty())
+    }
+
+    @Test
     fun `iMessage attachment send binding stays compact and suspending`() {
         val method = NativePushState::class.java.methods.single { it.name == "sendAttachments" }
 
@@ -283,4 +341,17 @@ class OutgoingAttachmentFilesTest {
         assertEquals(UProgressCallback::class.java, method.parameterTypes[1])
         assertEquals(Continuation::class.java, method.parameterTypes.last())
     }
+
+    private fun normalWith(vararg parts: UIndexedPart) = UMessage.Normal(
+        parts = parts.toList(),
+        effect = null,
+        replyGuid = null,
+        replyPart = null,
+        subject = null,
+        voice = false,
+        isSms = false,
+        appJson = null,
+        linkJson = null,
+        profileJson = null,
+    )
 }
