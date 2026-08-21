@@ -99,6 +99,51 @@ class EntitiesTest {
     }
 
     @Test
+    fun `attachment flex metadata integers survive backlink load`() {
+        val chatBox = store.boxFor(Chat::class.java)
+        val messageBox = store.boxFor(Message::class.java)
+        val attachmentBox = store.boxFor(Attachment::class.java)
+
+        val c = Chat().apply { guid = "flex-chat" }
+        chatBox.put(c)
+        val m = Message().apply {
+            guid = "msg-with-flex-meta"
+            hasAttachments = true
+            chat.target = c
+        }
+        messageBox.put(m)
+        attachmentBox.put(Attachment().apply {
+            guid = "flex-att-guid"
+            mimeType = "image/png"
+            metadata = mapOf(
+                "messagePart" to 1L,
+                "width" to 1024,
+            )
+            exif = mapOf("Orientation" to 6)
+            message.target = m
+        })
+
+        val read = messageBox[m.id]!!
+        // MessageRepo.toItem reads ToMany.size, which materializes backlinks
+        // and runs FlexObjectConverter — the production crash path.
+        assertEquals(1, read.dbAttachments.size)
+        val attachment = read.dbAttachments[0]
+        val metadata = attachment.metadata
+        assertNotNull(metadata)
+        assertEquals(1, (metadata["messagePart"] as Number).toInt())
+        assertEquals(1024, (metadata["width"] as Number).toInt())
+        assertEquals(6, (attachment.exif["Orientation"] as Number).toInt())
+    }
+
+    @Test
+    fun `objectbox flex converter can reflect FlexBuffers parentWidth`() {
+        val field = Class.forName("io.objectbox.flatbuffers.FlexBuffers\$Reference")
+            .getDeclaredField("parentWidth")
+        field.isAccessible = true
+        assertEquals(Int::class.javaPrimitiveType, field.type)
+    }
+
+    @Test
     fun `unique guid enforced`() {
         val messageBox = store.boxFor(Message::class.java)
         messageBox.put(Message().apply { guid = "dup" })
