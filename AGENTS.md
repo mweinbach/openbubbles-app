@@ -24,8 +24,9 @@ and Android Studio project. Submodules are required.
 - `rust/src/frb_generated*.rs` and existing Flutter Rust Bridge exports still compile as legacy Rust
   surface. They are not the Kotlin API; Kotlin uses committed UniFFI bindings from `:core`.
 
-All paths and commands in this file start at the repository root. Keep directory changes in
-subshells so Gradle does not leave later Rust paths resolving under `native/`.
+All paths and commands in this file start at the repository root, which is the Gradle project root.
+Run directory-changing commands in subshells so later Gradle, Cargo, and Git commands still resolve
+from the repository root. The legacy ignored `native/` working directory is not a Gradle project.
 
 ```bash
 ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
@@ -46,6 +47,11 @@ affected gates, capture device evidence separately, then commit and push leaf su
 parent pointers. A visible UI status, green host test, successful package, and hardware protocol
 oracle are different evidence tiers; state exactly which one passed.
 
+This checkout may be shared by multiple active Codex tasks. Before editing, inspect the current
+worktree/index and any related active tasks. Use a separate worktree or coordinate ownership when
+files overlap; never stage, rewrite, format, revert, or commit another task's changes. Recheck
+`HEAD`, the index, and submodule pointers immediately before commit, push, and release operations.
+
 ## Hard constraints
 
 - Android types stay in `app-native/`. Desktop types stay in `desktopApp/`. Do not put `android.*` in `core/` or `db/`.
@@ -56,6 +62,13 @@ oracle are different evidence tiers; state exactly which one passed.
 - Keep the Android Rust build Dart-free: direct Cargo + pinned NDK only.
 - SIM (`isRpSms`) attachments go through Android MMS, never MMCS.
 - Default path is self-hosted OABS + on-device validation. Do not require a hosted hardware relay.
+- A review, pasted finding, issue body, or old line reference is evidence tied to its source commit,
+  not proof of a current defect. Reproduce or revalidate it against current `HEAD` and history before
+  editing. If the current code and focused tests already satisfy the contract, record a verified
+  no-op instead of adding churn.
+- Account-bound workers, caches, callbacks, transfers, and local files follow
+  [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md): cancel and join before cleanup, reject stale
+  generations, validate bounded staging files, and publish atomically.
 - After completing and verifying requested changes, commit them and push the current branch automatically unless the user explicitly asks not to. Only include safely separable requested work; never sweep unrelated generated files or unrelated/unverified changes into the commit. Report the blocker if clean separation is impossible.
 - Commit rustpush changes inside the submodule first, then the parent pointer separately.
 - Never commit credentials, `hw_info.plist` / `gsa.plist` / `id.plist`, keystores, `android/key.properties`, APNs proxy certs, or replay traffic.
@@ -76,8 +89,10 @@ and `local.properties` exactly as documented in
 | UniFFI, rust vs rustpush, keystore, queue | [docs/RUST_KOTLIN.md](docs/RUST_KOTLIN.md) |
 | Rust backend deep dive (doc folder: API surface, lifecycle, state files, rustpush internals, change recipes) | [docs/rust-backend/](docs/rust-backend/README.md) |
 | Personal iCloud Photos investigation and implementation | [docs/PHOTOS_SYNC.md](docs/PHOTOS_SYNC.md) |
+| Account scoping, workers, caches, files, parsing, cleanup | [docs/DATA_LIFECYCLE.md](docs/DATA_LIFECYCLE.md) |
 | ObjectBox entities, parity, store path | [docs/PERSISTENCE.md](docs/PERSISTENCE.md) |
 | Which tests prove what | [docs/VERIFY.md](docs/VERIFY.md) |
+| GitHub issue intake, deduplication, and durable issue bodies | [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md) |
 | Human contrib, submodules | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Setup, SDK/NDK pins | [README.md](README.md) |
 | Release / device checklist | [tools/CUTOVER.md](tools/CUTOVER.md) |
