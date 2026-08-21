@@ -875,6 +875,16 @@ private val ReplyConnectorLegLength = 18.dp
 private const val ReplyConnectorArmEase = 0.72f
 private const val ReplyConnectorLegEase = 0.72f
 
+/**
+ * A straight run at the free end. A horizontal tangent alone still falls away
+ * immediately, so the stroke needs real flat length to settle into before the
+ * curve picks up.
+ */
+private val ReplyConnectorFlatTail = 10.dp
+
+/** Sits the flat run just below the leg's crown so the tail reads as level. */
+private val ReplyConnectorTipDrop = 2.dp
+
 /** Daylight between the marker and the bubbles it sits between. */
 private val ReplyConnectorClearance = 5.dp
 
@@ -913,6 +923,7 @@ internal fun replyConnectorGeometry(
     armLength: Float,
     legLength: Float,
     clearance: Float,
+    tipDrop: Float,
 ): ReplyConnectorGeometry {
     val sitsOnRight = replyFromMe == isLtr
     val inward = if (sitsOnRight) -1f else 1f
@@ -927,7 +938,7 @@ internal fun replyConnectorGeometry(
     val legTopY = maxOf(legBottomY - legLength, floorY).coerceAtMost(legBottomY)
 
     return ReplyConnectorGeometry(
-        armStart = Offset(armStartX, legTopY),
+        armStart = Offset(armStartX, (legTopY + tipDrop).coerceAtMost(legBottomY)),
         corner = Offset(legX, legTopY),
         legEnd = Offset(legX, legBottomY),
     )
@@ -940,13 +951,19 @@ internal fun replyConnectorGeometry(
  * the curvature builds through the turn instead of switching on at a tangent
  * point.
  */
-internal fun replyConnectorPath(geometry: ReplyConnectorGeometry): Path = Path().apply {
+internal fun replyConnectorPath(
+    geometry: ReplyConnectorGeometry,
+    flatTail: Float,
+): Path = Path().apply {
     val (armStart, corner, legEnd) = geometry
     val reach = corner.x - armStart.x
+    val tail = minOf(flatTail, kotlin.math.abs(reach)) * if (reach >= 0f) 1f else -1f
+    val curveStartX = armStart.x + tail
     val drop = legEnd.y - armStart.y
     moveTo(armStart.x, armStart.y)
+    lineTo(curveStartX, armStart.y)
     cubicTo(
-        armStart.x + reach * ReplyConnectorArmEase, armStart.y,
+        curveStartX + (corner.x - curveStartX) * ReplyConnectorArmEase, armStart.y,
         legEnd.x, legEnd.y - drop * ReplyConnectorLegEase,
         legEnd.x, legEnd.y,
     )
@@ -983,7 +1000,9 @@ private fun ReplyConnectorOverlay(
                     armLength = ReplyConnectorArmLength.toPx(),
                     legLength = ReplyConnectorLegLength.toPx(),
                     clearance = ReplyConnectorClearance.toPx(),
+                    tipDrop = ReplyConnectorTipDrop.toPx(),
                 ),
+                flatTail = ReplyConnectorFlatTail.toPx(),
             ),
             color = connectorColor,
             style = Stroke(width = ReplyConnectorStrokeWidth.toPx(), cap = StrokeCap.Round),

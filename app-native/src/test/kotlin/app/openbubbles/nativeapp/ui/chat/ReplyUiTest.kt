@@ -171,7 +171,8 @@ class ReplyUiTest {
         assertEquals(34f, geometry.legEnd.x)
         // The arm points back toward the transcript centre.
         assertEquals(46f, geometry.armStart.x)
-        assertEquals(geometry.corner.y, geometry.armStart.y)
+        // The flat tail sits just under the leg's crown.
+        assertEquals(geometry.corner.y + 2f, geometry.armStart.y)
         // The leg stops just short of the bubble instead of touching it.
         assertEquals(reply.top - 3f, geometry.legEnd.y)
         assertEquals(43f, geometry.corner.y)
@@ -251,6 +252,7 @@ class ReplyUiTest {
         armLength = 12f,
         legLength = 14f,
         clearance = 3f,
+        tipDrop = 2f,
     )
 
     @Test
