@@ -1267,6 +1267,7 @@ fun OpenBubblesApp(
                         onSelect = viewModel::select,
                         onCloseSelected = viewModel::closeSelected,
                         onRetryOriginal = viewModel::retryOriginal,
+                        onSaveToGallery = viewModel::saveToGallery,
                         onChooseUploads = {
                             pickPhotosForUpload.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),

@@ -1,7 +1,12 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Favorite
@@ -50,6 +56,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
@@ -108,10 +116,13 @@ import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosAccess
 import app.openbubbles.core.photos.PhotosAvailability
+import androidx.core.content.ContextCompat
 import app.openbubbles.core.photos.PhotosSnapshot
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
+import app.openbubbles.nativeapp.data.photos.PhotoLibraryExport
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
 import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
+import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -136,6 +147,7 @@ fun PhotosScreen(
     onSelect: (PhotoSummary) -> Unit,
     onCloseSelected: () -> Unit,
     onRetryOriginal: (PhotoSummary) -> Unit,
+    onSaveToGallery: (PhotoSummary) -> Unit,
     onChooseUploads: () -> Unit,
     onAddFolder: () -> Unit,
     onScanFolder: (PhotoFolderSource) -> Unit,
@@ -310,6 +322,7 @@ fun PhotosScreen(
             onPageSettled = onSelect,
             onBack = onCloseSelected,
             onRetryOriginal = onRetryOriginal,
+            onSaveToGallery = onSaveToGallery,
         )
     }
 
@@ -762,6 +775,7 @@ private fun PhotoViewer(
     onPageSettled: (PhotoSummary) -> Unit,
     onBack: () -> Unit,
     onRetryOriginal: (PhotoSummary) -> Unit,
+    onSaveToGallery: (PhotoSummary) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val pagerState = rememberPagerState(
@@ -770,12 +784,38 @@ private fun PhotoViewer(
     )
     var showInfo by remember { mutableStateOf(false) }
     var chromeVisible by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    var pendingLegacySave by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacyMediaPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = pendingLegacySave
+        pendingLegacySave = null
+        if (granted) {
+            pending?.invoke()
+        } else {
+            Toast.makeText(
+                context,
+                "Storage permission is required to save photos",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
     LaunchedEffect(pagerState, assets) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { page -> assets.getOrNull(page)?.let(onPageSettled) }
     }
     val current = assets.getOrNull(pagerState.settledPage)
+    // Save and Share act on the downloaded original only. Exporting is a
+    // one-way copy into the Android gallery; it never writes to iCloud.
+    val currentOriginal = current
+        ?.let { uiState.originalTransfers[it.id] }
+        ?.takeIf { it.state == PhotoTransferState.Succeeded }
+        ?.localPath
+        ?.let(::File)
+        ?.takeIf { it.isFile && it.length() > 0 }
+    val galleryOutcome = current?.let { uiState.galleryExports[it.id] }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
@@ -817,10 +857,53 @@ private fun PhotoViewer(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${pagerState.settledPage + 1} of ${assets.size}",
+                        text = galleryStatus(galleryOutcome)
+                            ?: "${pagerState.settledPage + 1} of ${assets.size}",
                         color = Color.White.copy(alpha = 0.75f),
                         style = MaterialTheme.typography.labelMedium,
                     )
+                }
+                if (currentOriginal != null) {
+                    IconButton(
+                        onClick = {
+                            val save = { onSaveToGallery(current) }
+                            val granted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (requiresLegacyMediaWritePermission(Build.VERSION.SDK_INT, granted)) {
+                                pendingLegacySave = save
+                                legacyMediaPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else {
+                                save()
+                            }
+                        },
+                    ) {
+                        Icon(
+                            if (galleryOutcome == PhotoGalleryExportOutcome.Saved ||
+                                galleryOutcome == PhotoGalleryExportOutcome.AlreadySaved
+                            ) {
+                                Icons.Filled.CheckCircle
+                            } else {
+                                Icons.Filled.SaveAlt
+                            },
+                            contentDescription = "Save to ${PhotoLibraryExport.ALBUM_PATH}",
+                            tint = Color.White,
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            if (!sharePhotoOriginal(context, current, currentOriginal)) {
+                                Toast.makeText(
+                                    context,
+                                    "Unable to share this photo",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share photo", tint = Color.White)
+                    }
                 }
                 IconButton(onClick = { showInfo = true }) {
                     Icon(Icons.Filled.Info, contentDescription = "Photo details", tint = Color.White)
@@ -987,6 +1070,17 @@ private fun PhotoPage(
     }
 }
 
+/** Viewer subtitle for the one-way `DCIM/iCloud` mirror, or null while idle. */
+private fun galleryStatus(outcome: PhotoGalleryExportOutcome?): String? = when (outcome) {
+    PhotoGalleryExportOutcome.Saved,
+    PhotoGalleryExportOutcome.AlreadySaved,
+    -> "In ${PhotoLibraryExport.ALBUM_PATH}"
+    PhotoGalleryExportOutcome.PermissionRequired -> "Tap save to allow gallery access"
+    PhotoGalleryExportOutcome.Unsupported -> "Not supported by the gallery"
+    PhotoGalleryExportOutcome.Failed -> "Could not add to the gallery"
+    null -> null
+}
+
 private const val DoubleTapZoom = 2.5f
 private const val MaxPageZoom = 6f
 
@@ -1070,6 +1164,7 @@ private fun PhotosPreview() {
             onSelect = {},
             onCloseSelected = {},
             onRetryOriginal = {},
+            onSaveToGallery = {},
             onChooseUploads = {},
             onAddFolder = {},
             onScanFolder = {},

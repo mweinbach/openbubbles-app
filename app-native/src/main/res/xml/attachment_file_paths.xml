@@ -5,6 +5,12 @@
     <files-path
         name="attachments"
         path="../app_flutter/attachments/" />
+    <!-- Downloaded iCloud Photos originals, so sharing one does not require
+         saving it to the gallery first. Previews and upload staging stay
+         private. -->
+    <files-path
+        name="icloud_photo_originals"
+        path="icloud_photos/originals/" />
     <cache-path
         name="diagnostics"
         path="diagnostics/" />

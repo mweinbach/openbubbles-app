@@ -292,6 +292,36 @@ background work and delete remain unvalidated. The narrow, explicit JPEG write p
 and live-proven through MMCS, the atomic CPL save, a refreshed remote page, the persisted receipt,
 and an identical original exported by native macOS Photos. This is not general two-way sync.
 
+### Implemented gallery export slice (host-verified only)
+
+Downloading a full-quality asset is what puts it on the phone: the promoted original is mirrored
+into the `DCIM/iCloud` album, so an iCloud photo can be picked, sent, or shared by any Android app.
+This is a one-way copy out; it adds no Apple call.
+
+- `data/photos/PhotoLibraryExport.kt` is pure: given the promoted cache file, the iCloud filename,
+  the media kind, and the capture time it produces the gallery display name, MIME type, and album
+  path, or refuses. The cache file's extension decides the format, a name that disagrees with the
+  media kind is refused rather than misfiled, and path separators and control characters are
+  stripped so a record name cannot escape the album. Images and videos share one `DCIM/iCloud`
+  bucket because that is where gallery apps expect camera-grade media. `PhotoLibraryExportTest` is
+  the oracle.
+- `ui/photos/PhotoGalleryExport.kt` copies those bytes verbatim through the shared scoped-storage
+  writer with the capture time as `DATE_TAKEN`. A same-name, same-size entry already in the album is
+  reported as `AlreadySaved` instead of inserted, so re-opening a photo does not accumulate copies.
+  On API 26-28 a missing legacy storage grant returns `PermissionRequired` rather than failing
+  silently; the viewer's save action then requests it.
+- `PhotosViewModel` mirrors on the transition a download makes to `Succeeded`, through the fakeable
+  `PhotoGalleryPort`, and records the per-asset outcome in UI state. A restored, already-validated
+  cache file does not download or mirror again. `PhotosViewModelTest` proves one mirror per
+  download and that the export never touches the Apple write path.
+- The viewer also shares the cached original directly through the existing FileProvider grant, so
+  sending does not depend on the gallery copy, and keeps an explicit save action for a download that
+  predates this slice or whose mirror failed.
+- The export is deliberately not a two-way link. Nothing observes the Android gallery, an exported
+  copy carries no iCloud identity, and re-uploading it would still require the explicit picker or
+  folder staging plus a separate upload tap. Editing or deleting the gallery copy does not change
+  iCloud.
+
 ## Ownership and proposed architecture
 
 ```text
@@ -410,6 +440,8 @@ Do not expose mutation methods speculatively in the initial UniFFI API.
 - Missing local data is never evidence that a remote asset should be deleted.
 - Deleting an app cache entry must never delete an iCloud original.
 - Remote tombstones may remove catalog/cache state, but not user-exported MediaStore copies.
+- Gallery export is one-way. The device gallery is never observed, and an exported copy must never
+  become an implicit upload source.
 - Apply a page before committing its continuation cursor; a crash may replay a page, so upserts and
   tombstones must be idempotent.
 - Never log photo metadata, raw CloudKit records, signed URLs, credentials, keys, or full server

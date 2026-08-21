@@ -51,6 +51,12 @@ data class PhotosUiState(
     val previewTransfers: Map<String, PhotoTransfer> = emptyMap(),
     val originalTransfers: Map<String, PhotoTransfer> = emptyMap(),
     val selectedAssetId: String? = null,
+    /**
+     * Gallery mirror state per asset. Downloading an original copies it into
+     * `DCIM/iCloud`; this only records how that copy went, and never affects
+     * what is asked of iCloud.
+     */
+    val galleryExports: Map<String, PhotoGalleryExportOutcome> = emptyMap(),
     val uploadPlans: List<PhotoTransfer> = emptyList(),
     val folderSources: List<PhotoFolderSource> = emptyList(),
     val planningUpload: Boolean = false,
@@ -91,6 +97,11 @@ private class LivePhotosPort(private val stateProvider: () -> NativePushState?) 
     ) = port().uploadJpeg(originalPath, previewPath, filename, capturedAtMs, orientation)
 }
 
+/** Fakeable seam for the one-way Android gallery mirror. */
+internal fun interface PhotoGalleryPort {
+    suspend fun export(asset: PhotoSummary, original: File): PhotoGalleryExportOutcome
+}
+
 internal interface PhotosFolderPort {
     suspend fun sources(): List<PhotoFolderSource>
     suspend fun add(uri: Uri): List<PhotoFolderSource>
@@ -123,6 +134,7 @@ internal class PhotosViewModel(
     private val catalog: PhotosCatalog,
     private val coordinator: PhotoTransferCoordinator,
     private val folders: PhotosFolderPort,
+    private val gallery: PhotoGalleryPort,
     private val prepareUpload: suspend (Uri) -> PickedPhotoUpload,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(PhotosUiState())
@@ -337,12 +349,34 @@ internal class PhotosViewModel(
                 }
                 if (completed.state == PhotoTransferState.Succeeded) validatedDownloads += completed.id
                 updateOriginal(asset.id, completed)
+                // Downloading a full-quality asset is what puts it in the
+                // Android gallery. This is a local copy out; it issues no
+                // Apple call and cannot travel back to iCloud.
+                if (completed.state == PhotoTransferState.Succeeded) {
+                    exportToGallery(asset, completed)
+                }
             } finally {
                 originalJobs.remove(asset.id, job)
             }
         } ?: return
         originalJobs[asset.id] = job
         job.start()
+    }
+
+    /** Explicit re-run of the gallery copy, for a failed or pre-existing download. */
+    fun saveToGallery(asset: PhotoSummary) {
+        val transfer = mutableState.value.originalTransfers[asset.id] ?: return
+        if (transfer.state != PhotoTransferState.Succeeded) return
+        launchWork { exportToGallery(asset, transfer) }
+    }
+
+    private suspend fun exportToGallery(asset: PhotoSummary, transfer: PhotoTransfer) {
+        val original = File(transfer.localPath)
+        if (!original.isFile || original.length() <= 0) return
+        val outcome = gallery.export(asset, original)
+        mutableState.update { state ->
+            state.copy(galleryExports = state.galleryExports + (asset.id to outcome))
+        }
     }
 
     private fun PhotoTransfer?.isValidatedCacheFile(): Boolean {
@@ -521,6 +555,11 @@ internal class PhotosViewModel(
                         originalRoot = File(application.filesDir, "icloud_photos/originals"),
                     ),
                     folders = AndroidPhotosFolderPort(PhotoFolderSources(application)),
+                    gallery = { asset, original ->
+                        withContext(Dispatchers.IO) {
+                            savePhotoToGallery(application, asset, original)
+                        }
+                    },
                     prepareUpload = { uri -> preparePhotoUploadCandidate(application, uri) },
                 )
             }
