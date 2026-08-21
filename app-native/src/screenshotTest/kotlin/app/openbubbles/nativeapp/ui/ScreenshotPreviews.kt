@@ -792,10 +792,27 @@ fun MessageReactionPickerScreenshot() {
         "alex@icloud.com" to "Alex Chen",
         "mark@icloud.com" to "Mark Reed",
     )
+    // reactionIndex mirrors the protocol order the projection assigns, so the
+    // pill marks my love tapback as selected the way a live row would.
     val reactions = listOf(
-        MessageReactionUi(emoji = "\u2764\uFE0F", senderAddress = "alex@icloud.com", isFromMe = false),
-        MessageReactionUi(emoji = "\u2764\uFE0F", senderAddress = null, isFromMe = true),
-        MessageReactionUi(emoji = "\uD83D\uDE02", senderAddress = "mark@icloud.com", isFromMe = false),
+        MessageReactionUi(
+            emoji = "\u2764\uFE0F",
+            senderAddress = "alex@icloud.com",
+            isFromMe = false,
+            reactionIndex = 0,
+        ),
+        MessageReactionUi(
+            emoji = "\u2764\uFE0F",
+            senderAddress = null,
+            isFromMe = true,
+            reactionIndex = 0,
+        ),
+        MessageReactionUi(
+            emoji = "\uD83D\uDE02",
+            senderAddress = "mark@icloud.com",
+            isFromMe = false,
+            reactionIndex = 3,
+        ),
     )
     OpenBubblesTheme(dynamicColor = false) {
         CompositionLocalProvider(LocalReduceMotion provides true) {
@@ -820,7 +837,7 @@ fun MessageReactionPickerScreenshot() {
                     TapbackPickerOverlay(
                         reactions = reactions,
                         resolveName = { address -> reactorNames[address] },
-                        onReact = { _, _ -> },
+                        onReact = { _, _, _ -> },
                         onCustomReaction = {},
                         onDismiss = {},
                     )
