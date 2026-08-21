@@ -337,7 +337,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
-        run: ./gradlew :app-native:assembleRelease --console=plain
+        run: ./gradlew :app-native:assembleRelease :app-native:uploadCrashlyticsSymbolFileRelease --console=plain
 
       - name: Stage assets and write update feed
         id: assets

@@ -43,6 +43,38 @@ no secret to read `/api/v1/update/openbubbles`, the appcast, or artifacts.
 Rotating the project key requires replacing this Actions secret before the
 next release.
 
+## Production diagnostics and instant update notices
+
+Release builds use the Firebase project configured by
+`app-native/google-services.json` for three narrowly scoped jobs:
+
+- Google Analytics reports aggregate installs, active users, sessions, and
+  coarse update-funnel events. Debug builds have collection disabled so local
+  development does not inflate production usage.
+- Crashlytics captures JVM crashes, ANRs, sanitized non-fatals, and native
+  crashes. Release CI uploads the unstripped Rust symbols so native stacks can
+  be symbolicated.
+- Firebase Cloud Messaging subscribes clients to
+  `update-ledger-openbubbles-stable`. A wake-up contains only the project,
+  channel, version, and numeric build. It never carries an APK, download URL,
+  account data, or message content.
+
+Advertising-ID collection, ad personalization signals, and Firebase user IDs
+are disabled. Application telemetry must go through `AppTelemetry`; do not add
+message text, handles, contacts, credentials, push tokens, URLs, or raw native
+errors to Analytics parameters, Crashlytics keys, or logs.
+
+Publishing through CI or the Update Ledger dashboard automatically sends an
+update wake-up after the durable release is accepted. If Firebase is
+temporarily unavailable the release remains valid; use **Update Ledger →
+OpenBubbles → Manage → Notify devices** to retry manually. Receiving a push
+shows availability immediately and starts an expedited appcast check, but the
+existing Update Ledger hash, byte-count, signing-identity, and version checks
+remain authoritative before download or installation.
+
+The first FCM-capable bridge is 3.4.7. Older devices continue using the legacy
+GitHub check until they install 3.4.7; 3.5.0 and later are Ledger-only.
+
 ## Version numbers
 
 - `versionCode` must strictly increase; the updater (and PackageInstaller)

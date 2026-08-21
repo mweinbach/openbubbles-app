@@ -19,8 +19,9 @@ class UpdateCheckWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        val trigger = inputData.getString(INPUT_TRIGGER) ?: "scheduled"
         return try {
-            when (val result = UpdateCoordinator.checkNow(applicationContext)) {
+            when (val result = UpdateCoordinator.checkNow(applicationContext, trigger)) {
                 is UpdateCoordinator.CheckResult.Done -> Result.success()
                 is UpdateCoordinator.CheckResult.Failed -> {
                     Log.w("SelfUpdate", "check failed: ${result.message}")
@@ -31,5 +32,9 @@ class UpdateCheckWorker(
             Log.w("SelfUpdate", "transient network failure, will retry", e)
             Result.retry()
         }
+    }
+
+    companion object {
+        const val INPUT_TRIGGER = "trigger"
     }
 }

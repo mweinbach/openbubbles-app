@@ -6,6 +6,8 @@ plugins {
     // Compose Preview Screenshot Testing: renders @PreviewTest previews and
     // diffs them against recorded goldens. The only UI regression net here.
     id "com.android.compose.screenshot"
+    id "com.google.gms.google-services"
+    id "com.google.firebase.crashlytics"
 }
 
 android {
@@ -20,6 +22,7 @@ android {
         targetSdk 36
         versionCode 20002275
         versionName "3.4.6"
+        manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
 
         // Keep in sync with installed Rust cross targets (rustup target list)
         ndk {
@@ -43,9 +46,19 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Local/developer installs must not count as production users or
+            // upload intentionally triggered test failures.
+            manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
+        }
         release {
             signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
+            manifestPlaceholders.firebaseTelemetryCollectionEnabled = "true"
+            firebaseCrashlytics {
+                nativeSymbolUploadEnabled true
+                unstrippedNativeLibsDir file("${layout.buildDirectory.get().asFile}/cargo-android/jniLibs/release")
+            }
         }
     }
     if (!hasReleaseSigning) {
@@ -199,6 +212,16 @@ dependencies {
     implementation libs.androidx.lifecycle.runtime.compose
     implementation libs.androidx.lifecycle.viewmodel.navigation3
     implementation libs.kotlinx.serialization.json
+
+    // Release-only product telemetry and diagnostics. Debug collection is
+    // disabled in OpenBubblesApplication so developer runs do not inflate
+    // active-user counts. FCM carries only a wake-up hint; Ledger remains the
+    // signed source of truth for every update.
+    implementation platform(libs.firebase.bom)
+    implementation libs.firebase.analytics
+    implementation libs.firebase.crashlytics
+    implementation libs.firebase.crashlytics.ndk
+    implementation libs.firebase.messaging
 
     // JVM unit tests for the sms/ receive->ingest builders (same objectbox
     // desktop runtime :db/:core tests use, so the ingest integration can open

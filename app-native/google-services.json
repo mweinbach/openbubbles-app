@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "219286181187",
+    "project_id": "opengarden-35df3",
+    "storage_bucket": "opengarden-35df3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:219286181187:android:e17d3c66b4b2fa8ae8cbf6",
+        "android_client_info": {
+          "package_name": "com.openbubbles.messaging"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgU9Si2VJ_WtLptZ0U13TR3zTRhxWD-Wc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

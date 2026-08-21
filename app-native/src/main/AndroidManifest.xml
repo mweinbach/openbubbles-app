@@ -70,6 +70,21 @@
         android:enableOnBackInvokedCallback="true"
         tools:ignore="UnusedAttribute">
 
+        <!-- Collection is true only in release builds. Advertising identifiers
+             and personalization signals are intentionally disabled. -->
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="${firebaseTelemetryCollectionEnabled}" />
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="${firebaseTelemetryCollectionEnabled}" />
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_default_allow_ad_personalization_signals"
+            android:value="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -135,6 +150,16 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Persistent Apple push (APNs) connection for iMessage" />
+        </service>
+
+        <!-- Data-only FCM wake-ups tell the app to check Update Ledger. The
+             message never contains an APK or bypasses appcast verification. -->
+        <service
+            android:name="app.openbubbles.nativeapp.update.UpdateMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
         </service>
 
         <receiver

@@ -53,6 +53,7 @@ okhttp = "4.12.0"
 cbor = "4.5.2"
 mlkitBarcode = "17.3.0"
 screenshotValidation = "0.0.1-alpha16"
+firebaseBom = "34.17.0"
 
 [libraries]
 # --- compose platform ------------------------------------------------------
@@ -130,6 +131,13 @@ kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref =
 # Provides @PreviewTest, which marks which previews the screenshot plugin runs.
 screenshot-validation-api = { module = "com.android.tools.screenshot:screenshot-validation-api", version.ref = "screenshotValidation" }
 
+# --- Firebase telemetry + update wake-ups ---------------------------------
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-analytics = { module = "com.google.firebase:firebase-analytics" }
+firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
+firebase-crashlytics-ndk = { module = "com.google.firebase:firebase-crashlytics-ndk" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
@@ -140,3 +148,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 objectbox = { id = "io.objectbox", version.ref = "objectbox" }
+google-services = { id = "com.google.gms.google-services", version = "4.5.0" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.7" }

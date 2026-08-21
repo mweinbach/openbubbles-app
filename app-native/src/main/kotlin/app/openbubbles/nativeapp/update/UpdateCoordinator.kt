@@ -13,9 +13,13 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
+import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.R
+import app.openbubbles.nativeapp.telemetry.AppTelemetry
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -73,34 +77,44 @@ object UpdateCoordinator {
         schedule(context)
         val last = UpdateSettings.lastCheckMs(context)
         if (System.currentTimeMillis() - last < APP_OPEN_THROTTLE_MS) return
+        enqueueImmediateCheck(context, trigger = "app_open", replace = false)
+    }
+
+    /** FCM and app-open checks share one network-constrained, expedited lane. */
+    fun enqueueImmediateCheck(context: Context, trigger: String, replace: Boolean) {
         runCatching {
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(
                     workName() + "-now",
-                    ExistingWorkPolicy.KEEP,
+                    if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                     OneTimeWorkRequestBuilder<UpdateCheckWorker>()
+                        .setInputData(workDataOf(UpdateCheckWorker.INPUT_TRIGGER to trigger))
                         .setConstraints(
                             Constraints.Builder()
                                 .setRequiredNetworkType(NetworkType.CONNECTED)
                                 .build(),
                         )
+                        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                         .build(),
                 )
         }
     }
 
-    suspend fun checkNow(context: Context): CheckResult = withContext(Dispatchers.IO) {
+    suspend fun checkNow(context: Context, trigger: String = "manual"): CheckResult = withContext(Dispatchers.IO) {
         val installedCode = installedVersionCode(context)
         val feed = try {
             UpdateLedgerSource().fetch(installedCode)
         } catch (ledgerError: UpdateLedgerSource.SourceException) {
             Log.w(TAG, "Update Ledger check failed", ledgerError)
+            AppTelemetry.event(context, "update_check", mapOf("trigger" to trigger, "result" to "failed"))
+            AppTelemetry.nonFatal("update_check", ledgerError.javaClass.simpleName)
             return@withContext CheckResult.Failed(
                 ledgerError.message ?: "update check failed",
             )
         }
         UpdateSettings.recordCheck(context)
         if (feed == null) {
+            AppTelemetry.event(context, "update_check", mapOf("trigger" to trigger, "result" to "current"))
             return@withContext CheckResult.Done(UpdateDecision.UpToDate, false)
         }
 
@@ -118,17 +132,37 @@ object UpdateCoordinator {
                     downloadVerified(context, feed)
                 } catch (e: UpdateDownloader.DownloadException) {
                     Log.w(TAG, "download failed: ${e.message}")
+                    AppTelemetry.event(context, "update_download", mapOf("result" to "failed"))
+                    AppTelemetry.nonFatal("update_download", e.javaClass.simpleName)
                     return@withContext CheckResult.Failed(e.message ?: "download failed")
                 }
                 if (downloaded) {
                     UpdateSettings.clearDeferred(context)
                     postUpdateReadyNotification(context, manifest)
+                    AppTelemetry.state("pending_update_build", manifest.versionCode.toString())
+                    AppTelemetry.event(
+                        context,
+                        "update_download",
+                        mapOf("result" to "ready", "version" to manifest.versionName),
+                    )
                 }
+                AppTelemetry.event(
+                    context,
+                    "update_check",
+                    mapOf("trigger" to trigger, "result" to decisionName(decision)),
+                )
                 CheckResult.Done(decision, downloaded)
             }
             is UpdateDecision.UpToDate, is UpdateDecision.RollbackBlocked,
             is UpdateDecision.Deferred,
-            -> CheckResult.Done(decision, false)
+            -> {
+                AppTelemetry.event(
+                    context,
+                    "update_check",
+                    mapOf("trigger" to trigger, "result" to decisionName(decision)),
+                )
+                CheckResult.Done(decision, false)
+            }
         }
     }
 
@@ -225,12 +259,20 @@ object UpdateCoordinator {
         UpdateDownloader.updatesDir(context.cacheDir).deleteRecursively()
         UpdateSettings.clearPending(context)
         Log.i(TAG, "self-update installed")
+        AppTelemetry.state("pending_update_build", "none")
+        AppTelemetry.event(context, "update_install", mapOf("result" to "success"))
         installFinished.tryEmit(Unit)
     }
 
     fun onInstallFailed(context: Context, status: Int, message: String?) {
         cancelNotification(context)
         Log.w(TAG, "self-update failed: status=$status message=$message")
+        AppTelemetry.event(
+            context,
+            "update_install",
+            mapOf("result" to "failed", "status" to status.toString()),
+        )
+        AppTelemetry.nonFatal("update_install", "status_$status")
         notifyStatus(context, "Update not installed", message ?: "Installation failed (code $status)")
         installFinished.tryEmit(Unit)
     }
@@ -238,6 +280,36 @@ object UpdateCoordinator {
     // ------------------------------------------------------------------
     // Notifications
     // ------------------------------------------------------------------
+
+    /** Immediate FCM acknowledgement; the verified-download notification replaces it. */
+    fun notifyUpdateAvailable(context: Context, versionName: String) {
+        ensureChannel(context)
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) return
+        val openApp = PendingIntent.getActivity(
+            context,
+            1,
+            Intent(context, NativeMainActivity::class.java)
+                .setPackage(context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
+            .setSmallIcon(R.mipmap.ic_stat_icon)
+            .setContentTitle("OpenGarden $versionName is available")
+            .setContentText("Preparing the verified update from Update Ledger.")
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        try {
+            nm.notify(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "update availability notification rejected", e)
+        }
+    }
 
     private fun postUpdateReadyNotification(context: Context, manifest: UpdateManifest) {
         ensureChannel(context)
@@ -318,4 +390,12 @@ object UpdateCoordinator {
         }
 
     internal fun workName(): String = WORK_NAME
+
+    private fun decisionName(decision: UpdateDecision): String = when (decision) {
+        is UpdateDecision.Available -> "available"
+        is UpdateDecision.Mandatory -> "mandatory"
+        is UpdateDecision.UpToDate -> "current"
+        is UpdateDecision.RollbackBlocked -> "rollback_blocked"
+        is UpdateDecision.Deferred -> "deferred"
+    }
 }
