@@ -195,6 +195,7 @@ internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
 
 private fun decodeRasterFile(file: File, maxDimensionPx: Int): DecodedImage? {
     if (!file.isFile) return null
+    if (!platformCanDecodeHeic(file)) return null
     return decodeFileWithBitmapFactory(file, maxDimensionPx)
         ?: decodeFileWithImageDecoder(file, maxDimensionPx)
 }
