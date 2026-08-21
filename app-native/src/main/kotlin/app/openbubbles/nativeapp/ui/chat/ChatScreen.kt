@@ -723,16 +723,15 @@ fun ChatScreen(
             if (!scrolling) followingBottom = atBottomNow
         }
     }
-    val liveArrivalGuids = remember(uiState.chat?.id) { mutableStateMapOf<String, Unit>() }
+    var liveArrivalMarkers by remember(uiState.chat?.id) {
+        mutableStateOf(LiveArrivalMarkerState())
+    }
     LaunchedEffect(uiState.chat?.id) {
         LiveMessageArrivals.events.collect { guid ->
-            liveArrivalGuids[guid] = Unit
-            while (liveArrivalGuids.size > 256) {
-                liveArrivalGuids.keys.firstOrNull()?.let(liveArrivalGuids::remove)
-            }
+            liveArrivalMarkers = liveArrivalMarkers.added(guid)
         }
     }
-    val liveArrivalSnapshot = liveArrivalGuids.keys.toSet()
+    val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
 
     // Reset per conversation: a new chat establishes its own baseline and can
     // never inherit the previous transcript's pending count.
@@ -741,14 +740,33 @@ fun ChatScreen(
         stateSaver = ArrivalStateSaver,
     ) { mutableStateOf(ArrivalState()) }
 
-    suspend fun jumpToNewest() {
-        val target = newestIndex
-        if (target < 0) return
-        listState.animateScrollToItem(target)
-        // Clear only once layout confirms the newest row is actually visible.
-        if (listState.layoutInfo.visibleItemsInfo.any { it.index == target }) {
-            arrivals = arrivals.cleared()
+    val currentEntries by rememberUpdatedState(entries)
+    val currentTyping by rememberUpdatedState(isTyping)
+
+    fun currentNewestTarget(): Pair<Int, String>? {
+        val key = newestMessageKey(currentEntries) ?: return null
+        val index = newestMessageIndex(currentEntries, currentTyping)
+        return index.takeIf { it >= 0 }?.let { it to key }
+    }
+
+    suspend fun scrollToNewest(): Boolean {
+        repeat(3) {
+            val (targetIndex, targetKey) = currentNewestTarget() ?: return false
+            listState.animateScrollToItem(targetIndex)
+            withFrameNanos { }
+            val resolved = currentNewestTarget()
+            if (resolved?.second == targetKey &&
+                listState.layoutInfo.visibleItemsInfo.any { it.key == targetKey }
+            ) {
+                return true
+            }
         }
+        return false
+    }
+
+    suspend fun jumpToNewest() {
+        // Clear only once the stable newest-message key is actually visible.
+        if (scrollToNewest()) arrivals = arrivals.cleared()
     }
 
     LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive, liveArrivalSnapshot) {
@@ -761,10 +779,9 @@ fun ChatScreen(
             liveArrivalGuids = liveArrivalSnapshot,
         )
         arrivals = outcome.state
+        liveArrivalMarkers = liveArrivalMarkers.consumed(outcome.matchedLiveGuids)
         // Scroll only after the arriving row is part of the rendered snapshot.
-        if (outcome.pinToNewest && newestIndex >= 0) {
-            listState.animateScrollToItem(newestIndex)
-        }
+        if (outcome.pinToNewest) scrollToNewest()
     }
 
     // Reaching the bottom by hand clears the pill, but only after the newest
@@ -772,7 +789,8 @@ fun ChatScreen(
     LaunchedEffect(atBottomNow, transcriptAnchor.isScrollInProgress, newestIndex) {
         if (arrivals.pendingCount == 0) return@LaunchedEffect
         if (!atBottomNow || transcriptAnchor.isScrollInProgress) return@LaunchedEffect
-        if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+        val newestKey = newestMessageKey(currentEntries)
+        if (newestKey != null && listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
             arrivals = arrivals.cleared()
         }
     }
@@ -798,8 +816,6 @@ fun ChatScreen(
         )
         if (!onLoadOlder()) pagingAnchor = null
     }
-    val currentEntries by rememberUpdatedState(entries)
-    val currentTyping by rememberUpdatedState(isTyping)
     LaunchedEffect(uiState.loadingOlder) {
         if (uiState.loadingOlder) return@LaunchedEffect
         val anchor = pagingAnchor ?: return@LaunchedEffect
@@ -1038,7 +1054,6 @@ fun ChatScreen(
                         thread = openThread,
                         smsChat = smsChat,
                         historySyncActive = historySyncActive,
-                        liveArrivalGuids = liveArrivalSnapshot,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,

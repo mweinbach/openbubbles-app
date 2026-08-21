@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.MessageStatus
 import java.io.File
 
@@ -148,7 +149,6 @@ internal fun ReplyThreadPane(
     thread: ReplyThreadState,
     smsChat: Boolean,
     historySyncActive: Boolean,
-    liveArrivalGuids: Set<String>,
     senderNames: Map<String, String>,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
@@ -192,6 +192,15 @@ internal fun ReplyThreadPane(
             if (!scrolling) followingBottom = atBottomNow
         }
     }
+    var liveArrivalMarkers by remember(thread.rootGuid, thread.part) {
+        mutableStateOf(LiveArrivalMarkerState())
+    }
+    LaunchedEffect(thread.rootGuid, thread.part) {
+        LiveMessageArrivals.events.collect { guid ->
+            liveArrivalMarkers = liveArrivalMarkers.added(guid)
+        }
+    }
+    val liveArrivalGuids = liveArrivalMarkers.reducerGuids
     // Selecting another root/part is a different viewport; closing the thread
     // disposes this state entirely, so no stale announcement can replay.
     var arrivals by rememberSaveable(
@@ -208,6 +217,7 @@ internal fun ReplyThreadPane(
             liveArrivalGuids = liveArrivalGuids,
         )
         arrivals = outcome.state
+        liveArrivalMarkers = liveArrivalMarkers.consumed(outcome.matchedLiveGuids)
         if (outcome.pinToNewest && newestIndex >= 0) {
             listState.animateScrollToItem(newestIndex)
         }
@@ -215,7 +225,8 @@ internal fun ReplyThreadPane(
     LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {
         if (arrivals.pendingCount == 0) return@LaunchedEffect
         if (!atBottomNow || anchor.isScrollInProgress) return@LaunchedEffect
-        if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+        val newestKey = thread.messages.lastOrNull()?.let { "thread-${it.id}-${it.guid}" }
+        if (newestKey != null && listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
             arrivals = arrivals.cleared()
         }
     }
@@ -295,9 +306,10 @@ internal fun ReplyThreadPane(
             thread = true,
             onClick = {
                 scope.launch {
-                    if (newestIndex < 0) return@launch
-                    listState.animateScrollToItem(newestIndex)
-                    if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+                    val newest = thread.messages.lastOrNull() ?: return@launch
+                    val newestKey = "thread-${newest.id}-${newest.guid}"
+                    listState.animateScrollToItem(0)
+                    if (listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
                         arrivals = arrivals.cleared()
                     }
                 }

@@ -8,17 +8,18 @@ internal val ArrivalStateSaver = Saver<ArrivalState, Bundle>(
     save = { state ->
         Bundle().apply {
             putBoolean("initialized", state.initialized)
-            putStringArrayList("known", ArrayList(state.knownGuids))
             putLong("newestDate", state.newestSeenDate)
             putLong("newestId", state.newestSeenId)
-            putStringArrayList("pending", ArrayList(state.pendingGuids))
-            putStringArrayList("consumed", ArrayList(state.consumedLiveGuids))
+            putStringArrayList("pending", ArrayList(state.pendingGuids.toList().takeLast(SavedGuidLimit)))
+            putStringArrayList("consumed", ArrayList(state.consumedLiveGuids.toList().takeLast(SavedGuidLimit)))
         }
     },
     restore = { saved ->
         ArrivalState(
             initialized = saved.getBoolean("initialized"),
-            knownGuids = saved.getStringArrayList("known").orEmpty().toSet(),
+            // The chronological high-water mark replaces the potentially huge
+            // paged GUID window across recreation.
+            knownGuids = emptySet(),
             newestSeenDate = saved.getLong("newestDate", Long.MIN_VALUE),
             newestSeenId = saved.getLong("newestId", Long.MIN_VALUE),
             pendingGuids = saved.getStringArrayList("pending").orEmpty().toSet(),
@@ -26,3 +27,5 @@ internal val ArrivalStateSaver = Saver<ArrivalState, Bundle>(
         )
     },
 )
+
+private const val SavedGuidLimit = 512

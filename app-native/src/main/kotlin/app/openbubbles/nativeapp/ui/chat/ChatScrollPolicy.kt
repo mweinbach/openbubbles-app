@@ -21,6 +21,8 @@ internal const val PendingCountDisplayCap = 99
 
 /** Live GUIDs retained after classification so a bounded page cannot replay them. */
 private const val ConsumedLiveGuidRetention = 256
+private const val PendingGuidRetention = 512
+private const val LiveMarkerRetention = 256
 
 private fun retainedConsumedLiveGuids(
     previous: Set<String>,
@@ -60,6 +62,28 @@ internal data class ArrivalState(
         if (pendingGuids.isEmpty()) this else copy(pendingGuids = emptySet())
 }
 
+/**
+ * Bounded intake markers awaiting a matching database row. Overflow switches
+ * this viewport to chronological reconciliation instead of dropping arrivals.
+ */
+internal data class LiveArrivalMarkerState(
+    val unmatchedGuids: Set<String> = emptySet(),
+    val chronologicalFallback: Boolean = false,
+) {
+    val reducerGuids: Set<String>? get() = unmatchedGuids.takeUnless { chronologicalFallback }
+
+    fun added(guid: String): LiveArrivalMarkerState {
+        if (chronologicalFallback || guid in unmatchedGuids) return this
+        if (unmatchedGuids.size >= LiveMarkerRetention) {
+            return copy(chronologicalFallback = true)
+        }
+        return copy(unmatchedGuids = LinkedHashSet(unmatchedGuids).apply { add(guid) })
+    }
+
+    fun consumed(guids: Set<String>): LiveArrivalMarkerState =
+        if (guids.isEmpty()) this else copy(unmatchedGuids = unmatchedGuids - guids)
+}
+
 /** What the caller should do after folding one snapshot into [ArrivalState]. */
 internal data class ArrivalOutcome(
     val state: ArrivalState,
@@ -70,6 +94,8 @@ internal data class ArrivalOutcome(
      * keep the transcript pinned to the newest row instead of showing a pill.
      */
     val pinToNewest: Boolean,
+    /** Intake markers whose independently persisted rows were present in this snapshot. */
+    val matchedLiveGuids: Set<String> = emptySet(),
 )
 
 /** Newer-than-baseline test; ids break ties inside the same millisecond. */
@@ -99,16 +125,19 @@ internal fun reduceArrivals(
     liveArrivalGuids: Set<String>? = null,
 ): ArrivalOutcome {
     if (messages.isEmpty()) {
-        // A chat with nothing loaded has no baseline to defend; the next
-        // non-empty snapshot re-establishes one silently. Keep the consumed
-        // live markers so a temporary empty page cannot make one replay.
+        // Repository startup can briefly emit empty after saveable state was
+        // restored. Preserve that baseline and its pill until a real snapshot
+        // can reconcile it.
         return ArrivalOutcome(
-            ArrivalState(consumedLiveGuids = state.consumedLiveGuids),
+            state,
             arrivals = 0,
             pinToNewest = false,
         )
     }
     val guids = messages.mapTo(LinkedHashSet()) { it.guid }
+    val matchedLiveGuids = liveArrivalGuids
+        ?.filterTo(LinkedHashSet()) { it in guids }
+        .orEmpty()
     val newest = messages.last()
     if (!state.initialized) {
         return ArrivalOutcome(
@@ -124,6 +153,7 @@ internal fun reduceArrivals(
             ),
             arrivals = 0,
             pinToNewest = false,
+            matchedLiveGuids = matchedLiveGuids,
         )
     }
 
@@ -147,6 +177,12 @@ internal fun reduceArrivals(
         LinkedHashSet<String>().apply {
             state.pendingGuids.filterTo(this) { it in guids }
             arrivals.mapTo(this) { it.guid }
+            while (size > PendingGuidRetention) {
+                iterator().run {
+                    next()
+                    remove()
+                }
+            }
         }
     }
     val advanceBaseline = isNewerThanBaseline(newest, state)
@@ -162,6 +198,7 @@ internal fun reduceArrivals(
         state = advanced,
         arrivals = arrivals.size,
         pinToNewest = followingBottom && arrivals.isNotEmpty(),
+        matchedLiveGuids = matchedLiveGuids,
     )
 }
 
@@ -208,6 +245,10 @@ internal fun newestMessageIndex(entries: List<ConversationEntry>, typingRowVisib
     if (index < 0) return -1
     return index + if (typingRowVisible) 1 else 0
 }
+
+/** Stable LazyColumn key for the newest message, unaffected by a typing-row insertion. */
+internal fun newestMessageKey(entries: List<ConversationEntry>): String? =
+    entries.firstOrNull { it is ConversationEntry.Message }?.key
 
 /** Reading position to preserve across an older-history insertion. */
 internal data class PagingAnchor(val key: String, val index: Int, val offsetPx: Int)

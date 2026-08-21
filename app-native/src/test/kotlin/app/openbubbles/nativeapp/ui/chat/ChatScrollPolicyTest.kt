@@ -35,11 +35,11 @@ class ChatScrollPolicyTest {
     }
 
     @Test
-    fun `an empty snapshot resets the baseline instead of announcing`() {
+    fun `an initial empty snapshot preserves restored baseline and pending arrivals`() {
         val loaded = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
-        val cleared = reduceArrivals(loaded, emptyList(), false)
-        assertFalse(cleared.state.initialized)
-        assertEquals(0, cleared.state.pendingCount)
+        val restored = loaded.copy(pendingGuids = setOf("pending"))
+        val empty = reduceArrivals(restored, emptyList(), false)
+        assertEquals(restored, empty.state)
     }
 
     // ---- Passive incoming arrivals -------------------------------------------
@@ -472,6 +472,40 @@ class ChatScrollPolicyTest {
         }
         assertEquals(120, state.pendingCount)
         assertEquals("99+ new messages", jumpPillLabel(state.pendingCount, JumpPillScope.Conversation))
+    }
+
+    @Test
+    fun `pending identity remains bounded independently of its display cap`() {
+        var state = reduceArrivals(ArrivalState(), listOf(message(0, start)), false).state
+        val window = mutableListOf(message(0, start))
+        repeat(600) { index ->
+            window += message(index + 1L, start + (index + 1) * 1_000L)
+            state = reduceArrivals(state, window.toList(), followingBottom = false).state
+        }
+        assertEquals(512, state.pendingCount)
+        assertEquals("99+ new messages", jumpPillLabel(state.pendingCount, JumpPillScope.Conversation))
+    }
+
+    @Test
+    fun `live marker overflow falls back instead of silently evicting`() {
+        var markers = LiveArrivalMarkerState()
+        repeat(256) { markers = markers.added("marker-$it") }
+        assertEquals(256, markers.reducerGuids?.size)
+
+        markers = markers.added("overflow")
+
+        assertTrue(markers.chronologicalFallback)
+        assertNull(markers.reducerGuids)
+    }
+
+    @Test
+    fun `matched markers are removed while unmatched markers remain`() {
+        val markers = LiveArrivalMarkerState()
+            .added("matched")
+            .added("waiting")
+            .consumed(setOf("matched"))
+
+        assertEquals(setOf("waiting"), markers.reducerGuids)
     }
 
     private fun message(
