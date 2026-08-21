@@ -116,7 +116,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -427,12 +426,8 @@ fun ChatScreen(
             .flatMap { it.trackedMessageIds() }
             .toSet()
     }
-    val clusterBounds = remember { mutableStateMapOf<Long, Rect>() }
+    val clusterBounds = remember { ReplyClusterBoundsStore() }
     val messagesById = remember(uiState.messages) { uiState.messages.associateBy { it.id } }
-    LaunchedEffect(clusterMemberIds) {
-        val stale = clusterBounds.keys - clusterMemberIds
-        stale.forEach { clusterBounds.remove(it) }
-    }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
         { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
     }
@@ -954,7 +949,7 @@ fun ChatScreen(
                         if (clusterMemberIds.isNotEmpty()) {
                             ReplyClusterRailOverlay(
                                 clusters = replyClusters,
-                                boundsById = clusterBounds,
+                                store = clusterBounds,
                                 messagesById = messagesById,
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -1059,13 +1054,7 @@ fun ChatScreen(
                                         null
                                     },
                                     onBubbleBoundsInRoot = if (entry.message.id in clusterMemberIds) {
-                                        { bounds ->
-                                            if (bounds == null) {
-                                                clusterBounds.remove(entry.message.id)
-                                            } else {
-                                                clusterBounds[entry.message.id] = bounds
-                                            }
-                                        }
+                                        { bounds -> clusterBounds.set(entry.message.id, bounds) }
                                     } else {
                                         null
                                     },

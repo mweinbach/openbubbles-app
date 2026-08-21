@@ -333,10 +333,10 @@ class ReplyUiTest {
         // Parent is outgoing: leave its inner (left) edge with a little daylight.
         assertEquals(197f, geometry.armStart.x)
         assertEquals(14f, geometry.armStart.y)
-        // Spine sits on the first incoming reply's leading inset.
-        assertEquals(34f, geometry.corner.x)
+        // Spine sits in the incoming run's outer gutter, not on the bubbles.
+        assertEquals(17f, geometry.corner.x)
         assertEquals(14f, geometry.corner.y)
-        assertEquals(34f, geometry.spineEnd.x)
+        assertEquals(17f, geometry.spineEnd.x)
         // Ends on the last reply, not the first.
         assertEquals(134f, geometry.spineEnd.y)
         assertTrue(geometry.spineEnd.y > first.bottom)
@@ -358,8 +358,8 @@ class ReplyUiTest {
         )
 
         assertNotNull(geometry)
-        assertEquals(34f, geometry.corner.x)
-        assertEquals(34f, geometry.spineEnd.x)
+        assertEquals(17f, geometry.corner.x)
+        assertEquals(17f, geometry.spineEnd.x)
         assertEquals(43f, geometry.corner.y)
         assertEquals(134f, geometry.spineEnd.y)
     }
@@ -380,7 +380,7 @@ class ReplyUiTest {
 
         assertNotNull(geometry)
         assertEquals(geometry.armStart, geometry.corner)
-        assertEquals(34f, geometry.spineEnd.x)
+        assertEquals(17f, geometry.spineEnd.x)
         assertEquals(first.top - 3f, geometry.armStart.y)
         assertEquals(134f, geometry.spineEnd.y)
     }

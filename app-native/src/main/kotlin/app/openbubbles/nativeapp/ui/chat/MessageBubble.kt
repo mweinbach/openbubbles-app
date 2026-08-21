@@ -1035,8 +1035,9 @@ internal fun replyClusterRailGeometry(
     val last = replies.last()
     val sitsOnRight = first.fromMe == isLtr
     val inward = if (sitsOnRight) -1f else 1f
-    val inset = minOf(edgeInset, first.bounds.width / 2f)
-    val spineX = if (sitsOnRight) first.bounds.right - inset else first.bounds.left + inset
+    // Sit in the outer gutter, not on the bubble — a 28.dp inset walked
+    // through the text, and a 14.dp inset still collided with tapbacks.
+    val spineX = if (sitsOnRight) first.bounds.right + clearance else first.bounds.left - clearance
     val lastInset = minOf(edgeInset, last.bounds.height / 2f)
     val spineEndY = last.bounds.top + lastInset
 
@@ -1129,24 +1130,35 @@ internal fun replyClusterRailPath(
     }
 }
 
+/**
+ * Non-snapshot holder so the overlay can read bounds during draw, after
+ * [onGloballyPositioned] has run, the same way [ReplyConnectorBounds] does.
+ * A SnapshotStateMap read at composition time is still empty on the first
+ * frame — and that is the frame screenshot tests capture.
+ */
+internal class ReplyClusterBoundsStore {
+    var canvasInRoot: Rect? = null
+    val bounds = mutableMapOf<Long, Rect>()
+
+    fun set(id: Long, rect: Rect?) {
+        if (rect == null) bounds.remove(id) else bounds[id] = rect
+    }
+}
+
 @Composable
 internal fun ReplyClusterRailOverlay(
     clusters: List<InlineReplyCluster>,
-    boundsById: Map<Long, Rect>,
+    store: ReplyClusterBoundsStore,
     messagesById: Map<Long, MessageItem>,
     modifier: Modifier = Modifier,
 ) {
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val connectorColor = MaterialTheme.colorScheme.outline
-    var canvasInRoot by remember { mutableStateOf<Rect?>(null) }
-    // Read the snapshot map here so a bound change recomposes this overlay;
-    // the Canvas draw lambda alone would not subscribe.
-    val measured = boundsById.toMap()
 
     Canvas(
-        modifier = modifier.onGloballyPositioned { canvasInRoot = it.boundsInRoot() },
+        modifier = modifier.onGloballyPositioned { store.canvasInRoot = it.boundsInRoot() },
     ) {
-        val canvasBounds = canvasInRoot ?: return@Canvas
+        val canvasBounds = store.canvasInRoot ?: return@Canvas
         val rootToCanvas = Offset(-canvasBounds.left, -canvasBounds.top)
         val edgeInset = ReplyConnectorEdgeInset.toPx()
         val armLength = ReplyConnectorArmLength.toPx()
@@ -1159,14 +1171,14 @@ internal fun ReplyClusterRailOverlay(
         for (cluster in clusters) {
             if (!cluster.drawsRail()) continue
             val replies = cluster.replyMessageIds.mapNotNull { id ->
-                val bounds = measured[id] ?: return@mapNotNull null
+                val bounds = store.bounds[id] ?: return@mapNotNull null
                 val message = messagesById[id] ?: return@mapNotNull null
                 ReplyClusterMember(bounds.translate(rootToCanvas), message.isFromMe)
             }.sortedBy { it.bounds.top }
             if (replies.isEmpty()) continue
 
             val rootBounds = cluster.rootMessageId
-                ?.let { measured[it] }
+                ?.let { store.bounds[it] }
                 ?.translate(rootToCanvas)
             val rootFromMe = cluster.rootMessageId
                 ?.let { messagesById[it]?.isFromMe }
