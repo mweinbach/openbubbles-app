@@ -2,6 +2,37 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.4.7
+
+This is the last release published to GitHub Releases. Installing it moves the
+app onto Update Ledger, where 3.5.0 and later are published, so this update is
+required to keep receiving future ones.
+
+### Enhancements
+
+- Inline replies now mark the reply itself, with a smooth marker hooked over
+  the bubble's outer corner, a quote that keeps the original sender's own
+  bubble colors, and spacing that reads the pair as a pair.
+- New versions now announce themselves immediately instead of waiting for the
+  next scheduled check. Downloads are still verified by byte count, checksum,
+  and signing identity before anything installs.
+- Release builds are smaller and start faster, with startup and scrolling
+  profiles applied ahead of time.
+- Release builds report aggregate usage and crashes only; advertising
+  identifiers, personalization signals, and message content stay out.
+
+### Fixes
+
+- Outgoing attachments, profile photos, and group icons are staged atomically
+  and bounded, so an interrupted transfer no longer leaves partial media or
+  abandoned drafts behind.
+- Malformed or truncated attachment transfers now surface as recoverable
+  errors instead of failing hard.
+- Messages written immediately after a conversation finishes loading can no
+  longer be missed by the transcript.
+- Reply quotes and reply counts are now large enough to tap reliably, and the
+  reply marker meets contrast requirements in both light and dark themes.
+
 ## v3.4.6
 
 ### Enhancements
