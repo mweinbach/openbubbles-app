@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -397,10 +398,12 @@ fun MessageBubble(
             .padding(
                 top = when {
                     message.reactionEmoji != null -> 3.dp + ReactionRowExtraTopPadding
-                    message.replyToGuid != null -> 9.dp
+                    message.replyToGuid != null -> ReplyPairTopPadding
                     else -> 3.dp
                 },
-                bottom = if (replyCount > 0) 8.dp else 3.dp,
+                // The reply-count row reserves its own interactive height, so
+                // it no longer needs extra separation underneath.
+                bottom = 3.dp,
             ),
     ) {
         // Measured from the row itself, so a conversation rendered as the detail
@@ -410,10 +413,9 @@ fun MessageBubble(
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         val replyConnectorBounds = remember(message.id) { ReplyConnectorBounds() }
         Box(modifier = Modifier.fillMaxWidth()) {
-        replyQuote?.let { quote ->
+        if (replyQuote != null) {
             ReplyConnectorOverlay(
                 bounds = replyConnectorBounds,
-                quoteFromMe = quote.fromMe,
                 replyFromMe = message.isFromMe,
                 modifier = Modifier.matchParentSize(),
             )
@@ -650,10 +652,11 @@ fun MessageBubble(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    // Thread affordances sit on the edge facing the transcript
-                    // center: end for incoming bubbles, start for outgoing.
+                    // Apple aligns the thread affordance with the bubble's own
+                    // margin, so it trails an outgoing bubble and leads an
+                    // incoming one.
                     modifier = Modifier
-                        .align(if (message.isFromMe) Alignment.Start else Alignment.End)
+                        .align(if (message.isFromMe) Alignment.End else Alignment.Start)
                         .padding(horizontal = 6.dp),
                 ) {
                     if (message.edited) {
@@ -681,12 +684,12 @@ fun MessageBubble(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
+                            .minimumInteractiveComponentSize()
                             .clickable(
                                 onClickLabel = "Open reply thread",
                                 role = Role.Button,
                                 onClick = onReplyCountTap,
-                            )
-                            .padding(vertical = 2.dp),
+                            ),
                     )
                 }
             } else {
@@ -841,15 +844,31 @@ private fun InvisibleInkBubble(
 
 private const val ReplyQuoteWidthFraction = 0.76f
 private val ReplyQuoteTopPadding = 4.dp
-private val ReplyConnectorInterMessageSpace = 48.dp
-private val ReplyConnectorStrokeWidth = 2.4.dp
-private val ReplyConnectorDetachedGap = 18.dp
-private val ReplyConnectorOuterInset = 16.dp
-private val ReplyConnectorCapLength = 18.dp
-private val ReplyConnectorVerticalLength = 28.dp
-private val ReplyConnectorCornerRadius = 6.dp
 
-internal enum class ReplyConnectorBend { Top, Bottom }
+/**
+ * Clear space under the quoted capsule. Apple keeps the pair tight — the
+ * quote sits just above its reply — so this stays well under
+ * [ReplyPairTopPadding], which separates the pair from the message above it.
+ */
+private val ReplyConnectorSpan = 6.dp
+
+/** Separates a quote+reply pair from whatever precedes it in the transcript. */
+private val ReplyPairTopPadding = 16.dp
+private val ReplyConnectorStrokeWidth = 2.dp
+
+/**
+ * The marker is an elbow hooked over the reply bubble's outer top corner, the
+ * way Apple draws it: a short arm pointing back toward the transcript centre,
+ * a rounded turn, then a leg dropping to just above the bubble. It marks the
+ * reply rather than spanning the gap to the quote.
+ */
+private val ReplyConnectorEdgeInset = 14.dp
+private val ReplyConnectorArmLength = 12.dp
+private val ReplyConnectorLegLength = 14.dp
+private val ReplyConnectorCornerRadius = 8.dp
+
+/** Daylight between the marker and the bubbles it sits between. */
+private val ReplyConnectorClearance = 3.dp
 
 private class ReplyConnectorBounds {
     var canvasInRoot: Rect? = null
@@ -857,146 +876,114 @@ private class ReplyConnectorBounds {
     var replyInRoot: Rect? = null
 }
 
+/**
+ * The elbow, in canvas coordinates. [armStart] is the free end pointing toward
+ * the transcript centre, [corner] is where it turns down, and [legEnd] sits
+ * just above the reply bubble's top edge.
+ */
 internal data class ReplyConnectorGeometry(
-    val start: Offset,
-    val horizontalEnd: Offset,
-    val control1: Offset,
-    val control2: Offset,
-    val curveEnd: Offset,
-    val end: Offset,
+    val armStart: Offset,
+    val corner: Offset,
+    val legEnd: Offset,
+    val cornerRadius: Float,
 )
 
 /**
- * Compact one-bend marker on the start-side rail. Its top or bottom cap points
- * toward the related bubble at that bubble's vertical center without touching.
+ * Hooks the marker over [reply]'s outer top corner. Every coordinate is read
+ * off the measured bubble, so the elbow tracks the reply on either side of the
+ * transcript instead of sitting at a fixed rail.
+ *
+ * The leg is free to rise past the quote's bottom edge when the two are on
+ * opposite sides — that is what Apple does, and there is nothing to collide
+ * with. When they share a side it stops short of [quote] instead.
  */
 internal fun replyConnectorGeometry(
-    railX: Float,
-    anchorX: Float,
-    startY: Float,
-    endY: Float,
+    quote: Rect,
+    reply: Rect,
+    replyFromMe: Boolean,
+    isLtr: Boolean,
+    edgeInset: Float,
+    armLength: Float,
+    legLength: Float,
     cornerRadius: Float,
-    bend: ReplyConnectorBend,
+    clearance: Float,
 ): ReplyConnectorGeometry {
-    val resolvedEndY = endY.coerceAtLeast(startY)
-    val inward = if (anchorX >= railX) 1f else -1f
+    val sitsOnRight = replyFromMe == isLtr
+    val inward = if (sitsOnRight) -1f else 1f
+    val inset = minOf(edgeInset, reply.width / 2f)
+    val legX = if (sitsOnRight) reply.right - inset else reply.left + inset
+    val armStartX = legX + inward * armLength
+
+    val legBottomY = reply.top - clearance
+    val overlapsQuote = minOf(legX, armStartX) <= quote.right &&
+        maxOf(legX, armStartX) >= quote.left
+    val floorY = if (overlapsQuote) quote.bottom + clearance else Float.NEGATIVE_INFINITY
+    val legTopY = maxOf(legBottomY - legLength, floorY).coerceAtMost(legBottomY)
+
     val radius = minOf(
         cornerRadius,
-        kotlin.math.abs(anchorX - railX),
-        resolvedEndY - startY,
-    )
-    val kappa = 0.5522848f
-    return when (bend) {
-        ReplyConnectorBend.Top -> {
-            val horizontalEnd = Offset(railX + inward * radius, startY)
-            val curveEnd = Offset(railX, startY + radius)
-            ReplyConnectorGeometry(
-                start = Offset(anchorX, startY),
-                horizontalEnd = horizontalEnd,
-                control1 = Offset(horizontalEnd.x - inward * radius * kappa, startY),
-                control2 = Offset(railX, curveEnd.y - radius * kappa),
-                curveEnd = curveEnd,
-                end = Offset(railX, resolvedEndY),
-            )
-        }
+        kotlin.math.abs(armStartX - legX),
+        legBottomY - legTopY,
+    ).coerceAtLeast(0f)
 
-        ReplyConnectorBend.Bottom -> {
-            val horizontalEnd = Offset(railX, resolvedEndY - radius)
-            val curveEnd = Offset(railX + inward * radius, resolvedEndY)
-            ReplyConnectorGeometry(
-                start = Offset(railX, startY),
-                horizontalEnd = horizontalEnd,
-                control1 = Offset(railX, horizontalEnd.y + radius * kappa),
-                control2 = Offset(curveEnd.x - inward * radius * kappa, resolvedEndY),
-                curveEnd = curveEnd,
-                end = Offset(anchorX, resolvedEndY),
-            )
-        }
+    return ReplyConnectorGeometry(
+        armStart = Offset(armStartX, legTopY),
+        corner = Offset(legX, legTopY),
+        legEnd = Offset(legX, legBottomY),
+        cornerRadius = radius,
+    )
+}
+
+internal fun replyConnectorPath(geometry: ReplyConnectorGeometry): Path = Path().apply {
+    val (armStart, corner, legEnd, radius) = geometry
+    moveTo(armStart.x, armStart.y)
+    if (radius <= 0f) {
+        lineTo(corner.x, corner.y)
+        lineTo(legEnd.x, legEnd.y)
+        return@apply
     }
+    val step = if (armStart.x >= corner.x) radius else -radius
+    lineTo(corner.x + step, corner.y)
+    quadraticTo(corner.x, corner.y, corner.x, corner.y + radius)
+    lineTo(legEnd.x, legEnd.y)
 }
 
 @Composable
 private fun ReplyConnectorOverlay(
     bounds: ReplyConnectorBounds,
-    quoteFromMe: Boolean,
     replyFromMe: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val connectorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+    // outline, not outlineVariant: this stroke is the only thing carrying the
+    // reply relationship, so it has to clear the 3:1 non-text contrast floor.
+    val connectorColor = MaterialTheme.colorScheme.outline
 
     Canvas(
         modifier = modifier.onGloballyPositioned { bounds.canvasInRoot = it.boundsInRoot() },
     ) {
         val canvasBounds = bounds.canvasInRoot ?: return@Canvas
         val rootToCanvas = Offset(-canvasBounds.left, -canvasBounds.top)
-        val quoteBounds = bounds.quoteInRoot?.translate(rootToCanvas)
-            ?: return@Canvas
-        val replyBounds = bounds.replyInRoot?.translate(rootToCanvas)
-            ?: return@Canvas
-        val strokeWidth = ReplyConnectorStrokeWidth.toPx()
-        val halfStroke = strokeWidth / 2f
-        val railX = if (isLtr) {
-            ReplyConnectorOuterInset.toPx()
-        } else {
-            size.width - ReplyConnectorOuterInset.toPx()
-        }
-        val inward = if (isLtr) 1f else -1f
-        val markerTipX = railX + inward * ReplyConnectorCapLength.toPx()
-        val detachedGap = ReplyConnectorDetachedGap.toPx() + halfStroke
-        val verticalLength = ReplyConnectorVerticalLength.toPx()
-
-        val geometry = when {
-            quoteFromMe -> {
-                val startY = quoteBounds.center.y
-                replyConnectorGeometry(
-                    railX = railX,
-                    anchorX = markerTipX,
-                    startY = startY,
-                    endY = minOf(startY + verticalLength, replyBounds.top - detachedGap),
-                    cornerRadius = ReplyConnectorCornerRadius.toPx(),
-                    bend = ReplyConnectorBend.Top,
-                )
-            }
-
-            replyFromMe -> {
-                val endY = replyBounds.center.y
-                replyConnectorGeometry(
-                    railX = railX,
-                    anchorX = markerTipX,
-                    startY = maxOf(endY - verticalLength, quoteBounds.bottom + detachedGap),
-                    endY = endY,
-                    cornerRadius = ReplyConnectorCornerRadius.toPx(),
-                    bend = ReplyConnectorBend.Bottom,
-                )
-            }
-
-            else -> {
-                val startY = quoteBounds.bottom + detachedGap
-                replyConnectorGeometry(
-                    railX = railX,
-                    anchorX = markerTipX,
-                    startY = startY,
-                    endY = minOf(startY + verticalLength, replyBounds.top - detachedGap),
-                    cornerRadius = ReplyConnectorCornerRadius.toPx(),
-                    bend = ReplyConnectorBend.Top,
-                )
-            }
-        }
+        val quoteBounds = bounds.quoteInRoot?.translate(rootToCanvas) ?: return@Canvas
+        val replyBounds = bounds.replyInRoot?.translate(rootToCanvas) ?: return@Canvas
+        if (replyBounds.top <= quoteBounds.bottom) return@Canvas
 
         drawPath(
-            path = Path().apply {
-                moveTo(geometry.start.x, geometry.start.y)
-                lineTo(geometry.horizontalEnd.x, geometry.horizontalEnd.y)
-                cubicTo(
-                    geometry.control1.x, geometry.control1.y,
-                    geometry.control2.x, geometry.control2.y,
-                    geometry.curveEnd.x, geometry.curveEnd.y,
-                )
-                lineTo(geometry.end.x, geometry.end.y)
-            },
+            path = replyConnectorPath(
+                replyConnectorGeometry(
+                    quote = quoteBounds,
+                    reply = replyBounds,
+                    replyFromMe = replyFromMe,
+                    isLtr = isLtr,
+                    edgeInset = ReplyConnectorEdgeInset.toPx(),
+                    armLength = ReplyConnectorArmLength.toPx(),
+                    legLength = ReplyConnectorLegLength.toPx(),
+                    cornerRadius = ReplyConnectorCornerRadius.toPx(),
+                    clearance = ReplyConnectorClearance.toPx(),
+                ),
+            ),
             color = connectorColor,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+            style = Stroke(width = ReplyConnectorStrokeWidth.toPx(), cap = StrokeCap.Round),
         )
     }
 }
@@ -1016,15 +1003,9 @@ private fun ReplyQuotePreview(
     onBoundsInRoot: (Rect) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val (bubbleColor, bubbleContent) = when {
-        quote.fromMe && smsChat -> smsServiceColors().let {
-            it.container.copy(alpha = 0.82f) to it.content
-        }
-        quote.fromMe -> MaterialTheme.colorScheme.primaryContainer to
-            MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainer to
-            MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    // Apple renders the quote as a smaller copy of the original's own bubble,
+    // not as a tinted variant, so the colors come straight from bubbleColors.
+    val (bubbleColor, bubbleContent) = bubbleColors(quote.fromMe, smsChat)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1038,10 +1019,14 @@ private fun ReplyQuotePreview(
             contentAlignment = if (quote.fromMe) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = MaterialTheme.shapes.large,
                 color = bubbleColor,
                 contentColor = bubbleContent,
+                // The reserve extends the touch target to 48dp without growing
+                // the drawn capsule, and bounds are reported inside it so the
+                // connector still anchors to the visible edge.
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .widthIn(max = maxWidth * ReplyQuoteWidthFraction)
                     .onGloballyPositioned { onBoundsInRoot(it.boundsInRoot()) }
                     .clickable(
@@ -1060,7 +1045,7 @@ private fun ReplyQuotePreview(
                 )
             }
         }
-        Spacer(Modifier.height(ReplyConnectorInterMessageSpace))
+        Spacer(Modifier.height(ReplyConnectorSpan))
     }
 }
 

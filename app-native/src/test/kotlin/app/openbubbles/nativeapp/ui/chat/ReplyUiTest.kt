@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import androidx.compose.ui.geometry.Rect
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -157,45 +158,104 @@ class ReplyUiTest {
     }
 
     @Test
-    fun `top connector keeps a short detached cap`() {
-        val geometry = replyConnectorGeometry(
-            railX = 8f,
-            anchorX = 26f,
-            startY = 10f,
-            endY = 50f,
-            cornerRadius = 6f,
-            bend = ReplyConnectorBend.Top,
+    fun `marker hooks over an incoming reply's leading top corner`() {
+        val reply = Rect(left = 20f, top = 60f, right = 300f, bottom = 120f)
+        val geometry = connector(
+            // Opposite side, so the leg is free to rise past the quote.
+            quote = Rect(left = 200f, top = 0f, right = 400f, bottom = 40f),
+            reply = reply,
+            replyFromMe = false,
         )
-        assertEquals(geometry.start.y, geometry.control1.y)
-        assertEquals(geometry.start.y, geometry.horizontalEnd.y)
-        assertEquals(geometry.end.x, geometry.control2.x)
-        assertEquals(geometry.end.x, geometry.curveEnd.x)
-        assertEquals(26f, geometry.start.x)
-        assertEquals(10f, geometry.start.y)
-        assertEquals(14f, geometry.horizontalEnd.x)
-        assertEquals(8f, geometry.end.x)
-        assertEquals(50f, geometry.end.y)
+
+        assertEquals(34f, geometry.corner.x)
+        assertEquals(34f, geometry.legEnd.x)
+        // The arm points back toward the transcript centre.
+        assertEquals(46f, geometry.armStart.x)
+        assertEquals(geometry.corner.y, geometry.armStart.y)
+        // The leg stops just short of the bubble instead of touching it.
+        assertEquals(reply.top - 3f, geometry.legEnd.y)
+        assertEquals(43f, geometry.corner.y)
+        assertEquals(8f, geometry.cornerRadius)
     }
 
     @Test
-    fun `bottom connector keeps a short detached cap`() {
-        val geometry = replyConnectorGeometry(
-            railX = 8f,
-            anchorX = 26f,
-            startY = 10f,
-            endY = 50f,
-            cornerRadius = 6f,
-            bend = ReplyConnectorBend.Bottom,
+    fun `marker mirrors onto an outgoing reply's trailing corner`() {
+        val geometry = connector(
+            quote = Rect(left = 20f, top = 0f, right = 200f, bottom = 40f),
+            reply = Rect(left = 100f, top = 60f, right = 380f, bottom = 120f),
+            replyFromMe = true,
         )
-        assertEquals(8f, geometry.start.x)
-        assertEquals(10f, geometry.start.y)
-        assertEquals(8f, geometry.horizontalEnd.x)
-        assertEquals(44f, geometry.horizontalEnd.y)
-        assertEquals(14f, geometry.curveEnd.x)
-        assertEquals(50f, geometry.curveEnd.y)
-        assertEquals(26f, geometry.end.x)
-        assertEquals(50f, geometry.end.y)
+
+        assertEquals(366f, geometry.corner.x)
+        assertEquals(366f, geometry.legEnd.x)
+        assertEquals(354f, geometry.armStart.x)
     }
+
+    @Test
+    fun `right-to-left mirrors the marker`() {
+        val quote = Rect(left = 200f, top = 0f, right = 400f, bottom = 40f)
+        val reply = Rect(left = 20f, top = 60f, right = 300f, bottom = 120f)
+
+        val ltr = connector(quote, reply, replyFromMe = false, isLtr = true)
+        val rtl = connector(quote, reply, replyFromMe = false, isLtr = false)
+
+        assertEquals(reply.left + 14f, ltr.corner.x)
+        assertEquals(reply.right - 14f, rtl.corner.x)
+    }
+
+    @Test
+    fun `marker clears a quote sharing the reply's side`() {
+        val quote = Rect(left = 20f, top = 0f, right = 200f, bottom = 40f)
+        val geometry = connector(
+            quote = quote,
+            reply = Rect(left = 20f, top = 50f, right = 300f, bottom = 120f),
+            replyFromMe = false,
+        )
+
+        assertEquals(quote.bottom + 3f, geometry.corner.y)
+        // The shortened leg pulls the corner radius down with it.
+        assertEquals(4f, geometry.cornerRadius)
+    }
+
+    @Test
+    fun `marker rises past a quote on the opposite side`() {
+        val quote = Rect(left = 200f, top = 0f, right = 400f, bottom = 40f)
+        val geometry = connector(
+            quote = quote,
+            reply = Rect(left = 20f, top = 50f, right = 300f, bottom = 120f),
+            replyFromMe = false,
+        )
+
+        assertTrue(geometry.corner.y < quote.bottom)
+    }
+
+    @Test
+    fun `marker stays inside a bubble narrower than the inset`() {
+        val geometry = connector(
+            quote = Rect(left = 200f, top = 0f, right = 400f, bottom = 40f),
+            reply = Rect(left = 20f, top = 60f, right = 40f, bottom = 120f),
+            replyFromMe = false,
+        )
+
+        assertEquals(30f, geometry.corner.x)
+    }
+
+    private fun connector(
+        quote: Rect,
+        reply: Rect,
+        replyFromMe: Boolean,
+        isLtr: Boolean = true,
+    ) = replyConnectorGeometry(
+        quote = quote,
+        reply = reply,
+        replyFromMe = replyFromMe,
+        isLtr = isLtr,
+        edgeInset = 14f,
+        armLength = 12f,
+        legLength = 14f,
+        cornerRadius = 8f,
+        clearance = 3f,
+    )
 
     @Test
     fun `one to one chats do not reserve group sender chrome`() {

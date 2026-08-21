@@ -674,6 +674,59 @@ fun ChatScreenReverseReplyScreenshot() {
 }
 
 /**
+ * Same-side inline reply. Both bubbles are start-aligned, so the connector
+ * collapses to a straight vertical stroke down the shared margin — the common
+ * case in a real thread, and the one the opposite-side fixtures cannot pin.
+ */
+@PreviewTest
+@Preview(name = "chat-reply-same-side", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reply-same-side-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenSameSideReplyScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        val original = message(
+            1,
+            "did the package ever show up",
+            fromMe = false,
+        ).copy(guid = "same-root", senderAddress = "mark@icloud.com")
+        val middle = message(
+            2,
+            "anyway good luck tomorrow",
+            fromMe = false,
+        ).copy(guid = "same-middle", senderAddress = "mark@icloud.com")
+        val reply = message(
+            3,
+            "never mind, found it on the porch",
+            fromMe = false,
+        ).copy(
+            guid = "same-child",
+            replyToGuid = "same-root",
+            replyPreviewText = original.text,
+            senderAddress = "mark@icloud.com",
+        )
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Mark",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(original, middle, reply),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/**
  * Tapbacks: the pill overlaps the bubble's top corner (leading for incoming,
  * trailing for outgoing) with the two-dot tail stepping back toward the
  * bubble. Reactions present at first composition render settled, so the
