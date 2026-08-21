@@ -2,6 +2,38 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.0
+
+### Enhancements
+
+- Messages, Photos, Passwords, and Find My now share a swipeable top-level
+  switcher, keeping each surface close without adding more navigation chrome.
+- Double-tapping an iMessage opens a focused Tapback picker that shows who
+  reacted, marks your active reaction, and keeps part-specific reactions with
+  the correct text or attachment.
+- Conversations now preserve your reading position as messages arrive and
+  offer a New messages jump control when you are away from the bottom.
+- Photos adds a dated, filterable timeline with adjustable density and an
+  adaptive swipeable viewer for images and videos.
+- Find My adds an in-app map, live tracking, and recorded session tracks.
+- Passwords and passkeys now load from a durable Android catalog, with clearer
+  sorting, creation and sharing sheets, and honest authentication failures.
+- First-run setup now centers iCloud unlock and keeps history download visibly
+  locked until the account is ready.
+- Video attachments can be compressed to 1080p HEVC, played in the viewer, and
+  exported with improved HDR and motion-photo interoperability.
+
+### Fixes
+
+- Mixed captions and media retain distinct message-part indices, so replies and
+  Tapbacks target the intended content.
+- Completed incoming attachments refresh in conversations that are already
+  open instead of remaining visually stalled.
+- Live arrivals, grouped conversations, reply threads, and configuration
+  changes no longer lose new-message markers or jump the settled viewport.
+- Password creation, group sharing, and verification-code actions remain
+  reachable above the keyboard, including on constrained landscape screens.
+
 ## v3.4.7
 
 This is the last release published to GitHub Releases. Installing it moves the
