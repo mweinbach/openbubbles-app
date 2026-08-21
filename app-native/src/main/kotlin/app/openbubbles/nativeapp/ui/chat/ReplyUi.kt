@@ -146,6 +146,7 @@ internal fun ensureThreadContains(
 internal fun ReplyThreadPane(
     thread: ReplyThreadState,
     smsChat: Boolean,
+    historySyncActive: Boolean,
     senderNames: Map<String, String>,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
@@ -177,9 +178,7 @@ internal fun ReplyThreadPane(
     }
     val atBottomNow by remember(listState, newestIndex, thresholdPx) {
         derivedStateOf {
-            val extent = listState.layoutInfo.visibleItemsInfo
-                .firstOrNull { it.index == newestIndex }?.size ?: 0
-            isFollowingBottom(anchor, newestIndex, followBottomThresholdPx(thresholdPx, extent))
+            isFollowingBottom(anchor, newestIndex, thresholdPx)
         }
     }
     // As in the main transcript: the follow decision is the position at the last
@@ -194,11 +193,12 @@ internal fun ReplyThreadPane(
     // Selecting another root/part is a different viewport; closing the thread
     // disposes this state entirely, so no stale announcement can replay.
     var arrivals by remember(thread.rootGuid, thread.part) { mutableStateOf(ArrivalState()) }
-    LaunchedEffect(thread.messages, thread.rootGuid, thread.part) {
+    LaunchedEffect(thread.messages, thread.rootGuid, thread.part, historySyncActive) {
         val outcome = reduceArrivals(
             state = arrivals,
             messages = thread.messages,
             followingBottom = shouldAutoScrollToNewest(followingBottom, anchor),
+            historySyncActive = historySyncActive,
         )
         arrivals = outcome.state
         if (outcome.pinToNewest && newestIndex >= 0) {
@@ -224,7 +224,10 @@ internal fun ReplyThreadPane(
             state = listState,
             reverseLayout = true,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
+            ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (thread.messages.isEmpty()) {

@@ -75,6 +75,7 @@ internal fun reduceArrivals(
     state: ArrivalState,
     messages: List<MessageItem>,
     followingBottom: Boolean,
+    historySyncActive: Boolean = false,
 ): ArrivalOutcome {
     if (messages.isEmpty()) {
         // A chat with nothing loaded has no baseline to defend; the next
@@ -96,8 +97,12 @@ internal fun reduceArrivals(
         )
     }
 
-    val arrivals = messages.filter {
-        it.guid !in state.knownGuids && !it.isFromMe && isNewerThanBaseline(it, state)
+    val arrivals = if (historySyncActive) {
+        emptyList()
+    } else {
+        messages.filter {
+            it.guid !in state.knownGuids && !it.isFromMe && isNewerThanBaseline(it, state)
+        }
     }
     val pending = if (followingBottom) {
         emptySet()
@@ -134,13 +139,6 @@ internal data class TranscriptAnchor(
     val firstVisibleOffsetPx: Int,
     val isScrollInProgress: Boolean = false,
 )
-
-/**
- * The follow threshold in pixels: [FollowBottomThresholdDp] converted by the
- * caller, or one measured newest-row extent when that row is taller.
- */
-internal fun followBottomThresholdPx(thresholdDpPx: Int, newestRowExtentPx: Int): Int =
-    maxOf(thresholdDpPx, newestRowExtentPx)
 
 /**
  * True when the newest message row is within [thresholdPx] of the visual

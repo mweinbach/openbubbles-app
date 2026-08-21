@@ -106,10 +106,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -365,7 +367,7 @@ fun ChatScreen(
     uiState: ChatUiState,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    onLoadOlder: () -> Unit,
+    onLoadOlder: () -> Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onSubjectChange: (String) -> Unit = {},
@@ -396,6 +398,7 @@ fun ChatScreen(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     attachmentFile: (String) -> File? = { null },
+    historySyncActive: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -702,12 +705,10 @@ fun ChatScreen(
     }
     val atBottomNow by remember(listState, newestIndex, followThresholdBasePx) {
         derivedStateOf {
-            val extent = listState.layoutInfo.visibleItemsInfo
-                .firstOrNull { it.index == newestIndex }?.size ?: 0
             isFollowingBottom(
                 anchor = transcriptAnchor,
                 newestMessageIndex = newestIndex,
-                thresholdPx = followBottomThresholdPx(followThresholdBasePx, extent),
+                thresholdPx = followThresholdBasePx,
             )
         }
     }
@@ -735,9 +736,14 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(uiState.messages, uiState.chat?.id) {
+    LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive) {
         val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
-        val outcome = reduceArrivals(arrivals, uiState.messages, pinned)
+        val outcome = reduceArrivals(
+            state = arrivals,
+            messages = uiState.messages,
+            followingBottom = pinned,
+            historySyncActive = historySyncActive,
+        )
         arrivals = outcome.state
         // Scroll only after the arriving row is part of the rendered snapshot.
         if (outcome.pinToNewest && newestIndex >= 0) {
@@ -774,14 +780,21 @@ fun ChatScreen(
                 .mapNotNull { info -> (info.key as? String)?.let { info.index to it } }
                 .toMap(),
         )
-        onLoadOlder()
+        if (!onLoadOlder()) pagingAnchor = null
     }
-    LaunchedEffect(entries) {
+    val currentEntries by rememberUpdatedState(entries)
+    val currentTyping by rememberUpdatedState(isTyping)
+    LaunchedEffect(uiState.loadingOlder) {
+        if (uiState.loadingOlder) return@LaunchedEffect
         val anchor = pagingAnchor ?: return@LaunchedEffect
+        // The repository's expanded-window emission can arrive one frame after
+        // the loading flag clears. Read the latest composition after that frame;
+        // an empty final page still reaches this completion path and clears.
+        withFrameNanos { }
         pagingAnchor = null
         val keys = buildList {
-            if (isTyping) add("typing-indicator")
-            entries.forEach { add(it.key) }
+            if (currentTyping) add("typing-indicator")
+            currentEntries.forEach { add(it.key) }
         }
         val target = pagingAnchorScrollTarget(anchor, keys) ?: return@LaunchedEffect
         listState.scrollToItem(target.first, target.second)
@@ -1008,6 +1021,7 @@ fun ChatScreen(
                     openThread != null -> ReplyThreadPane(
                         thread = openThread,
                         smsChat = smsChat,
+                        historySyncActive = historySyncActive,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,
@@ -1038,7 +1052,10 @@ fun ChatScreen(
                         state = listState,
                         reverseLayout = true,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(
+                            top = 8.dp,
+                            bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
+                        ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
@@ -1171,10 +1188,9 @@ fun ChatScreen(
                         }
                     }
                 }
-                // Overlay, not a transcript item: the Scaffold content padding
-                // already ends above the composer (which owns the IME and
-                // navigation-bar insets), so the pill rides that measured edge
-                // with the keyboard open or closed and covers no bubble.
+                // Overlay above the measured composer edge. The LazyColumn
+                // reserves the pill's 48dp target plus its 12dp offset so the
+                // control never covers transcript content or intercepts it.
                 if (openThread == null) {
                     NewMessagesJumpPill(
                         visible = arrivals.pendingCount > 0 && !uiState.initialLoading,

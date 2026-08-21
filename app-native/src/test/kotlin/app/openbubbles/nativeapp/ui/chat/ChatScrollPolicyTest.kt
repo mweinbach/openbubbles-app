@@ -151,6 +151,26 @@ class ChatScrollPolicyTest {
     }
 
     @Test
+    fun `history sync advances the baseline without announcing imported rows`() {
+        val base = reduceArrivals(ArrivalState(), listOf(message(10, start)), false).state
+        val synced = reduceArrivals(
+            base,
+            listOf(message(10, start), message(11, start + 5_000)),
+            followingBottom = false,
+            historySyncActive = true,
+        )
+        assertEquals(0, synced.arrivals)
+        assertEquals(0, synced.state.pendingCount)
+
+        val afterSync = reduceArrivals(
+            synced.state,
+            listOf(message(10, start), message(11, start + 5_000)),
+            followingBottom = false,
+        )
+        assertEquals(0, afterSync.arrivals)
+    }
+
+    @Test
     fun `outgoing rows never increment the count`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
         val outcome = reduceArrivals(
@@ -282,9 +302,9 @@ class ChatScrollPolicyTest {
     }
 
     @Test
-    fun `the threshold grows to one measured newest-row extent`() {
-        assertEquals(240, followBottomThresholdPx(thresholdDpPx = 240, newestRowExtentPx = 96))
-        assertEquals(600, followBottomThresholdPx(thresholdDpPx = 240, newestRowExtentPx = 600))
+    fun `a tall newest row does not expand the declared follow boundary`() {
+        assertTrue(isFollowingBottom(TranscriptAnchor(0, 240), 0, thresholdPx = 240))
+        assertFalse(isFollowingBottom(TranscriptAnchor(0, 241), 0, thresholdPx = 240))
     }
 
     @Test
