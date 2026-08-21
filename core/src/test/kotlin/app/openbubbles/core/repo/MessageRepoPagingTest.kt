@@ -199,6 +199,155 @@ class MessageRepoPagingTest {
         }
     }
 
+    /**
+     * The stranding this guards: a transfer promotes its payload while the row
+     * already claims `isDownloaded` and the real byte length equals the
+     * declared one, so no attachment column changes. Without the payload
+     * identity in the projection the page compares equal, the dedupe drops it,
+     * and the open transcript keeps its placeholder until it is reopened.
+     */
+    @Test
+    fun `a promoted payload re-emits the page with no attachment column change`() = runBlocking<Unit> {
+        val payloadRoot = Files.createTempDirectory("ob-message-paging-payload").toFile()
+        try {
+            val rendering = MessageRepo(store, attachmentsRoot = payloadRoot)
+            val bytes = "payload-bytes".toByteArray()
+            val (newest, attachment) = seedAttachment(
+                guid = "att-promoted",
+                downloaded = true,
+                totalBytes = bytes.size.toLong(),
+            )
+
+            val stamps = rendering.messages(chat.id, limit = 10)
+                .first { it.guid == newest.guid }
+                .attachmentStamps
+                .single()
+            assertTrue(stamps.downloaded)
+            assertNull(stamps.payload, "no payload is readable before promotion")
+
+            val pages = Channel<List<app.openbubbles.core.model.MessageItem>>(Channel.UNLIMITED)
+            val collector = launch {
+                rendering.observeMessages(chat.id, limit = 10).collect { pages.send(it) }
+            }
+            try {
+                withTimeout(10_000) {
+                    pages.receive()
+                    // Exactly what AttachmentManager does on success: promote
+                    // the file, then persist the (here unchanged) row.
+                    payloadFile(payloadRoot, attachment).apply {
+                        parentFile?.mkdirs()
+                        writeBytes(bytes)
+                    }
+                    store.boxFor(Attachment::class.java)
+                        .put(store.boxFor(Attachment::class.java).get(attachment.id))
+
+                    var stamp = pages.receive()
+                        .first { it.guid == newest.guid }
+                        .attachmentStamps
+                        .single()
+                    while (stamp.payload == null) {
+                        stamp = pages.receive()
+                            .first { it.guid == newest.guid }
+                            .attachmentStamps
+                            .single()
+                    }
+                    assertTrue(
+                        stamp.payload!!
+                            .endsWith(":${bytes.size}:${payloadFile(payloadRoot, attachment).lastModified()}"),
+                    )
+                    // Nothing else about the row moved, so the payload
+                    // identity is the only reason this page was not deduped.
+                    assertEquals(stamps, stamp.copy(payload = null))
+                }
+            } finally {
+                collector.cancel()
+            }
+        } finally {
+            payloadRoot.deleteRecursively()
+        }
+    }
+
+    /** A half-written payload must never be advertised as renderable. */
+    @Test
+    fun `an incomplete payload is not stamped as readable`() {
+        val payloadRoot = Files.createTempDirectory("ob-message-paging-partial").toFile()
+        try {
+            val rendering = MessageRepo(store, attachmentsRoot = payloadRoot)
+            val (newest, attachment) = seedAttachment(
+                guid = "att-partial",
+                downloaded = true,
+                totalBytes = 4_096L,
+            )
+            payloadFile(payloadRoot, attachment).apply {
+                parentFile?.mkdirs()
+                writeBytes(ByteArray(12))
+            }
+
+            val stamp = rendering.messages(chat.id, limit = 10)
+                .first { it.guid == newest.guid }
+                .attachmentStamps
+                .single()
+            assertNull(stamp.payload)
+        } finally {
+            payloadRoot.deleteRecursively()
+        }
+    }
+
+    /**
+     * The transcript must not need a warm-up delay before it is safe to write.
+     * A separately merged initial value can query before the change
+     * subscription exists, and the commit landing in that window is lost until
+     * the conversation is reopened.
+     */
+    @Test
+    fun `a write committed as soon as collection starts is not lost`() = runBlocking<Unit> {
+        val (newest, attachment) = seedAttachment(
+            guid = "att-readiness",
+            downloaded = false,
+            totalBytes = 10L,
+        )
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val pages = Channel<List<app.openbubbles.core.model.MessageItem>>(Channel.UNLIMITED)
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            repo.observeMessages(chat.id, limit = 10).collect { pages.send(it) }
+        }
+        try {
+            withTimeout(10_000) {
+                attachmentBox.put(attachmentBox.get(attachment.id).apply { isDownloaded = true })
+                var stamp = pages.receive().first { it.guid == newest.guid }.attachmentStamps.single()
+                while (!stamp.downloaded) {
+                    stamp = pages.receive().first { it.guid == newest.guid }.attachmentStamps.single()
+                }
+            }
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    private fun seedAttachment(
+        guid: String,
+        downloaded: Boolean,
+        totalBytes: Long,
+    ): Pair<Message, Attachment> {
+        val messageBox = store.boxFor(Message::class.java)
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val newest = messageBox.all.maxBy { it.dateCreated!!.time }
+        val attachment = Attachment().apply {
+            this.guid = guid
+            transferName = "photo.jpg"
+            mimeType = "image/jpeg"
+            isDownloaded = downloaded
+            this.totalBytes = totalBytes
+            this.message.target = newest
+        }
+        attachmentBox.put(attachment)
+        messageBox.put(newest.apply { hasAttachments = true })
+        return newest to attachment
+    }
+
+    private fun payloadFile(root: File, attachment: Attachment): File =
+        File(File(File(root, "attachments"), attachment.guid!!), attachment.transferName!!)
+
     @Test
     fun `clear transcript deletes all local messages`() {
         repo.clearTranscript(chat.id)
