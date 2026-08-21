@@ -8,7 +8,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -220,7 +222,6 @@ internal fun TapbackPickerOverlay(
                 selected = selected,
                 onReact = onReact,
                 onCustomReaction = onCustomReaction,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -311,45 +312,53 @@ private fun TapbackPickerBar(
     onCustomReaction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        tonalElevation = 2.dp,
-        shadowElevation = 8.dp,
+    BoxWithConstraints(
         modifier = modifier
             .widthIn(max = PickerMaxWidth)
-            .pointerInput(Unit) { detectTapGestures { } },
+            .fillMaxWidth(),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
+        val compact = maxWidth < 336.dp
+        Surface(
+            shape = if (compact) MaterialTheme.shapes.extraLarge else CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            tonalElevation = 2.dp,
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp)
-                .semantics { isTraversalGroup = true },
+                .pointerInput(Unit) { detectTapGestures { } },
         ) {
-            ActionTapbacks.forEachIndexed { index, emoji ->
-                TapbackEmojiButton(
-                    emoji = emoji,
-                    selected = selected?.reactionIndex == index,
+            FlowRow(
+                maxItemsInEachRow = if (compact) 4 else ActionTapbacks.size + 1,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .semantics { isTraversalGroup = true },
+            ) {
+                ActionTapbacks.forEachIndexed { index, emoji ->
+                    TapbackEmojiButton(
+                        emoji = emoji,
+                        selected = selected?.reactionIndex == index,
+                        onClick = {
+                            onReact(index, null, enableTappedReaction(selected, index))
+                        },
+                    )
+                }
+                val customSelected = selected?.reactionIndex == CustomReactionIndex
+                PickerIconButton(
+                    icon = Icons.Filled.AddReaction,
+                    label = "Custom reaction",
+                    selected = customSelected,
                     onClick = {
-                        onReact(index, null, enableTappedReaction(selected, index))
+                        if (customSelected) {
+                            onReact(CustomReactionIndex, selected.emoji, false)
+                        } else {
+                            onCustomReaction()
+                        }
                     },
                 )
             }
-            val customSelected = selected?.reactionIndex == CustomReactionIndex
-            PickerIconButton(
-                icon = Icons.Filled.AddReaction,
-                label = "Custom reaction",
-                selected = customSelected,
-                onClick = {
-                    if (customSelected) {
-                        onReact(CustomReactionIndex, selected.emoji, false)
-                    } else {
-                        onCustomReaction()
-                    }
-                },
-            )
         }
     }
 }

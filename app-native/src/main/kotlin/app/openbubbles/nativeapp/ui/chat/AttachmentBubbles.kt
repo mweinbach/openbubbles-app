@@ -134,6 +134,8 @@ fun AttachmentContent(
             onDownloadAttachment = onDownloadAttachment,
             fromMe = fromMe,
             smsChat = smsChat,
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
             modifier = modifier.messagePartGestures(
                 onOpenActions = onLongPress,
                 onDoubleTapActions = onDoubleTap,
