@@ -297,6 +297,18 @@ androidComponents {
         }
 
         jniLibs.addGeneratedSourceDirectory(t) { it.outputDirectory }
+
+        // buildTypes.release points Crashlytics' unstrippedNativeLibsDir at
+        // this Cargo output through a plain File, which carries no producer
+        // metadata. Gradle's implicit-dependency validation then refuses to
+        // run generateCrashlyticsSymbolFile<Variant> on release builds, so
+        // declare the producer explicitly. Matching by name keeps the wiring
+        // lazy and is a no-op for variants with native symbol upload disabled
+        // (the Crashlytics plugin never registers their symbol tasks).
+        def crashlyticsSymbolTask = "generateCrashlyticsSymbolFile${variant.name.capitalize()}"
+        tasks.matching { it.name == crashlyticsSymbolTask }.configureEach {
+            dependsOn t
+        }
     }
 }
 
