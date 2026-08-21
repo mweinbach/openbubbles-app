@@ -49,6 +49,7 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
     val uiState: StateFlow<KeychainStepUiState> = _uiState.asStateFlow()
 
     private val bottles = LinkedHashMap<String, UViableBottle>()
+    private var sensitiveGeneration = 0L
 
     init {
         viewModelScope.launch {
@@ -73,6 +74,7 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
     fun loadDevices() {
         val live = PushStateHolder.state ?: return
         if (_uiState.value.loadingDevices) return
+        val generation = ++sensitiveGeneration
         bottles.clear()
         _uiState.update {
             it.copy(
@@ -85,7 +87,7 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
         }
         viewModelScope.launch {
             val result = ICloudKeychainEnrollment.viableBottles(live)
-            if (PushStateHolder.state !== live) return@launch
+            if (PushStateHolder.state !== live || sensitiveGeneration != generation) return@launch
             result.onSuccess { found ->
                 val models = found.mapIndexed { index, bottle ->
                     val id = "$index:${bottle.escrowData.contentHashCode()}"
@@ -144,6 +146,7 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
         val bottle = bottles[device.id] ?: return
         if (state.joining || !isKeychainPasscodeComplete(state.passcode, device.numericLength)) return
         _uiState.update { it.copy(joining = true, error = null) }
+        val generation = sensitiveGeneration
         viewModelScope.launch {
             val result = ICloudKeychainEnrollment.joinWithBottle(
                 context = getApplication(),
@@ -151,7 +154,7 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
                 bottle = bottle,
                 passcode = state.passcode,
             )
-            if (PushStateHolder.state !== live) return@launch
+            if (PushStateHolder.state !== live || sensitiveGeneration != generation) return@launch
             result.onSuccess {
                 _uiState.update { it.copy(inClique = true, joining = false, passcode = "") }
             }.onFailure { error ->
@@ -163,6 +166,22 @@ internal class KeychainStepViewModel(application: Application) : AndroidViewMode
                     )
                 }
             }
+        }
+    }
+
+    /** Drops passcodes and escrow records when onboarding leaves this activity-owned ViewModel. */
+    fun clearSensitiveState() {
+        sensitiveGeneration += 1
+        bottles.clear()
+        _uiState.update {
+            it.copy(
+                loadingDevices = false,
+                joining = false,
+                devices = emptyList(),
+                selectedDeviceId = null,
+                passcode = "",
+                error = null,
+            )
         }
     }
 }

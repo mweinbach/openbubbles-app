@@ -131,7 +131,7 @@ internal fun HistoryDownloadLockScreen(
             connectionUnavailable = false
             startRequested = false
             connectionAttempt += 1
-            context?.let(NativePushService::start)
+            context?.let(NativePushService::reloadAfterLogin)
         },
         onDismiss = onDismiss,
         modifier = modifier,
