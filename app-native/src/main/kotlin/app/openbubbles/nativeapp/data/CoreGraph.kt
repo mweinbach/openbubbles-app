@@ -128,7 +128,15 @@ object CoreGraph {
     }
     private val messageRepo: MessageRepo? by lazy {
         val chats = chatRepo ?: return@lazy null
-        store?.let { MessageRepo(it, chats) }
+        store?.let {
+            MessageRepo(
+                it,
+                chats,
+                // The rendering projection needs the payload identity so a
+                // completed download reaches an open transcript.
+                attachmentsRoot = AppContext.current?.dataDir?.let { dir -> File(dir, "app_flutter") },
+            )
+        }
     }
     val ingestor: MessageIngestor? by lazy {
         val st = store ?: return@lazy null
@@ -968,6 +976,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
             scale = sticker.scale,
             effectType = sticker.effectType,
             downloaded = sticker.downloaded,
+            payload = sticker.payload,
         )
     },
     chatId = item.chatId,
@@ -983,7 +992,10 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
 internal fun isImageAttachment(mime: String?, uti: String?, name: String? = null): Boolean =
     AttachmentMedia.isImage(mime, uti, name)
 
-internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
+internal fun attachmentToMeta(
+    attachment: Attachment,
+    payloadStamp: String? = null,
+) = AttachmentMeta(
     guid = attachment.guid,
     mime = attachment.mimeType,
     name = attachment.transferName,
@@ -996,10 +1008,19 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
     uti = attachment.uti,
     livePhotoMotionGuid = attachment.metadata?.get("livePhotoMotionGuid") as? String,
     isLivePhotoMotion = attachment.metadata?.get("livePhotoMotion") == true,
+    payloadStamp = payloadStamp,
 )
 
-internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<AttachmentMeta> {
-    val metas = attachments.map(::attachmentToMeta)
+/**
+ * @param payloadStamps disk identity per attachment row id, taken from the
+ *   transcript projection so the payload is stat-ed once per page instead of
+ *   once per rendering stage.
+ */
+internal fun visibleAttachmentMetas(
+    attachments: List<Attachment>,
+    payloadStamps: Map<Long, String?> = emptyMap(),
+): List<AttachmentMeta> {
+    val metas = attachments.map { attachmentToMeta(it, payloadStamps[it.id]) }
     val metasByGuid = metas.associateBy(AttachmentMeta::guid)
     val hiddenMotionGuids = metas.filter(AttachmentMeta::isLivePhotoMotion).mapTo(mutableSetOf(), AttachmentMeta::guid)
     val inferredMotionByStill = metas.asSequence()
@@ -1019,6 +1040,7 @@ internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<Attachm
         meta.copy(
             livePhotoMotionGuid = motionGuid,
             livePhotoMotionDownloaded = motionGuid?.let { metasByGuid[it]?.downloaded } == true,
+            livePhotoMotionPayloadStamp = motionGuid?.let { metasByGuid[it]?.payloadStamp },
         )
     }
 }
@@ -1072,12 +1094,22 @@ private fun editedFlags(entity: Message): Pair<Boolean, Boolean> {
 }
 
 /**
+ * Disk identity per attachment row id, as resolved by the core transcript
+ * projection. Reusing it keeps the payload stat on one stage of the pipeline.
+ */
+private fun payloadStampsOf(page: List<app.openbubbles.core.model.MessageItem>): Map<Long, String?> =
+    page.asSequence()
+        .flatMap { it.attachmentStamps.asSequence() }
+        .associate { it.id to it.payload }
+
+/**
  * Fills the display fields (attachment metadata, edited/unsent flags) the
  * core MessageItem does not carry yet, using one batched entity read.
  */
 private fun enrichWithEntityDetails(
     items: List<MessageItem>,
     store: BoxStore?,
+    payloadStamps: Map<Long, String?> = emptyMap(),
 ): List<MessageItem> {
     if (store == null || items.isEmpty()) return items
     return runCatching {
@@ -1101,7 +1133,7 @@ private fun enrichWithEntityDetails(
                 val entity = byId[item.id] ?: return@map item
                 val (edited, unsent) = editedFlags(entity)
                 val attachments = runCatching {
-                    visibleAttachmentMetas(entity.dbAttachments)
+                    visibleAttachmentMetas(entity.dbAttachments, payloadStamps)
                 }.getOrDefault(emptyList())
                 val firstAttachment = attachments.firstOrNull()
                 item.copy(
@@ -1370,7 +1402,7 @@ internal class CoreMessageListRepository(
     private val store: BoxStore?,
     private val warmLoader: suspend (Long, Int) -> List<MessageItem> = { chatId, limit ->
         val page = repo.messages(chatId, limit)
-        enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+        enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page)).asReversed()
     },
 ) : MessageListRepository {
     private companion object {
@@ -1475,7 +1507,8 @@ internal class CoreMessageListRepository(
     override fun loadMore(chatId: Long, before: Long?, count: Int): List<MessageItem> {
         val cursor = before ?: return emptyList()
         val older = repo.messagesBefore(chatId, beforeId = cursor, limit = count)
-        val olderUi = enrichWithEntityDetails(older.map(::coreMessageToUi), store).asReversed()
+        val olderUi = enrichWithEntityDetails(older.map(::coreMessageToUi), store, payloadStampsOf(older))
+            .asReversed()
         if (older.isNotEmpty()) {
             val paging = window(chatId, count)
             paging.size.value += older.size
@@ -1491,11 +1524,10 @@ internal class CoreMessageListRepository(
         return olderUi
     }
 
-    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> =
-        enrichWithEntityDetails(
-            repo.threadMessages(chatId, rootGuid, part).map(::coreMessageToUi),
-            store,
-        )
+    override fun thread(chatId: Long, rootGuid: String, part: Long): List<MessageItem> {
+        val page = repo.threadMessages(chatId, rootGuid, part)
+        return enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page))
+    }
 
     override fun release(chatId: Long) {
         retained.remove(chatId)
@@ -1555,7 +1587,7 @@ internal class CoreMessageListRepository(
                 paging.size.value += newlyPrepended
             }
         }
-        val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store).asReversed()
+        val ui = enrichWithEntityDetails(page.map(::coreMessageToUi), store, payloadStampsOf(page)).asReversed()
         rememberSnapshot(chatId, ui, requestedLimit, changeGeneration.get())
         return ui
     }
@@ -1626,6 +1658,14 @@ internal class CoreMessageListRepository(
         }
         return selected
     }
+
+    /**
+     * Invalidations this repository has already folded into its own state.
+     * Warm loads are only accepted when this does not move while they run, so
+     * a test proving that has to wait on this counter rather than on its own
+     * separate collector of the same store signal.
+     */
+    internal fun observedChangeGeneration(): Long = changeGeneration.get()
 
     internal fun close() {
         cacheScope.cancel()
