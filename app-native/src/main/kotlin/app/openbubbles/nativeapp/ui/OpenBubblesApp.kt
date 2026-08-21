@@ -211,6 +211,10 @@ data object SettingsKey : NavKey
 @Serializable
 data object PasswordsKey : NavKey
 
+internal fun passwordsReturnsToSettings(backStack: List<NavKey>): Boolean =
+    backStack.lastOrNull() is PasswordsKey &&
+        backStack.getOrNull(backStack.lastIndex - 1) is SettingsKey
+
 /**
  * One vault item opened as its own page. Carries the list row's snapshot so
  * the page renders instantly; the secret itself is only fetched on-page
@@ -431,6 +435,14 @@ fun OpenBubblesApp(
             // The standalone Passwords icon seeded this root; leaving it is
             // leaving the "app", not a hop back into messaging.
             hostActivity?.finish()
+        }
+    }
+
+    fun openICloudSettingsFromPasswords() {
+        if (passwordsReturnsToSettings(backStack)) {
+            popBack()
+        } else {
+            navigateTo(SettingsKey)
         }
     }
 
@@ -1083,7 +1095,7 @@ fun OpenBubblesApp(
                         uiState = state,
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
-                        onOpenICloudSettings = { popBack() },
+                        onOpenICloudSettings = { openICloudSettingsFromPasswords() },
                         onCategory = viewModel::setCategory,
                         onQuery = viewModel::setQuery,
                         onSelect = { item ->

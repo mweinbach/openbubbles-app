@@ -147,10 +147,9 @@ class TopLevelSurfaceOrderTest {
     }
 
     @Test
-    fun `an unknown surface id is dropped and the rest is kept`() {
+    fun `an unknown surface id falls back to the canonical order`() {
         val order = TopLevelSurfaceOrderCodec.decode("1|messages,shortcuts,findmy|findmy")
-        assertEquals(listOf(TopLevelSurface.MESSAGES, TopLevelSurface.FIND_MY), order.surfaces)
-        assertEquals(TopLevelSurface.FIND_MY, order.defaultSurface)
+        assertSame(TopLevelSurfaceOrder.Default, order)
     }
 
     @Test

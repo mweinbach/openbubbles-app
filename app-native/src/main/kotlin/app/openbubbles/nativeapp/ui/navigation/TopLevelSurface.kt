@@ -103,11 +103,14 @@ object TopLevelSurfaceOrderCodec {
         val parts = raw?.split('|') ?: return TopLevelSurfaceOrder.Default
         if (parts.size != 3) return TopLevelSurfaceOrder.Default
         if (parts[0].toIntOrNull() != VERSION) return TopLevelSurfaceOrder.Default
-        val surfaces = parts[1].split(',').mapNotNull(TopLevelSurface::fromId)
+        val surfaces = parts[1].split(',').map { id ->
+            TopLevelSurface.fromId(id) ?: return TopLevelSurfaceOrder.Default
+        }
         if (surfaces.isEmpty()) return TopLevelSurfaceOrder.Default
+        val defaultSurface = TopLevelSurface.fromId(parts[2]) ?: return TopLevelSurfaceOrder.Default
         return TopLevelSurfaceOrder.of(
             surfaces = surfaces,
-            defaultSurface = TopLevelSurface.fromId(parts[2]) ?: surfaces.first(),
+            defaultSurface = defaultSurface,
         )
     }
 }
