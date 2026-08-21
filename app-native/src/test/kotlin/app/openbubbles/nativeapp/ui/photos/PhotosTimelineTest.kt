@@ -112,6 +112,14 @@ class VisiblePhotosTest {
         assertFalse(shouldAutoPagePhotos(PhotoFilter.Favorites))
         assertFalse(shouldAutoPagePhotos(PhotoFilter.Videos))
     }
+
+    @Test
+    fun `auto paging waits for a real laid out viewport`() {
+        assertFalse(photoGridNearEnd(null, totalItemsCount = 0, approximateColumns = 3))
+        assertFalse(photoGridNearEnd(null, totalItemsCount = 40, approximateColumns = 3))
+        assertFalse(photoGridNearEnd(10, totalItemsCount = 40, approximateColumns = 3))
+        assertTrue(photoGridNearEnd(31, totalItemsCount = 40, approximateColumns = 3))
+    }
 }
 
 class PhotoTimelineTest {
@@ -199,6 +207,13 @@ class PhotoGroupingTest {
     }
 
     @Test
+    fun `every density declares an accessible adaptive tile floor`() {
+        assertEquals(120, PhotoGrouping.Day.minimumTileWidthDp)
+        assertEquals(72, PhotoGrouping.Month.minimumTileWidthDp)
+        assertEquals(48, PhotoGrouping.Year.minimumTileWidthDp)
+    }
+
+    @Test
     fun `a pinch must travel before it re-flows the grid`() {
         assertNull(groupingForPinch(PhotoGrouping.Month, 1.1f))
         assertNull(groupingForPinch(PhotoGrouping.Month, 0.95f))
@@ -229,6 +244,10 @@ class PhotoInfoTest {
             photoCountLabel(
                 listOf(photo("a"), photo("b"), photo("v", kind = PhotoMediaKind.Video)),
             ),
+        )
+        assertEquals(
+            "1 photo · 1 other item",
+            photoCountLabel(listOf(photo("a"), photo("unknown", kind = PhotoMediaKind.Unknown))),
         )
     }
 

@@ -197,6 +197,38 @@ class PhotosViewModelTest {
             }
         }
 
+    @Test
+    fun `reselecting a canceled original restarts it after cancellation joins`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-original-reselect").toFile()
+            try {
+                val first = photo("one")
+                val second = photo("two")
+                val port = BlockingDownloadPort(listOf(first, second))
+                val model = model(port, FakeCatalog(CachedPhotos(listOf(first, second))), root)
+                advanceUntilIdle()
+
+                model.select(first)
+                runCurrent()
+                model.select(second)
+                runCurrent()
+                model.select(first)
+                runCurrent()
+
+                assertEquals(listOf(first.id, second.id, first.id), port.originalStarted)
+                assertEquals(listOf(first.id, second.id), port.originalCancelled)
+                assertEquals(first.id, model.uiState.value.selectedAssetId)
+                assertEquals(1, port.activeDownloads)
+                assertEquals(1, port.maxActiveDownloads)
+
+                model.closeSelected()
+                runCurrent()
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
     private fun model(
         port: PhotosPort,
         catalog: PhotosCatalog,

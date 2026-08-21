@@ -18,10 +18,15 @@ import java.util.Locale
  */
 
 /** How tightly the grid is packed, and therefore how coarsely it is grouped. */
-enum class PhotoGrouping(val label: String, val columns: Int) {
-    Day("Days", 3),
-    Month("Months", 5),
-    Year("Years", 7),
+enum class PhotoGrouping(
+    val label: String,
+    val columns: Int,
+    /** Smallest accessible tile width; wider windows add columns instead of stretching tiles. */
+    val minimumTileWidthDp: Int,
+) {
+    Day("Days", 3, 120),
+    Month("Months", 5, 72),
+    Year("Years", 7, 48),
     ;
 
     /** One step denser (a pinch out), or null at the end of the scale. */
@@ -40,6 +45,14 @@ enum class PhotoFilter(val label: String) {
 
 /** Sparse filtered views require an explicit page request instead of draining the catalog. */
 internal fun shouldAutoPagePhotos(filter: PhotoFilter): Boolean = filter == PhotoFilter.All
+
+internal fun photoGridNearEnd(
+    lastVisibleIndex: Int?,
+    totalItemsCount: Int,
+    approximateColumns: Int,
+): Boolean = lastVisibleIndex != null &&
+    totalItemsCount > 0 &&
+    lastVisibleIndex >= totalItemsCount - approximateColumns.coerceAtLeast(1) * 3
 
 /** One dated run of assets with its header text. */
 data class PhotoSection(
@@ -175,11 +188,13 @@ fun groupingForPinch(
 /** "3 photos" / "1 video" / "128 items" for a header or a count line. */
 fun photoCountLabel(assets: List<PhotoSummary>): String {
     if (assets.isEmpty()) return "No items"
+    val photos = assets.count { it.mediaKind == PhotoMediaKind.Image }
     val videos = assets.count { it.mediaKind == PhotoMediaKind.Video }
-    val photos = assets.size - videos
+    val unknown = assets.size - photos - videos
     val parts = buildList {
         if (photos > 0) add(if (photos == 1) "1 photo" else "$photos photos")
         if (videos > 0) add(if (videos == 1) "1 video" else "$videos videos")
+        if (unknown > 0) add(if (unknown == 1) "1 other item" else "$unknown other items")
     }
     return parts.joinToString(" · ")
 }

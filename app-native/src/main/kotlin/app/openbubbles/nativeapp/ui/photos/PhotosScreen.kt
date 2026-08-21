@@ -356,21 +356,25 @@ private fun PhotosGrid(
         if (snapshot.nextCursor == null || !shouldAutoPagePhotos(filter)) return@LaunchedEffect
         snapshotFlow {
             val info = gridState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= info.totalItemsCount - grouping.columns * 3
+            photoGridNearEnd(
+                lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index,
+                totalItemsCount = info.totalItemsCount,
+                approximateColumns = grouping.columns,
+            )
         }
             .distinctUntilChanged()
             .collect { nearEnd -> if (nearEnd) onLoadMore() }
     }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(grouping.columns),
+        columns = GridCells.Adaptive(grouping.minimumTileWidthDp.dp),
         modifier = modifier
             .fillMaxSize()
             .navigationBarsPadding()
             .pinchGrouping(grouping, onGrouping)
             .testTag(if (gridIsScrollable) PhotosScrollableTag else PhotosIdleTag),
         state = gridState,
-        contentPadding = PaddingValues(2.dp),
+        // The last row can scroll fully above the bottom-end upload FAB.
+        contentPadding = PaddingValues(start = 2.dp, top = 2.dp, end = 16.dp, bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -783,6 +787,7 @@ private fun PhotoViewer(
                 asset = asset,
                 preview = uiState.previewTransfers[asset.id],
                 original = uiState.originalTransfers[asset.id],
+                playbackEnabled = page == pagerState.settledPage && !pagerState.isScrollInProgress,
                 onToggleChrome = { chromeVisible = !chromeVisible },
                 onRetryOriginal = { onRetryOriginal(asset) },
             )
@@ -861,6 +866,7 @@ private fun PhotoPage(
     asset: PhotoSummary,
     preview: PhotoTransfer?,
     original: PhotoTransfer?,
+    playbackEnabled: Boolean,
     onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
@@ -922,6 +928,7 @@ private fun PhotoPage(
                 AttachmentVideoPlayer(
                     file = originalFile,
                     controlsVisible = true,
+                    playbackEnabled = playbackEnabled,
                     onOpenExternally = {
                         val mime = AttachmentMedia.suggestedMime(null, null, asset.filename)
                         if (!openAttachmentExternally(context, originalFile, mime)) {
