@@ -2462,14 +2462,14 @@ internal data class ReturnedAttachmentPlan(
     val rawAttachmentCount: Int,
     val persistedAttachmentGuids: List<String>,
     val promotions: List<Pair<String, String>>,
-    val filteredStagedGuids: List<String>,
     val complete: Boolean,
 )
 
 /**
- * Keep transport completeness separate from the display mapper. The latter
- * intentionally hides SMIL layout parts, while the send boundary still has
- * to account for every attachment Rust accepted.
+ * Keep transport completeness separate from the default incoming-message
+ * mapper. Every part at this outgoing iMessage boundary came from the user's
+ * selected files, including an arbitrary application/smil file, so all of
+ * them remain displayable and durable.
  */
 internal fun returnedAttachmentPlan(
     normal: UMessage.Normal?,
@@ -2478,54 +2478,19 @@ internal fun returnedAttachmentPlan(
 ): ReturnedAttachmentPlan {
     val rawAttachmentCount = normal?.parts.orEmpty().count { it.part is UPart.Attachment }
     val persistedAttachmentGuids = normal?.let {
-        MessageMapper.mapParts(it.parts, messageGuid, isOutgoing = true).second.map { item -> item.guid }
+        MessageMapper.mapParts(
+            it.parts,
+            messageGuid,
+            isOutgoing = true,
+            preserveSmilAttachments = true,
+        ).second.map { item -> item.guid }
     }.orEmpty()
-    var stagedAttachmentIndex = 0
-    val persistedStagedGuids = mutableListOf<String>()
-    val filteredStagedGuids = mutableListOf<String>()
-    normal?.parts.orEmpty().forEach { indexed ->
-        val attachment = indexed.part as? UPart.Attachment ?: return@forEach
-        val stagedGuid = stagedGuids.getOrNull(stagedAttachmentIndex++)
-        if (stagedGuid != null) {
-            if (attachment.mime == "application/smil") {
-                filteredStagedGuids += stagedGuid
-            } else {
-                persistedStagedGuids += stagedGuid
-            }
-        }
-    }
     return ReturnedAttachmentPlan(
         rawAttachmentCount = rawAttachmentCount,
         persistedAttachmentGuids = persistedAttachmentGuids,
-        promotions = persistedStagedGuids.zip(persistedAttachmentGuids),
-        filteredStagedGuids = filteredStagedGuids,
+        promotions = stagedGuids.zip(persistedAttachmentGuids),
         complete = rawAttachmentCount == stagedGuids.size,
     )
-}
-
-/**
- * Remove transport-only staged rows before positional ingestion. Otherwise a
- * filtered SMIL part at `_att0` would be consumed for the next display part,
- * even though that display payload was staged under `_att1`.
- */
-internal fun discardFilteredStagedAttachments(
-    store: BoxStore,
-    disk: AttachmentStore,
-    messageId: Long,
-    stagedGuids: List<String>,
-) {
-    if (stagedGuids.isEmpty()) return
-    val attachmentBox = store.boxFor(Attachment::class.java)
-    store.runInTx {
-        stagedGuids.forEach { guid ->
-            attachmentBox.query(
-                Attachment_.messageId.equal(messageId)
-                    .and(Attachment_.guid.equal(guid, QueryBuilder.StringOrder.CASE_SENSITIVE)),
-            ).build().use { it.findFirst() }
-                ?.let(attachmentBox::remove)
-        }
-    }
-    stagedGuids.forEach { disk.directoryFor(it).deleteRecursively() }
 }
 
 /**
@@ -2658,12 +2623,6 @@ internal object CoreAttachmentSender : AttachmentSender {
                 failureLookupGuid = inst.id
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
                 val returned = returnedAttachmentPlan(normal, inst.id, prepared.stagedGuids)
-                discardFilteredStagedAttachments(
-                    store = store,
-                    disk = prepared.disk,
-                    messageId = prepared.messageId,
-                    stagedGuids = returned.filteredStagedGuids,
-                )
                 // Move every returned payload before ingest. Even an
                 // incomplete response promotes the subset whose ObjectBox
                 // rows the echo is about to move to real guids.

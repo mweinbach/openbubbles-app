@@ -311,7 +311,7 @@ class OutgoingAttachmentFilesTest {
     }
 
     @Test
-    fun `transport completeness counts raw SMIL attachment parts`() {
+    fun `user-selected SMIL attachment remains durable`() {
         val plan = returnedAttachmentPlan(
             normal = normalWith(
                 UIndexedPart(
@@ -333,12 +333,15 @@ class OutgoingAttachmentFilesTest {
 
         assertTrue(plan.complete)
         assertEquals(1, plan.rawAttachmentCount)
-        assertTrue(plan.persistedAttachmentGuids.isEmpty())
-        assertEquals(listOf("temp-message_att0"), plan.filteredStagedGuids)
+        assertEquals(listOf("real-message_0"), plan.persistedAttachmentGuids)
+        assertEquals(
+            listOf("temp-message_att0" to "real-message_0"),
+            plan.promotions,
+        )
     }
 
     @Test
-    fun `SMIL filtering preserves the staged identity of later attachments`() {
+    fun `user-selected SMIL preserves later attachment identity`() {
         val plan = returnedAttachmentPlan(
             normal = normalWith(
                 UIndexedPart(
@@ -372,45 +375,12 @@ class OutgoingAttachmentFilesTest {
 
         assertTrue(plan.complete)
         assertEquals(
-            listOf("temp-message_att1" to "real-message_0"),
+            listOf(
+                "temp-message_att0" to "real-message_0",
+                "temp-message_att1" to "real-message_1",
+            ),
             plan.promotions,
         )
-        assertEquals(listOf("temp-message_att0"), plan.filteredStagedGuids)
-    }
-
-    @Test
-    fun `filtered staged rows are removed before display attachment ingestion`() {
-        val root = Files.createTempDirectory("filtered-staged-attachment").toFile()
-        val store = MyObjectBox.builder().directory(root.resolve("db")).build()
-        try {
-            val message = Message().apply { guid = "real-message" }
-            store.boxFor(Message::class.java).put(message)
-            val attachmentBox = store.boxFor(Attachment::class.java)
-            listOf("temp-message_att0", "temp-message_att1").forEach { stagedGuid ->
-                attachmentBox.put(Attachment().apply {
-                    guid = stagedGuid
-                    isOutgoing = true
-                    this.message.target = message
-                })
-            }
-            val disk = AttachmentStore(store, root.resolve("files"))
-            val filteredDirectory = disk.directoryFor("temp-message_att0").apply { mkdirs() }
-            val retainedDirectory = disk.directoryFor("temp-message_att1").apply { mkdirs() }
-
-            discardFilteredStagedAttachments(
-                store = store,
-                disk = disk,
-                messageId = message.id,
-                stagedGuids = listOf("temp-message_att0"),
-            )
-
-            assertEquals(listOf("temp-message_att1"), attachmentBox.all.map { it.guid })
-            assertFalse(filteredDirectory.exists())
-            assertTrue(retainedDirectory.exists())
-        } finally {
-            store.close()
-            root.deleteRecursively()
-        }
     }
 
     @Test
