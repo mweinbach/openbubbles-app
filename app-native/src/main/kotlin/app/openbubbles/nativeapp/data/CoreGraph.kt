@@ -67,6 +67,7 @@ import kotlinx.coroutines.channels.awaitClose
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
+import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPart
 import uniffi.rust_lib_bluebubbles.UProgressCallback
 import uniffi.rust_lib_bluebubbles.UPushMessage
@@ -2452,6 +2453,47 @@ internal object UploadProgressBoard {
 internal fun attachmentSendProgressCallback(): UProgressCallback? = null
 
 /**
+ * Boundary logging for composed sends records only counts and presence flags —
+ * never captions, file names, handles, or attachment bytes.
+ */
+private const val ATTACHMENT_SEND_TAG = "CoreAttachmentSender"
+
+internal data class ReturnedAttachmentPlan(
+    val rawAttachmentCount: Int,
+    val persistedAttachmentGuids: List<String>,
+    val promotions: List<Pair<String, String>>,
+    val complete: Boolean,
+)
+
+/**
+ * Keep transport completeness separate from the default incoming-message
+ * mapper. Every part at this outgoing iMessage boundary came from the user's
+ * selected files, including an arbitrary application/smil file, so all of
+ * them remain displayable and durable.
+ */
+internal fun returnedAttachmentPlan(
+    normal: UMessage.Normal?,
+    messageGuid: String,
+    stagedGuids: List<String>,
+): ReturnedAttachmentPlan {
+    val rawAttachmentCount = normal?.parts.orEmpty().count { it.part is UPart.Attachment }
+    val persistedAttachmentGuids = normal?.let {
+        MessageMapper.mapParts(
+            it.parts,
+            messageGuid,
+            isOutgoing = true,
+            preserveSmilAttachments = true,
+        ).second.map { item -> item.guid }
+    }.orEmpty()
+    return ReturnedAttachmentPlan(
+        rawAttachmentCount = rawAttachmentCount,
+        persistedAttachmentGuids = persistedAttachmentGuids,
+        promotions = stagedGuids.zip(persistedAttachmentGuids),
+        complete = rawAttachmentCount == stagedGuids.size,
+    )
+}
+
+/**
  * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
  * semantics: stage optimistically under a temp guid with placeholder
  * attachment rows (payloads copied into the canonical store layout so the
@@ -2546,12 +2588,21 @@ internal object CoreAttachmentSender : AttachmentSender {
             CoreGraphStageHolder.messageRepo(store)
                 .failOutgoing(prepared.tempGuid, "Not connected to Apple push")
             UploadProgressBoard.clear(progressGuid)
+            Log.w(
+                ATTACHMENT_SEND_TAG,
+                "attachment send staged as failed with no push state (files=${prepared.payloads.size})",
+            )
             return OutgoingAttachmentSend(prepared.messageId)
         }
 
         graph.launchBackground {
             var failureLookupGuid = prepared.tempGuid
             try {
+                Log.i(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send request files=${prepared.payloads.size} " +
+                        "caption=${caption?.isNotBlank() == true} subject=${subject != null}",
+                )
                 val inst = pushState.sendAttachments(
                     USendAttachmentsRequest(
                         conversation = prepared.conversation,
@@ -2571,16 +2622,21 @@ internal object CoreAttachmentSender : AttachmentSender {
                 )
                 failureLookupGuid = inst.id
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
-                val realAttachmentGuids = normal?.let {
-                    MessageMapper.mapParts(it.parts, inst.id, isOutgoing = true).second.map { item -> item.guid }
-                }.orEmpty()
-                if (realAttachmentGuids.size == prepared.stagedGuids.size) {
-                    // Move payloads before ingest so the bubble does not lose
-                    // its local preview when the guid swaps to the Rust id.
-                    prepared.stagedGuids.zip(realAttachmentGuids).forEach { (local, real) ->
-                        prepared.disk.promoteLocalDirectory(local, real)
-                    }
+                val returned = returnedAttachmentPlan(normal, inst.id, prepared.stagedGuids)
+                // Move every returned payload before ingest. Even an
+                // incomplete response promotes the subset whose ObjectBox
+                // rows the echo is about to move to real guids.
+                returned.promotions.forEach { (local, real) ->
+                    prepared.disk.promoteLocalDirectory(local, real)
                 }
+                Log.i(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send returned parts=${normal?.parts?.size ?: 0} " +
+                        "attachments=${returned.rawAttachmentCount} " +
+                        "persisted=${returned.persistedAttachmentGuids.size} " +
+                        "staged=${prepared.stagedGuids.size} " +
+                        "caption=${caption?.isNotBlank() == true}",
+                )
                 // Promote to the Rust staging guid so the echo and SendConfirm
                 // receipts find the row (same swap Dart performs).
                 val messageBox = store.boxFor(Message::class.java)
@@ -2599,15 +2655,28 @@ internal object CoreAttachmentSender : AttachmentSender {
                         }
                 }
                 ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                if (!returned.complete) {
+                    // The accepted message does not carry the attachment set we
+                    // staged, so this send is not a success. Surface it after
+                    // ingest (which does not clear the error); returned files
+                    // were promoted above and the missing subset stays staged.
+                    Log.w(
+                        ATTACHMENT_SEND_TAG,
+                        "attachment part set incomplete: returned=${returned.rawAttachmentCount} " +
+                            "staged=${prepared.stagedGuids.size}",
+                    )
+                    CoreGraphStageHolder.messageRepo(store).failOutgoing(
+                        inst.id,
+                        "Only ${returned.rawAttachmentCount} of ${prepared.stagedGuids.size} attachments were sent",
+                    )
+                }
             } catch (failure: Throwable) {
                 val marked = CoreGraphStageHolder.messageRepo(store)
                     .failOutgoing(failureLookupGuid, "Attachment send failed (${failure.javaClass.simpleName})")
-                if (marked == null) {
-                    android.util.Log.w(
-                        "CoreAttachmentSender",
-                        "attachment send failed but no staged row exists (${failure.javaClass.simpleName})",
-                    )
-                }
+                Log.w(
+                    ATTACHMENT_SEND_TAG,
+                    "attachment send failed (${failure.javaClass.simpleName}) marked=${marked != null}",
+                )
             } finally {
                 UploadProgressBoard.clear(progressGuid)
             }
