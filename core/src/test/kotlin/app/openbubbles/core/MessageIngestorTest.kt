@@ -1102,6 +1102,86 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `captioned multi attachment echo promotes every staged row exactly once`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessageWithAttachments(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "three of them",
+            stagingGuid = "temp-batch",
+            attachments = (0..2).map { index ->
+                MessageRepo.OutgoingAttachmentStage(
+                    guid = "temp-batch_att$index",
+                    mimeType = "image/jpeg",
+                    uti = "public.jpeg",
+                    transferName = "photo$index.jpg",
+                    totalBytes = 100L + index,
+                )
+            },
+        )
+
+        // CoreAttachmentSender swaps the message guid to the Rust id before
+        // ingesting the reflected echo.
+        staged.guid = "real-batch"
+        staged.stagingGuid = "real-batch"
+        messageBox().put(staged)
+
+        val echo = UMessageInst(
+            id = "real-batch",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.Normal(
+                parts = listOf(UIndexedPart(UPart.Text("three of them", ""), null, null)) +
+                    (0..2).map { index ->
+                        UIndexedPart(
+                            UPart.Attachment(
+                                part = index.toULong(),
+                                uti = "public.jpeg",
+                                mime = "image/jpeg",
+                                name = "photo$index.jpg",
+                                iris = false,
+                                xml = "<plist>real $index</plist>",
+                            ),
+                            null,
+                            null,
+                        )
+                    },
+                effect = null,
+                replyGuid = null,
+                replyPart = null,
+                subject = null,
+                voice = false,
+                isSms = false,
+                appJson = null,
+                linkJson = null,
+                profileJson = null,
+            ),
+            sentTimestamp = 1_700_000_000_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(echo), myHandles)
+        // A duplicate delivery must converge on the same rows.
+        ingestor.ingest(push(echo), myHandles)
+
+        assertEquals(1, messageBox().all.count { it.guid == "real-batch" })
+        val promoted = store.boxFor(Attachment::class.java).all.sortedBy { it.guid }
+        assertEquals(
+            listOf("real-batch_0", "real-batch_1", "real-batch_2"),
+            promoted.map { it.guid },
+        )
+        // Local payload bytes and download state survive promotion, so the
+        // bubble keeps its preview and stays retryable.
+        assertEquals(listOf(100L, 101L, 102L), promoted.map { it.totalBytes })
+        assertTrue(promoted.all { it.isDownloaded })
+        assertTrue(promoted.all { it.message.targetId == staged.id })
+        val reloaded = messageByGuid("real-batch")
+        assertNotNull(reloaded)
+        assertTrue(reloaded.hasAttachments)
+    }
+
+    @Test
     fun `edit event replaces text and records edited part`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("editable", friend, "before")), myHandles)
         val edit = UMessageInst(
