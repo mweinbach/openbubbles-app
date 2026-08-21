@@ -121,7 +121,8 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | New chat | `ui/chatcreator/NewChatScreen.kt` | local + `CoreGraph.findOrCreateChat` |
 | Chat info | `ui/chatinfo/ChatInfoScreen.kt`, `ContactSheet.kt` | hoisted `AppGraph.chatInfo*`; 1:1 shows the contact card, group participants open a contact sheet |
 | Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
-| Find My | `ui/findmy/FindMyScreen.kt`, `FindMyViewModel.kt` | VM + `FindMyPort` |
+| Find My | `ui/findmy/FindMyScreen.kt`, `FindMyViewModel.kt`, `FindMyTargets.kt`, `ui/map/*` | VM + `FindMyPort`; in-app map, live tracking, session tracks |
+| Photos | `ui/photos/PhotosScreen.kt`, `PhotosViewModel.kt`, `PhotosTimeline.kt` | VM + `PhotosPort`; dated timeline at day/month/year density, filters, pager viewer with info sheet. Grouping is client-side over loaded pages; see [PHOTOS_SYNC.md](PHOTOS_SYNC.md) for the protocol boundary |
 | Attachment viewer | `ui/attachmentviewer/AttachmentViewerScreen.kt` | `AttachmentProvider` |
 | Login / provision | `ui/login/LoginScreen.kt`, `LoginViewModel.kt`, `ProvisionScreen.kt` | VM + `RustLoginHandle` |
 | Onboarding | `ui/onboarding/*` | local steps; embeds login |
@@ -129,6 +130,29 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 
 Shared primitives: `ui/common/` (avatars, pills, segmented shapes, shared elements, dates).
 Effects: `ui/effects/SendEffects.kt`, `EffectPicker.kt`.
+
+## Map
+
+`ui/map/` is the app's own slippy map — no maps SDK, no Play services, no API key.
+
+- `MapGeometry.kt` is pure Web Mercator: projection, viewport hit testing, tile selection, pan/zoom
+  about a focus point, bounding-box fit, and the scale bar. Everything visual is decided here so it
+  can be proven on the host; `MapGeometryTest` is the oracle for "the pin is in the right place".
+- `MapTiles.kt` fetches OpenStreetMap raster tiles through OkHttp with a memory and disk cache. The
+  attribution is drawn by `OpenMap` whenever imagery is, because the licence requires it.
+- Imagery is a per-user switch (`MapPrefs`, toggled from the Find My app bar). A tile request tells
+  the tile server roughly where a tracked thing is, so imagery-off is a first-class state: the map
+  keeps pins, accuracy circles, tracks, and the scale bar on a plain graticule.
+- `OpenMap` markers are real buttons with labels, and zoom has explicit buttons, so the map never
+  depends on a pinch.
+- Find My derives its camera rather than storing one: no manual camera means follow the selected
+  target's newest fix, or frame everything located. A pan or pinch stores a camera and hands control
+  back to the user until "Fit all" or "Follow". Do not reintroduce a `LaunchedEffect` that sets the
+  camera — effects do not run in the screenshot renderer, and the derived form is what makes the
+  fixtures real.
+- Find My tracking is foreground-only: `FindMyViewModel.setVisible` starts and stops a repeated
+  refresh, `FM_LIVE_INTERVAL_MS` is the period, and nothing is written to the account. Session
+  tracks (`appendTrail`) are memory-only and capped at `FM_TRAIL_LIMIT`.
 
 Screenshot fixtures: `app-native/src/screenshotTest/.../ScreenshotPreviews.kt` (fixed timestamps).
 

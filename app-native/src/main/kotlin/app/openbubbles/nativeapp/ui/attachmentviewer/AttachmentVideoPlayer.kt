@@ -81,6 +81,8 @@ fun AttachmentVideoPlayer(
     controlsVisible: Boolean,
     onOpenExternally: () -> Unit,
     modifier: Modifier = Modifier,
+    /** False for prefetched/offscreen pager pages; they must never emit audio. */
+    playbackEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,7 +99,7 @@ fun AttachmentVideoPlayer(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             prepare()
-            playWhenReady = true
+            playWhenReady = playbackEnabled
             addListener(
                 object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -117,6 +119,9 @@ fun AttachmentVideoPlayer(
                 },
             )
         }
+    }
+    LaunchedEffect(player, playbackEnabled) {
+        if (playbackEnabled) player.play() else player.pause()
     }
     DisposableEffect(player, lifecycleOwner) {
         var resumeAfterStop = false

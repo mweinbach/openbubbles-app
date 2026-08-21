@@ -33,6 +33,7 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -129,6 +130,7 @@ internal class PhotosViewModel(
     private var requestJob: Job? = null
     private val previewJobs = mutableMapOf<String, Job>()
     private val originalJobs = mutableMapOf<String, Job>()
+    private var selectionJob: Job? = null
     private val validatedDownloads = mutableSetOf<String>()
     private val previewSlots = Semaphore(4)
     private val originalSlots = Semaphore(1)
@@ -285,15 +287,27 @@ internal class PhotosViewModel(
     }
 
     fun select(asset: PhotoSummary) {
-        mutableState.value.selectedAssetId
-            ?.takeIf { it != asset.id }
-            ?.let(::cancelOriginal)
         mutableState.update { it.copy(selectedAssetId = asset.id) }
-        ensureOriginal(asset)
+        selectionJob?.cancel()
+        selectionJob = launchWork {
+            val previousJobs = originalJobs
+                .filterKeys { it != asset.id }
+                .values
+                .distinct()
+            previousJobs.forEach(Job::cancel)
+            previousJobs.joinAll()
+
+            val currentJob = originalJobs[asset.id]
+            if (currentJob?.isActive == true) return@launchWork
+            currentJob?.join()
+            if (mutableState.value.selectedAssetId == asset.id) ensureOriginal(asset)
+        }
     }
 
     fun closeSelected() {
-        mutableState.value.selectedAssetId?.let(::cancelOriginal)
+        selectionJob?.cancel()
+        selectionJob = null
+        originalJobs.values.toSet().forEach(Job::cancel)
         mutableState.update { it.copy(selectedAssetId = null) }
     }
 
@@ -329,10 +343,6 @@ internal class PhotosViewModel(
         } ?: return
         originalJobs[asset.id] = job
         job.start()
-    }
-
-    private fun cancelOriginal(assetId: String) {
-        originalJobs.remove(assetId)?.cancel()
     }
 
     private fun PhotoTransfer?.isValidatedCacheFile(): Boolean {

@@ -438,6 +438,12 @@ object CoreGraph {
             runAccountCleanupSteps(
                 { ICloudContactSync.clearAccountState(context).getOrThrow() },
                 { PhotosAccountCleanup.clear(context).getOrThrow() },
+                {
+                    MapTileDownloadFence.cancelAndJoin()
+                    check(clearOwnedMapTileRoot(context.cacheDir).complete) {
+                        "Could not clear account-derived map tiles"
+                    }
+                },
                 { VaultAccountCleanup.clear(context).getOrThrow() },
             )
         }

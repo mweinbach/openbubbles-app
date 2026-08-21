@@ -5,7 +5,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,28 +28,39 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.FilterListOff
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,7 +81,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -99,6 +117,7 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val PhotosReadyTag = "benchmark_photos_ready"
 private const val PhotosScrollableTag = "benchmark_photos_scrollable"
@@ -124,6 +143,8 @@ fun PhotosScreen(
     onUpload: (PhotoTransfer) -> Unit,
     onUploadAll: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Clock injected so previews and screenshots render fixed section titles. */
+    nowMillis: Long? = null,
     /**
      * Peer-surface switcher pinned under the app bar. Opening this surface
      * through it stays metadata-first: the switcher only routes, it never asks
@@ -132,7 +153,24 @@ fun PhotosScreen(
     surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
     var showTransfers by remember { mutableStateOf(false) }
+    var grouping by rememberSaveable { mutableStateOf(PhotoGrouping.Day) }
+    var filter by rememberSaveable { mutableStateOf(PhotoFilter.All) }
+    var showFilterMenu by remember { mutableStateOf(false) }
     val snapshot = uiState.snapshot
+    // The default must remain stable while transfer progress recomposes the
+    // screen; section labels need at most a fresh value when the screen opens.
+    val timelineNowMillis = remember(nowMillis) { nowMillis ?: System.currentTimeMillis() }
+    // The timeline is the screen's model of the library: filtered, newest first,
+    // grouped by when each photo was taken rather than when iCloud indexed it.
+    val timeline = remember(snapshot?.assets, grouping, filter, timelineNowMillis) {
+        photoTimeline(
+            assets = snapshot?.assets.orEmpty(),
+            grouping = grouping,
+            filter = filter,
+            nowMillis = timelineNowMillis,
+        )
+    }
+    val visible = remember(timeline) { timeline.flatMap(PhotoSection::assets) }
     Scaffold(
         modifier = modifier.fillMaxSize().testTag(PhotosReadyTag),
         topBar = {
@@ -141,11 +179,13 @@ fun PhotosScreen(
                     title = {
                         Column {
                             Text("Photos")
-                            snapshot?.let {
+                            if (snapshot != null) {
                                 Text(
-                                    text = "${it.assets.size} items · Background sync off",
+                                    text = libraryStatus(uiState, visible),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -156,8 +196,50 @@ fun PhotosScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showTransfers = true }) {
-                            Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
+                        Box {
+                            IconButton(onClick = { showFilterMenu = true }) {
+                                Icon(
+                                    imageVector = if (filter == PhotoFilter.All) {
+                                        Icons.Filled.FilterList
+                                    } else {
+                                        Icons.Filled.FilterListOff
+                                    },
+                                    contentDescription = "Filter library",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showFilterMenu,
+                                onDismissRequest = { showFilterMenu = false },
+                            ) {
+                                PhotoFilter.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.label) },
+                                        trailingIcon = {
+                                            if (option == filter) {
+                                                Icon(Icons.Filled.Check, contentDescription = "Selected")
+                                            }
+                                        },
+                                        onClick = {
+                                            filter = option
+                                            showFilterMenu = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        // Density has buttons as well as a pinch, so the grid is
+                        // resizable with a keyboard, a switch, and one hand.
+                        IconButton(
+                            onClick = { grouping.denser()?.let { grouping = it } },
+                            enabled = grouping.denser() != null,
+                        ) {
+                            Icon(Icons.Filled.ZoomIn, contentDescription = "Larger photos")
+                        }
+                        IconButton(
+                            onClick = { grouping.wider()?.let { grouping = it } },
+                            enabled = grouping.wider() != null,
+                        ) {
+                            Icon(Icons.Filled.ZoomOut, contentDescription = "Smaller photos")
                         }
                         IconButton(
                             onClick = onRefresh,
@@ -167,9 +249,18 @@ fun PhotosScreen(
                         }
                     },
                 )
-                // The photo detail and the uploads sheet cover this strip; while
-                // either owns the screen the swipe must not fire underneath it.
+                // The viewer and the uploads sheet cover this strip; while either
+                // owns the screen the switcher swipe must not fire underneath it.
                 surfaceSwitcher(uiState.selectedAssetId == null && !showTransfers)
+            }
+        },
+        floatingActionButton = {
+            // Adding to the library is an explicit action, so it gets the one
+            // prominent control on the screen rather than a crowded app bar.
+            if (uiState.selectedAssetId == null) {
+                FloatingActionButton(onClick = { showTransfers = true }) {
+                    Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
+                }
             }
         },
     ) { padding ->
@@ -183,6 +274,10 @@ fun PhotosScreen(
             snapshot != null -> PhotosGrid(
                 uiState = uiState,
                 snapshot = snapshot,
+                timeline = timeline,
+                grouping = grouping,
+                filter = filter,
+                onGrouping = { grouping = it },
                 onLoadMore = onLoadMore,
                 onPreviewVisible = onPreviewVisible,
                 onPreviewHidden = onPreviewHidden,
@@ -206,14 +301,15 @@ fun PhotosScreen(
         )
     }
 
-    val selected = snapshot?.assets?.firstOrNull { it.id == uiState.selectedAssetId }
-    if (selected != null) {
-        PhotoDetail(
-            asset = selected,
-            preview = uiState.previewTransfers[selected.id],
-            original = uiState.originalTransfers[selected.id],
+    val selectedIndex = visible.indexOfFirst { it.id == uiState.selectedAssetId }
+    if (selectedIndex >= 0) {
+        PhotoViewer(
+            assets = visible,
+            initialIndex = selectedIndex,
+            uiState = uiState,
+            onPageSettled = onSelect,
             onBack = onCloseSelected,
-            onRetryOriginal = { onRetryOriginal(selected) },
+            onRetryOriginal = onRetryOriginal,
         )
     }
 
@@ -228,10 +324,21 @@ fun PhotosScreen(
     }
 }
 
+/**
+ * The library as a dated timeline.
+ *
+ * Sections come from [photoTimeline], so the grid never decides what "October"
+ * means. Only tiles the grid actually composes ask for a preview, which is what
+ * keeps opening the library metadata-first.
+ */
 @Composable
 private fun PhotosGrid(
     uiState: PhotosUiState,
     snapshot: PhotosSnapshot,
+    timeline: List<PhotoSection>,
+    grouping: PhotoGrouping,
+    filter: PhotoFilter,
+    onGrouping: (PhotoGrouping) -> Unit,
     onLoadMore: () -> Unit,
     onPreviewVisible: (PhotoSummary) -> Unit,
     onPreviewHidden: (PhotoSummary) -> Unit,
@@ -243,14 +350,31 @@ private fun PhotosGrid(
     val gridIsScrollable by remember {
         derivedStateOf { gridState.canScrollForward || gridState.canScrollBackward }
     }
+    // Paging follows the viewport instead of an index guess, so a re-flow to a
+    // denser grid cannot skip the fetch or fire it twice.
+    LaunchedEffect(gridState, snapshot.nextCursor, filter) {
+        if (snapshot.nextCursor == null || !shouldAutoPagePhotos(filter)) return@LaunchedEffect
+        snapshotFlow {
+            val info = gridState.layoutInfo
+            photoGridNearEnd(
+                lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index,
+                totalItemsCount = info.totalItemsCount,
+                approximateColumns = grouping.columns,
+            )
+        }
+            .distinctUntilChanged()
+            .collect { nearEnd -> if (nearEnd) onLoadMore() }
+    }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(112.dp),
+        columns = GridCells.Adaptive(grouping.minimumTileWidthDp.dp),
         modifier = modifier
             .fillMaxSize()
             .navigationBarsPadding()
+            .pinchGrouping(grouping, onGrouping)
             .testTag(if (gridIsScrollable) PhotosScrollableTag else PhotosIdleTag),
         state = gridState,
-        contentPadding = PaddingValues(2.dp),
+        // The last row can scroll fully above the bottom-end upload FAB.
+        contentPadding = PaddingValues(start = 2.dp, top = 2.dp, end = 16.dp, bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -259,35 +383,33 @@ private fun PhotosGrid(
                 AccessNotice(snapshot.access, uiState.showingCachedMetadata)
             }
         }
-        if (snapshot.assets.isEmpty()) {
+        if (timeline.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(48.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (snapshot.access.availability == PhotosAvailability.Indexing) {
-                            "Your iCloud library is still indexing."
-                        } else {
-                            "No photos are available yet."
-                        },
+                        text = emptyLibraryMessage(snapshot, filter),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-        itemsIndexed(snapshot.assets, key = { _, asset -> asset.id }) { index, asset ->
-            if (snapshot.nextCursor != null && index >= snapshot.assets.lastIndex - 4) {
-                LaunchedEffect(snapshot.nextCursor) { onLoadMore() }
+        timeline.forEach { section ->
+            item(key = "header-${section.key}", span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader(section)
             }
-            PhotoTile(
-                asset = asset,
-                transfer = uiState.previewTransfers[asset.id],
-                onVisible = { onPreviewVisible(asset) },
-                onHidden = { onPreviewHidden(asset) },
-                onRetry = { onRetryPreview(asset) },
-                onSelect = { onSelect(asset) },
-            )
+            items(section.assets, key = { asset -> asset.id }) { asset ->
+                PhotoTile(
+                    asset = asset,
+                    transfer = uiState.previewTransfers[asset.id],
+                    onVisible = { onPreviewVisible(asset) },
+                    onHidden = { onPreviewHidden(asset) },
+                    onRetry = { onRetryPreview(asset) },
+                    onSelect = { onSelect(asset) },
+                )
+            }
         }
         if (uiState.loadingMore) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -298,7 +420,87 @@ private fun PhotosGrid(
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
                 }
             }
+        } else if (snapshot.nextCursor != null && !shouldAutoPagePhotos(filter)) {
+            item(key = "filtered-load-more", span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FilledTonalButton(onClick = onLoadMore) {
+                        Text("Load more photos")
+                    }
+                }
+            }
         }
+    }
+}
+
+/**
+ * App-bar subtitle: "128 photos · 4 videos", plus "Offline" when the grid is
+ * showing cached metadata. Background sync is explained in the uploads sheet,
+ * which is where it can be acted on.
+ */
+private fun libraryStatus(uiState: PhotosUiState, visible: List<PhotoSummary>): String {
+    val counts = photoCountLabel(visible)
+    return if (uiState.showingCachedMetadata) "$counts · Offline" else counts
+}
+
+private fun emptyLibraryMessage(snapshot: PhotosSnapshot, filter: PhotoFilter): String = when {
+    snapshot.access.availability == PhotosAvailability.Indexing ->
+        "Your iCloud library is still indexing."
+    filter == PhotoFilter.Favorites -> "No favorites in the photos loaded so far."
+    filter == PhotoFilter.Videos -> "No videos in the photos loaded so far."
+    else -> "No photos are available yet."
+}
+
+@Composable
+private fun SectionHeader(section: PhotoSection) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 10.dp, end = 10.dp, top = 16.dp, bottom = 6.dp),
+    ) {
+        Text(
+            text = section.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = photoCountLabel(section.assets),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Pinch to change grid density.
+ *
+ * Only multi-touch gestures are considered, and only after the pinch has
+ * travelled past [groupingForPinch]'s threshold, so a one-finger scroll still
+ * belongs to the grid and a two-finger scroll does not resize the library by
+ * accident.
+ */
+private fun Modifier.pinchGrouping(
+    grouping: PhotoGrouping,
+    onGrouping: (PhotoGrouping) -> Unit,
+): Modifier = this.pointerInput(grouping) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var zoom = 1f
+        var handled = false
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.count { it.pressed }
+            if (pressed >= 2 && !handled) {
+                zoom *= event.calculateZoom()
+                groupingForPinch(grouping, zoom)?.let { next ->
+                    handled = true
+                    onGrouping(next)
+                }
+                event.changes.forEach { it.consume() }
+            }
+        } while (event.changes.any { it.pressed })
     }
 }
 
@@ -543,16 +745,132 @@ private fun UploadRow(transfer: PhotoTransfer, onUpload: () -> Unit) {
     }
 }
 
+/**
+ * Full-screen viewer.
+ *
+ * Swiping moves through the same timeline the grid shows, and only the settled
+ * page is selected — which is what asks for that photo's original and cancels
+ * the one before it, so flicking through twenty photos does not start twenty
+ * full-quality downloads.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PhotoDetail(
+private fun PhotoViewer(
+    assets: List<PhotoSummary>,
+    initialIndex: Int,
+    uiState: PhotosUiState,
+    onPageSettled: (PhotoSummary) -> Unit,
+    onBack: () -> Unit,
+    onRetryOriginal: (PhotoSummary) -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0)),
+        pageCount = { assets.size },
+    )
+    var showInfo by remember { mutableStateOf(false) }
+    var chromeVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(pagerState, assets) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { page -> assets.getOrNull(page)?.let(onPageSettled) }
+    }
+    val current = assets.getOrNull(pagerState.settledPage)
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { page -> assets[page].id },
+        ) { page ->
+            val asset = assets[page]
+            PhotoPage(
+                asset = asset,
+                preview = uiState.previewTransfers[asset.id],
+                original = uiState.originalTransfers[asset.id],
+                playbackEnabled = page == pagerState.settledPage && !pagerState.isScrollInProgress,
+                onToggleChrome = { chromeVisible = !chromeVisible },
+                onRetryOriginal = { onRetryOriginal(asset) },
+            )
+        }
+        if (chromeVisible && current != null) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Close photo",
+                        tint = Color.White,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = current.filename ?: "Photo",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${pagerState.settledPage + 1} of ${assets.size}",
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                IconButton(onClick = { showInfo = true }) {
+                    Icon(Icons.Filled.Info, contentDescription = "Photo details", tint = Color.White)
+                }
+            }
+        }
+    }
+    if (showInfo && current != null) {
+        ModalBottomSheet(onDismissRequest = { showInfo = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Details", style = MaterialTheme.typography.headlineSmall)
+                photoInfoRows(current).forEach { (label, value) ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(120.dp),
+                        )
+                        Text(text = value, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Text(
+                    text = "Location, people and captions stay in iCloud — this client never " +
+                        "requests them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotoPage(
     asset: PhotoSummary,
     preview: PhotoTransfer?,
     original: PhotoTransfer?,
-    onBack: () -> Unit,
+    playbackEnabled: Boolean,
+    onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
     val context = LocalContext.current
-    BackHandler(onBack = onBack)
     val originalFile = original?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
     val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
@@ -564,15 +882,25 @@ private fun PhotoDetail(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(asset.id) {
+                detectTapGestures(
+                    onTap = { onToggleChrome() },
+                    onDoubleTap = {
+                        if (asset.mediaKind != PhotoMediaKind.Image) return@detectTapGestures
+                        scale = if (scale > 1f) 1f else DoubleTapZoom
+                        offset = Offset.Zero
+                    },
+                )
+            }
             .then(
                 if (asset.mediaKind == PhotoMediaKind.Image) {
-                    Modifier.pointerInput(asset.id) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val next = (scale * zoom).coerceIn(1f, 6f)
-                            offset = if (next > 1f) offset + pan else Offset.Zero
-                            scale = next
-                        }
-                    }
+                    Modifier.zoomablePage(
+                        assetId = asset.id,
+                        scale = scale,
+                        onScale = { scale = it },
+                        offset = offset,
+                        onOffset = { offset = it },
+                    )
                 } else {
                     Modifier
                 },
@@ -600,6 +928,7 @@ private fun PhotoDetail(
                 AttachmentVideoPlayer(
                     file = originalFile,
                     controlsVisible = true,
+                    playbackEnabled = playbackEnabled,
                     onOpenExternally = {
                         val mime = AttachmentMedia.suggestedMime(null, null, asset.filename)
                         if (!openAttachmentExternally(context, originalFile, mime)) {
@@ -655,22 +984,63 @@ private fun PhotoDetail(
                 }
             }
         }
-        Row(
-            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close photo", tint = Color.White)
-            }
-            Text(
-                asset.filename ?: "Photo",
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
+}
+
+private const val DoubleTapZoom = 2.5f
+private const val MaxPageZoom = 6f
+
+/**
+ * Pinch-zoom and pan inside a pager.
+ *
+ * A drag is only claimed while zoomed in, and a pinch only while two fingers are
+ * down. At fit scale a horizontal drag therefore still belongs to the pager, so
+ * zooming a photo and swiping to the next one never fight.
+ */
+@Composable
+private fun Modifier.zoomablePage(
+    assetId: String,
+    scale: Float,
+    onScale: (Float) -> Unit,
+    offset: Offset,
+    onOffset: (Offset) -> Unit,
+): Modifier {
+    val latestScale by rememberUpdatedState(scale)
+    val latestOffset by rememberUpdatedState(offset)
+    val latestOnScale by rememberUpdatedState(onScale)
+    val latestOnOffset by rememberUpdatedState(onOffset)
+    return this.pointerInput(assetId) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var currentScale = latestScale
+        var currentOffset = latestOffset
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.count { it.pressed }
+            when {
+                pressed >= 2 -> {
+                    currentScale = (currentScale * event.calculateZoom()).coerceIn(1f, MaxPageZoom)
+                    currentOffset = if (currentScale > 1f) {
+                        currentOffset + event.calculatePan()
+                    } else {
+                        Offset.Zero
+                    }
+                    latestOnScale(currentScale)
+                    latestOnOffset(currentOffset)
+                    event.changes.forEach { it.consume() }
+                }
+                currentScale > 1f -> {
+                    val pan = event.calculatePan()
+                    if (pan != Offset.Zero) {
+                        currentOffset += pan
+                        latestOnOffset(currentOffset)
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            }
+        } while (event.changes.any { it.pressed })
+    }
+}
 }
 
 private fun PhotoTransfer.progressFraction(): Float =

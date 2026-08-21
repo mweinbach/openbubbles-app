@@ -4,6 +4,7 @@ import app.openbubbles.nativeapp.data.UiContacts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import uniffi.rust_lib_bluebubbles.NativePushState
+import uniffi.rust_lib_bluebubbles.UFmAddress
 import uniffi.rust_lib_bluebubbles.UFmDevice
 import uniffi.rust_lib_bluebubbles.UFmFriend
 import uniffi.rust_lib_bluebubbles.UFmItem
@@ -25,6 +26,8 @@ data class FmPoint(
     val accuracyMeters: Double? = null,
     /** Fix time in epoch milliseconds, when known. */
     val timestampMs: Long? = null,
+    /** Reverse-geocoded street line Apple already returned, when present. */
+    val address: String? = null,
 )
 
 /** A Find My device (this account's iPhone, Mac, Watch…). */
@@ -37,6 +40,12 @@ data class FmDeviceUi(
     /** Raw battery status ("Charging", "Charged"…), when known. */
     val batteryStatus: String? = null,
     val location: FmPoint? = null,
+    /** Apple's device class ("iPhone", "Mac"…), used for the marker glyph. */
+    val deviceClass: String? = null,
+    /** Read-only: the account already has Lost Mode on for this device. */
+    val lostModeEnabled: Boolean = false,
+    /** The device the app is running on. */
+    val thisDevice: Boolean = false,
 )
 
 /** A friend this account follows (Find My friends). */
@@ -46,6 +55,8 @@ data class FmFriendUi(
     /** First share-acceptance handle (contact resolution key). */
     val address: String? = null,
     val location: FmPoint? = null,
+    /** Apple is resolving a newer fix for this friend right now. */
+    val locating: Boolean = false,
 )
 
 /** A Find My item (AirTag / accessory, own or shared). */
@@ -147,7 +158,25 @@ class RustFindMyPort(
             longitude = raw.longitude,
             accuracyMeters = raw.horizontalAccuracy,
             timestampMs = raw.timestamp.asEpochMs(),
+            address = raw.address?.let(::formatAddress),
         )
+    }
+
+    /**
+     * Apple already reverse-geocoded the fix, so the street line comes from the
+     * same response as the coordinates — no geocoding request of our own, and
+     * nothing about the location leaves the device to resolve it.
+     */
+    private fun formatAddress(address: UFmAddress): String? {
+        address.formattedAddressLines
+            ?.filter(String::isNotBlank)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it.joinToString(", ") }
+        return listOfNotNull(
+            address.streetAddress.nonBlank() ?: address.streetName.nonBlank(),
+            address.locality.nonBlank(),
+            address.administrativeArea.nonBlank() ?: address.stateCode.nonBlank(),
+        ).takeIf { it.isNotEmpty() }?.joinToString(", ")
     }
 
     private fun mapDevice(index: Int, raw: UFmDevice): FmDeviceUi {
@@ -171,6 +200,9 @@ class RustFindMyPort(
             batteryPercent = batteryPercent,
             batteryStatus = raw.batteryStatus.nonBlank(),
             location = mapPoint(raw.location),
+            deviceClass = raw.deviceClass.nonBlank(),
+            lostModeEnabled = raw.lostModeEnabled == true,
+            thisDevice = raw.thisDevice == true,
         )
     }
 
@@ -184,6 +216,7 @@ class RustFindMyPort(
             name = contactName?.takeIf { it.isNotBlank() } ?: address ?: "Friend",
             address = address,
             location = mapPoint(raw.lastLocation),
+            locating = raw.locateInProgress,
         )
     }
 }
@@ -222,12 +255,27 @@ class FakeFindMyPort(
         FmDeviceUi(
             id = "d1", name = "Max's iPhone", model = "iPhone 16 Pro",
             batteryPercent = 78, batteryStatus = "Charging",
-            location = FmPoint(37.7749, -122.4194, 65.0, PREVIEW_NOW_MILLIS - 120_000),
+            location = FmPoint(
+                latitude = 37.7749,
+                longitude = -122.4194,
+                accuracyMeters = 65.0,
+                timestampMs = PREVIEW_NOW_MILLIS - 120_000,
+                address = "1 Market St, San Francisco, CA",
+            ),
+            deviceClass = "iPhone",
+            thisDevice = true,
         ),
         FmDeviceUi(
             id = "d2", name = "MacBook Pro", model = "MacBook Pro 14\"",
             batteryPercent = 42,
-            location = FmPoint(37.3349, -122.0090, 240.0, PREVIEW_NOW_MILLIS - 43 * 60_000),
+            location = FmPoint(
+                latitude = 37.7840,
+                longitude = -122.4010,
+                accuracyMeters = 240.0,
+                timestampMs = PREVIEW_NOW_MILLIS - 43 * 60_000,
+                address = "500 Howard St, San Francisco, CA",
+            ),
+            deviceClass = "Mac",
         ),
         FmDeviceUi(id = "d3", name = "Apple Watch", batteryPercent = null, location = null),
     )
@@ -235,19 +283,36 @@ class FakeFindMyPort(
     private val friends = listOf(
         FmFriendUi(
             id = "f1", name = "Mom", address = "mom@icloud.com",
-            location = FmPoint(40.7128, -74.0060, 18.0, PREVIEW_NOW_MILLIS - 8 * 60_000),
+            location = FmPoint(
+                latitude = 37.7699,
+                longitude = -122.4269,
+                accuracyMeters = 18.0,
+                timestampMs = PREVIEW_NOW_MILLIS - 8 * 60_000,
+                address = "Haight St, San Francisco, CA",
+            ),
         ),
-        FmFriendUi(id = "f2", name = "+1 (555) 010-9999", location = null),
+        FmFriendUi(id = "f2", name = "+1 (555) 010-9999", location = null, locating = true),
     )
 
     private val items = listOf(
         FmItemUi(
             id = "i1", name = "Keys", emoji = "🔑", batteryPercent = 88,
-            location = FmPoint(37.7799, -122.4150, 12.0, PREVIEW_NOW_MILLIS - 60_000),
+            location = FmPoint(
+                latitude = 37.7799,
+                longitude = -122.4150,
+                accuracyMeters = 12.0,
+                timestampMs = PREVIEW_NOW_MILLIS - 60_000,
+                address = "Union Square, San Francisco, CA",
+            ),
         ),
         FmItemUi(
             id = "i2", name = "Backpack", emoji = "🎒", sharedBy = "mom@icloud.com",
-            location = FmPoint(37.7700, -122.4100, 400.0, PREVIEW_NOW_MILLIS - 3 * 3_600_000),
+            location = FmPoint(
+                latitude = 37.7660,
+                longitude = -122.4100,
+                accuracyMeters = 400.0,
+                timestampMs = PREVIEW_NOW_MILLIS - 3 * 3_600_000,
+            ),
         ),
     )
 
