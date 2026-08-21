@@ -123,11 +123,18 @@ internal object CredentialEntries {
         query: Query,
         offerUnlock: Boolean = true,
     ): BeginGetCredentialResponse {
+        val generation = VaultCatalogSync.captureGeneration()
         val catalog = VaultCatalogStore.of(context)
         val snapshot = providerVaultSnapshot(catalog, query.site, query.vaultRequest.kinds)
+        if (VaultCatalogSync.captureGeneration() != generation) {
+            return BeginGetCredentialResponse(emptyList())
+        }
         val state = PushStateHolder.state
         return when (val plan = planVaultLookup(snapshot, query.vaultRequest, state != null)) {
             is VaultLookupPlan.Serve -> {
+                if (VaultCatalogSync.captureGeneration() != generation) {
+                    return BeginGetCredentialResponse(emptyList())
+                }
                 state?.let { VaultCatalogSync.refresh(context, it) }
                 BeginGetCredentialResponse(
                     credentialEntries = entries(context, query, plan.credentials),
@@ -149,9 +156,18 @@ internal object CredentialEntries {
                 if (live == null) {
                     unlockOrEmpty(context, query, offerUnlock)
                 } else {
-                    val generation = VaultCatalogSync.captureGeneration()
+                    if (VaultCatalogSync.captureGeneration() != generation ||
+                        PushStateHolder.state !== live
+                    ) {
+                        return BeginGetCredentialResponse(emptyList())
+                    }
                     val records = hydrate(catalog, live, query, generation)
                         ?: return BeginGetCredentialResponse(emptyList())
+                    if (VaultCatalogSync.captureGeneration() != generation ||
+                        PushStateHolder.state !== live
+                    ) {
+                        return BeginGetCredentialResponse(emptyList())
+                    }
                     VaultCatalogSync.refreshIfCurrent(context, live, generation)
                     BeginGetCredentialResponse(entries(context, query, records))
                 }

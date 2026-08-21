@@ -4,6 +4,7 @@ import android.content.Context
 import app.openbubbles.nativeapp.data.runAccountCleanupSteps
 import app.openbubbles.nativeapp.ui.passwords.PasswordsViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -20,7 +21,10 @@ object VaultAccountCleanup {
     private val mutex = Mutex()
 
     suspend fun clear(context: Context): Result<Unit> = mutex.withLock {
-        VaultCatalogSync.beginAccountCleanup()
+        // beginAccountCleanup mutates the fence before joining the old writer.
+        // Finish that acquisition even if the caller is cancelled mid-join so
+        // the finally block always owns a fully acquired fence to release.
+        withContext(NonCancellable) { VaultCatalogSync.beginAccountCleanup() }
         try {
             runAccountCleanupSteps(
                 { PasswordsViewModel.clearSharedCacheForAccountCleanup() },

@@ -153,7 +153,7 @@ class OBAutofillService : AutofillService() {
             try {
                 val generation = VaultCatalogSync.captureGeneration()
                 val catalog = VaultCatalogStore.of(context)
-                val snapshot = catalog.credentialsForSite(domain, PASSWORD_KIND)
+                val snapshot = providerVaultSnapshot(catalog, domain, PASSWORD_KIND)
                 val passwordRequest = VaultCredentialRequest(
                     site = domain,
                     wantsPasswords = true,

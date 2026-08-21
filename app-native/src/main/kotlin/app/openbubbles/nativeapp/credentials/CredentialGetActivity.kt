@@ -260,8 +260,15 @@ class CredentialGetActivity : FragmentActivity() {
         message: String,
     ) {
         lifecycleScope.launch {
-            VaultCatalogSync.publishIfCurrent(accountGeneration) {
-                VaultCatalogStore.of(applicationContext).removeItem(kind, credId)
+            try {
+                VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                    VaultCatalogStore.of(applicationContext).removeItem(kind, credId)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // The catalog is disposable. A failed eviction must not leave
+                // Credential Manager waiting for the selection result.
             }
             failWith(message)
         }

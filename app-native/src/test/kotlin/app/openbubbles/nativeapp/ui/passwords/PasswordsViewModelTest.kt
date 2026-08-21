@@ -294,6 +294,33 @@ class PasswordsViewModelTest {
     }
 
     @Test
+    fun `stale positive load cannot repopulate the shared cache after cleanup`() = runTest(dispatcher) {
+        val oldItem = VaultItemUi("old", VaultCategory.Passwords, "old.example", "old-user")
+        val liveOldItem = VaultItemUi("live-old", VaultCategory.Passwords, "old-live.example", "old-user")
+        val cache = VaultCacheStore().apply {
+            inClique = true
+            itemsByCategory = mapOf(VaultCategory.Passwords to listOf(oldItem))
+        }
+        val listing = CompletableDeferred<Unit>()
+        val port = GatedPasswordsPort(FakePasswordsPort(items = listOf(liveOldItem)), listing)
+        PasswordsViewModel(port, cache)
+        runCurrent()
+
+        VaultCatalogSync.beginAccountCleanup()
+        try {
+            cache.clearMemory()
+            listing.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(null, cache.inClique)
+            assertTrue(cache.itemsByCategory.isEmpty())
+            assertEquals(null, cache.groups)
+        } finally {
+            VaultCatalogSync.endAccountCleanup()
+        }
+    }
+
+    @Test
     fun `a completed load asks the credential-provider catalog to re-read the vault`() = runTest(dispatcher) {
         var refreshes = 0
         val port = FakePasswordsPort()
