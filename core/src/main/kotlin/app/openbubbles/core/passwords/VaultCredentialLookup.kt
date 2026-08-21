@@ -34,6 +34,9 @@ sealed interface VaultLookupPlan {
     data object NoCredentials : VaultLookupPlan
 }
 
+/** A cached miss is cheap, but it must not hide credentials added on another device indefinitely. */
+const val VAULT_CATALOG_MISS_MAX_AGE_MS = 60_000L
+
 /**
  * @param backendReady the live Rust state is already installed, so a backend
  * lookup costs a keychain scan rather than a service cold start.
@@ -42,6 +45,7 @@ fun planVaultLookup(
     snapshot: VaultSiteSnapshot,
     request: VaultCredentialRequest,
     backendReady: Boolean,
+    nowMs: Long = System.currentTimeMillis(),
 ): VaultLookupPlan {
     if (request.kinds.isEmpty()) return VaultLookupPlan.NoCredentials
     if (snapshot.siteKey == null) return VaultLookupPlan.NoCredentials
@@ -68,9 +72,13 @@ fun planVaultLookup(
         item.kind == VaultItemKind.Passkey && allowed != null && item.webauthnCredentialId == null
     }
     if (usable.isEmpty()) {
+        val staleMiss = snapshot.syncedAtMs?.let { syncedAt ->
+            nowMs - syncedAt > VAULT_CATALOG_MISS_MAX_AGE_MS
+        } ?: true
         return when {
             backendReady -> VaultLookupPlan.ConsultBackend
             droppedUnprovable -> VaultLookupPlan.RequireUnlock
+            staleMiss -> VaultLookupPlan.RequireUnlock
             else -> VaultLookupPlan.NoCredentials
         }
     }

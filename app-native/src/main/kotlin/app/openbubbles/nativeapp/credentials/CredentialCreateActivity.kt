@@ -85,6 +85,7 @@ class CredentialCreateActivity : FragmentActivity() {
     }
 
     fun handleService(service: NativePushState) {
+        val generation = VaultCatalogSync.captureGeneration()
         val request = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
         if (request == null) {
             finishAndRemoveTask()
@@ -191,7 +192,11 @@ class CredentialCreateActivity : FragmentActivity() {
                             }
 
                             updateLastUsed()
-                            VaultCatalogSync.refreshNow(applicationContext, service)
+                            VaultCatalogSync.refreshNowIfCurrent(
+                                applicationContext,
+                                service,
+                                generation,
+                            )
 
                             // Set the CreateCredentialResponse as the result of the Activity
                             PendingIntentHandler.setCreateCredentialResponse(
@@ -219,7 +224,11 @@ class CredentialCreateActivity : FragmentActivity() {
                         }
 
                         updateLastUsed()
-                        VaultCatalogSync.refreshNow(applicationContext, service)
+                        VaultCatalogSync.refreshNowIfCurrent(
+                            applicationContext,
+                            service,
+                            generation,
+                        )
 
                         PendingIntentHandler.setCreateCredentialResponse(
                             result,

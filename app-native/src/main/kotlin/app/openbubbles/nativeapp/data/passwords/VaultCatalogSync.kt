@@ -57,6 +57,13 @@ object VaultCatalogSync {
     /** The vault just changed, so re-read it regardless of the last pass. */
     fun refreshNow(context: Context, state: NativePushState) = start(context, state, forced = true)
 
+    /** A completed write may refresh only the account generation that started it. */
+    fun refreshNowIfCurrent(
+        context: Context,
+        state: NativePushState,
+        generation: Long,
+    ) = start(context, state, forced = true, expectedGeneration = generation)
+
     private fun start(
         context: Context,
         state: NativePushState,

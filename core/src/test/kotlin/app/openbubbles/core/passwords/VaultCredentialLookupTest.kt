@@ -26,11 +26,12 @@ class VaultCredentialLookupTest {
     private fun snapshot(
         items: List<VaultItemRecord>,
         syncedKinds: Set<VaultItemKind>,
+        syncedAtMs: Long = System.currentTimeMillis(),
     ) = VaultSiteSnapshot(
         siteKey = "example.com",
         items = items,
         syncedKinds = syncedKinds,
-        syncedAtMs = 1_000,
+        syncedAtMs = syncedAtMs,
     )
 
     private fun request(
@@ -62,6 +63,22 @@ class VaultCredentialLookupTest {
             backendReady = false,
         )
         assertEquals(VaultLookupPlan.NoCredentials, plan)
+    }
+
+    @Test
+    fun staleCatalogMissRevalidatesInsteadOfReturningEmpty() {
+        val plan = planVaultLookup(
+            snapshot(
+                items = emptyList(),
+                syncedKinds = setOf(VaultItemKind.Password),
+                syncedAtMs = 1_000,
+            ),
+            request(),
+            backendReady = false,
+            nowMs = 1_000 + VAULT_CATALOG_MISS_MAX_AGE_MS + 1,
+        )
+
+        assertEquals(VaultLookupPlan.RequireUnlock, plan)
     }
 
     @Test

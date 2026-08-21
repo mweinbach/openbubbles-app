@@ -218,6 +218,7 @@ class OBAutofillService : AutofillService() {
         }
 
         pending.forEach { save ->
+            val generation = VaultCatalogSync.captureGeneration()
             val client = APNClient(this)
             client.bind { service: APNService ->
                 val pushState = service.pushState
@@ -232,7 +233,13 @@ class OBAutofillService : AutofillService() {
                         // A saved credential the catalog does not know about is
                         // invisible to the next fill request until the next
                         // listing, so re-read the vault on success.
-                        if (error == null) VaultCatalogSync.refreshNow(applicationContext, pushState)
+                        if (error == null) {
+                            VaultCatalogSync.refreshNowIfCurrent(
+                                applicationContext,
+                                pushState,
+                                generation,
+                            )
+                        }
                         finishOne(error)
                     }
                 }, null)
