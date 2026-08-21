@@ -100,7 +100,7 @@ internal fun MessageActionSheet(
                     MessageActionTapbacks(
                         // Mine, not simply the newest: a group message can
                         // carry someone else's tapback as its latest.
-                        selectedEmoji = myReactionEmoji(
+                        selected = myReactionSelection(
                             reactionsForPart(message.reactions, selectedPart),
                         ),
                         onReact = onReact,
@@ -218,7 +218,7 @@ internal fun CustomReactionDialog(
 
 @Composable
 internal fun MessageActionTapbacks(
-    selectedEmoji: String?,
+    selected: MyReactionSelection?,
     onReact: (Int, String?, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -230,10 +230,10 @@ internal fun MessageActionTapbacks(
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
         ActionTapbacks.forEachIndexed { index, emoji ->
-            val selected = selectedEmoji == emoji
+            val isSelected = selected?.reactionIndex == index
             FilledTonalIconButton(
                 onClick = {
-                    onReact(index, null, enableTappedReaction(selectedEmoji, emoji))
+                    onReact(index, null, enableTappedReaction(selected, index))
                 },
                 shapes = IconButtonDefaults.shapes(),
                 modifier = Modifier
@@ -241,7 +241,7 @@ internal fun MessageActionTapbacks(
                     .minimumInteractiveComponentSize()
                     .semantics {
                         contentDescription = tapbackContentDescription(emoji)
-                        if (selected) stateDescription = "Selected"
+                        if (isSelected) stateDescription = "Selected"
                     },
             ) {
                 Text(

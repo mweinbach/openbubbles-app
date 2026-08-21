@@ -57,8 +57,18 @@ class MessageReactionsTest {
 
     @Test
     fun `tapping the selected reaction removes it while another reaction enables`() {
-        assertFalse(enableTappedReaction(selectedEmoji = "👍", tappedEmoji = "👍"))
-        assertTrue(enableTappedReaction(selectedEmoji = "👍", tappedEmoji = "❤️"))
+        val selected = MyReactionSelection("👍", reactionIndex = 1)
+        assertFalse(enableTappedReaction(selected, tappedIndex = 1))
+        assertTrue(enableTappedReaction(selected, tappedIndex = 0))
+    }
+
+    @Test
+    fun `custom standard glyph remains selected at the custom protocol index`() {
+        val selected = myReactionSelection(listOf(mine("❤️", reactionIndex = CustomReactionIndex)))
+
+        assertEquals(CustomReactionIndex, selected?.reactionIndex)
+        assertTrue(enableTappedReaction(selected, tappedIndex = 0))
+        assertFalse(enableTappedReaction(selected, tappedIndex = CustomReactionIndex))
     }
 
     @Test
@@ -145,8 +155,13 @@ class MessageReactionsTest {
         targetPart = targetPart,
     )
 
-    private fun mine(emoji: String) =
-        MessageReactionUi(emoji = emoji, senderAddress = null, isFromMe = true)
+    private fun mine(emoji: String, reactionIndex: Int = -1) =
+        MessageReactionUi(
+            emoji = emoji,
+            senderAddress = null,
+            isFromMe = true,
+            reactionIndex = reactionIndex,
+        )
 
     private fun message(
         reactionEmoji: String? = null,

@@ -913,6 +913,8 @@ private val TAPBACK_EMOJI = mapOf(
     "love" to "❤️", "like" to "👍", "dislike" to "👎", "laugh" to "😂",
     "emphasize" to "‼️", "question" to "❓",
 )
+private val TAPBACK_INDEX = TAPBACK_EMOJI.keys.withIndex().associate { (index, type) -> type to index }
+private const val CUSTOM_REACTION_INDEX = 6
 
 /** Transcript + contact search backed by the local store; links parse lazily in the mapper. */
 private class CoreSearchRepository(
@@ -948,14 +950,16 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     reactionEmoji = item.reactionEmoji
         ?: item.reactionType?.removePrefix("-")?.let { TAPBACK_EMOJI[it] },
     reactions = item.reactions.mapNotNull { reaction ->
+        val type = reaction.type.removePrefix("-")
         val emoji = reaction.emoji
-            ?: TAPBACK_EMOJI[reaction.type.removePrefix("-")]
+            ?: TAPBACK_EMOJI[type]
             ?: return@mapNotNull null
         MessageReactionUi(
             emoji = emoji,
             senderAddress = reaction.senderAddress,
             isFromMe = reaction.isFromMe,
             targetPart = reaction.targetPart,
+            reactionIndex = TAPBACK_INDEX[type] ?: CUSTOM_REACTION_INDEX,
         )
     },
     senderAddress = item.senderAddress,

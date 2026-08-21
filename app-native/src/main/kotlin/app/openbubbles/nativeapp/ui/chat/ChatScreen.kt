@@ -661,11 +661,16 @@ fun ChatScreen(
     // rows (best effort). Rows peek ContactDisplayWarmCache while this map
     // fills, so warm names paint on the first frame.
     val senderNames = remember { mutableStateMapOf<String, String>() }
-    LaunchedEffect(uiState.messages) {
+    LaunchedEffect(uiState.messages, uiState.replyThread?.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
-        val addresses = uiState.messages
-            .filter { !it.isFromMe && it.senderAddress != null }
-            .mapNotNull { it.senderAddress }
+        val visibleMessages = uiState.messages + uiState.replyThread?.messages.orEmpty()
+        val addresses = visibleMessages
+            .flatMap { message ->
+                buildList {
+                    if (!message.isFromMe) message.senderAddress?.let(::add)
+                    message.reactions.filterNot { it.isFromMe }.mapNotNullTo(this) { it.senderAddress }
+                }
+            }
             .distinct()
         val names = withContext(Dispatchers.IO) {
             addresses.mapNotNull { address ->

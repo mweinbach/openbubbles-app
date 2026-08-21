@@ -163,6 +163,8 @@ data class MessageReactionUi(
     val senderAddress: String?,
     val isFromMe: Boolean,
     val targetPart: Long = 0L,
+    /** 0-5 for standard Tapbacks, 6 for the custom-emoji protocol type. */
+    val reactionIndex: Int = -1,
 )
 
 data class MessageItem(

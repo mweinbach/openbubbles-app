@@ -236,9 +236,10 @@ private fun LivePhotoAttachmentBubble(
             .heightIn(max = ImageBubbleMaxHeight)
             .aspectRatio(aspect)
             .messagePartGestures(
-                enabled = stillFile != null,
-                onClick = {
-                    if (motionFile != null) playing = true else onOpenAttachment(attachment.guid)
+                onClick = stillFile?.let {
+                    {
+                        if (motionFile != null) playing = true else onOpenAttachment(attachment.guid)
+                    }
                 },
                 onOpenActions = {
                     if (motionFile != null) playing = true

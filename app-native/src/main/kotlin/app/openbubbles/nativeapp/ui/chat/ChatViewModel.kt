@@ -120,6 +120,7 @@ private data class OptimisticEdit(val token: Long, val text: String)
 private data class OptimisticReaction(
     val token: Long,
     val emoji: String,
+    val reactionIndex: Int,
     val targetPart: Long,
     val enable: Boolean,
 )
@@ -263,7 +264,7 @@ class ChatViewModel(
                 observeMessageEffects(list)
                 observeIncomingReadState(list)
                 observePendingOutgoingSend(list)
-                reconcileOptimisticOverlays(list)
+                reconcileOptimisticOverlays(list + replyThread.value?.messages.orEmpty())
             }
             .stateIn(
                 viewModelScope,
@@ -352,7 +353,14 @@ class ChatViewModel(
         }.combine(replyingTo) { state, reply ->
             state.copy(replyingTo = reply)
         }.combine(replyThread) { state, thread ->
-            state.copy(replyThread = thread?.let { mergeReplyThread(it, state.messages) })
+            state.copy(
+                replyThread = thread?.let {
+                    val optimisticThread = it.copy(
+                        messages = applyOptimisticOverlays(it.messages, optimisticMessageOverlays.value),
+                    )
+                    mergeReplyThread(optimisticThread, state.messages)
+                },
+            )
         }.combine(editingMessage) { state, editing ->
             state.copy(editingMessage = editing)
         }.combine(actionError) { state, error ->
@@ -690,10 +698,10 @@ class ChatViewModel(
         val display = emoji ?: TAPBACK_EMOJI.getOrNull(reactionIndex) ?: return
         val token = optimisticToken()
         updateOptimisticOverlay(message.guid) { overlay ->
-            overlay.copy(reaction = OptimisticReaction(token, display, part, enable))
+            overlay.copy(reaction = OptimisticReaction(token, display, reactionIndex, part, enable))
         }
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 messageActions.react(
                     chatId = sourceChatId(message),
                     messageGuid = message.guid,
@@ -703,10 +711,27 @@ class ChatViewModel(
                     emoji = emoji,
                     enable = enable,
                 )
-            }.onFailure { failure ->
+            }
+            if (result.isSuccess) refreshOpenReplyThread(message)
+            result.onFailure { failure ->
                 removeOptimisticReaction(message.guid, token)
                 actionError.value = failure.message ?: "Could not send reaction"
             }
+        }
+    }
+
+    private suspend fun refreshOpenReplyThread(message: MessageItem) {
+        val current = replyThread.value ?: return
+        if (current.messages.none { it.guid == message.guid }) return
+        val loaded = runCatching {
+            messageRepository.thread(sourceChatId(message), current.rootGuid, current.part)
+        }.getOrNull() ?: return
+        val source = current.sourceMessage ?: message
+        val refreshed = ensureThreadContains(loaded, source)
+        val latest = replyThread.value
+        if (latest?.rootGuid == current.rootGuid && latest.part == current.part) {
+            replyThread.value = latest.copy(messages = refreshed, loading = false)
+            reconcileOptimisticOverlays(messages.value + refreshed)
         }
     }
 
@@ -888,7 +913,8 @@ class ChatViewModel(
                     val persistedMatch = persisted.reactions.any { reaction ->
                         reaction.isFromMe &&
                             reaction.targetPart == pending.targetPart &&
-                            reaction.emoji == pending.emoji
+                            reaction.emoji == pending.emoji &&
+                            (reaction.reactionIndex < 0 || reaction.reactionIndex == pending.reactionIndex)
                     }
                     if (pending.enable) persistedMatch else !persistedMatch
                 },
@@ -919,6 +945,7 @@ class ChatViewModel(
                     senderAddress = null,
                     isFromMe = true,
                     targetPart = pending.targetPart,
+                    reactionIndex = pending.reactionIndex,
                 )
             } else {
                 retained

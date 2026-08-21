@@ -682,6 +682,37 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `optimistic reactions update thread-only messages`() = runTest(dispatcher) {
+        val root = message(id = 1L, guid = "root")
+        val child = message(id = 2L, guid = "thread-only", replyToGuid = "root")
+        val actions = DeferredActions()
+        val model = model(
+            RecordingSender(),
+            actions,
+            messageRepository = object : MessageListRepository by StaticMessages {
+                override fun thread(chatId: Long, rootGuid: String, part: Long) = listOf(root, child)
+            },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        model.openReplyThread(child)
+        advanceUntilIdle()
+
+        model.react(child, part = 0L, reactionIndex = 1)
+        runCurrent()
+        actions.reactionStarted.await()
+
+        val optimistic = model.uiState.value.replyThread?.messages
+            ?.single { it.guid == "thread-only" }
+        assertEquals(listOf("👍"), optimistic?.reactions?.map { it.emoji })
+
+        actions.reactionRelease.complete(Unit)
+        advanceUntilIdle()
+        val retained = model.uiState.value.replyThread?.messages
+            ?.single { it.guid == "thread-only" }
+        assertEquals(listOf("👍"), retained?.reactions?.map { it.emoji })
+    }
+
+    @Test
     fun `sending from an open thread keeps the thread and reply target`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val root = message(id = 1L, guid = "root", text = "original")

@@ -118,13 +118,25 @@ internal fun groupReactions(
     return groups.map { (emoji, reactors) -> ReactionGroup(emoji, reactors) }
 }
 
-/** My active tapback, used to mark the picker's selected emoji. */
+internal data class MyReactionSelection(val emoji: String, val reactionIndex: Int)
+
+/** My active reaction, including the protocol index needed to remove it. */
+internal fun myReactionSelection(reactions: List<MessageReactionUi>): MyReactionSelection? =
+    reactions.lastOrNull { it.isFromMe }?.let { reaction ->
+        MyReactionSelection(
+            emoji = reaction.emoji,
+            reactionIndex = reaction.reactionIndex.takeIf { it >= 0 }
+                ?: ActionTapbacks.indexOf(reaction.emoji).takeIf { it >= 0 }
+                ?: CustomReactionIndex,
+        )
+    }
+
 internal fun myReactionEmoji(reactions: List<MessageReactionUi>): String? =
-    reactions.lastOrNull { it.isFromMe }?.emoji
+    myReactionSelection(reactions)?.emoji
 
 /** Tapping my active reaction removes it; every other choice enables/replaces it. */
-internal fun enableTappedReaction(selectedEmoji: String?, tappedEmoji: String): Boolean =
-    selectedEmoji != tappedEmoji
+internal fun enableTappedReaction(selected: MyReactionSelection?, tappedIndex: Int): Boolean =
+    selected?.reactionIndex != tappedIndex
 
 /** "You and Alex reacted ❤️" — the spoken form of one summary bubble. */
 internal fun reactionGroupLabel(group: ReactionGroup): String =
@@ -153,7 +165,7 @@ internal fun TapbackPickerOverlay(
     resolveName: (String) -> String? = { null },
 ) {
     val groups = groupReactions(reactions, resolveName)
-    val selected = remember(reactions) { myReactionEmoji(reactions) }
+    val selected = remember(reactions) { myReactionSelection(reactions) }
     // Reduce motion means no grow-in at all, so the surface starts settled
     // rather than animating from a spec that has been swapped for snap().
     val settled = LocalReduceMotion.current
@@ -206,7 +218,7 @@ internal fun TapbackPickerOverlay(
                 )
             }
             TapbackPickerBar(
-                selectedEmoji = selected,
+                selected = selected,
                 onReact = onReact,
                 onCustomReaction = onCustomReaction,
                 modifier = Modifier.fillMaxWidth(),
@@ -293,7 +305,7 @@ private fun ReactorAvatar(reactor: ReactionReactor, modifier: Modifier = Modifie
 /** Floating pill: the six protocol tapbacks plus custom emoji entry. */
 @Composable
 private fun TapbackPickerBar(
-    selectedEmoji: String?,
+    selected: MyReactionSelection?,
     onReact: (Int, String?, Boolean) -> Unit,
     onCustomReaction: () -> Unit,
     modifier: Modifier = Modifier,
@@ -316,20 +328,20 @@ private fun TapbackPickerBar(
             ActionTapbacks.forEachIndexed { index, emoji ->
                 TapbackEmojiButton(
                     emoji = emoji,
-                    selected = selectedEmoji == emoji,
+                    selected = selected?.reactionIndex == index,
                     onClick = {
-                        onReact(index, null, enableTappedReaction(selectedEmoji, emoji))
+                        onReact(index, null, enableTappedReaction(selected, index))
                     },
                 )
             }
-            val customSelected = selectedEmoji != null && selectedEmoji !in ActionTapbacks
+            val customSelected = selected?.reactionIndex == CustomReactionIndex
             PickerIconButton(
                 icon = Icons.Filled.AddReaction,
                 label = "Custom reaction",
                 selected = customSelected,
                 onClick = {
                     if (customSelected) {
-                        onReact(CustomReactionIndex, selectedEmoji, false)
+                        onReact(CustomReactionIndex, selected.emoji, false)
                     } else {
                         onCustomReaction()
                     }
