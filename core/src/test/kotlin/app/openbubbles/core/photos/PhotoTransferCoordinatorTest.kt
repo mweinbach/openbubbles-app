@@ -310,6 +310,7 @@ class PhotoTransferCoordinatorTest {
                 "image/jpeg",
                 6,
                 1234L,
+                PhotoTimeZone("America/New_York", -14_400),
             )
 
             val completed = coordinator.upload(queued)
@@ -320,7 +321,60 @@ class PhotoTransferCoordinatorTest {
             assertEquals(1, port.uploadCalls)
             assertEquals(6, port.uploadOrientation)
             assertEquals(1234L, port.uploadCapturedAtMs)
+            assertEquals(PhotoTimeZone("America/New_York", -14_400), port.uploadTimeZone)
             assertEquals(completed, catalog.transfer(completed.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun uploadMetadataSidecarRoundTripsAndStillReadsVersionOne() = runBlocking {
+        val root = createTempDirectory("photo-upload-sidecar").toFile()
+        try {
+            val source = File(root, "zoned.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val uploadRoot = File(root, "uploads")
+            val port = FakePort(byteArrayOf())
+            val coordinator = PhotoTransferCoordinator(port, FakeCatalog(), File(root, "previews"), uploadRoot)
+
+            val withoutZone = coordinator.planUpload(source.path, preview.path, source.name, "image/jpeg", 1, 99L)
+            val sidecar = File(uploadRoot, withoutZone.localPath.substringAfterLast('/').removeSuffix(".original.jpg") + ".metadata")
+            assertTrue(sidecar.isFile)
+            assertEquals(
+                UploadMetadata(orientation = 1, capturedAtMs = 99L, timeZone = null),
+                PhotoTransferCoordinator.readUploadMetadata(sidecar),
+            )
+
+            // A sidecar written by the previous release carries no zone at all.
+            java.io.DataOutputStream(sidecar.outputStream()).use { output ->
+                output.writeInt(1)
+                output.writeInt(3)
+                output.writeLong(42L)
+            }
+            assertEquals(
+                UploadMetadata(orientation = 3, capturedAtMs = 42L, timeZone = null),
+                PhotoTransferCoordinator.readUploadMetadata(sidecar),
+            )
+            val completed = coordinator.upload(withoutZone)
+            assertEquals(PhotoTransferState.Succeeded, completed.state)
+            assertEquals(3, port.uploadOrientation)
+            assertEquals(42L, port.uploadCapturedAtMs)
+            assertEquals(null, port.uploadTimeZone)
+
+            // A blank zone name is dropped rather than sent to the protocol layer.
+            val other = File(root, "other.jpg").apply { writeBytes(jpegPayload() + byteArrayOf(9)) }
+            val blankZone = coordinator.planUpload(
+                other.path,
+                preview.path,
+                other.name,
+                "image/jpeg",
+                1,
+                null,
+                PhotoTimeZone("  ", 0),
+            )
+            coordinator.upload(blankZone)
+            assertEquals(null, port.uploadTimeZone)
         } finally {
             root.deleteRecursively()
         }
@@ -357,6 +411,8 @@ class PhotoTransferCoordinatorTest {
             private set
         var uploadCapturedAtMs: Long? = null
             private set
+        var uploadTimeZone: PhotoTimeZone? = null
+            private set
 
         override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
         override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
@@ -386,12 +442,14 @@ class PhotoTransferCoordinatorTest {
             filename: String,
             capturedAtMs: Long?,
             orientation: Int,
+            fallbackTimeZone: PhotoTimeZone?,
         ): Result<PhotoUploadReceipt> = runCatching {
             check(File(originalPath).isFile)
             check(File(previewPath).isFile)
             uploadCalls += 1
             uploadOrientation = orientation
             uploadCapturedAtMs = capturedAtMs
+            uploadTimeZone = fallbackTimeZone
             PhotoUploadReceipt("master-uploaded", "asset-uploaded")
         }
     }

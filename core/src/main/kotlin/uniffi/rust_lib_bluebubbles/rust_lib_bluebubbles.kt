@@ -2346,7 +2346,7 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_group_photo(`pt
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_messages(`ptr`: Pointer,`records`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_photo_jpeg(`ptr`: Pointer,`originalPath`: RustBuffer.ByValue,`previewPath`: RustBuffer.ByValue,`filename`: RustBuffer.ByValue,`capturedAtMs`: RustBuffer.ByValue,`orientation`: Int,
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_photo_jpeg(`ptr`: Pointer,`originalPath`: RustBuffer.ByValue,`previewPath`: RustBuffer.ByValue,`filename`: RustBuffer.ByValue,`capturedAtMs`: RustBuffer.ByValue,`orientation`: Int,`fallbackTimeZone`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_clone_retrievekeyscallback(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
@@ -3141,7 +3141,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_messages() != 31511.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_photo_jpeg() != 11773.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_upload_photo_jpeg() != 13302.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_retrievekeyscallback_keys() != 62637.toShort()) {
@@ -6860,8 +6860,11 @@ public interface NativePushStateInterface {
     /**
      * Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
      * per-record PCS wrapping, and the atomic CPL master/asset transaction.
+     * Capture time, time zone, location, and camera details are read from the
+     * original's EXIF in Rust; `captured_at_ms` and `fallback_time_zone` only
+     * fill gaps the file leaves.
      */
-    suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt): UPhotoUploadResult
+    suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt, `fallbackTimeZone`: UPhotoTimeZone?): UPhotoUploadResult
 
     companion object
 }
@@ -9023,15 +9026,18 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
     /**
      * Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
      * per-record PCS wrapping, and the atomic CPL master/asset transaction.
+     * Capture time, time zone, location, and camera details are read from the
+     * original's EXIF in Rust; `captured_at_ms` and `fallback_time_zone` only
+     * fill gaps the file leaves.
      */
     @Throws(UException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt) : UPhotoUploadResult {
+    override suspend fun `uploadPhotoJpeg`(`originalPath`: kotlin.String, `previewPath`: kotlin.String, `filename`: kotlin.String, `capturedAtMs`: kotlin.ULong?, `orientation`: kotlin.UInt, `fallbackTimeZone`: UPhotoTimeZone?) : UPhotoUploadResult {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_upload_photo_jpeg(
                 thisPtr,
-                FfiConverterString.lower(`originalPath`),FfiConverterString.lower(`previewPath`),FfiConverterString.lower(`filename`),FfiConverterOptionalULong.lower(`capturedAtMs`),FfiConverterUInt.lower(`orientation`),
+                FfiConverterString.lower(`originalPath`),FfiConverterString.lower(`previewPath`),FfiConverterString.lower(`filename`),FfiConverterOptionalULong.lower(`capturedAtMs`),FfiConverterUInt.lower(`orientation`),FfiConverterOptionalTypeUPhotoTimeZone.lower(`fallbackTimeZone`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_rust_buffer(future, callback, continuation) },
@@ -14630,6 +14636,43 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
 
 
 
+/**
+ * The device time zone at the moment a photo was taken. Rust uses it only
+ * when the JPEG's EXIF does not carry its own UTC offset; an IANA `name`
+ * is kept only when it agrees with the EXIF offset.
+ */
+data class UPhotoTimeZone (
+    var `name`: kotlin.String,
+    var `offsetSeconds`: kotlin.Int
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUPhotoTimeZone: FfiConverterRustBuffer<UPhotoTimeZone> {
+    override fun read(buf: ByteBuffer): UPhotoTimeZone {
+        return UPhotoTimeZone(
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: UPhotoTimeZone) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterInt.allocationSize(value.`offsetSeconds`)
+    )
+
+    override fun write(value: UPhotoTimeZone, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterInt.write(value.`offsetSeconds`, buf)
+    }
+}
+
+
+
 data class UPhotoUploadResult (
     var `masterId`: kotlin.String,
     var `assetId`: kotlin.String
@@ -18869,6 +18912,38 @@ public object FfiConverterOptionalTypeUFmReport: FfiConverterRustBuffer<UFmRepor
         } else {
             buf.put(1)
             FfiConverterTypeUFmReport.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeUPhotoTimeZone: FfiConverterRustBuffer<UPhotoTimeZone?> {
+    override fun read(buf: ByteBuffer): UPhotoTimeZone? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeUPhotoTimeZone.read(buf)
+    }
+
+    override fun allocationSize(value: UPhotoTimeZone?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeUPhotoTimeZone.allocationSize(value)
+        }
+    }
+
+    override fun write(value: UPhotoTimeZone?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeUPhotoTimeZone.write(value, buf)
         }
     }
 }

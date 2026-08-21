@@ -123,7 +123,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
 | Passwords | `ui/passwords/*` | VM + `PasswordsPort`; list sorted by title with A–Z sections past 12 items, forms are sheets, confirmations stay dialogs, reveal/copy/delete still gated by `CredentialUserAuth` and a failed prompt is reported |
 | Find My | `ui/findmy/FindMyScreen.kt`, `FindMyViewModel.kt`, `FindMyTargets.kt`, `ui/map/*` | VM + `FindMyPort`; in-app map, live tracking, session tracks |
-| Photos | `ui/photos/PhotosScreen.kt`, `PhotosViewModel.kt`, `PhotosTimeline.kt` | VM + `PhotosPort`; dated timeline at day/month/year density, filters, pager viewer with info sheet. Grouping is client-side over loaded pages; see [PHOTOS_SYNC.md](PHOTOS_SYNC.md) for the protocol boundary |
+| Photos | `ui/photos/PhotosScreen.kt`, `PhotosViewModel.kt`, `PhotosTimeline.kt` | VM + `PhotosPort`; dated timeline at day/month/year density, filters, pager viewer with info sheet. The app bar owns the "Add to iCloud Photos" action (no FAB) whose sheet holds the picker, folders, staged uploads, and the opt-in camera-backup switch. Grouping is client-side over loaded pages; see [PHOTOS_SYNC.md](PHOTOS_SYNC.md) for the protocol boundary |
 | Attachment viewer | `ui/attachmentviewer/AttachmentViewerScreen.kt` | `AttachmentProvider` |
 | Login / provision | `ui/login/LoginScreen.kt`, `LoginViewModel.kt`, `ProvisionScreen.kt` | VM + `RustLoginHandle` |
 | Onboarding | `ui/onboarding/*` | local steps; embeds login |

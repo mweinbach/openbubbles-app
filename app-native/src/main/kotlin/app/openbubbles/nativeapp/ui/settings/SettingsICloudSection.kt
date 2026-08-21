@@ -403,7 +403,7 @@ internal fun rememberICloudSection(
                         add { index, count ->
                             SettingsActionItem(
                                 title = "Photos (experimental)",
-                                supporting = "Read-only personal library capability and metadata probe",
+                                supporting = "Browse your iCloud library, add photos, and back up new camera photos",
                                 onClick = onOpenPhotos,
                                 index = index,
                                 count = count,

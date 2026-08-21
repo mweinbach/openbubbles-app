@@ -134,6 +134,7 @@ import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailScreen
 import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailViewModel
 import app.openbubbles.nativeapp.ui.passwords.VaultItemUi
 import app.openbubbles.nativeapp.ui.photos.PhotosScreen
+import app.openbubbles.nativeapp.data.photos.PhotosBackgroundSync
 import app.openbubbles.nativeapp.ui.photos.PhotosViewModel
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
@@ -1247,6 +1248,7 @@ fun OpenBubblesApp(
                 }
 
                 entry<PhotosKey>(metadata = overlayMetadata) {
+                    val context = LocalContext.current
                     val viewModel: PhotosViewModel = viewModel(factory = PhotosViewModel.factory())
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     val pickPhotosForUpload = rememberLauncherForActivityResult(
@@ -1256,6 +1258,13 @@ fun OpenBubblesApp(
                     val pickPhotoFolder = rememberLauncherForActivityResult(
                         ActivityResultContracts.OpenDocumentTree(),
                     ) { uri -> uri?.let(viewModel::addFolder) }
+                    // Camera backup needs media read access (and the media
+                    // location grant that keeps GPS in the uploads). Whatever
+                    // the user answers, the view model re-asks the port, so a
+                    // refusal simply leaves the switch off with an explanation.
+                    val requestBackupPermissions = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestMultiplePermissions(),
+                    ) { viewModel.setBackgroundSync(true) }
                     PhotosScreen(
                         uiState = state,
                         onBack = { popBack() },
@@ -1277,6 +1286,13 @@ fun OpenBubblesApp(
                         onRemoveFolder = viewModel::removeFolder,
                         onUpload = viewModel::upload,
                         onUploadAll = viewModel::uploadAll,
+                        onSetBackgroundSync = { enabled ->
+                            if (enabled && !PhotosBackgroundSync.hasMediaPermission(context)) {
+                                requestBackupPermissions.launch(PhotosBackgroundSync.requiredPermissions())
+                            } else {
+                                viewModel.setBackgroundSync(enabled)
+                            }
+                        },
                         surfaceSwitcher = surfaceSwitcher,
                     )
                 }

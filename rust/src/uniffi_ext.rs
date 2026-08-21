@@ -884,6 +884,15 @@ pub struct UPhotoUploadResult {
     pub asset_id: String,
 }
 
+/// The device time zone at the moment a photo was taken. Rust uses it only
+/// when the JPEG's EXIF does not carry its own UTC offset; an IANA `name`
+/// is kept only when it agrees with the EXIF offset.
+#[derive(Clone, uniffi::Record)]
+pub struct UPhotoTimeZone {
+    pub name: String,
+    pub offset_seconds: i32,
+}
+
 fn native_password_manager(
     state: &SharedPushState,
 ) -> Result<Arc<rustpush::passwords::PasswordManager<DefaultAnisetteProvider>>, UError> {
@@ -1176,6 +1185,9 @@ impl NativePushState {
 
     /// Upload one app-private JPEG staging pair. Rust owns MMCS authorization,
     /// per-record PCS wrapping, and the atomic CPL master/asset transaction.
+    /// Capture time, time zone, location, and camera details are read from the
+    /// original's EXIF in Rust; `captured_at_ms` and `fallback_time_zone` only
+    /// fill gaps the file leaves.
     pub async fn upload_photo_jpeg(
         &self,
         original_path: String,
@@ -1183,6 +1195,7 @@ impl NativePushState {
         filename: String,
         captured_at_ms: Option<u64>,
         orientation: u32,
+        fallback_time_zone: Option<UPhotoTimeZone>,
     ) -> Result<UPhotoUploadResult, UError> {
         if original_path.trim().is_empty() || preview_path.trim().is_empty() {
             return Err(UError::InvalidArgument {
@@ -1199,6 +1212,26 @@ impl NativePushState {
                 reason: "Photos upload orientation is invalid".to_string(),
             });
         }
+        let fallback_time_zone = match fallback_time_zone {
+            Some(zone) => {
+                let name = zone.name.trim();
+                if name.is_empty() || name.len() > 64 || name.chars().any(char::is_control) {
+                    return Err(UError::InvalidArgument {
+                        reason: "Photos upload time zone name is invalid".to_string(),
+                    });
+                }
+                if zone.offset_seconds.abs() > 18 * 3600 {
+                    return Err(UError::InvalidArgument {
+                        reason: "Photos upload time zone offset is invalid".to_string(),
+                    });
+                }
+                Some(rustpush::photos::PhotoTimeZone {
+                    name: name.to_string(),
+                    offset_seconds: zone.offset_seconds,
+                })
+            }
+            None => None,
+        };
         let client = native_photos(self)?;
         drive_ffi(async move {
             let uploaded = client
@@ -1208,6 +1241,7 @@ impl NativePushState {
                     &filename,
                     captured_at_ms,
                     orientation,
+                    fallback_time_zone,
                 )
                 .await
                 .map_err(|error| photos_protocol_error("upload", error))?;

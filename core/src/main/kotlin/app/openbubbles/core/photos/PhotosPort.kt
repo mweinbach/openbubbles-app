@@ -2,6 +2,7 @@ package app.openbubbles.core.photos
 
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UPhotoMediaKind
+import uniffi.rust_lib_bluebubbles.UPhotoTimeZone
 import uniffi.rust_lib_bluebubbles.UPhotosAccessState
 import uniffi.rust_lib_bluebubbles.UProgressCallback
 
@@ -48,6 +49,16 @@ data class PhotoUploadReceipt(
     val assetId: String,
 )
 
+/**
+ * The device time zone at the moment a photo was taken, as a fallback for
+ * files whose EXIF carries no UTC offset. [name] is an IANA zone id; the
+ * protocol layer keeps it only when it agrees with the EXIF offset.
+ */
+data class PhotoTimeZone(
+    val name: String,
+    val offsetSeconds: Int,
+)
+
 /** Foreground personal iCloud Photos seam for metadata, protected resources, and explicit uploads. */
 interface PhotosPort {
     suspend fun access(): PhotosAccess
@@ -71,6 +82,7 @@ interface PhotosPort {
         filename: String,
         capturedAtMs: Long?,
         orientation: Int,
+        fallbackTimeZone: PhotoTimeZone? = null,
     ): Result<PhotoUploadReceipt> =
         Result.failure(UnsupportedOperationException("iCloud Photos uploads are unavailable"))
 }
@@ -167,6 +179,7 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
         filename: String,
         capturedAtMs: Long?,
         orientation: Int,
+        fallbackTimeZone: PhotoTimeZone?,
     ): Result<PhotoUploadReceipt> = runCatching {
         require(orientation in 1..8) { "Photos upload orientation is invalid" }
         val result = state.uploadPhotoJpeg(
@@ -175,6 +188,9 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
             filename = filename,
             capturedAtMs = capturedAtMs?.takeIf { it >= 0 }?.toULong(),
             orientation = orientation.toUInt(),
+            fallbackTimeZone = fallbackTimeZone
+                ?.takeIf { it.name.isNotBlank() }
+                ?.let { UPhotoTimeZone(name = it.name, offsetSeconds = it.offsetSeconds) },
         )
         PhotoUploadReceipt(
             masterId = result.masterId,

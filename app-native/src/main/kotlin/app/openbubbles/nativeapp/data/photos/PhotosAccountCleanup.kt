@@ -17,7 +17,7 @@ object PhotosAccountCleanup {
         withContext(Dispatchers.IO) {
             runAccountCleanupSteps(
                 { PhotosWorkRegistry.cancelAndJoinAll() },
-                { PhotosBackgroundSync.cancelAndAwait(context) },
+                { PhotosBackgroundSync.clearAccountState(context).getOrThrow() },
                 {
                     val grants = PhotoFolderSources(context).clearAccountState()
                     check(grants.complete) { "Could not release Photos folder access" }

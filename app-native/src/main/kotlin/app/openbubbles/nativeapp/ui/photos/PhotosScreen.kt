@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.filled.FilterListOff
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
@@ -60,7 +62,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +71,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -142,6 +144,12 @@ fun PhotosScreen(
     onRemoveFolder: (PhotoFolderSource) -> Unit,
     onUpload: (PhotoTransfer) -> Unit,
     onUploadAll: () -> Unit,
+    /**
+     * Turns automatic camera backup on or off. The host owns the permission
+     * prompt; the view model reports the resulting state back through
+     * [PhotosUiState.backgroundSyncEnabled].
+     */
+    onSetBackgroundSync: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     /** Clock injected so previews and screenshots render fixed section titles. */
     nowMillis: Long? = null,
@@ -156,6 +164,7 @@ fun PhotosScreen(
     var grouping by rememberSaveable { mutableStateOf(PhotoGrouping.Day) }
     var filter by rememberSaveable { mutableStateOf(PhotoFilter.All) }
     var showFilterMenu by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     val snapshot = uiState.snapshot
     // The default must remain stable while transfer progress recomposes the
     // screen; section labels need at most a fresh value when the screen opens.
@@ -227,19 +236,14 @@ fun PhotosScreen(
                                 }
                             }
                         }
-                        // Density has buttons as well as a pinch, so the grid is
-                        // resizable with a keyboard, a switch, and one hand.
+                        // Adding to the library is the screen's one explicit
+                        // write, so it keeps a visible app-bar icon instead of a
+                        // floating button over the grid.
                         IconButton(
-                            onClick = { grouping.denser()?.let { grouping = it } },
-                            enabled = grouping.denser() != null,
+                            onClick = { showTransfers = true },
+                            enabled = uiState.selectedAssetId == null,
                         ) {
-                            Icon(Icons.Filled.ZoomIn, contentDescription = "Larger photos")
-                        }
-                        IconButton(
-                            onClick = { grouping.wider()?.let { grouping = it } },
-                            enabled = grouping.wider() != null,
-                        ) {
-                            Icon(Icons.Filled.ZoomOut, contentDescription = "Smaller photos")
+                            Icon(Icons.Filled.CloudUpload, contentDescription = "Add to iCloud Photos")
                         }
                         IconButton(
                             onClick = onRefresh,
@@ -247,20 +251,42 @@ fun PhotosScreen(
                         ) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Refresh Photos")
                         }
+                        // Density has menu items as well as a pinch, so the grid
+                        // is resizable with a keyboard, a switch, and one hand
+                        // without crowding the bar past three actions.
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Larger photos") },
+                                    leadingIcon = { Icon(Icons.Filled.ZoomIn, contentDescription = null) },
+                                    enabled = grouping.denser() != null,
+                                    onClick = {
+                                        grouping.denser()?.let { grouping = it }
+                                        showOverflowMenu = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Smaller photos") },
+                                    leadingIcon = { Icon(Icons.Filled.ZoomOut, contentDescription = null) },
+                                    enabled = grouping.wider() != null,
+                                    onClick = {
+                                        grouping.wider()?.let { grouping = it }
+                                        showOverflowMenu = false
+                                    },
+                                )
+                            }
+                        }
                     },
                 )
                 // The viewer and the uploads sheet cover this strip; while either
                 // owns the screen the switcher swipe must not fire underneath it.
                 surfaceSwitcher(uiState.selectedAssetId == null && !showTransfers)
-            }
-        },
-        floatingActionButton = {
-            // Adding to the library is an explicit action, so it gets the one
-            // prominent control on the screen rather than a crowded app bar.
-            if (uiState.selectedAssetId == null) {
-                FloatingActionButton(onClick = { showTransfers = true }) {
-                    Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
-                }
             }
         },
     ) { padding ->
@@ -298,6 +324,7 @@ fun PhotosScreen(
             onRemoveFolder = onRemoveFolder,
             onUpload = onUpload,
             onUploadAll = onUploadAll,
+            onSetBackgroundSync = onSetBackgroundSync,
         )
     }
 
@@ -373,8 +400,8 @@ private fun PhotosGrid(
             .pinchGrouping(grouping, onGrouping)
             .testTag(if (gridIsScrollable) PhotosScrollableTag else PhotosIdleTag),
         state = gridState,
-        // The last row can scroll fully above the bottom-end upload FAB.
-        contentPadding = PaddingValues(start = 2.dp, top = 2.dp, end = 16.dp, bottom = 96.dp),
+        // Nothing floats over the grid, so the last row only needs breathing room.
+        contentPadding = PaddingValues(start = 2.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -606,6 +633,7 @@ private fun UploadsSheet(
     onRemoveFolder: (PhotoFolderSource) -> Unit,
     onUpload: (PhotoTransfer) -> Unit,
     onUploadAll: () -> Unit,
+    onSetBackgroundSync: (Boolean) -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -617,24 +645,40 @@ private fun UploadsSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Add to iCloud Photos", style = MaterialTheme.typography.headlineSmall)
+            // The whole row toggles, so the switch is read with its label by
+            // TalkBack and reachable by switch access as one control.
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.toggleable(
+                    value = uiState.backgroundSyncEnabled,
+                    role = Role.Switch,
+                    onValueChange = onSetBackgroundSync,
+                ),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(14.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.CloudOff, contentDescription = null)
-                    Column {
-                        Text("Background sync is off", fontWeight = FontWeight.SemiBold)
+                    Icon(
+                        imageVector = if (uiState.backgroundSyncEnabled) Icons.Filled.CloudUpload else Icons.Filled.CloudOff,
+                        contentDescription = null,
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Back up new camera photos", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "Photos and folders are staged only when you choose them or tap Scan now.",
+                            text = if (uiState.backgroundSyncEnabled) {
+                                "New photos added to DCIM upload to iCloud Photos in the background. " +
+                                    "Videos are not uploaded yet."
+                            } else {
+                                "Off. Photos and folders are staged only when you choose them or tap Scan now."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Switch(checked = uiState.backgroundSyncEnabled, onCheckedChange = null)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1076,6 +1120,7 @@ private fun PhotosPreview() {
             onRemoveFolder = {},
             onUpload = {},
             onUploadAll = {},
+            onSetBackgroundSync = {},
         )
     }
 }

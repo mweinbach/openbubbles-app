@@ -9,8 +9,9 @@ Read [../../../docs/PHOTOS_SYNC.md](../../../docs/PHOTOS_SYNC.md),
 [../../../docs/DEVELOPMENT.md](../../../docs/DEVELOPMENT.md), and the CloudKit/PCS sections of
 [../../../docs/RUST_KOTLIN.md](../../../docs/RUST_KOTLIN.md) before editing. Preserve the exact
 scope: this is an experimental personal iCloud Photos browser with controlled foreground
-transfers, not Shared Albums and not full bidirectional sync. Writes remain explicit JPEG uploads;
-the dormant background worker does not authorize background mirroring or any other mutation.
+transfers, not Shared Albums and not full bidirectional sync. Writes remain JPEG uploads only: an
+explicit tap, or the user's opt-in "Back up new camera photos" switch that adds newer `DCIM`
+images. Neither authorizes gallery mirroring, video uploads, or any other mutation.
 
 ## Follow the ownership boundaries
 
@@ -49,9 +50,13 @@ Picker selections and manually scanned document-tree folders normalize decodable
 JPEG original/preview upload contract, copy them into content-addressed private staging, and record
 `Queued` rows. Selection and folder scan must never upload. A separate explicit upload action
 invokes async UniFFI, persists attempt/failure/success state, and records the remote master ID.
-Folder access alone must never scan. Background scheduling stays absent and the compile-time
-background flag stays false until the product and protocol gates change. Video/Live Photo uploads,
-albums, edits, deletes, and automatic Android gallery observation remain blocked.
+Folder access alone must never scan. The only automatic path is the opt-in "Back up new camera
+photos" switch in `app-native/.../data/photos/PhotosBackgroundSync.kt`: it requires the media-read
+and media-location runtime grants, records a `DCIM` MediaStore watermark when enabled so nothing
+older is touched, runs an hourly periodic pass plus a MediaStore content-URI trigger, stages through
+the same picker/staging code, uploads under the shared upload gate, and is cancelled and cleared on
+disable and sign-out. Keep it image-only and additive. Video/Live Photo uploads, albums, edits,
+deletes, and any other gallery observation remain blocked.
 
 Protected assets can require PCS decryption even when the enclosing CloudKit field omits its
 encrypted flag. Keep clear asset keys in memory only, never persist or log them, and rely on RFC
@@ -75,6 +80,18 @@ record uses a custom per-record key and the zone has no default record key. The 
 response carries a nested `CKDPAsset` plus a wrapper token and expiration; preserve the nested
 owner, URLs, requestor, record identifier, signatures, and authorization fields, then map the
 wrapper token into the asset download token. `CKDPAsset.clearAssetKey` is protobuf field 20.
+
+Native clients read capture details from the records, not from the uploaded bytes.
+`rustpush/src/photos_metadata.rs` owns that contract: `CPLMaster.mediaMetaDataEnc` is an ImageIO
+`CGImageProperties` binary plist (`{TIFF}`, `{Exif}`, `{GPS}`, optional `{JFIF}`, plus pixel,
+orientation, DPI, and profile keys) labelled `mediaMetaDataType = "CGImageProperties"`;
+`CPLAsset.assetDate` uses `DateTimeOriginal` plus the EXIF offset with `timeZoneOffset` in seconds
+and `timeZoneNameEnc` as a raw UTF-8 zone name (IANA when it agrees with the offset, otherwise
+`GMT±HHMM`, `UTC` only when nothing is known); `CPLAsset.locationEnc` is a CoreLocation-shaped
+plist and is omitted without a valid coordinate. Keep EXIF parsing in Rust from the staged JPEG,
+keep Kotlin responsible only for unredacted reads (`setRequireOriginal` with
+`ACCESS_MEDIA_LOCATION`), EXIF carry-over onto re-encoded JPEGs, and the device-zone fallback, and
+never log tag values or coordinates.
 
 ## Route the change correctly
 
