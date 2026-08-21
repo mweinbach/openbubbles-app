@@ -28,4 +28,22 @@ internal val ArrivalStateSaver = Saver<ArrivalState, Bundle>(
     },
 )
 
+internal val LiveArrivalMarkerStateSaver = Saver<LiveArrivalMarkerState, Bundle>(
+    save = { state ->
+        Bundle().apply {
+            putStringArrayList(
+                "unmatched",
+                ArrayList(state.unmatchedGuids.toList().takeLast(LiveMarkerRetention)),
+            )
+            putBoolean("fallback", state.chronologicalFallback)
+        }
+    },
+    restore = { saved ->
+        LiveArrivalMarkerState(
+            unmatchedGuids = saved.getStringArrayList("unmatched").orEmpty().toSet(),
+            chronologicalFallback = saved.getBoolean("fallback"),
+        )
+    },
+)
+
 private const val SavedGuidLimit = 512

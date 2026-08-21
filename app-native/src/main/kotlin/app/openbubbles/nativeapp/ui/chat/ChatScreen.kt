@@ -515,16 +515,6 @@ fun ChatScreen(
         PendingSendEffect.effectId = option?.id
     }
 
-    LaunchedEffect(uiState.outgoingSendEvent) {
-        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
-        if (pendingEffectId == event.effectId) stagePendingEffect(null)
-        // The staged row already exists (the ViewModel holds the event until it
-        // does); target the newest message rather than index 0 so a visible
-        // typing row cannot leave the sent bubble half off-screen.
-        listState.animateScrollToItem(newestMessageIndex(entries, isTyping).coerceAtLeast(0))
-        onOutgoingSendEventConsumed(event.messageId)
-    }
-
     fun stageAttachments(uris: List<Uri>) {
         if (uris.isEmpty()) return
         onPrepareAttachments(uris)
@@ -723,12 +713,18 @@ fun ChatScreen(
             if (!scrolling) followingBottom = atBottomNow
         }
     }
-    var liveArrivalMarkers by remember(uiState.chat?.id) {
+    var liveArrivalMarkers by rememberSaveable(
+        uiState.chat?.id,
+        stateSaver = LiveArrivalMarkerStateSaver,
+    ) {
         mutableStateOf(LiveArrivalMarkerState())
     }
     LaunchedEffect(uiState.chat?.id) {
-        LiveMessageArrivals.events.collect { guid ->
-            liveArrivalMarkers = liveArrivalMarkers.added(guid)
+        val chatId = uiState.chat?.id ?: return@LaunchedEffect
+        LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.chatId == chatId) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
         }
     }
     val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
@@ -752,7 +748,11 @@ fun ChatScreen(
     suspend fun scrollToNewest(): Boolean {
         repeat(3) {
             val (targetIndex, targetKey) = currentNewestTarget() ?: return false
-            listState.animateScrollToItem(targetIndex)
+            if (reduceMotion) {
+                listState.scrollToItem(targetIndex)
+            } else {
+                listState.animateScrollToItem(targetIndex)
+            }
             withFrameNanos { }
             val resolved = currentNewestTarget()
             if (resolved?.second == targetKey &&
@@ -767,6 +767,14 @@ fun ChatScreen(
     suspend fun jumpToNewest() {
         // Clear only once the stable newest-message key is actually visible.
         if (scrollToNewest()) arrivals = arrivals.cleared()
+    }
+
+    LaunchedEffect(uiState.outgoingSendEvent) {
+        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
+        if (pendingEffectId == event.effectId) stagePendingEffect(null)
+        // Re-resolve by stable message key if a typing row changes during the
+        // move, and only consume the event once the sent row is visible.
+        if (scrollToNewest()) onOutgoingSendEventConsumed(event.messageId)
     }
 
     LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive, liveArrivalSnapshot) {

@@ -11,11 +11,13 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import app.openbubbles.core.model.ChatMute
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.core.sync.TranscriptBackgroundUpdate
 import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
+import app.openbubbles.nativeapp.data.LiveMessageArrival
 import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -288,8 +290,16 @@ class NativePushService : Service(), MsgReceiver {
         syncTranscriptBackground(decoded, chat)
         if (result.isNewIncomingMessage) {
             val liveMessage = (decoded as? UPushMessage.IMessage)?.inst
-            if (liveMessage?.message is UMessage.Normal) {
-                LiveMessageArrivals.publish(liveMessage.id)
+            val normal = liveMessage?.message as? UMessage.Normal
+            if (liveMessage != null && normal != null && chat != null) {
+                LiveMessageArrivals.publish(
+                    LiveMessageArrival(
+                        messageGuid = liveMessage.id,
+                        chatId = chat.id,
+                        threadRootGuid = normal.replyGuid,
+                        threadPart = MessageMapper.replyPartIndex(normal.replyPart),
+                    ),
+                )
             }
             // Size-capped media auto-download (Settings → Messaging); the
             // bubble's download chip remains for anything over the ceiling.

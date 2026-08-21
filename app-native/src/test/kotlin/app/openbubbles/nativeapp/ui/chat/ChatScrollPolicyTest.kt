@@ -489,13 +489,17 @@ class ChatScrollPolicyTest {
     @Test
     fun `live marker overflow falls back instead of silently evicting`() {
         var markers = LiveArrivalMarkerState()
-        repeat(256) { markers = markers.added("marker-$it") }
-        assertEquals(256, markers.reducerGuids?.size)
+        repeat(LiveMarkerRetention) { markers = markers.added("marker-$it") }
+        assertEquals(LiveMarkerRetention, markers.reducerGuids?.size)
 
         markers = markers.added("overflow")
 
         assertTrue(markers.chronologicalFallback)
         assertNull(markers.reducerGuids)
+
+        markers = markers.consumed(emptySet()).added("next")
+        assertFalse(markers.chronologicalFallback)
+        assertEquals(setOf("next"), markers.reducerGuids)
     }
 
     @Test

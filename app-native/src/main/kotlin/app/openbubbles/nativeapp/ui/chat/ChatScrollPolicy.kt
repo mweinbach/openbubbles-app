@@ -22,7 +22,7 @@ internal const val PendingCountDisplayCap = 99
 /** Live GUIDs retained after classification so a bounded page cannot replay them. */
 private const val ConsumedLiveGuidRetention = 256
 private const val PendingGuidRetention = 512
-private const val LiveMarkerRetention = 256
+internal const val LiveMarkerRetention = 512
 
 private fun retainedConsumedLiveGuids(
     previous: Set<String>,
@@ -81,7 +81,15 @@ internal data class LiveArrivalMarkerState(
     }
 
     fun consumed(guids: Set<String>): LiveArrivalMarkerState =
-        if (guids.isEmpty()) this else copy(unmatchedGuids = unmatchedGuids - guids)
+        if (chronologicalFallback) {
+            // One chronological reconciliation drains the overflow batch; the
+            // next scoped live event returns to exact GUID matching.
+            LiveArrivalMarkerState()
+        } else if (guids.isEmpty()) {
+            this
+        } else {
+            copy(unmatchedGuids = unmatchedGuids - guids)
+        }
 }
 
 /** What the caller should do after folding one snapshot into [ArrivalState]. */

@@ -1,9 +1,11 @@
 package app.openbubbles.nativeapp.sms
 
 import android.content.Context
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.LiveMessageArrival
 import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.Notifications
@@ -52,7 +54,16 @@ internal object SmsIngest {
         }
 
         liveArrivalGuid(push, result.isNewIncomingMessage)?.let { guid ->
-            LiveMessageArrivals.publish(guid)
+            val instance = (push as? UPushMessage.IMessage)?.inst
+            val normal = instance?.message as? UMessage.Normal
+            LiveMessageArrivals.publish(
+                LiveMessageArrival(
+                    messageGuid = guid,
+                    chatId = chat.id,
+                    threadRootGuid = normal?.replyGuid,
+                    threadPart = MessageMapper.replyPartIndex(normal?.replyPart),
+                ),
+            )
         }
         notifyIncoming(context, push, chat, notificationText)
         return chat.id
