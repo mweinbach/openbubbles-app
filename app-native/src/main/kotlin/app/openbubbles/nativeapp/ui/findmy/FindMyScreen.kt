@@ -78,37 +78,42 @@ fun FindMyScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     showBackButton: Boolean = true,
+    /** Peer-surface switcher pinned under the app bar; see TopLevelSurfaceSwitcher. */
+    surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            MediumFlexibleTopAppBar(
-                scrollBehavior = scrollBehavior,
-                title = { Text("Find My") },
-                navigationIcon = {
-                    if (showBackButton) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Column {
+                MediumFlexibleTopAppBar(
+                    scrollBehavior = scrollBehavior,
+                    title = { Text("Find My") },
+                    navigationIcon = {
+                        if (showBackButton) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
                         }
-                    }
-                },
-                actions = {
-                    if (uiState.refreshing) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.5.dp,
-                            modifier = Modifier
-                                .padding(end = 16.dp)
-                                .size(22.dp),
-                        )
-                    } else {
-                        IconButton(onClick = onRefresh) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    },
+                    actions = {
+                        if (uiState.refreshing) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier
+                                    .padding(end = 16.dp)
+                                    .size(22.dp),
+                            )
+                        } else {
+                            IconButton(onClick = onRefresh) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+                surfaceSwitcher(true)
+            }
         },
     ) { padding ->
         Box(

@@ -92,6 +92,7 @@ import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.SurfaceSwitcherPrefs
 import app.openbubbles.nativeapp.credentials.CredentialUserAuth
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
@@ -112,6 +113,12 @@ import app.openbubbles.nativeapp.ui.chatlist.sendFromChoices
 import app.openbubbles.nativeapp.ui.findmy.FindMyScreen
 import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
+import app.openbubbles.nativeapp.ui.navigation.SurfaceStackEntry
+import app.openbubbles.nativeapp.ui.navigation.SurfaceSwitchPlan
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurface
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurfaceOrder
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurfaceSwitch
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurfaceSwitcher
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
 import app.openbubbles.nativeapp.ui.passwords.PasswordsScreen
@@ -284,6 +291,39 @@ private fun NavKey.toRoute(): String = when (this) {
     is AttachmentKey -> Routes.attachment(guid, chatId)
     is LoginKey -> Routes.LOGIN
     else -> Routes.CHATS
+}
+
+/**
+ * How a destination relates to the four peer surfaces in the header switcher.
+ *
+ * Conversations, search, archive and bookmarks belong to Messages; a vault item
+ * or group belongs to Passwords. Settings, login, the share picker and the
+ * Shared Albums / recently deleted managers belong to no surface, so the
+ * switcher shows nothing selected there rather than lying about the location.
+ */
+private fun NavKey.toSurfaceEntry(): SurfaceStackEntry = when (this) {
+    is ChatsKey -> SurfaceStackEntry.Root(TopLevelSurface.MESSAGES)
+    is ChatKey,
+    is ChatInfoKey,
+    is AttachmentKey,
+    is BookmarksKey,
+    is SearchKey,
+    is ArchivedChatsKey,
+    is NewChatKey,
+    -> SurfaceStackEntry.Child(TopLevelSurface.MESSAGES)
+    is PhotosKey -> SurfaceStackEntry.Root(TopLevelSurface.PHOTOS)
+    is PasswordsKey -> SurfaceStackEntry.Root(TopLevelSurface.PASSWORDS)
+    is VaultItemKey, is VaultGroupKey -> SurfaceStackEntry.Child(TopLevelSurface.PASSWORDS)
+    is FindMyKey -> SurfaceStackEntry.Root(TopLevelSurface.FIND_MY)
+    else -> SurfaceStackEntry.Unowned
+}
+
+/** The existing typed destination a surface stands for; no new route is introduced. */
+private fun TopLevelSurface.toNavKey(): NavKey = when (this) {
+    TopLevelSurface.MESSAGES -> ChatsKey
+    TopLevelSurface.PHOTOS -> PhotosKey
+    TopLevelSurface.PASSWORDS -> PasswordsKey
+    TopLevelSurface.FIND_MY -> FindMyKey
 }
 
 private fun routeParameter(route: String, name: String): String? =
@@ -467,6 +507,22 @@ fun OpenBubblesApp(
 
     fun navigateHome() {
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+    }
+
+    /**
+     * Peer-surface switch driven by the header strip.
+     *
+     * [TopLevelSurfaceSwitch.plan] owns the policy; this only applies the stack
+     * edit it returns, which is at most one removal run plus one push. Pruning
+     * the entries also disposes their per-entry ViewModelStores, so the surface
+     * the user left stops doing account-bound work.
+     */
+    fun selectSurface(target: TopLevelSurface) {
+        val plan = TopLevelSurfaceSwitch.plan(backStack.map { it.toSurfaceEntry() }, target)
+        if (plan !is SurfaceSwitchPlan.Replace) return
+        transcriptPrefetchJob?.cancel()
+        while (backStack.size > plan.keepCount) backStack.removeAt(backStack.lastIndex)
+        plan.push?.let { backStack.add(it.toNavKey()) }
     }
 
     /** Restores the persisted route at the recorded depth (chat info keeps its chat underneath). */
@@ -654,6 +710,26 @@ fun OpenBubblesApp(
         )
     }
 
+    // One versioned preference carries the switcher order and its default
+    // surface. A corrupt or older value decodes back to the canonical order, so
+    // a bad write can never hide a surface. The default surface is where a
+    // swipe counts from when the current destination belongs to no surface
+    // (Settings, login); a launch-into-default and a reorder UI are the
+    // configurable stage of this feature, not this one.
+    val surfaceOrder = remember(context) {
+        context?.let { SurfaceSwitcherPrefs(it).order } ?: TopLevelSurfaceOrder.Default
+    }
+    val currentSurface = current?.toSurfaceEntry()?.surface
+    val surfaceSwitcher: @Composable (Boolean) -> Unit = { gestureEnabled ->
+        TopLevelSurfaceSwitcher(
+            current = currentSurface,
+            onSelect = ::selectSurface,
+            order = surfaceOrder,
+            gestureEnabled = gestureEnabled,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+    }
+
     val appContent: @Composable () -> Unit = {
         // In two-pane the panes sit on a surfaceContainer canvas and separate
         // tonally (list on surfaceContainerLow, conversation on surface) —
@@ -765,6 +841,7 @@ fun OpenBubblesApp(
                             }
                         },
                         footer = { DebugStatusFooter(debugLines) },
+                        surfaceSwitcher = surfaceSwitcher,
                     )
                 }
 
@@ -994,6 +1071,7 @@ fun OpenBubblesApp(
                         onCreateGroup = viewModel::createGroup,
                         onAcceptInvite = viewModel::acceptInvite,
                         onDeclineInvite = viewModel::declineInvite,
+                        surfaceSwitcher = surfaceSwitcher,
                     )
                 }
 
@@ -1127,6 +1205,7 @@ fun OpenBubblesApp(
                         onRemoveFolder = viewModel::removeFolder,
                         onUpload = viewModel::upload,
                         onUploadAll = viewModel::uploadAll,
+                        surfaceSwitcher = surfaceSwitcher,
                     )
                 }
 
@@ -1193,6 +1272,7 @@ fun OpenBubblesApp(
                         onRefresh = viewModel::refresh,
                         onBack = { popBack() },
                         showBackButton = true,
+                        surfaceSwitcher = surfaceSwitcher,
                     )
                 }
 

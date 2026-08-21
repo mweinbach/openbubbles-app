@@ -95,6 +95,11 @@ fun PasswordsScreen(
     onAcceptInvite: (String) -> Unit,
     onDeclineInvite: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Peer-surface switcher pinned under the app bar. It only routes: revealing
+     * or copying a secret still goes through this surface's own authentication.
+     */
+    surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
     var showCreatePassword by remember { mutableStateOf(false) }
     var showCreateGroup by remember { mutableStateOf(false) }
@@ -104,31 +109,36 @@ fun PasswordsScreen(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            MediumFlexibleTopAppBar(
-                title = { Text("Passwords") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (uiState.inClique == true) {
-                        IconButton(
-                            onClick = {
-                                onPrepareCreatePassword()
-                                showCreatePassword = true
-                            },
-                            enabled = !uiState.busy,
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Create password")
+            Column {
+                MediumFlexibleTopAppBar(
+                    title = { Text("Passwords") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    }
-                    IconButton(onClick = onRefresh, enabled = !uiState.busy) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
+                    },
+                    actions = {
+                        if (uiState.inClique == true) {
+                            IconButton(
+                                onClick = {
+                                    onPrepareCreatePassword()
+                                    showCreatePassword = true
+                                },
+                                enabled = !uiState.busy,
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "Create password")
+                            }
+                        }
+                        IconButton(onClick = onRefresh, enabled = !uiState.busy) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
+                surfaceSwitcher(
+                    !showCreatePassword && !showCreateGroup && inviteActions == null,
+                )
+            }
         },
     ) { padding ->
         when {
