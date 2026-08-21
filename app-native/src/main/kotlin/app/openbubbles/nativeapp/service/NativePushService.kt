@@ -16,6 +16,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ICloudContactSync
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.TranscriptBackgroundStore
@@ -286,6 +287,10 @@ class NativePushService : Service(), MsgReceiver {
         syncStickerAttachments(decoded)
         syncTranscriptBackground(decoded, chat)
         if (result.isNewIncomingMessage) {
+            val liveMessage = (decoded as? UPushMessage.IMessage)?.inst
+            if (liveMessage?.message is UMessage.Normal) {
+                LiveMessageArrivals.publish(liveMessage.id)
+            }
             // Size-capped media auto-download (Settings → Messaging); the
             // bubble's download chip remains for anything over the ceiling.
             chat?.let { CoreGraph.autoDownloadForChat(it.id) }

@@ -171,6 +171,46 @@ class ChatScrollPolicyTest {
     }
 
     @Test
+    fun `live intake distinguishes arrivals from concurrent history imports`() {
+        val base = reduceArrivals(ArrivalState(), listOf(message(10, start)), false).state
+        val imported = message(11, start + 5_000)
+        val live = message(12, start - 5_000)
+
+        val outcome = reduceArrivals(
+            base,
+            listOf(live, message(10, start), imported),
+            followingBottom = false,
+            historySyncActive = true,
+            liveArrivalGuids = setOf(live.guid),
+        )
+
+        assertEquals(1, outcome.arrivals)
+        assertEquals(setOf(live.guid), outcome.state.pendingGuids)
+    }
+
+    @Test
+    fun `delayed live intake is accepted behind the timestamp high water mark`() {
+        val base = reduceArrivals(ArrivalState(), listOf(message(10, start)), false).state
+        val delayed = message(11, start - 60_000)
+
+        val outcome = reduceArrivals(
+            base,
+            listOf(delayed, message(10, start)),
+            followingBottom = false,
+            liveArrivalGuids = setOf(delayed.guid),
+        )
+
+        assertEquals(1, outcome.arrivals)
+        assertEquals(setOf(delayed.guid), outcome.state.pendingGuids)
+    }
+
+    @Test
+    fun `pill announcement count remains stable through exit`() {
+        assertEquals(3, retainedPillAnnouncementCount(previous = 0, visible = true, count = 3))
+        assertEquals(3, retainedPillAnnouncementCount(previous = 3, visible = false, count = 0))
+    }
+
+    @Test
     fun `outgoing rows never increment the count`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
         val outcome = reduceArrivals(

@@ -142,6 +142,7 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
@@ -722,6 +723,17 @@ fun ChatScreen(
             if (!scrolling) followingBottom = atBottomNow
         }
     }
+    val liveArrivalGuids = remember(uiState.chat?.id) { mutableStateMapOf<String, Unit>() }
+    LaunchedEffect(uiState.chat?.id) {
+        LiveMessageArrivals.events.collect { guid ->
+            liveArrivalGuids[guid] = Unit
+            while (liveArrivalGuids.size > 256) {
+                liveArrivalGuids.keys.firstOrNull()?.let(liveArrivalGuids::remove)
+            }
+        }
+    }
+    val liveArrivalSnapshot = liveArrivalGuids.keys.toSet()
+
     // Reset per conversation: a new chat establishes its own baseline and can
     // never inherit the previous transcript's pending count.
     var arrivals by remember(uiState.chat?.id) { mutableStateOf(ArrivalState()) }
@@ -736,13 +748,14 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive) {
+    LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive, liveArrivalSnapshot) {
         val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
         val outcome = reduceArrivals(
             state = arrivals,
             messages = uiState.messages,
             followingBottom = pinned,
             historySyncActive = historySyncActive,
+            liveArrivalGuids = liveArrivalSnapshot,
         )
         arrivals = outcome.state
         // Scroll only after the arriving row is part of the rendered snapshot.
@@ -1022,6 +1035,7 @@ fun ChatScreen(
                         thread = openThread,
                         smsChat = smsChat,
                         historySyncActive = historySyncActive,
+                        liveArrivalGuids = liveArrivalSnapshot,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,

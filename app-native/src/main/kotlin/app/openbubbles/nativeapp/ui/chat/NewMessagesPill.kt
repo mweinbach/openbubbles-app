@@ -18,6 +18,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -54,7 +59,16 @@ fun NewMessagesJumpPill(
     modifier: Modifier = Modifier,
     thread: Boolean = false,
 ) {
-    val label = jumpPillLabel(count, if (thread) JumpPillScope.Thread else JumpPillScope.Conversation)
+    var announcedCount by remember { mutableIntStateOf(count.coerceAtLeast(0)) }
+    LaunchedEffect(visible, count) {
+        announcedCount = retainedPillAnnouncementCount(announcedCount, visible, count)
+    }
+    // AnimatedVisibility retains content during exit. Keep the last visible
+    // count so TalkBack does not announce a new zero-count label while fading.
+    val label = jumpPillLabel(
+        announcedCount,
+        if (thread) JumpPillScope.Thread else JumpPillScope.Conversation,
+    )
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(defaultEffectsSpec()) +
@@ -97,6 +111,9 @@ fun NewMessagesJumpPill(
         }
     }
 }
+
+internal fun retainedPillAnnouncementCount(previous: Int, visible: Boolean, count: Int): Int =
+    if (visible && count > 0) count else previous
 
 @LightDarkPreviews
 @Composable

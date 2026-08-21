@@ -76,6 +76,8 @@ internal fun reduceArrivals(
     messages: List<MessageItem>,
     followingBottom: Boolean,
     historySyncActive: Boolean = false,
+    /** Exact GUIDs observed at live intake; null keeps the pure legacy fallback for host callers. */
+    liveArrivalGuids: Set<String>? = null,
 ): ArrivalOutcome {
     if (messages.isEmpty()) {
         // A chat with nothing loaded has no baseline to defend; the next
@@ -97,12 +99,14 @@ internal fun reduceArrivals(
         )
     }
 
-    val arrivals = if (historySyncActive) {
-        emptyList()
-    } else {
-        messages.filter {
-            it.guid !in state.knownGuids && !it.isFromMe && isNewerThanBaseline(it, state)
-        }
+    val arrivals = messages.filter {
+        it.guid !in state.knownGuids &&
+            !it.isFromMe &&
+            if (liveArrivalGuids != null) {
+                it.guid in liveArrivalGuids
+            } else {
+                !historySyncActive && isNewerThanBaseline(it, state)
+            }
     }
     val pending = if (followingBottom) {
         emptySet()

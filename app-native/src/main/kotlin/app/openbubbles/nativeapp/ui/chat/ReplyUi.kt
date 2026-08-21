@@ -147,6 +147,7 @@ internal fun ReplyThreadPane(
     thread: ReplyThreadState,
     smsChat: Boolean,
     historySyncActive: Boolean,
+    liveArrivalGuids: Set<String>,
     senderNames: Map<String, String>,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
@@ -193,12 +194,13 @@ internal fun ReplyThreadPane(
     // Selecting another root/part is a different viewport; closing the thread
     // disposes this state entirely, so no stale announcement can replay.
     var arrivals by remember(thread.rootGuid, thread.part) { mutableStateOf(ArrivalState()) }
-    LaunchedEffect(thread.messages, thread.rootGuid, thread.part, historySyncActive) {
+    LaunchedEffect(thread.messages, thread.rootGuid, thread.part, historySyncActive, liveArrivalGuids) {
         val outcome = reduceArrivals(
             state = arrivals,
             messages = thread.messages,
             followingBottom = shouldAutoScrollToNewest(followingBottom, anchor),
             historySyncActive = historySyncActive,
+            liveArrivalGuids = liveArrivalGuids,
         )
         arrivals = outcome.state
         if (outcome.pinToNewest && newestIndex >= 0) {
