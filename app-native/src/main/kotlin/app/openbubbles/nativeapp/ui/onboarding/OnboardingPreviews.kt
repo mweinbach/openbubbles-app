@@ -31,10 +31,25 @@ private fun PermissionsStepPreview() {
     }
 }
 
+@Preview(name = "History download choice", device = Devices.PHONE, showBackground = true)
+@Composable
+private fun HistoryStepPreview() {
+    OpenBubblesTheme(dynamicColor = false) {
+        HistoryStep(
+            canDownload = true,
+            initialWindow = app.openbubbles.nativeapp.data.HistorySyncWindow.LAST_YEAR,
+            onWindowChosen = {},
+            onStartDownload = {},
+            onSkip = {},
+            onBack = {},
+        )
+    }
+}
+
 @Preview(name = "Onboarding flow", device = Devices.PHONE, showBackground = true)
 @Composable
 private fun OnboardingScreenPreview() {
     OpenBubblesTheme(dynamicColor = false) {
-        OnboardingScreen(onFinished = {}, onLaunchSignIn = {})
+        OnboardingScreen(onSignedIn = {}, onFinished = {})
     }
 }

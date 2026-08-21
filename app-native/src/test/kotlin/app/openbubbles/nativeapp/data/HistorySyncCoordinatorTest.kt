@@ -41,4 +41,10 @@ class HistorySyncCoordinatorTest {
         assertEquals(1, syncCalls)
         assertEquals(1, completionCalls)
     }
+
+    @Test
+    fun `initial history retries resume committed cursors`() {
+        assertEquals(SyncMode.FULL, initialHistorySyncMode(started = false))
+        assertEquals(SyncMode.INCREMENTAL, initialHistorySyncMode(started = true))
+    }
 }

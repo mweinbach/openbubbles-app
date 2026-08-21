@@ -89,6 +89,7 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -564,14 +565,24 @@ fun OpenBubblesApp(
     var onboardingComplete by remember(onboardingPrefs) {
         androidx.compose.runtime.mutableStateOf(onboardingPrefs?.getBoolean("onboarding_complete", false) ?: true)
     }
+    // Sign-in installs the push state mid-onboarding (the keychain and
+    // history steps need a live connection), so latch the flow open instead
+    // of letting the arriving state dismiss it. This durable latch also tells
+    // a freshly restored process to revive the Apple session before rendering
+    // those post-sign-in steps.
+    var onboardingActive by remember(onboardingPrefs) {
+        androidx.compose.runtime.mutableStateOf(
+            context?.let(InitialHistoryDownload::isPostSignInOnboardingActive) == true,
+        )
+    }
 
     // A force-stop or process restart clears the in-memory holder even though
     // IDS registration remains on disk. Returning users must restore the live
     // state when the activity becomes usable again; boot broadcasts alone are
     // insufficient because Android suppresses them for force-stopped apps.
-    LaunchedEffect(context, onboardingComplete) {
+    LaunchedEffect(context, onboardingComplete, onboardingActive) {
         val ctx = context ?: return@LaunchedEffect
-        if (!onboardingComplete) return@LaunchedEffect
+        if (!onboardingComplete && !onboardingActive) return@LaunchedEffect
         val hasRegistration = withContext(Dispatchers.IO) {
             runCatching { hasSavedUsers(ctx.filesDir.absolutePath) }.getOrDefault(false)
         }
@@ -583,15 +594,33 @@ fun OpenBubblesApp(
         }
     }
 
-    if (pushState == null && !onboardingComplete && context != null) {
+    if ((pushState == null || onboardingActive) && !onboardingComplete && context != null) {
         OnboardingScreen(
-            onFinished = {
-                onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
-                onboardingComplete = true
+            resumeAfterSignIn = onboardingActive,
+            onSignedIn = {
+                onboardingActive = true
+                InitialHistoryDownload.setPostSignInOnboardingActive(context, true)
                 NativePushService.reloadAfterLogin(context)
+            },
+            onFinished = { completionPersisted ->
+                if (!completionPersisted) InitialHistoryDownload.completeOnboarding(context)
+                onboardingComplete = true
+                // Sign-in already reloaded the service; reloading again here
+                // would drop the connection just as the backfill starts.
+                if (!onboardingActive) NativePushService.reloadAfterLogin(context)
+                onboardingActive = false
                 requestBatteryExemptionOnce(context)
             },
-            onLaunchSignIn = { },
+        )
+        return
+    }
+
+    // The one-time iCloud backfill armed at the end of onboarding owns the
+    // whole screen (and silences notifications) until it finishes.
+    val historyDownloadPending by InitialHistoryDownload.pending.collectAsStateWithLifecycle()
+    if (historyDownloadPending && context != null) {
+        HistoryDownloadLockScreen(
+            onDismiss = { InitialHistoryDownload.abandon(context) },
         )
         return
     }
