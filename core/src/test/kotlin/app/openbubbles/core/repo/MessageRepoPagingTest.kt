@@ -252,12 +252,79 @@ class MessageRepoPagingTest {
                             .single()
                     }
                     assertTrue(
-                        stamp.payload!!
+                        requireNotNull(stamp.payload)
                             .endsWith(":${bytes.size}:${payloadFile(payloadRoot, attachment).lastModified()}"),
                     )
                     // Nothing else about the row moved, so the payload
                     // identity is the only reason this page was not deduped.
                     assertEquals(stamps, stamp.copy(payload = null))
+                }
+            } finally {
+                collector.cancel()
+            }
+        } finally {
+            payloadRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a promoted sticker payload re-emits its target message`() = runBlocking<Unit> {
+        val payloadRoot = Files.createTempDirectory("ob-message-sticker-payload").toFile()
+        try {
+            val rendering = MessageRepo(store, attachmentsRoot = payloadRoot)
+            val messageBox = store.boxFor(Message::class.java)
+            val attachmentBox = store.boxFor(Attachment::class.java)
+            val target = messageBox.all.maxBy { it.dateCreated!!.time }
+            val bytes = "sticker-bytes".toByteArray()
+            val reaction = Message().apply {
+                guid = "sticker-reaction"
+                associatedMessageGuid = target.guid
+                associatedMessageType = "sticker"
+                associatedMessagePart = 0L
+                dateCreated = Date(target.dateCreated!!.time + 1L)
+                chat.target = this@MessageRepoPagingTest.chat
+            }
+            messageBox.put(reaction)
+            val attachment = Attachment().apply {
+                guid = "sticker-attachment"
+                transferName = "sticker.png"
+                mimeType = "image/png"
+                isDownloaded = true
+                totalBytes = bytes.size.toLong()
+                metadata = mapOf("sticker.msgWidth" to 300.0)
+                message.target = reaction
+            }
+            attachmentBox.put(attachment)
+            messageBox.put(reaction.apply { hasAttachments = true })
+            messageBox.put(target.apply { hasReactions = true })
+
+            val before = rendering.messages(chat.id, limit = 10)
+                .first { it.guid == target.guid }
+                .stickers.single()
+            assertNull(before.payload)
+
+            val pages = Channel<List<app.openbubbles.core.model.MessageItem>>(Channel.UNLIMITED)
+            val collector = launch {
+                rendering.observeMessages(chat.id, limit = 10).collect { pages.send(it) }
+            }
+            try {
+                withTimeout(10_000) {
+                    pages.receive()
+                    payloadFile(payloadRoot, attachment).apply {
+                        parentFile?.mkdirs()
+                        writeBytes(bytes)
+                    }
+                    attachmentBox.put(attachmentBox.get(attachment.id))
+
+                    var placement = pages.receive()
+                        .first { it.guid == target.guid }
+                        .stickers.single()
+                    while (placement.payload == null) {
+                        placement = pages.receive()
+                            .first { it.guid == target.guid }
+                            .stickers.single()
+                    }
+                    assertEquals(before, placement.copy(payload = null))
                 }
             } finally {
                 collector.cancel()

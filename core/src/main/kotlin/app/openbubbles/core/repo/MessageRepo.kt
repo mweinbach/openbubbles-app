@@ -686,6 +686,7 @@ class MessageRepo(
                 scale = number("sticker.scale", 1.0).coerceIn(0.1, 4.0),
                 effectType = number("sticker.effectType", 0.0).toLong(),
                 downloaded = attachment.isDownloaded,
+                payload = payloadIdentity(attachment),
             )
         }
     }

@@ -976,6 +976,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
             scale = sticker.scale,
             effectType = sticker.effectType,
             downloaded = sticker.downloaded,
+            payload = sticker.payload,
         )
     },
     chatId = item.chatId,

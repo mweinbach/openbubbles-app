@@ -72,6 +72,8 @@ data class StickerPlacement(
     val scale: Double,
     val effectType: Long,
     val downloaded: Boolean,
+    /** Identity of the validated sticker payload currently readable on disk. */
+    val payload: String? = null,
 )
 
 /**

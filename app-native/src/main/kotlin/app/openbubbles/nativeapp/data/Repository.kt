@@ -116,6 +116,7 @@ data class StickerPlacement(
     val scale: Double,
     val effectType: Long,
     val downloaded: Boolean,
+    val payload: String? = null,
 )
 
 /**
