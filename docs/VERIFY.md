@@ -52,6 +52,10 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Vault catalog — `:core` covers the catalog contract, site-key canonicalization, the credential
+  provider lookup reducer, and the field crypto envelope; `:app-native` pins the SQLite schema,
+  its migration guard, and the cleanup table list. None of it proves system provider selection,
+  Chrome delegation, biometric prompts, or a real AndroidKeyStore key, which are device evidence.
 - Surface-switcher policy — `TopLevelSurfaceTest` covers the order model, the persisted form and its
   corrupt-value fallback, and the stack edit a switch performs from every reachable stack shape;
   `SurfaceSwipePolicyTest` covers the swipe thresholds, direction, edge exclusion, and disabled
