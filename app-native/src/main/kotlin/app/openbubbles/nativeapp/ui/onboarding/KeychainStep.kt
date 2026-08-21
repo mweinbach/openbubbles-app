@@ -16,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Password
@@ -58,6 +57,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.UViableBottle
 
+/** Membership probes before treating a throwing keychain client as a non-member. */
+private const val MEMBERSHIP_CHECK_ATTEMPTS = 5
+
 /** What the keychain step is currently asking the user for. */
 internal enum class KeychainStepStage {
     /** Waiting for Apple services to finish connecting after sign-in. */
@@ -83,7 +85,9 @@ internal fun keychainStepStage(
     hasDevices: Boolean,
 ): KeychainStepStage = when {
     inClique == true -> KeychainStepStage.Joined
-    !connected -> KeychainStepStage.Connecting
+    // A null answer means the membership probe has not come back yet, so the
+    // step must not offer to join a circle this device may already be in.
+    !connected || inClique == null -> KeychainStepStage.Connecting
     loadingDevices -> KeychainStepStage.LoadingDevices
     hasDevices -> KeychainStepStage.Passcode
     else -> KeychainStepStage.Intro
@@ -117,16 +121,21 @@ internal fun KeychainStep(
     var passcode by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // Membership is the one fact that decides the whole step, and the push
-    // state lands asynchronously after sign-in; poll until it answers.
+    // Membership is the one fact that decides the whole step. The keychain
+    // client is still warming up right after sign-in, so retry until it gives
+    // a definite answer; a client that keeps throwing counts as "not a
+    // member", which is exactly what the join below fixes.
     LaunchedEffect(pushState) {
         val live = pushState ?: return@LaunchedEffect
-        while (inClique != true) {
-            val member = withContext(Dispatchers.IO) { runCatching { live.isInClique() }.getOrNull() }
-            inClique = member
-            if (member == true) break
-            delay(2_000)
+        repeat(MEMBERSHIP_CHECK_ATTEMPTS) { attempt ->
+            val member = withContext(Dispatchers.IO) { runCatching { live.isInClique() } }
+            member.getOrNull()?.let {
+                inClique = it
+                return@LaunchedEffect
+            }
+            if (attempt < MEMBERSHIP_CHECK_ATTEMPTS - 1) delay(2_000)
         }
+        inClique = false
     }
 
     fun loadDevices() {
@@ -175,12 +184,54 @@ internal fun KeychainStep(
         }
     }
 
-    val stage = keychainStepStage(
-        connected = pushState != null,
-        inClique = inClique,
-        loadingDevices = loadingDevices,
-        hasDevices = devices.isNotEmpty(),
+    KeychainStepContent(
+        stage = keychainStepStage(
+            connected = pushState != null,
+            inClique = inClique,
+            loadingDevices = loadingDevices,
+            hasDevices = devices.isNotEmpty(),
+        ),
+        devices = devices,
+        selectedDevice = selectedDevice,
+        onSelectDevice = { device ->
+            selectedDevice = device
+            passcode = ""
+            error = null
+        },
+        passcode = passcode,
+        onPasscodeChange = { passcode = it },
+        joining = joining,
+        error = error,
+        onFindDevices = ::loadDevices,
+        onJoin = ::join,
+        onContinue = onContinue,
+        onBack = onBack,
+        modifier = modifier,
     )
+}
+
+/**
+ * The step's rendering, with every fact passed in. Splitting it out keeps the
+ * Apple-facing calls above and lets each stage be rendered (and screenshot
+ * tested) without a live account.
+ */
+@Composable
+internal fun KeychainStepContent(
+    stage: KeychainStepStage,
+    devices: List<UViableBottle>,
+    selectedDevice: UViableBottle?,
+    onSelectDevice: (UViableBottle) -> Unit,
+    passcode: String,
+    onPasscodeChange: (String) -> Unit,
+    joining: Boolean,
+    error: String?,
+    onFindDevices: () -> Unit,
+    onJoin: () -> Unit,
+    onContinue: (joined: Boolean) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var deviceMenuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
         OnboardingTopBar(onBack = onBack, activeSegment = 3, showBack = false)
@@ -296,10 +347,8 @@ internal fun KeychainStep(
                                         null
                                     },
                                     onClick = {
-                                        selectedDevice = device
                                         deviceMenuExpanded = false
-                                        passcode = ""
-                                        error = null
+                                        onSelectDevice(device)
                                     },
                                 )
                             }
@@ -310,11 +359,13 @@ internal fun KeychainStep(
                     OutlinedTextField(
                         value = passcode,
                         onValueChange = { value ->
-                            passcode = if (requiredLength != null) {
-                                value.filter(Char::isDigit).take(requiredLength)
-                            } else {
-                                value
-                            }
+                            onPasscodeChange(
+                                if (requiredLength != null) {
+                                    value.filter(Char::isDigit).take(requiredLength)
+                                } else {
+                                    value
+                                },
+                            )
                         },
                         label = {
                             Text(
@@ -363,12 +414,11 @@ internal fun KeychainStep(
             Button(
                 onClick = when (stage) {
                     KeychainStepStage.Joined -> { { onContinue(true) } }
-                    KeychainStepStage.Passcode -> ::join
-                    else -> ::loadDevices
+                    KeychainStepStage.Passcode -> onJoin
+                    else -> onFindDevices
                 },
                 enabled = when (stage) {
-                    KeychainStepStage.Joined -> true
-                    KeychainStepStage.Intro -> pushState != null
+                    KeychainStepStage.Joined, KeychainStepStage.Intro -> true
                     KeychainStepStage.Passcode -> !joining &&
                         selectedDevice != null &&
                         passcode.isNotEmpty()
@@ -473,12 +523,6 @@ private fun UnlockedFeature(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.width(12.dp))
-            Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
         }
     }
 }

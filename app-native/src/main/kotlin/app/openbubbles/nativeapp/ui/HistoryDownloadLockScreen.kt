@@ -33,7 +33,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -87,13 +86,16 @@ internal fun HistoryDownloadLockScreen(
     val summary by CloudSyncWiring.lastSummary.collectAsStateWithLifecycle()
     val progress by CloudSyncWiring.manager?.progress?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(null) }
-    var attempt by remember { mutableIntStateOf(0) }
+    var retryRequested by remember { mutableStateOf(false) }
 
-    // A resumed lock (process death mid-download) has to restart the run
-    // itself; cursors are persisted, so it picks up where it stopped.
-    LaunchedEffect(context, pushState, syncing, attempt) {
+    // A resumed lock (process death or an activity restart mid-download) has
+    // to drive the run itself; cursors are persisted, so it picks up where it
+    // stopped. The already-finished summary is what stops this from looping
+    // on a permanent failure: only an explicit retry starts another run.
+    LaunchedEffect(context, pushState, syncing, summary, retryRequested) {
         if (context == null || pushState == null || syncing) return@LaunchedEffect
-        if (summary != null && attempt == 0) return@LaunchedEffect
+        if (summary != null && !retryRequested) return@LaunchedEffect
+        retryRequested = false
         CloudSyncWiring.startInitialHistorySync(context)
     }
 
@@ -101,7 +103,29 @@ internal fun HistoryDownloadLockScreen(
     BackHandler(enabled = true) { }
 
     val failure = summary?.takeIf { it.error != null || it.cancelled }
+    HistoryDownloadLockContent(
+        statusLine = historyDownloadStatusLine(progress),
+        failureMessage = failure?.let {
+            it.error ?: "The download was stopped before it finished."
+        },
+        onRetry = { retryRequested = true },
+        onDismiss = onDismiss,
+        modifier = modifier,
+    )
+}
 
+/**
+ * The gate's rendering, with the sync state passed in so each state can be
+ * rendered (and screenshot tested) without a live iCloud account.
+ */
+@Composable
+internal fun HistoryDownloadLockContent(
+    statusLine: String,
+    failureMessage: String?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -116,12 +140,12 @@ internal fun HistoryDownloadLockScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            if (failure == null) {
+            if (failureMessage == null) {
                 ContainedLoadingIndicator(modifier = Modifier.size(96.dp))
             }
             Spacer(Modifier.height(32.dp))
             Text(
-                text = if (failure == null) {
+                text = if (failureMessage == null) {
                     "Downloading your messages"
                 } else {
                     "Download didn't finish"
@@ -131,23 +155,20 @@ internal fun HistoryDownloadLockScreen(
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                text = if (failure == null) {
-                    "This runs once. Leave OpenGarden open — it'll unlock itself " +
-                        "and let you know the moment your conversations are ready."
-                } else {
-                    failure.error ?: "The download was stopped before it finished."
-                },
+                text = failureMessage
+                    ?: "This runs once. Leave OpenGarden open — it'll unlock itself " +
+                    "and let you know the moment your conversations are ready.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
 
-            if (failure == null) {
+            if (failureMessage == null) {
                 Spacer(Modifier.height(28.dp))
                 LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = historyDownloadStatusLine(progress),
+                    text = statusLine,
                     style = MaterialTheme.typography.titleSmall,
                     textAlign = TextAlign.Center,
                 )
@@ -166,7 +187,7 @@ internal fun HistoryDownloadLockScreen(
             } else {
                 Spacer(Modifier.height(32.dp))
                 Button(
-                    onClick = { attempt += 1 },
+                    onClick = onRetry,
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier
                         .fillMaxWidth()

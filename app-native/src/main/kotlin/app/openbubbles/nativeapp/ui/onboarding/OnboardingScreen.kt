@@ -52,6 +52,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AppContext
+import app.openbubbles.nativeapp.data.HistorySyncPreferences
+import app.openbubbles.nativeapp.data.HistorySyncWindow
 import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.ProvisionScreen
@@ -114,6 +116,9 @@ fun OnboardingScreen(
 
     val appContext = AppContext.current
     val confDir = remember(appContext) { appContext?.filesDir?.absolutePath.orEmpty() }
+    val historySyncPreferences = remember(appContext) {
+        appContext?.let(::HistorySyncPreferences)
+    }
     val loginHandle = remember(confDir) {
         confDir.takeIf { it.isNotBlank() }?.let { RustLoginHandle(path = it) }
     }
@@ -237,6 +242,11 @@ fun OnboardingScreen(
                     )
                     OnboardingStep.History -> HistoryStep(
                         canDownload = keychainUnlocked,
+                        initialWindow = historySyncPreferences?.window
+                            ?: HistorySyncWindow.ALL_HISTORY,
+                        onWindowChosen = { window ->
+                            historySyncPreferences?.window = window
+                        },
                         onStartDownload = {
                             appContext?.let(InitialHistoryDownload::arm)
                             finish()

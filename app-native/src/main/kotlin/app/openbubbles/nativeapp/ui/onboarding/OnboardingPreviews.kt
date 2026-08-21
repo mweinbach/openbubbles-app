@@ -37,6 +37,8 @@ private fun HistoryStepPreview() {
     OpenBubblesTheme(dynamicColor = false) {
         HistoryStep(
             canDownload = true,
+            initialWindow = app.openbubbles.nativeapp.data.HistorySyncWindow.LAST_YEAR,
+            onWindowChosen = {},
             onStartDownload = {},
             onSkip = {},
             onBack = {},

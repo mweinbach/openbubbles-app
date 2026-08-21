@@ -34,10 +34,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import app.openbubbles.nativeapp.data.HistorySyncPreferences
 import app.openbubbles.nativeapp.data.HistorySyncWindow
 
 /**
@@ -52,14 +50,14 @@ import app.openbubbles.nativeapp.data.HistorySyncWindow
 @Composable
 internal fun HistoryStep(
     canDownload: Boolean,
+    initialWindow: HistorySyncWindow,
+    onWindowChosen: (HistorySyncWindow) -> Unit,
     onStartDownload: () -> Unit,
     onSkip: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val preferences = remember(context) { HistorySyncPreferences(context) }
-    var selected by remember { mutableStateOf(preferences.window) }
+    var selected by remember { mutableStateOf(initialWindow) }
 
     Column(modifier = modifier.fillMaxSize()) {
         OnboardingTopBar(onBack = onBack, activeSegment = 4)
@@ -114,7 +112,7 @@ internal fun HistoryStep(
                 Spacer(Modifier.height(28.dp))
                 Button(
                     onClick = {
-                        preferences.window = selected
+                        onWindowChosen(selected)
                         onStartDownload()
                     },
                     shapes = ButtonDefaults.shapes(),

@@ -38,6 +38,17 @@ class OnboardingStepTest {
                 hasDevices = false,
             ),
         )
+        // An unanswered membership probe must not offer to join a circle this
+        // device may already belong to.
+        assertEquals(
+            KeychainStepStage.Connecting,
+            keychainStepStage(
+                connected = true,
+                inClique = null,
+                loadingDevices = false,
+                hasDevices = false,
+            ),
+        )
         assertEquals(
             KeychainStepStage.Intro,
             keychainStepStage(

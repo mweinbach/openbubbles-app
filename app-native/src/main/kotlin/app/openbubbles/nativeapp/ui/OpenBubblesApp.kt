@@ -597,8 +597,10 @@ fun OpenBubblesApp(
             onFinished = {
                 onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
                 onboardingComplete = true
+                // Sign-in already reloaded the service; reloading again here
+                // would drop the connection just as the backfill starts.
+                if (!onboardingActive) NativePushService.reloadAfterLogin(context)
                 onboardingActive = false
-                NativePushService.reloadAfterLogin(context)
                 requestBatteryExemptionOnce(context)
             },
         )
@@ -608,9 +610,6 @@ fun OpenBubblesApp(
     // The one-time iCloud backfill armed at the end of onboarding owns the
     // whole screen (and silences notifications) until it finishes.
     val historyDownloadPending by InitialHistoryDownload.pending.collectAsStateWithLifecycle()
-    LaunchedEffect(context) {
-        context?.let(InitialHistoryDownload::restore)
-    }
     if (historyDownloadPending && context != null) {
         HistoryDownloadLockScreen(
             onDismiss = { InitialHistoryDownload.abandon(context) },
