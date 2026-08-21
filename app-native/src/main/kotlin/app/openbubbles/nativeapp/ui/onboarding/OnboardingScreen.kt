@@ -104,13 +104,13 @@ internal fun initialOnboardingStep(resumeAfterSignIn: Boolean): OnboardingStep =
  *   remaining steps run: the host starts the push service so the keychain and
  *   history steps have a live connection to work with, and latches this
  *   screen so the arriving push state does not tear it down.
- * @param onFinished invoked when the last step is done; the host persists
- *   completion and reveals the app.
+ * @param onFinished invoked when the last step is done. Its argument reports
+ *   whether the history choice already committed completion atomically.
  */
 @Composable
 fun OnboardingScreen(
     onSignedIn: () -> Unit,
-    onFinished: () -> Unit,
+    onFinished: (completionPersisted: Boolean) -> Unit,
     resumeAfterSignIn: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -135,10 +135,10 @@ fun OnboardingScreen(
     }
 
     val goBack: () -> Unit = { step = step.previousStep() }
-    val finish: () -> Unit = {
+    val finish: (Boolean) -> Unit = { completionPersisted ->
         if (!finished) {
             finished = true
-            onFinished()
+            onFinished(completionPersisted)
         }
     }
     var backProgress by remember { mutableFloatStateOf(0f) }
@@ -253,10 +253,13 @@ fun OnboardingScreen(
                             historySyncPreferences?.window = window
                         },
                         onStartDownload = {
-                            appContext?.let(InitialHistoryDownload::arm)
-                            finish()
+                            val completionPersisted = appContext?.let {
+                                InitialHistoryDownload.armAndCompleteOnboarding(it)
+                                true
+                            } ?: false
+                            finish(completionPersisted)
                         },
-                        onSkip = finish,
+                        onSkip = { finish(false) },
                         onBack = goBack,
                         modifier = Modifier.fillMaxSize(),
                     )

@@ -99,9 +99,11 @@ internal fun HistoryDownloadLockScreen(
 
     LaunchedEffect(context, pushState, connectionAttempt) {
         connectionUnavailable = false
-        if (context == null || pushState != null) return@LaunchedEffect
+        if (context == null) return@LaunchedEffect
         delay(HISTORY_CONNECTION_WAIT_MS)
-        if (PushStateHolder.state == null) connectionUnavailable = true
+        if (PushStateHolder.state == null || CloudSyncWiring.manager == null) {
+            connectionUnavailable = true
+        }
     }
 
     // A resumed lock (process death or an activity restart mid-download) has
@@ -111,7 +113,17 @@ internal fun HistoryDownloadLockScreen(
     // pre-onboarding sync.
     LaunchedEffect(context, pushState, syncing, startRequested) {
         if (context == null || pushState == null || syncing || startRequested) return@LaunchedEffect
-        startRequested = CloudSyncWiring.startInitialHistorySync(context)
+        // PushStateHolder is installed just before the CloudKit manager. Retry
+        // that narrow handoff instead of latching a null-manager attempt.
+        while (
+            !startRequested &&
+            !connectionUnavailable &&
+            PushStateHolder.state != null &&
+            !CloudSyncWiring.syncing.value
+        ) {
+            startRequested = CloudSyncWiring.startInitialHistorySync(context)
+            if (!startRequested) delay(100)
+        }
     }
 
     // Back must not slip past the gate; leaving is an explicit choice below.

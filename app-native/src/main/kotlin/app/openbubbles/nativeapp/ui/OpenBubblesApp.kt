@@ -602,14 +602,13 @@ fun OpenBubblesApp(
                 InitialHistoryDownload.setPostSignInOnboardingActive(context, true)
                 NativePushService.reloadAfterLogin(context)
             },
-            onFinished = {
-                onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
+            onFinished = { completionPersisted ->
+                if (!completionPersisted) InitialHistoryDownload.completeOnboarding(context)
                 onboardingComplete = true
                 // Sign-in already reloaded the service; reloading again here
                 // would drop the connection just as the backfill starts.
                 if (!onboardingActive) NativePushService.reloadAfterLogin(context)
                 onboardingActive = false
-                InitialHistoryDownload.setPostSignInOnboardingActive(context, false)
                 requestBatteryExemptionOnce(context)
             },
         )

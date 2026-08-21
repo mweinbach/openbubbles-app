@@ -18,6 +18,7 @@ private const val PREFS = "native_setup"
 private const val KEY_PENDING = "initial_history_download_pending"
 private const val KEY_STARTED = "initial_history_download_started"
 private const val KEY_POST_SIGN_IN_ONBOARDING = "post_sign_in_onboarding_active"
+private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
 private const val CHANNEL_HISTORY = "history-download"
 private const val NOTIFICATION_ID_READY = 0x0B10
 
@@ -67,18 +68,33 @@ object InitialHistoryDownload {
     }
 
     /**
-     * Arms the download. Notifications are withheld and the lock gate takes
-     * over from here until [finish] or [abandon].
+     * Atomically leaves post-sign-in onboarding and arms its chosen backfill.
+     * A process death can therefore observe neither an armed run attached to
+     * an incomplete onboarding flow nor a completed flow without its lock.
      */
-    fun arm(context: Context) {
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
+    fun armAndCompleteOnboarding(context: Context) {
         val app = context.applicationContext
         check(
             prefs(app).edit()
                 .putBoolean(KEY_PENDING, true)
                 .putBoolean(KEY_STARTED, false)
+                .putBoolean(KEY_ONBOARDING_COMPLETE, true)
+                .putBoolean(KEY_POST_SIGN_IN_ONBOARDING, false)
                 .commit(),
-        ) { "failed to persist initial history download state" }
+        ) { "failed to persist onboarding history download state" }
         _pending.value = true
+    }
+
+    /** Completes a skipped onboarding flow and releases its restoration latch atomically. */
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
+    fun completeOnboarding(context: Context) {
+        check(
+            prefs(context).edit()
+                .putBoolean(KEY_ONBOARDING_COMPLETE, true)
+                .putBoolean(KEY_POST_SIGN_IN_ONBOARDING, false)
+                .commit(),
+        ) { "failed to persist onboarding completion" }
     }
 
     /** FULL only for the first attempt; retries after a crash resume committed cursors. */

@@ -126,6 +126,10 @@ object CloudSyncWiring {
      */
     fun startInitialHistorySync(context: Context): Boolean {
         val app = context.applicationContext
+        // PushStateHolder is published immediately before onStateInstalled
+        // constructs this manager. Do not let that brief gap consume the
+        // coordinator's single-flight request with a null sync result.
+        if (managerRef.get() == null) return false
         return syncCoordinator.start(
             mode = InitialHistoryDownload.syncMode(app),
             onStarting = { InitialHistoryDownload.markStarted(app) },
