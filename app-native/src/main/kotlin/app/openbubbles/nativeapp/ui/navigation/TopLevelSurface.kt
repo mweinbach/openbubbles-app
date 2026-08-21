@@ -168,6 +168,7 @@ object TopLevelSurfaceSwitch {
 
     fun plan(entries: List<SurfaceStackEntry>, target: TopLevelSurface): SurfaceSwitchPlan {
         if (entries.isEmpty()) return SurfaceSwitchPlan.Replace(keepCount = 0, push = target)
+        if (entries.last() == SurfaceStackEntry.Root(target)) return SurfaceSwitchPlan.None
         val rootSurface = (entries.first() as? SurfaceStackEntry.Root)?.surface
         if (target == rootSurface) {
             return if (entries.size == 1) {
@@ -176,11 +177,6 @@ object TopLevelSurfaceSwitch {
                 SurfaceSwitchPlan.Replace(keepCount = 1, push = null)
             }
         }
-        val alreadySettled = entries.size == 2 && entries[1] == SurfaceStackEntry.Root(target)
-        return if (alreadySettled) {
-            SurfaceSwitchPlan.None
-        } else {
-            SurfaceSwitchPlan.Replace(keepCount = 1, push = target)
-        }
+        return SurfaceSwitchPlan.Replace(keepCount = 1, push = target)
     }
 }

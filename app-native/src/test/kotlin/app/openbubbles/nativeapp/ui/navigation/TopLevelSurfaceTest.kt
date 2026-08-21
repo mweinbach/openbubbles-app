@@ -222,6 +222,13 @@ class TopLevelSurfaceSwitchTest {
             SurfaceSwitchPlan.None,
             TopLevelSurfaceSwitch.plan(listOf(messagesRoot, photosRoot), TopLevelSurface.PHOTOS),
         )
+        assertEquals(
+            SurfaceSwitchPlan.None,
+            TopLevelSurfaceSwitch.plan(
+                listOf(messagesRoot, SurfaceStackEntry.Unowned, photosRoot),
+                TopLevelSurface.PHOTOS,
+            ),
+        )
     }
 
     @Test

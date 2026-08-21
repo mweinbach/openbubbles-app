@@ -126,7 +126,7 @@ fun TopLevelSurfaceSwitcher(
                         change.consume()
                     } ?: return@awaitEachGesture
                     dragging = true
-                    horizontalDrag(slopChange.id) { change ->
+                    val completed = horizontalDrag(slopChange.id) { change ->
                         val moved = change.positionChange()
                         dragX += moved.x
                         dragY += moved.y
@@ -134,7 +134,7 @@ fun TopLevelSurfaceSwitcher(
                             .coerceIn(-followMaxPx, followMaxPx)
                         change.consume()
                     }
-                    val step = SurfaceSwipePolicy.resolve(
+                    val step = if (completed) SurfaceSwipePolicy.resolve(
                         dragX = dragX,
                         dragY = dragY,
                         startX = down.position.x,
@@ -143,7 +143,7 @@ fun TopLevelSurfaceSwitcher(
                         edgeExclusionPx = edgeExclusionPx,
                         enabled = true,
                         rtl = rtl,
-                    )
+                    ) else null
                     val released = dragFollow
                     dragging = false
                     dragFollow = 0f
