@@ -221,6 +221,14 @@ class VaultSqliteCatalog(
         } ?: VaultSiteSnapshot(siteKey = siteKey)
     }
 
+    override suspend fun removeItem(kind: VaultItemKind, id: String): Unit = withContext(Dispatchers.IO) {
+        writableDatabase.delete(
+            ITEMS_TABLE,
+            "kind = ? AND record_id = ?",
+            arrayOf(kind.name, id),
+        )
+    }
+
     override suspend fun clearAccountData(): Unit = withContext(Dispatchers.IO) {
         writableDatabase.inTransaction {
             ACCOUNT_CLEAR_TABLES.forEach { table -> delete(table, null, null) }

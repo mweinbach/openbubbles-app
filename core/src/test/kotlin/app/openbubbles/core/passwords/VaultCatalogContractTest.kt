@@ -193,6 +193,29 @@ class VaultCatalogContractTest {
     }
 
     @Test
+    fun invalidatingASelectedStaleRowIsKindScoped() = runBlocking {
+        val catalog = InMemoryVaultCatalog()
+        catalog.replaceItems(
+            VaultItemKind.Password,
+            listOf(
+                password("stale", "example.com", "ada@example.com"),
+                password("keep", "other.example", "grace@example.com"),
+            ),
+            syncedAtMs = 10,
+        )
+        catalog.replaceItems(
+            VaultItemKind.Passkey,
+            listOf(passkey("stale", "example.com", "Y3JlZC1pZA")),
+            syncedAtMs = 10,
+        )
+
+        catalog.removeItem(VaultItemKind.Password, "stale")
+
+        assertEquals(listOf("keep"), catalog.load().items(VaultItemKind.Password).map { it.id })
+        assertEquals(listOf("stale"), catalog.load().items(VaultItemKind.Passkey).map { it.id })
+    }
+
+    @Test
     fun aMultiKindSiteSnapshotUsesTheOldestRequestedSyncMarker() = runBlocking {
         val catalog = InMemoryVaultCatalog()
         catalog.replaceItems(VaultItemKind.Passkey, emptyList(), syncedAtMs = 10)

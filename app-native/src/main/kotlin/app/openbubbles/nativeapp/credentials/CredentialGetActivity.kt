@@ -11,6 +11,7 @@ import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import java.io.ByteArrayOutputStream
 import java.security.KeyFactory
 import java.security.PrivateKey
@@ -26,6 +27,10 @@ import androidx.core.net.toUri
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.APNClient
 import app.openbubbles.nativeapp.data.APNService
+import app.openbubbles.core.passwords.VaultItemKind
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogStore
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
+import kotlinx.coroutines.launch
 
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 class CredentialGetActivity : FragmentActivity() {
@@ -79,6 +84,7 @@ class CredentialGetActivity : FragmentActivity() {
         val packageName = intent.getStringExtra(CredentialService.EXTRA_PACKAGE_NAME)
         val requestJson = intent.getStringExtra(CredentialService.EXTRA_REQUEST_JSON)
         val clientDataHash = intent.getByteArrayExtra(CredentialService.EXTRA_CLIENT_DATA_HASH)
+        val accountGeneration = VaultCatalogSync.captureGeneration()
 
         service.getSiteConfig(site, object : RetrieveKeysCallback {
             override fun keys(passwords: List<SavedPassword>, passkeys: List<SavedPasskey>) {
@@ -90,7 +96,12 @@ class CredentialGetActivity : FragmentActivity() {
                                 // The picker entry came from the durable catalog;
                                 // the record can be gone (deleted on another
                                 // device) by the time the user chooses it.
-                                failWith("That password is no longer in iCloud Keychain")
+                                invalidateAndFail(
+                                    VaultItemKind.Password,
+                                    credId,
+                                    accountGeneration,
+                                    "That password is no longer in iCloud Keychain",
+                                )
                                 return
                             }
 
@@ -106,7 +117,16 @@ class CredentialGetActivity : FragmentActivity() {
                         CredentialService.TYPE_PASSKEY -> {
                             val saved = passkeys.firstOrNull { it.credId == credId }
                             if (saved == null || requestJson == null) {
-                                failWith("That passkey is no longer in iCloud Keychain")
+                                if (saved == null) {
+                                    invalidateAndFail(
+                                        VaultItemKind.Passkey,
+                                        credId,
+                                        accountGeneration,
+                                        "That passkey is no longer in iCloud Keychain",
+                                    )
+                                } else {
+                                    failWith("The passkey request is no longer available")
+                                }
                                 return
                             }
 
@@ -231,6 +251,20 @@ class CredentialGetActivity : FragmentActivity() {
         PendingIntentHandler.setGetCredentialException(result, GetCredentialUnknownException(message))
         setResult(RESULT_OK, result)
         finish()
+    }
+
+    private fun invalidateAndFail(
+        kind: VaultItemKind,
+        credId: String,
+        accountGeneration: Long,
+        message: String,
+    ) {
+        lifecycleScope.launch {
+            VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                VaultCatalogStore.of(applicationContext).removeItem(kind, credId)
+            }
+            failWith(message)
+        }
     }
 
     override fun onDestroy() {

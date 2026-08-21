@@ -102,6 +102,9 @@ interface VaultCatalog {
     /** Exact canonical-site lookup used by the Android credential provider. */
     suspend fun credentialsForSite(site: String, kinds: Set<VaultItemKind>): VaultSiteSnapshot
 
+    /** Removes metadata proven stale by a selected credential's live backend lookup. */
+    suspend fun removeItem(kind: VaultItemKind, id: String)
+
     suspend fun clearAccountData()
 }
 
@@ -177,6 +180,10 @@ class InMemoryVaultCatalog : VaultCatalog {
             syncedKinds = syncedKinds intersect kinds,
             syncedAtMs = kinds.mapNotNull(syncedAtByKind::get).minOrNull(),
         )
+    }
+
+    override suspend fun removeItem(kind: VaultItemKind, id: String) = synchronized(lock) {
+        itemsByKind = itemsByKind + (kind to itemsByKind[kind].orEmpty().filterNot { it.id == id })
     }
 
     override suspend fun clearAccountData() = synchronized(lock) {

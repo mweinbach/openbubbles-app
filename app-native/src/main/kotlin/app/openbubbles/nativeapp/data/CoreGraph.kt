@@ -467,17 +467,21 @@ object CoreGraph {
         }
         // The repair deletes the keychain state the catalog mirrors, so a stale
         // catalog would keep offering credentials the vault no longer holds.
-        runCatching { VaultAccountCleanup.clear(context).getOrThrow() }.onFailure { error ->
+        val vaultCleanup = runCatching { VaultAccountCleanup.clear(context).getOrThrow() }.onFailure { error ->
             Log.e("CoreGraph", "vault catalog clear failed during iCloud repair (${error.javaClass.simpleName})")
         }
-        return withContext(Dispatchers.IO) {
+        val serviceRepair = withContext(Dispatchers.IO) {
             runCatching {
                 // Let the service's teardown finish so a final trust sync
                 // cannot re-materialize the files being deleted.
                 kotlinx.coroutines.delay(1_500)
                 uniffi.rust_lib_bluebubbles.repairIcloudServices(context.filesDir.absolutePath)
             }.map { }
-        }.onSuccess {
+        }
+        return runAccountCleanupSteps(
+            { vaultCleanup.getOrThrow() },
+            { serviceRepair.getOrThrow() },
+        ).onSuccess {
             // The login screen consumes this and auto-runs the sessioned
             // re-auth instead of asking for a password (see RepairFlow).
             RepairFlow.requestSessionRepair()

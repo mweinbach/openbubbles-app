@@ -105,7 +105,7 @@ class VaultCredentialLookupTest {
             backendReady = false,
         )
 
-        assertEquals(VaultLookupPlan.Serve(listOf(password)), plan)
+        assertEquals(VaultLookupPlan.Serve(listOf(password), offerUnlock = true), plan)
     }
 
     @Test
@@ -138,6 +138,17 @@ class VaultCredentialLookupTest {
             backendReady = true,
         )
         assertEquals(VaultLookupPlan.ConsultBackend, plan)
+    }
+
+    @Test
+    fun aPartiallyWarmCatalogKeepsKnownRowsAndOffersUnlockWithoutABackend() {
+        val plan = planVaultLookup(
+            snapshot(listOf(password), setOf(VaultItemKind.Password)),
+            request(passwords = true, passkeys = true),
+            backendReady = false,
+        )
+
+        assertEquals(VaultLookupPlan.Serve(listOf(password), offerUnlock = true), plan)
     }
 
     @Test

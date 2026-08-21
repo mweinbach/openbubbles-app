@@ -19,13 +19,16 @@ import app.openbubbles.core.passwords.VaultCredentialRequest
 import app.openbubbles.core.passwords.VaultItemKind
 import app.openbubbles.core.passwords.VaultItemRecord
 import app.openbubbles.core.passwords.VaultLookupPlan
+import app.openbubbles.core.passwords.VaultSiteSnapshot
 import app.openbubbles.core.passwords.planVaultLookup
+import app.openbubbles.core.passwords.vaultSiteKey
 import app.openbubbles.core.passwords.vaultWebauthnCredentialId
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.passwords.VaultCatalogStore
 import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import org.json.JSONObject
 import uniffi.rust_lib_bluebubbles.NativePushState
+import kotlinx.coroutines.CancellationException
 
 /**
  * Turns one Credential Manager query into picker entries.
@@ -121,12 +124,19 @@ internal object CredentialEntries {
         offerUnlock: Boolean = true,
     ): BeginGetCredentialResponse {
         val catalog = VaultCatalogStore.of(context)
-        val snapshot = catalog.credentialsForSite(query.site, query.vaultRequest.kinds)
+        val snapshot = providerVaultSnapshot(catalog, query.site, query.vaultRequest.kinds)
         val state = PushStateHolder.state
         return when (val plan = planVaultLookup(snapshot, query.vaultRequest, state != null)) {
             is VaultLookupPlan.Serve -> {
                 state?.let { VaultCatalogSync.refresh(context, it) }
-                BeginGetCredentialResponse(entries(context, query, plan.credentials))
+                BeginGetCredentialResponse(
+                    credentialEntries = entries(context, query, plan.credentials),
+                    authenticationActions = if (plan.offerUnlock && offerUnlock) {
+                        listOf(unlockAction(context, query))
+                    } else {
+                        emptyList()
+                    },
+                )
             }
 
             VaultLookupPlan.NoCredentials -> BeginGetCredentialResponse(emptyList())
@@ -159,20 +169,20 @@ internal object CredentialEntries {
         // like "OpenBubbles has no credentials"; the documented provider answer
         // for locked credentials is an authentication action the user can take.
         return BeginGetCredentialResponse(
-            authenticationActions = listOf(
-                AuthenticationAction(
-                    context.getString(R.string.credential_unlock_action),
-                    PendingIntent.getActivity(
-                        context,
-                        UNLOCK_REQUEST_CODE,
-                        Intent(context, CredentialUnlockActivity::class.java)
-                            .putExtra(CredentialService.EXTRA_SITE, query.site),
-                        PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                    ),
-                ),
-            ),
+            authenticationActions = listOf(unlockAction(context, query)),
         )
     }
+
+    private fun unlockAction(context: Context, query: Query) = AuthenticationAction(
+        context.getString(R.string.credential_unlock_action),
+        PendingIntent.getActivity(
+            context,
+            UNLOCK_REQUEST_CODE,
+            Intent(context, CredentialUnlockActivity::class.java)
+                .putExtra(CredentialService.EXTRA_SITE, query.site),
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        ),
+    )
 
     /**
      * Records the metadata of a live site lookup so the next request for the
@@ -300,4 +310,17 @@ internal object CredentialEntries {
     private const val PASSKEY_FALLBACK_LABEL = "Passkey"
     private const val PASSKEY_REQUEST_CODE_BASE = 10_000
     private const val UNLOCK_REQUEST_CODE = 20_000
+}
+
+/** A broken metadata cache is cold, never an authoritative empty-vault answer. */
+internal suspend fun providerVaultSnapshot(
+    catalog: VaultCatalog,
+    site: String,
+    kinds: Set<VaultItemKind>,
+): VaultSiteSnapshot = try {
+    catalog.credentialsForSite(site, kinds)
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Throwable) {
+    VaultSiteSnapshot(siteKey = vaultSiteKey(site))
 }

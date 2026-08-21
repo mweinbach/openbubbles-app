@@ -6,6 +6,7 @@ import app.openbubbles.core.passwords.VaultCatalog
 import app.openbubbles.core.passwords.VaultGroupRecord
 import app.openbubbles.core.passwords.VaultItemKind
 import app.openbubbles.core.passwords.VaultItemRecord
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -17,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
@@ -34,6 +36,13 @@ private class GatedPasswordsPort(
         listing.await()
         return delegate.listGroups()
     }
+}
+
+private class GatedCliquePort(
+    private val delegate: FakePasswordsPort,
+    private val clique: CompletableDeferred<Boolean>,
+) : PasswordsPort by delegate {
+    override suspend fun isInClique(): Boolean = clique.await()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -248,6 +257,40 @@ class PasswordsViewModelTest {
 
         assertEquals(true, catalog.load().cold)
         assertEquals(emptyList(), catalog.load().items)
+    }
+
+    @Test
+    fun `stale clique result cannot clear a newer account generation`() = runTest(dispatcher) {
+        val record = VaultItemRecord(
+            id = "1",
+            kind = VaultItemKind.Password,
+            site = "example.com",
+            title = "example.com",
+            username = "alice",
+        )
+        val item = VaultItemUi("1", VaultCategory.Passwords, "example.com", "alice")
+        val catalog = InMemoryVaultCatalog().apply {
+            replaceItems(VaultItemKind.Password, listOf(record), syncedAtMs = 1_000)
+        }
+        val cache = VaultCacheStore(catalog).apply {
+            inClique = true
+            itemsByCategory = mapOf(VaultCategory.Passwords to listOf(item))
+        }
+        val answer = CompletableDeferred<Boolean>()
+        val model = PasswordsViewModel(GatedCliquePort(FakePasswordsPort(), answer), cache)
+        runCurrent()
+
+        VaultCatalogSync.beginAccountCleanup()
+        try {
+            answer.complete(false)
+            advanceUntilIdle()
+
+            assertEquals(listOf(record), catalog.load().items)
+            assertEquals(listOf(item), model.uiState.value.items)
+            assertEquals(true, model.uiState.value.inClique)
+        } finally {
+            VaultCatalogSync.endAccountCleanup()
+        }
     }
 
     @Test

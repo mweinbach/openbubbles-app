@@ -22,7 +22,11 @@ data class VaultCredentialRequest(
  */
 sealed interface VaultLookupPlan {
     /** Answer straight from the catalog. Metadata only; secrets stay in Rust until selection. */
-    data class Serve(val credentials: List<VaultItemRecord>) : VaultLookupPlan
+    data class Serve(
+        val credentials: List<VaultItemRecord>,
+        /** Some requested kinds are still cold, so keep known rows and also offer backend unlock. */
+        val offerUnlock: Boolean = false,
+    ) : VaultLookupPlan
 
     /** The catalog cannot answer authoritatively and the Apple backend is reachable. */
     data object ConsultBackend : VaultLookupPlan
@@ -71,7 +75,10 @@ fun planVaultLookup(
         if ((coldKinds.isNotEmpty() || droppedUnprovable) && backendReady) {
             return VaultLookupPlan.ConsultBackend
         }
-        return VaultLookupPlan.Serve(usable)
+        return VaultLookupPlan.Serve(
+            credentials = usable,
+            offerUnlock = coldKinds.isNotEmpty() || droppedUnprovable,
+        )
     }
 
     if (coldKinds.isNotEmpty()) {

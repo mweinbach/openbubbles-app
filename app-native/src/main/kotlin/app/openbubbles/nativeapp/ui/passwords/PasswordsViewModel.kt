@@ -435,9 +435,14 @@ class PasswordsViewModel(
             val hasContent = mutableState.value.loadedCategories.isNotEmpty()
             mutableState.update { it.copy(loading = !hasContent, busy = true, error = null) }
             try {
+                val accountGeneration = VaultCatalogSync.captureGeneration()
                 val inClique = port.isInClique()
                 if (!inClique) {
-                    cache.clear()
+                    val cleared = VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                        cache.clear()
+                        true
+                    }
+                    if (cleared == null) return@launch
                     mutableState.update {
                         it.copy(
                             loading = false,
