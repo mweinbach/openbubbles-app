@@ -1053,7 +1053,11 @@ fun OpenBubblesApp(
                         uiState = state,
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
-                        onOpenICloudSettings = { popBack() },
+                        // Joining the keychain lives in Settings → iCloud, so send
+                        // the user there instead of popping them onto the chat list
+                        // with nothing done.
+                        onOpenICloudSettings = { selectSurface(TopLevelSurface.MESSAGES); navigateTo(SettingsKey) },
+                        onDismissError = viewModel::clearError,
                         onCategory = viewModel::setCategory,
                         onQuery = viewModel::setQuery,
                         onSelect = { item ->
@@ -1104,7 +1108,13 @@ fun OpenBubblesApp(
                                     title = "Reveal iCloud Password",
                                     subtitle = "Authenticate to reveal or copy this secret",
                                     onSuccess = viewModel::reveal,
-                                    onFailure = {},
+                                    // A cancelled or unavailable prompt used to
+                                    // leave the button silently doing nothing.
+                                    onFailure = viewModel::reportError,
+                                )
+                            } else {
+                                viewModel.reportError(
+                                    "This screen cannot ask for authentication right now.",
                                 )
                             }
                         },
@@ -1123,10 +1133,14 @@ fun OpenBubblesApp(
                                     title = "Delete iCloud item",
                                     subtitle = "Authenticate to delete this item from all your devices",
                                     onSuccess = viewModel::delete,
-                                    onFailure = {},
+                                    onFailure = viewModel::reportError,
                                 )
                             } else {
-                                viewModel.delete()
+                                // Deleting from every signed-in device is not an
+                                // action to take without authenticating first.
+                                viewModel.reportError(
+                                    "Authentication is unavailable, so this item was not deleted.",
+                                )
                             }
                         },
                         onAddTotp = viewModel::addTotp,

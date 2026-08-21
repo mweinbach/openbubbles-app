@@ -52,6 +52,10 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Vault listing — `VaultListingTest` covers title/username ordering, search matching, category
+  isolation, when A–Z sections appear, non-letter grouping, and that sectioning loses nothing;
+  `VaultPasswordGeneratorTest` covers suggested-password length, character classes, excluded ambiguous
+  glyphs, and uniqueness. Authentication itself is a platform prompt and stays device evidence.
 - Photos timeline — `PhotosTimelineTest` covers filtering, hidden-asset exclusion, capture-vs-added
   ordering, day/month/year sections across time zones, section-key uniqueness, the pinch threshold,
   and the info-sheet rows. It does not prove preview decoding, paging against iCloud, or transfers.
