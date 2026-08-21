@@ -2,6 +2,26 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.2
+
+### Enhancements
+
+- iCloud Photos displays supported HDR originals with their full gain-map
+  brightness and color on compatible Android devices.
+- Downloaded originals retain their actual image or video format and recover
+  their original iCloud filenames when available.
+
+### Fixes
+
+- iPhone HDR screenshots and other HEIC originals that a device cannot decode
+  now display their existing preview instead of opening to a black screen.
+- Unsupported HEIC codec profiles are detected before playback, avoiding
+  repeated Android decoder failures and unnecessary retry prompts.
+- HEIC originals can be saved to DCIM/iCloud or shared without incorrectly
+  reporting that the gallery does not support them.
+- Protected iCloud Photos downloads accept Apple's shortened CloudKit key
+  identifiers instead of failing during decryption.
+
 ## v3.5.1
 
 ### Enhancements

@@ -21,8 +21,8 @@ android {
         applicationId "com.openbubbles.messaging"
         minSdk 26
         targetSdk 36
-        versionCode 20002279
-        versionName "3.5.1"
+        versionCode 20002280
+        versionName "3.5.2"
         manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
         manifestPlaceholders.firebaseMessagingAutoInitEnabled = "true"
         buildConfigField "boolean", "FIREBASE_TELEMETRY_ENABLED", "false"
