@@ -397,6 +397,12 @@ object CoreGraph {
      */
     suspend fun signOut(context: android.content.Context): Result<Unit> {
         Log.i("CoreGraph", "Apple account sign-out requested")
+        // Invalidate and join every vault writer while the Rust state is still
+        // usable. Teardown can suspend, so waiting until local cleanup would
+        // leave a window where the previous account could be republished.
+        val vaultWriters = withContext(Dispatchers.IO) {
+            runCatching { VaultCatalogSync.cancelAndJoin() }
+        }
         val teardown = withContext(Dispatchers.IO) {
             runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }
         }
@@ -419,6 +425,7 @@ object CoreGraph {
         }
         Log.i("CoreGraph", "Apple account sign-out finished")
         return runAccountCleanupSteps(
+            { vaultWriters.getOrThrow() },
             { teardown.getOrThrow() },
             { localCleanup.getOrThrow() },
         )

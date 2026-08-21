@@ -99,7 +99,8 @@ object CredentialWebAuthnUtils {
     private const val PRIVILEGED_ALLOWLIST_URL =
         "https://www.gstatic.com/gpm-passkeys-privileged-apps/apps.json"
     private const val PRIVILEGED_ALLOWLIST_CACHE_FILE = "privileged_apps_allowlist.json"
-    private const val CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+    internal const val CACHE_REFRESH_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+    internal const val CACHE_OFFLINE_GRACE_MS = 30L * 24L * 60L * 60L * 1000L
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -110,15 +111,28 @@ object CredentialWebAuthnUtils {
             val error = try {
                 val cacheFile = getAllowlistCacheFile(appContext)
                 val cacheIsFresh = cacheFile.exists() &&
-                    (System.currentTimeMillis() - cacheFile.lastModified()) <= CACHE_TTL_MS
+                    privilegedAllowlistCacheUsable(
+                        lastModifiedMs = cacheFile.lastModified(),
+                        length = cacheFile.length(),
+                        nowMs = System.currentTimeMillis(),
+                        maxAgeMs = CACHE_REFRESH_TTL_MS,
+                    )
                 if (!cacheIsFresh) {
                     try {
                         downloadPrivilegedAllowlist(cacheFile)
                     } catch (refreshFailure: Throwable) {
-                        // A stale allowlist still names the same privileged
-                        // browsers. Failing the refresh offline must not fail
-                        // every credential request; only a missing list does.
-                        if (cacheFile.length() <= 0L) throw refreshFailure
+                        // Preserve an explicit, bounded offline grace. An
+                        // indefinitely stale privileged-app list can retain an
+                        // app whose authorization has been revoked upstream.
+                        if (!privilegedAllowlistCacheUsable(
+                                lastModifiedMs = cacheFile.lastModified(),
+                                length = cacheFile.length(),
+                                nowMs = System.currentTimeMillis(),
+                                maxAgeMs = CACHE_OFFLINE_GRACE_MS,
+                            )
+                        ) {
+                            throw refreshFailure
+                        }
                     }
                 }
                 null
@@ -136,6 +150,15 @@ object CredentialWebAuthnUtils {
         val cacheFile = getAllowlistCacheFile(context.applicationContext)
         if (!cacheFile.exists()) {
             throw IllegalStateException("Privileged allowlist cache is missing: ${cacheFile.absolutePath}")
+        }
+        if (!privilegedAllowlistCacheUsable(
+                lastModifiedMs = cacheFile.lastModified(),
+                length = cacheFile.length(),
+                nowMs = System.currentTimeMillis(),
+                maxAgeMs = CACHE_OFFLINE_GRACE_MS,
+            )
+        ) {
+            throw IllegalStateException("Privileged allowlist cache is outside its offline grace period")
         }
 
         val content = cacheFile.readText(StandardCharsets.UTF_8).trim()
@@ -185,4 +208,14 @@ object CredentialWebAuthnUtils {
             connection.disconnect()
         }
     }
+}
+
+internal fun privilegedAllowlistCacheUsable(
+    lastModifiedMs: Long,
+    length: Long,
+    nowMs: Long,
+    maxAgeMs: Long,
+): Boolean {
+    val ageMs = nowMs - lastModifiedMs
+    return length > 0L && ageMs in 0..maxAgeMs
 }

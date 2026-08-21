@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.rust_lib_bluebubbles.NativePushState
 
 /**
@@ -43,53 +45,127 @@ object VaultCatalogSync {
     private const val OPPORTUNISTIC_INTERVAL_MS = 60_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val lock = Any()
-    private var generation: Long = 0
-    private var running: Job? = null
-    private var lastStartedAtMs: Long = 0
+    private val coordinator = VaultRefreshCoordinator(scope, OPPORTUNISTIC_INTERVAL_MS)
 
     /** Keeps the catalog warm; skipped when a recent pass already did. */
     fun refresh(context: Context, state: NativePushState) = start(context, state, forced = false)
 
+    /** Keeps a provider request from scheduling work after its account was invalidated. */
+    fun refreshIfCurrent(context: Context, state: NativePushState, generation: Long) =
+        start(context, state, forced = false, expectedGeneration = generation)
+
     /** The vault just changed, so re-read it regardless of the last pass. */
     fun refreshNow(context: Context, state: NativePushState) = start(context, state, forced = true)
 
-    private fun start(context: Context, state: NativePushState, forced: Boolean) {
+    private fun start(
+        context: Context,
+        state: NativePushState,
+        forced: Boolean,
+        expectedGeneration: Long? = null,
+    ) {
         val appContext = context.applicationContext
-        synchronized(lock) {
-            if (running?.isActive == true) return
-            val now = System.currentTimeMillis()
-            if (!forced && now - lastStartedAtMs < OPPORTUNISTIC_INTERVAL_MS) return
-            lastStartedAtMs = now
-            val startedAt = generation
-            running = scope.launch {
-                try {
-                    refreshVaultCatalog(
-                        source = UniffiVaultListingSource(state),
-                        catalog = VaultCatalogStore.of(appContext),
-                        publish = { write -> if (current() == startedAt) write() },
-                    )
-                } catch (failure: Throwable) {
-                    // A cold catalog is recoverable; never crash a system-bound
-                    // provider process over a cache refresh.
-                    Log.w(TAG, "vault catalog refresh failed (${failure.javaClass.simpleName})")
-                }
+        coordinator.start(forced, expectedGeneration) { generation ->
+            try {
+                refreshVaultCatalog(
+                    source = UniffiVaultListingSource(state),
+                    catalog = VaultCatalogStore.of(appContext),
+                    publish = { write -> coordinator.publishIfCurrent(generation, write) },
+                )
+            } catch (failure: Throwable) {
+                // A cold catalog is recoverable; never crash a system-bound
+                // provider process over a cache refresh.
+                Log.w(TAG, "vault catalog refresh failed (${failure.javaClass.simpleName})")
             }
         }
     }
 
     /** Sign-out ordering step: invalidate late writers, then cancel and join. */
+    suspend fun cancelAndJoin() = coordinator.cancelAndJoin()
+
+    internal fun captureGeneration(): Long = coordinator.captureGeneration()
+
+    internal suspend fun <T> publishIfCurrent(
+        generation: Long,
+        write: suspend () -> T,
+    ): T? = coordinator.publishIfCurrent(generation, write)
+}
+
+/**
+ * Single-flight refresh lifecycle shared by catalog listing and provider
+ * hydration. Forced work requested during an opportunistic pass is retained,
+ * while generation-gated publication cannot cross account cleanup.
+ */
+internal class VaultRefreshCoordinator(
+    private val scope: CoroutineScope,
+    private val opportunisticIntervalMs: Long,
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
+    private val lock = Any()
+    private val publication = Mutex()
+    private var generation: Long = 0
+    private var running: Job? = null
+    private var pendingForced: (suspend (Long) -> Unit)? = null
+    private var lastStartedAtMs: Long = 0
+
+    fun start(
+        forced: Boolean,
+        expectedGeneration: Long? = null,
+        work: suspend (Long) -> Unit,
+    ) {
+        synchronized(lock) {
+            if (expectedGeneration != null && generation != expectedGeneration) return
+            if (running?.isActive == true) {
+                if (forced) pendingForced = work
+                return
+            }
+            val now = nowMs()
+            if (!forced && now - lastStartedAtMs < opportunisticIntervalMs) return
+            launchLocked(work, now)
+        }
+    }
+
+    fun captureGeneration(): Long = synchronized(lock) { generation }
+
+    suspend fun <T> publishIfCurrent(
+        capturedGeneration: Long,
+        write: suspend () -> T,
+    ): T? = publication.withLock {
+        if (captureGeneration() == capturedGeneration) write() else null
+    }
+
     suspend fun cancelAndJoin() {
         val job = synchronized(lock) {
             generation += 1
             lastStartedAtMs = 0
+            pendingForced = null
             running.also { running = null }
         }
         job?.cancel()
+        // Wait for a publication that entered before invalidation to finish;
+        // account cleanup runs only after this barrier and the worker join.
+        publication.withLock { }
         job?.join()
     }
 
-    private fun current(): Long = synchronized(lock) { generation }
+    private fun launchLocked(work: suspend (Long) -> Unit, startedAtMs: Long) {
+        val startedGeneration = generation
+        lastStartedAtMs = startedAtMs
+        running = scope.launch {
+            try {
+                work(startedGeneration)
+            } finally {
+                synchronized(lock) {
+                    if (generation == startedGeneration) {
+                        running = null
+                        pendingForced?.let { pending ->
+                            pendingForced = null
+                            launchLocked(pending, nowMs())
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private class UniffiVaultListingSource(private val state: NativePushState) : VaultListingSource {

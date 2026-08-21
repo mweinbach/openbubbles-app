@@ -139,8 +139,10 @@ internal object CredentialEntries {
                 if (live == null) {
                     unlockOrEmpty(context, query, offerUnlock)
                 } else {
-                    val records = hydrate(catalog, live, query)
-                    VaultCatalogSync.refresh(context, live)
+                    val generation = VaultCatalogSync.captureGeneration()
+                    val records = hydrate(catalog, live, query, generation)
+                        ?: return BeginGetCredentialResponse(emptyList())
+                    VaultCatalogSync.refreshIfCurrent(context, live, generation)
                     BeginGetCredentialResponse(entries(context, query, records))
                 }
             }
@@ -181,7 +183,8 @@ internal object CredentialEntries {
         catalog: VaultCatalog,
         state: NativePushState,
         query: Query,
-    ): List<VaultItemRecord> {
+        generation: Long,
+    ): List<VaultItemRecord>? {
         val config = state.awaitSiteConfig(query.site)
         val decoder = vaultPasskeyUserDecoder()
         val passwords = config.passwords.map { saved ->
@@ -205,11 +208,17 @@ internal object CredentialEntries {
                 webauthnCredentialId = vaultWebauthnCredentialId(saved.id),
             )
         }
-        if (query.vaultRequest.wantsPasswords) {
-            catalog.mergeSiteItems(query.site, VaultItemKind.Password, passwords)
-        }
-        if (query.vaultRequest.wantsPasskeys) {
-            catalog.mergeSiteItems(query.site, VaultItemKind.Passkey, passkeys)
+        if (VaultCatalogSync.publishIfCurrent(generation) {
+                if (query.vaultRequest.wantsPasswords) {
+                    catalog.mergeSiteItems(query.site, VaultItemKind.Password, passwords)
+                }
+                if (query.vaultRequest.wantsPasskeys) {
+                    catalog.mergeSiteItems(query.site, VaultItemKind.Passkey, passkeys)
+                }
+                true
+            } == null
+        ) {
+            return null
         }
 
         val allowed = query.allowedCredentialIds
