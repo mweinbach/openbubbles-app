@@ -35,30 +35,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.openbubbles.nativeapp.data.ICloudKeychainEnrollment
-import app.openbubbles.nativeapp.data.PushStateHolder
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import uniffi.rust_lib_bluebubbles.UViableBottle
-
-/** Membership probes before treating a throwing keychain client as a non-member. */
-private const val MEMBERSHIP_CHECK_ATTEMPTS = 5
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /** What the keychain step is currently asking the user for. */
 internal enum class KeychainStepStage {
@@ -108,102 +96,25 @@ internal fun KeychainStep(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
-
-    var inClique by remember { mutableStateOf<Boolean?>(null) }
-    var loadingDevices by remember { mutableStateOf(false) }
-    var joining by remember { mutableStateOf(false) }
-    var devices by remember { mutableStateOf<List<UViableBottle>>(emptyList()) }
-    var selectedDevice by remember { mutableStateOf<UViableBottle?>(null) }
-    var deviceMenuExpanded by remember { mutableStateOf(false) }
-    var passcode by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    // Membership is the one fact that decides the whole step. The keychain
-    // client is still warming up right after sign-in, so retry until it gives
-    // a definite answer; a client that keeps throwing counts as "not a
-    // member", which is exactly what the join below fixes.
-    LaunchedEffect(pushState) {
-        val live = pushState ?: return@LaunchedEffect
-        repeat(MEMBERSHIP_CHECK_ATTEMPTS) { attempt ->
-            val member = withContext(Dispatchers.IO) { runCatching { live.isInClique() } }
-            member.getOrNull()?.let {
-                inClique = it
-                return@LaunchedEffect
-            }
-            if (attempt < MEMBERSHIP_CHECK_ATTEMPTS - 1) delay(2_000)
-        }
-        inClique = false
-    }
-
-    fun loadDevices() {
-        val live = pushState ?: return
-        if (loadingDevices) return
-        loadingDevices = true
-        error = null
-        devices = emptyList()
-        selectedDevice = null
-        passcode = ""
-        scope.launch {
-            val result = ICloudKeychainEnrollment.viableBottles(live)
-            loadingDevices = false
-            result.onSuccess { found ->
-                devices = found
-                selectedDevice = found.firstOrNull()
-                if (found.isEmpty()) {
-                    error = ICloudKeychainEnrollment.noViableBottlesMessage()
-                }
-            }.onFailure {
-                error = ICloudKeychainEnrollment.escrowRecoveryFailure(it.message)
-            }
-        }
-    }
-
-    fun join() {
-        val live = pushState ?: return
-        val device = selectedDevice ?: return
-        if (joining || passcode.isEmpty()) return
-        joining = true
-        error = null
-        scope.launch {
-            val result = ICloudKeychainEnrollment.joinWithBottle(
-                context = context,
-                state = live,
-                bottle = device,
-                passcode = passcode,
-            )
-            joining = false
-            passcode = ""
-            result.onSuccess {
-                inClique = true
-            }.onFailure {
-                error = it.message ?: "Unable to unlock your iCloud data"
-            }
-        }
-    }
+    val owner: KeychainStepViewModel = viewModel()
+    val state by owner.uiState.collectAsStateWithLifecycle()
 
     KeychainStepContent(
         stage = keychainStepStage(
-            connected = pushState != null,
-            inClique = inClique,
-            loadingDevices = loadingDevices,
-            hasDevices = devices.isNotEmpty(),
+            connected = state.connected,
+            inClique = state.inClique,
+            loadingDevices = state.loadingDevices,
+            hasDevices = state.devices.isNotEmpty(),
         ),
-        devices = devices,
-        selectedDevice = selectedDevice,
-        onSelectDevice = { device ->
-            selectedDevice = device
-            passcode = ""
-            error = null
-        },
-        passcode = passcode,
-        onPasscodeChange = { passcode = it },
-        joining = joining,
-        error = error,
-        onFindDevices = ::loadDevices,
-        onJoin = ::join,
+        devices = state.devices,
+        selectedDevice = state.selectedDevice,
+        onSelectDevice = { owner.selectDevice(it.id) },
+        passcode = state.passcode,
+        onPasscodeChange = owner::updatePasscode,
+        joining = state.joining,
+        error = state.error,
+        onFindDevices = owner::loadDevices,
+        onJoin = owner::join,
         onContinue = onContinue,
         onBack = onBack,
         modifier = modifier,
@@ -218,9 +129,9 @@ internal fun KeychainStep(
 @Composable
 internal fun KeychainStepContent(
     stage: KeychainStepStage,
-    devices: List<UViableBottle>,
-    selectedDevice: UViableBottle?,
-    onSelectDevice: (UViableBottle) -> Unit,
+    devices: List<KeychainDeviceUi>,
+    selectedDevice: KeychainDeviceUi?,
+    onSelectDevice: (KeychainDeviceUi) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
     joining: Boolean,
@@ -312,7 +223,7 @@ internal fun KeychainStepContent(
                         onExpandedChange = { if (!joining) deviceMenuExpanded = !deviceMenuExpanded },
                     ) {
                         OutlinedTextField(
-                            value = selectedDevice?.stepDisplayName().orEmpty(),
+                            value = selectedDevice?.displayName.orEmpty(),
                             onValueChange = {},
                             label = { Text("Your Apple device") },
                             placeholder = { Text("Select a device") },
@@ -335,7 +246,7 @@ internal fun KeychainStepContent(
                         ) {
                             devices.forEach { device ->
                                 DropdownMenuItem(
-                                    text = { Text(device.stepDisplayName()) },
+                                    text = { Text(device.displayName) },
                                     trailingIcon = if (selectedDevice == device) {
                                         {
                                             Icon(
@@ -354,17 +265,13 @@ internal fun KeychainStepContent(
                             }
                         }
                     }
-                    val requiredLength = selectedDevice?.numericLength?.toInt()?.takeIf { it > 0 }
+                    val requiredLength = selectedDevice?.numericLength
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = passcode,
                         onValueChange = { value ->
                             onPasscodeChange(
-                                if (requiredLength != null) {
-                                    value.filter(Char::isDigit).take(requiredLength)
-                                } else {
-                                    value
-                                },
+                                value,
                             )
                         },
                         label = {
@@ -421,7 +328,7 @@ internal fun KeychainStepContent(
                     KeychainStepStage.Joined, KeychainStepStage.Intro -> true
                     KeychainStepStage.Passcode -> !joining &&
                         selectedDevice != null &&
-                        passcode.isNotEmpty()
+                        isKeychainPasscodeComplete(passcode, selectedDevice.numericLength)
                     else -> false
                 },
                 shapes = ButtonDefaults.shapes(),
@@ -525,9 +432,4 @@ private fun UnlockedFeature(
             }
         }
     }
-}
-
-private fun UViableBottle.stepDisplayName(): String = buildString {
-    append(deviceName.ifBlank { "Apple device" })
-    if (modelClass.isNotBlank()) append(" · $modelClass")
 }

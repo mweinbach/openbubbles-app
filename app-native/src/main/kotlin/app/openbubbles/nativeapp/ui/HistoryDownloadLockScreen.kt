@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -48,6 +49,10 @@ import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.service.NativePushService
+import kotlinx.coroutines.delay
+
+private const val HISTORY_CONNECTION_WAIT_MS = 15_000L
 
 /**
  * Human-readable line for the phase the backfill is in. Record counts alone
@@ -86,29 +91,46 @@ internal fun HistoryDownloadLockScreen(
     val summary by CloudSyncWiring.lastSummary.collectAsStateWithLifecycle()
     val progress by CloudSyncWiring.manager?.progress?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(null) }
-    var retryRequested by remember { mutableStateOf(false) }
+    // Process-local on purpose: after process death there is no coordinator
+    // job to wait for, so the restored lock must issue a cursor-resuming run.
+    var startRequested by remember { mutableStateOf(false) }
+    var connectionUnavailable by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(context, pushState) {
+        connectionUnavailable = false
+        if (context == null || pushState != null) return@LaunchedEffect
+        delay(HISTORY_CONNECTION_WAIT_MS)
+        if (PushStateHolder.state == null) connectionUnavailable = true
+    }
 
     // A resumed lock (process death or an activity restart mid-download) has
     // to drive the run itself; cursors are persisted, so it picks up where it
-    // stopped. The already-finished summary is what stops this from looping
-    // on a permanent failure: only an explicit retry starts another run.
-    LaunchedEffect(context, pushState, syncing, summary, retryRequested) {
-        if (context == null || pushState == null || syncing) return@LaunchedEffect
-        if (summary != null && !retryRequested) return@LaunchedEffect
-        retryRequested = false
-        CloudSyncWiring.startInitialHistorySync(context)
+    // stopped. [startRequested] belongs to this pending run rather than to the
+    // coordinator's process-global last summary, which may describe an older
+    // pre-onboarding sync.
+    LaunchedEffect(context, pushState, syncing, startRequested) {
+        if (context == null || pushState == null || syncing || startRequested) return@LaunchedEffect
+        startRequested = CloudSyncWiring.startInitialHistorySync(context)
     }
 
     // Back must not slip past the gate; leaving is an explicit choice below.
     BackHandler(enabled = true) { }
 
-    val failure = summary?.takeIf { it.error != null || it.cancelled }
+    val syncFailure = summary?.takeIf { it.error != null || it.cancelled }
+    val failureMessage = when {
+        connectionUnavailable -> "OpenGarden couldn't reconnect to your Apple account. " +
+            "Try again, or skip this download and repair the connection from Settings."
+        syncFailure != null -> syncFailure.error ?: "The download was stopped before it finished."
+        else -> null
+    }
     HistoryDownloadLockContent(
         statusLine = historyDownloadStatusLine(progress),
-        failureMessage = failure?.let {
-            it.error ?: "The download was stopped before it finished."
+        failureMessage = failureMessage,
+        onRetry = {
+            connectionUnavailable = false
+            startRequested = false
+            context?.let(NativePushService::start)
         },
-        onRetry = { retryRequested = true },
         onDismiss = onDismiss,
         modifier = modifier,
     )

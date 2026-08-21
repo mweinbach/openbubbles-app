@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import app.openbubbles.core.sync.SyncMode
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.R
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val PREFS = "native_setup"
 private const val KEY_PENDING = "initial_history_download_pending"
+private const val KEY_STARTED = "initial_history_download_started"
+private const val KEY_POST_SIGN_IN_ONBOARDING = "post_sign_in_onboarding_active"
 private const val CHANNEL_HISTORY = "history-download"
 private const val NOTIFICATION_ID_READY = 0x0B10
 
@@ -52,12 +55,41 @@ object InitialHistoryDownload {
     fun isPending(context: Context): Boolean =
         prefs(context).getBoolean(KEY_PENDING, false)
 
+    /** Suppresses connect-triggered incremental sync until onboarding chooses history behavior. */
+    fun isPostSignInOnboardingActive(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_POST_SIGN_IN_ONBOARDING, false)
+
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
+    fun setPostSignInOnboardingActive(context: Context, active: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_POST_SIGN_IN_ONBOARDING, active).commit()) {
+            "failed to persist post-sign-in onboarding state"
+        }
+    }
+
     /**
      * Arms the download. Notifications are withheld and the lock gate takes
      * over from here until [finish] or [abandon].
      */
     fun arm(context: Context) {
-        persistPending(context, true)
+        val app = context.applicationContext
+        check(
+            prefs(app).edit()
+                .putBoolean(KEY_PENDING, true)
+                .putBoolean(KEY_STARTED, false)
+                .commit(),
+        ) { "failed to persist initial history download state" }
+        _pending.value = true
+    }
+
+    /** FULL only for the first attempt; retries after a crash resume committed cursors. */
+    fun syncMode(context: Context): SyncMode =
+        initialHistorySyncMode(prefs(context).getBoolean(KEY_STARTED, false))
+
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
+    fun markStarted(context: Context) {
+        check(prefs(context).edit().putBoolean(KEY_STARTED, true).commit()) {
+            "failed to persist initial history download start"
+        }
     }
 
     /** The download completed; release the lock and tell the user. */
@@ -75,7 +107,12 @@ object InitialHistoryDownload {
     @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     private fun persistPending(context: Context, value: Boolean) {
         val app = context.applicationContext
-        check(prefs(app).edit().putBoolean(KEY_PENDING, value).commit()) {
+        check(
+            prefs(app).edit()
+                .putBoolean(KEY_PENDING, value)
+                .putBoolean(KEY_STARTED, false)
+                .commit(),
+        ) {
             "failed to persist initial history download state"
         }
         _pending.value = value
@@ -114,3 +151,6 @@ object InitialHistoryDownload {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
+
+internal fun initialHistorySyncMode(started: Boolean): SyncMode =
+    if (started) SyncMode.INCREMENTAL else SyncMode.FULL

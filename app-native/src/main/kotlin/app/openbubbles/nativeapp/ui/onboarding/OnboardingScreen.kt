@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -91,6 +92,9 @@ internal fun OnboardingStep.previousStep(): OnboardingStep = when (this) {
 /** Steps the user can still walk backwards out of. */
 internal fun OnboardingStep.canGoBack(): Boolean = previousStep() != this
 
+internal fun initialOnboardingStep(resumeAfterSignIn: Boolean): OnboardingStep =
+    if (resumeAfterSignIn) OnboardingStep.Keychain else OnboardingStep.Welcome
+
 /**
  * First-run onboarding: welcome → feature tour → permission priming →
  * provisioning → Apple ID sign-in → iCloud Keychain unlock → history
@@ -107,12 +111,13 @@ internal fun OnboardingStep.canGoBack(): Boolean = previousStep() != this
 fun OnboardingScreen(
     onSignedIn: () -> Unit,
     onFinished: () -> Unit,
+    resumeAfterSignIn: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var step by remember { mutableStateOf(OnboardingStep.Welcome) }
-    var signedIn by remember { mutableStateOf(false) }
-    var keychainUnlocked by remember { mutableStateOf(false) }
-    var finished by remember { mutableStateOf(false) }
+    var step by rememberSaveable { mutableStateOf(initialOnboardingStep(resumeAfterSignIn)) }
+    var signedIn by rememberSaveable { mutableStateOf(resumeAfterSignIn) }
+    var keychainUnlocked by rememberSaveable { mutableStateOf(false) }
+    var finished by rememberSaveable { mutableStateOf(false) }
 
     val appContext = AppContext.current
     val confDir = remember(appContext) { appContext?.filesDir?.absolutePath.orEmpty() }

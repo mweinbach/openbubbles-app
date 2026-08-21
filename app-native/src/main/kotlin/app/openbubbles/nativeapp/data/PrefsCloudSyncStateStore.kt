@@ -101,7 +101,10 @@ object CloudSyncWiring {
         // mode (battery saver) drives its own single sync instead. The armed
         // first-run backfill owns the single-flight slot behind the lock
         // screen, so connecting must not start a competing incremental pass.
-        if (autoSync && !InitialHistoryDownload.isPending(context)) {
+        if (autoSync &&
+            !InitialHistoryDownload.isPending(context) &&
+            !InitialHistoryDownload.isPostSignInOnboardingActive(context)
+        ) {
             val now = System.currentTimeMillis()
             if (shouldAutoSyncOnConnect(prefs.getLong(KEY_AUTO_SYNC_ATTEMPT, 0L), now)) {
                 // Record the attempt regardless of outcome: a failing sync
@@ -119,11 +122,15 @@ object CloudSyncWiring {
      */
     fun startInitialHistorySync(context: Context): Boolean {
         val app = context.applicationContext
-        return syncCoordinator.start(SyncMode.FULL) {
-            CoreGraph.relinkContacts()
-            markHistorySyncComplete(app)
-            InitialHistoryDownload.finish(app)
-        }
+        return syncCoordinator.start(
+            mode = InitialHistoryDownload.syncMode(app),
+            onStarting = { InitialHistoryDownload.markStarted(app) },
+            afterSuccessfulSync = {
+                CoreGraph.relinkContacts()
+                markHistorySyncComplete(app)
+                InitialHistoryDownload.finish(app)
+            },
+        )
     }
 
     /**
@@ -241,9 +248,14 @@ internal class HistorySyncCoordinator(
     val running: StateFlow<Boolean> = _running.asStateFlow()
     val lastSummary: StateFlow<SyncSummary?> = _lastSummary.asStateFlow()
 
-    fun start(mode: SyncMode, afterSuccessfulSync: suspend () -> Unit): Boolean =
+    fun start(
+        mode: SyncMode,
+        onStarting: () -> Unit = {},
+        afterSuccessfulSync: suspend () -> Unit,
+    ): Boolean =
         synchronized(lock) {
             if (activeJob?.isActive == true) return@synchronized false
+            onStarting()
             _lastSummary.value = null
             _running.value = true
 

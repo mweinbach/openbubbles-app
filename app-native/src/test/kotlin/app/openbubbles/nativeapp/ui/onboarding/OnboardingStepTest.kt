@@ -90,4 +90,18 @@ class OnboardingStepTest {
             ),
         )
     }
+
+    @Test
+    fun numericPasscodeRequiresTheDeclaredLength() {
+        assertFalse(isKeychainPasscodeComplete("1", requiredLength = 6))
+        assertFalse(isKeychainPasscodeComplete("12345", requiredLength = 6))
+        assertTrue(isKeychainPasscodeComplete("123456", requiredLength = 6))
+        assertTrue(isKeychainPasscodeComplete("device-password", requiredLength = null))
+    }
+
+    @Test
+    fun durablePostSignInResumeStartsAtKeychain() {
+        assertEquals(OnboardingStep.Welcome, initialOnboardingStep(resumeAfterSignIn = false))
+        assertEquals(OnboardingStep.Keychain, initialOnboardingStep(resumeAfterSignIn = true))
+    }
 }

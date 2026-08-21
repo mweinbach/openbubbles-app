@@ -587,11 +587,17 @@ fun OpenBubblesApp(
     // Sign-in installs the push state mid-onboarding (the keychain and
     // history steps need a live connection), so latch the flow open instead
     // of letting the arriving state dismiss it.
-    var onboardingActive by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var onboardingActive by remember(onboardingPrefs) {
+        androidx.compose.runtime.mutableStateOf(
+            context?.let(InitialHistoryDownload::isPostSignInOnboardingActive) == true,
+        )
+    }
     if ((pushState == null || onboardingActive) && !onboardingComplete && context != null) {
         OnboardingScreen(
+            resumeAfterSignIn = onboardingActive,
             onSignedIn = {
                 onboardingActive = true
+                InitialHistoryDownload.setPostSignInOnboardingActive(context, true)
                 NativePushService.reloadAfterLogin(context)
             },
             onFinished = {
@@ -601,6 +607,7 @@ fun OpenBubblesApp(
                 // would drop the connection just as the backfill starts.
                 if (!onboardingActive) NativePushService.reloadAfterLogin(context)
                 onboardingActive = false
+                InitialHistoryDownload.setPostSignInOnboardingActive(context, false)
                 requestBatteryExemptionOnce(context)
             },
         )

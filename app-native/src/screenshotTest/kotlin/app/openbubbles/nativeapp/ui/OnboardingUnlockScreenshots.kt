@@ -6,11 +6,11 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import app.openbubbles.nativeapp.data.HistorySyncWindow
 import app.openbubbles.nativeapp.ui.onboarding.KeychainStepContent
+import app.openbubbles.nativeapp.ui.onboarding.KeychainDeviceUi
 import app.openbubbles.nativeapp.ui.onboarding.KeychainStepStage
 import app.openbubbles.nativeapp.ui.onboarding.HistoryStep
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import com.android.tools.screenshot.PreviewTest
-import uniffi.rust_lib_bluebubbles.UViableBottle
 
 /**
  * The iCloud unlock step as a signed-in user first sees it: what encryption
@@ -51,17 +51,15 @@ fun OnboardingKeychainIntroScreenshot() {
 @Composable
 fun OnboardingKeychainPasscodeScreenshot() {
     val devices = listOf(
-        UViableBottle(
-            escrowData = ByteArray(0),
-            numericLength = 6uL,
-            deviceName = "Maya's iPhone",
-            modelClass = "iPhone 15 Pro",
+        KeychainDeviceUi(
+            id = "iphone",
+            numericLength = 6,
+            displayName = "Maya's iPhone · iPhone 15 Pro",
         ),
-        UViableBottle(
-            escrowData = ByteArray(0),
-            numericLength = 6uL,
-            deviceName = "Studio Mac",
-            modelClass = "Mac Studio",
+        KeychainDeviceUi(
+            id = "mac",
+            numericLength = 6,
+            displayName = "Studio Mac · Mac Studio",
         ),
     )
     OpenBubblesTheme(dynamicColor = false) {
