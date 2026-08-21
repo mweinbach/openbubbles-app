@@ -287,7 +287,28 @@ class MessageIngestor(
         // Dart: skip empty messages (no text and no attachment parts).
         if (MessageMapper.rawText(msg.parts).isEmpty() && !MessageMapper.hasAttachmentParts(msg.parts)) return null
         val chat = chatForInst(inst, myHandles) ?: return null
-        val mapped = MessageMapper.mapNormal(inst, msg, myHandles)
+        val stagedMessage = findMessageByGuidOrStaging(
+            inst.id,
+            includeStaging = shouldSearchStaging(inst, myHandles),
+        )
+        val preserveSmilAttachments = stagedMessage?.let { message ->
+            attachmentBox.query()
+                .equal(Attachment_.messageId, message.id)
+                .build()
+                .use { query ->
+                    query.find().any { attachment ->
+                        attachment.isOutgoing &&
+                            attachment.guid?.startsWith("temp-") == true &&
+                            attachment.mimeType == "application/smil"
+                    }
+                }
+        } == true
+        val mapped = MessageMapper.mapNormal(
+            inst,
+            msg,
+            myHandles,
+            preserveSmilAttachments = preserveSmilAttachments,
+        )
         persistMapped(mapped, chat, inst, myHandles)
         // A real message clears the sender's typing indicator.
         inst.sender?.let { sender ->
@@ -954,6 +975,7 @@ class MessageIngestor(
                     }
                     text = incoming.text ?: text
                     subject = incoming.subject ?: subject
+                    dbAttributedBody = incoming.dbAttributedBody ?: dbAttributedBody
                     threadOriginatorGuid = incoming.threadOriginatorGuid
                     threadOriginatorPart = incoming.threadOriginatorPart
                     expressiveSendStyleId = incoming.expressiveSendStyleId

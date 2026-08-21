@@ -13226,7 +13226,14 @@ data class UCloudChat (
      * A group-photo asset rides on the record. Download it with
      * [`NativePushState::download_group_photo`].
      */
-    var `hasGroupPhoto`: kotlin.Boolean
+    var `hasGroupPhoto`: kotlin.Boolean,
+    /**
+     * Native per-chat transcript background from the record's
+     * `backgroundProperties`, when one is set. Restore source for chats
+     * whose type-138 message has left the message-sync window; callers
+     * version-guard against the locally applied background.
+     */
+    var `transcriptBackground`: UTranscriptBackground?
 ) {
 
     companion object
@@ -13250,6 +13257,7 @@ public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
             FfiConverterOptionalString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalTypeUTranscriptBackground.read(buf),
         )
     }
 
@@ -13265,7 +13273,8 @@ public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
             FfiConverterOptionalUInt.allocationSize(value.`groupVersion`) +
             FfiConverterOptionalString.allocationSize(value.`lastSeenMessageGuid`) +
             FfiConverterLong.allocationSize(value.`lastReadMessageTimestamp`) +
-            FfiConverterBoolean.allocationSize(value.`hasGroupPhoto`)
+            FfiConverterBoolean.allocationSize(value.`hasGroupPhoto`) +
+            FfiConverterOptionalTypeUTranscriptBackground.allocationSize(value.`transcriptBackground`)
     )
 
     override fun write(value: UCloudChat, buf: ByteBuffer) {
@@ -13281,6 +13290,7 @@ public object FfiConverterTypeUCloudChat: FfiConverterRustBuffer<UCloudChat> {
             FfiConverterOptionalString.write(value.`lastSeenMessageGuid`, buf)
             FfiConverterLong.write(value.`lastReadMessageTimestamp`, buf)
             FfiConverterBoolean.write(value.`hasGroupPhoto`, buf)
+            FfiConverterOptionalTypeUTranscriptBackground.write(value.`transcriptBackground`, buf)
     }
 }
 

@@ -643,8 +643,15 @@ class CloudSyncManager(
         val version: Long?,
     )
 
+    private data class PendingChatBackground(
+        val chatId: Long,
+        val version: Long,
+        val mmcsXml: String?,
+    )
+
     private suspend fun applyChatPage(records: List<UChatChange>, lookup: HistorySyncLookup) {
         val pendingPhotos = ArrayList<PendingGroupPhoto>()
+        val pendingBackgrounds = ArrayList<PendingChatBackground>()
         invalidations.coalesce {
             records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
                 store.runInTx {
@@ -715,6 +722,24 @@ class CloudSyncManager(
                             clearCloudGroupPhoto(chat)
                             dirty = true
                         }
+                        // The record itself carries the chat's transcript
+                        // background (`backgroundProperties`), so a background
+                        // whose type-138 message has left the message-sync
+                        // window still restores here. Newer-wins version gate
+                        // mirrors the store's own idempotence check.
+                        cloud.transcriptBackground?.let { background ->
+                            val version = background.version
+                                .takeIf { it <= Long.MAX_VALUE.toULong() }
+                                ?.toLong()
+                            val localVersion = chat.transcriptBackgroundVersion ?: Long.MIN_VALUE
+                            if (version != null && version > localVersion) {
+                                pendingBackgrounds += PendingChatBackground(
+                                    chatId = chat.id,
+                                    version = version,
+                                    mmcsXml = background.mmcsXml,
+                                )
+                            }
+                        }
                         if (dirty) chatBox.put(chat)
                         lookup.putChat(chat)
                     }
@@ -722,6 +747,42 @@ class CloudSyncManager(
             }
         }
         downloadPendingGroupPhotos(pendingPhotos)
+        applyPendingChatBackgrounds(pendingBackgrounds)
+    }
+
+    /**
+     * Restore chat backgrounds carried on chat records. Downloads run off the
+     * store transaction through the shared background store, which re-checks
+     * the version before writing. Old wallpaper MMCS payloads are routinely
+     * gone from Apple's CDN; skip those rather than fail the page (same
+     * policy as the message zone).
+     */
+    private suspend fun applyPendingChatBackgrounds(jobs: List<PendingChatBackground>) {
+        if (jobs.isEmpty()) return
+        val handler = requireNotNull(transcriptBackgroundHandler) {
+            "transcript background handler is unavailable"
+        }
+        jobs.groupBy(PendingChatBackground::chatId)
+            .values
+            .mapNotNull { candidates -> candidates.maxByOrNull(PendingChatBackground::version) }
+            .sortedBy(PendingChatBackground::version)
+            .forEach { job ->
+                try {
+                    handler.apply(
+                        TranscriptBackgroundUpdate(
+                            chatId = job.chatId,
+                            version = job.version,
+                            remove = false,
+                            mmcsXml = job.mmcsXml,
+                        ),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Payload gone or undecodable; the next record carrying a
+                    // newer version retries.
+                }
+            }
     }
 
     private fun clearCloudGroupPhoto(chat: Chat) {

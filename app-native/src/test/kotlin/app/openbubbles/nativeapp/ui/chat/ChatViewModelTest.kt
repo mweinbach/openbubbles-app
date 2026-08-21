@@ -441,6 +441,90 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `caption and photo are one composed send, never a separate text send`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val attachmentSender = RecordingAttachmentSender()
+        val model = model(sender, RecordingActions(), attachmentSender = attachmentSender)
+        val photo = tempAttachment("beach.jpg")
+
+        model.onInputChange("look at this")
+        model.stageAttachment(photo)
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(1, attachmentSender.calls)
+        assertEquals("look at this", attachmentSender.caption)
+        assertEquals(listOf("beach.jpg"), attachmentSender.attachmentNames)
+        // A composed send must never split into a text-only message.
+        assertEquals(null, sender.sent)
+        assertEquals(null, sender.reply)
+        photo.file.delete()
+    }
+
+    @Test
+    fun `repeated taps during a composed send produce one send`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val attachmentSender = BlockingAttachmentSender(messageId = 51L)
+        val model = model(sender, RecordingActions(), attachmentSender = attachmentSender)
+        val photo = tempAttachment("once.jpg")
+
+        model.onInputChange("only once")
+        model.stageAttachment(photo)
+        model.sendMessage()
+        runCurrent()
+        attachmentSender.started.await()
+
+        model.sendMessage()
+        model.sendMessage()
+        runCurrent()
+        assertEquals(1, attachmentSender.calls)
+
+        attachmentSender.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, attachmentSender.calls)
+        assertEquals(null, sender.sent)
+        photo.file.delete()
+    }
+
+    /**
+     * Documents the tracked limitation from issue #47: a composed media send
+     * drops the reply target instead of threading it. The caption and media
+     * still travel as one message, which is what that issue protects; reply
+     * metadata for media is separate work.
+     */
+    @Test
+    fun `composed media send keeps its parts but does not thread the reply yet`() = runTest(dispatcher) {
+        val sender = RecordingSender()
+        val attachmentSender = RecordingAttachmentSender()
+        val root = message(id = 1L, guid = "root", text = "original")
+        val child = message(id = 2L, guid = "child", text = "reply", replyToGuid = "root")
+        val model = model(
+            sender,
+            RecordingActions(),
+            attachmentSender = attachmentSender,
+            messageRepository = object : MessageListRepository by StaticMessages {
+                override fun thread(chatId: Long, rootGuid: String, part: Long) = listOf(root, child)
+            },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        model.openReplyThread(child)
+        advanceUntilIdle()
+
+        val photo = tempAttachment("threaded.jpg")
+        model.onInputChange("in the thread")
+        model.stageAttachment(photo)
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(1, attachmentSender.calls)
+        assertEquals("in the thread", attachmentSender.caption)
+        assertEquals(listOf("threaded.jpg"), attachmentSender.attachmentNames)
+        assertEquals(null, sender.reply)
+        photo.file.delete()
+    }
+
+    @Test
     fun `attachment composer clears only after local staging is accepted`() = runTest(dispatcher) {
         val attachmentSender = BlockingAttachmentSender(messageId = 46L)
         val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
@@ -1132,12 +1216,14 @@ private class FailingAttachmentSender : AttachmentSender {
 private class BlockingAttachmentSender(private val messageId: Long) : AttachmentSender {
     val started = CompletableDeferred<Unit>()
     val release = CompletableDeferred<Unit>()
+    var calls = 0
 
     override suspend fun send(
         chatId: Long,
         attachments: List<OutgoingAttachment>,
         caption: String?,
     ): OutgoingAttachmentSend {
+        calls++
         started.complete(Unit)
         release.await()
         return OutgoingAttachmentSend(messageId)
