@@ -11,6 +11,7 @@ import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
@@ -334,6 +335,60 @@ class ChatViewModelTest {
 
         assertEquals(null, model.uiState.value.messages.single().reactionEmoji)
         assertEquals(false, model.uiState.value.messages.single().unsent)
+    }
+
+    @Test
+    fun `optimistic reaction replaces only my reaction on the selected part`() = runTest(dispatcher) {
+        val target = message(
+            guid = "target",
+            reactions = listOf(
+                MessageReactionUi("❤️", null, true, targetPart = 0L),
+                MessageReactionUi("😂", null, true, targetPart = 1L),
+            ),
+        )
+        val messages = MutableMessages(listOf(target))
+        val actions = DeferredActions()
+        val model = model(RecordingSender(), actions, messageRepository = messages)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.react(target, 1L, 1)
+        runCurrent()
+        actions.reactionStarted.await()
+
+        assertEquals(
+            listOf(0L to "❤️", 1L to "👍"),
+            model.uiState.value.messages.single().reactions.map { it.targetPart to it.emoji },
+        )
+
+        actions.reactionRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `optimistic reaction removal hides only mine on the selected part`() = runTest(dispatcher) {
+        val target = message(
+            guid = "target",
+            reactions = listOf(
+                MessageReactionUi("❤️", null, true, targetPart = 0L),
+                MessageReactionUi("👍", null, true, targetPart = 1L),
+                MessageReactionUi("😂", "friend@icloud.com", false, targetPart = 1L),
+            ),
+        )
+        val messages = MutableMessages(listOf(target))
+        val actions = RecordingActions()
+        val model = model(RecordingSender(), actions, messageRepository = messages)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.react(target, part = 1L, reactionIndex = 1, enable = false)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(0L to "❤️", 1L to "😂"),
+            model.uiState.value.messages.single().reactions.map { it.targetPart to it.emoji },
+        )
+        assertEquals(false, actions.reactionEnable)
     }
 
     @Test
@@ -711,6 +766,37 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `optimistic reactions update thread-only messages`() = runTest(dispatcher) {
+        val root = message(id = 1L, guid = "root")
+        val child = message(id = 2L, guid = "thread-only", replyToGuid = "root")
+        val actions = DeferredActions()
+        val model = model(
+            RecordingSender(),
+            actions,
+            messageRepository = object : MessageListRepository by StaticMessages {
+                override fun thread(chatId: Long, rootGuid: String, part: Long) = listOf(root, child)
+            },
+        )
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        model.openReplyThread(child)
+        advanceUntilIdle()
+
+        model.react(child, part = 0L, reactionIndex = 1)
+        runCurrent()
+        actions.reactionStarted.await()
+
+        val optimistic = model.uiState.value.replyThread?.messages
+            ?.single { it.guid == "thread-only" }
+        assertEquals(listOf("👍"), optimistic?.reactions?.map { it.emoji })
+
+        actions.reactionRelease.complete(Unit)
+        advanceUntilIdle()
+        val retained = model.uiState.value.replyThread?.messages
+            ?.single { it.guid == "thread-only" }
+        assertEquals(listOf("👍"), retained?.reactions?.map { it.emoji })
+    }
+
+    @Test
     fun `sending from an open thread keeps the thread and reply target`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val root = message(id = 1L, guid = "root", text = "original")
@@ -975,6 +1061,7 @@ class ChatViewModelTest {
         date: Long = 1_700_000_000_000L,
         fromMe: Boolean = true,
         reactionEmoji: String? = null,
+        reactions: List<MessageReactionUi> = emptyList(),
         edited: Boolean = false,
         unsent: Boolean = false,
         stickers: List<StickerPlacement> = emptyList(),
@@ -986,6 +1073,7 @@ class ChatViewModelTest {
         status = MessageStatus.SENT,
         isGroupEvent = false,
         reactionEmoji = reactionEmoji,
+        reactions = reactions,
         edited = edited,
         unsent = unsent,
         expressiveSendStyleId = effectId,
@@ -1155,6 +1243,7 @@ private class RecordingActions : MessageActions {
     var reactionPart: Long? = null
     var reactionEmoji: String? = null
     var reactionChatId: Long? = null
+    var reactionEnable: Boolean? = null
     var unsend: Pair<Long, String>? = null
 
     override suspend fun react(
@@ -1170,6 +1259,7 @@ private class RecordingActions : MessageActions {
         reaction = Triple(messageGuid, reactionIndex, messageText)
         reactionPart = messagePart
         reactionEmoji = emoji
+        reactionEnable = enable
     }
 
     override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {

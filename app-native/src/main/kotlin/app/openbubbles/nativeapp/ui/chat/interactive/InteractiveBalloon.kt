@@ -2,8 +2,6 @@ package app.openbubbles.nativeapp.ui.chat.interactive
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,14 +40,15 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import app.openbubbles.core.model.InteractivePayload
 import app.openbubbles.core.model.SupportedKind
+import app.openbubbles.nativeapp.ui.chat.messagePartGestures
 import kotlin.math.max
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun InteractiveBalloon(
     payload: InteractivePayload,
     onLongPress: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onDoubleClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val openAction = when (payload) {
@@ -68,13 +67,11 @@ fun InteractiveBalloon(
         }
         else -> payload.url?.asOpenAction(context)
     }
-    val interaction = when {
-        openAction != null || onLongPress != null -> Modifier.combinedClickable(
-            onClick = { openAction?.invoke() },
-            onLongClick = onLongPress,
-        )
-        else -> Modifier
-    }
+    val interaction = Modifier.messagePartGestures(
+        onClick = openAction,
+        onOpenActions = onLongPress,
+        onDoubleTapActions = onDoubleClick,
+    )
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,

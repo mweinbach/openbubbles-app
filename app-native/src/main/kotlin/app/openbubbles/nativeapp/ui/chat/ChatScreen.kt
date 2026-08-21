@@ -55,6 +55,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -101,14 +102,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -123,8 +130,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -138,6 +147,7 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
@@ -190,10 +200,6 @@ private val ConversationContentMaxWidth = 840.dp
 
 /** Per-picking cap for the multi-select system photo picker. */
 private const val PhotoPickerMaxItems = 10
-
-/** iMessage tapback set, in the order the protocol indexes them. */
-private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
-private val CustomReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
 
 /** Accept one emoji grapheme, including flags, skin tones, and ZWJ families. */
 internal fun normalizeCustomReaction(raw: String): String? {
@@ -365,9 +371,13 @@ fun ChatScreen(
     uiState: ChatUiState,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    onLoadOlder: () -> Unit,
+    onLoadOlder: () -> Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Stable navigation identity, available before the chat model loads. */
+    routeChatId: Long? = uiState.chat?.id,
+    /** Null while off-main repository membership is still resolving. */
+    routeMemberChatIds: List<Long>? = uiState.chat?.memberChatIds,
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -388,7 +398,7 @@ fun ChatScreen(
     onReplyFromThread: (MessageItem, Long) -> Unit = { _, _ -> },
     onSendSticker: (MessageItem, Long, OutgoingAttachment, StickerTransform) -> Unit = { _, _, _, _ -> },
     onEdit: (MessageItem) -> Unit = {},
-    onReact: (MessageItem, Long, Int, String?) -> Unit = { _, _, _, _ -> },
+    onReact: (MessageItem, Long, Int, String?, Boolean) -> Unit = { _, _, _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
@@ -400,6 +410,7 @@ fun ChatScreen(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     attachmentFile: (String) -> File? = { null },
+    historySyncActive: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -409,6 +420,10 @@ fun ChatScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    // Double-tap opens the centered reaction picker; long-press keeps the full
+    // action sheet. Only one of the two is ever presented.
+    var reactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    var customReactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     val pendingStickerState = remember { mutableStateOf<OutgoingAttachment?>(null) }
@@ -418,11 +433,14 @@ fun ChatScreen(
     // historical sender handles misclassifies 1:1 chats when the same contact
     // has replied from multiple aliases, which adds an unnecessary avatar/name
     // gutter and leaves the reply rail visually detached from their bubble.
+    val openThread = uiState.replyThread
     val isGroupChat = uiState.chat?.isGroup == true
     val entries = remember(uiState.messages, isGroupChat) {
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
-    val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
+    val messagesByGuid = remember(uiState.messages, openThread?.messages) {
+        (uiState.messages + openThread?.messages.orEmpty()).associateBy { it.guid }
+    }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
@@ -450,7 +468,6 @@ fun ChatScreen(
             }
         }
     }
-    val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
     // Tapping a reply quote scrolls to the original and pulses it; the guid
@@ -506,13 +523,6 @@ fun ChatScreen(
     fun stagePendingEffect(option: SendEffectOption?) {
         pendingEffectId = option?.id
         PendingSendEffect.effectId = option?.id
-    }
-
-    LaunchedEffect(uiState.outgoingSendEvent) {
-        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
-        if (pendingEffectId == event.effectId) stagePendingEffect(null)
-        listState.animateScrollToItem(0)
-        onOutgoingSendEventConsumed(event.messageId)
     }
 
     fun stageAttachments(uris: List<Uri>) {
@@ -656,11 +666,16 @@ fun ChatScreen(
     // rows (best effort). Rows peek ContactDisplayWarmCache while this map
     // fills, so warm names paint on the first frame.
     val senderNames = remember { mutableStateMapOf<String, String>() }
-    LaunchedEffect(uiState.messages) {
+    LaunchedEffect(uiState.messages, uiState.replyThread?.messages) {
         val resolver = UiContacts.contactNames ?: return@LaunchedEffect
-        val addresses = uiState.messages
-            .filter { !it.isFromMe && it.senderAddress != null }
-            .mapNotNull { it.senderAddress }
+        val visibleMessages = uiState.messages + uiState.replyThread?.messages.orEmpty()
+        val addresses = visibleMessages
+            .flatMap { message ->
+                buildList {
+                    if (!message.isFromMe) message.senderAddress?.let(::add)
+                    message.reactions.filterNot { it.isFromMe }.mapNotNullTo(this) { it.senderAddress }
+                }
+            }
             .distinct()
         val names = withContext(Dispatchers.IO) {
             addresses.mapNotNull { address ->
@@ -677,6 +692,229 @@ fun ChatScreen(
         }
     }
 
+    // ---- New-message follow policy -------------------------------------------
+    // Reversed list: index 0 is the visual bottom, and the optional typing row
+    // takes that slot when someone is typing, so the newest message row is
+    // resolved by entry position rather than assumed to be index 0.
+    val newestIndex = remember(entries, isTyping) { newestMessageIndex(entries, isTyping) }
+    val followThresholdBasePx = with(LocalDensity.current) {
+        FollowBottomThresholdDp.dp.roundToPx()
+    }
+    val transcriptAnchor by remember(listState) {
+        derivedStateOf {
+            TranscriptAnchor(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        }
+    }
+    val atBottomNow by remember(listState, newestIndex, followThresholdBasePx) {
+        derivedStateOf {
+            isFollowingBottom(
+                anchor = transcriptAnchor,
+                newestMessageIndex = newestIndex,
+                thresholdPx = followThresholdBasePx,
+            )
+        }
+    }
+    // Arrival decisions use the reading position as of the last settled scroll,
+    // not the position measured after the snapshot landed: a row inserted at the
+    // bottom of a reversed list keeps its predecessor anchored, which moves every
+    // laid-out index by one and would read as "the reader left the bottom".
+    val arrivalStateKey = conversationArrivalStateKey(routeChatId, uiState.chat?.id)
+    var followingBottom by rememberSaveable(arrivalStateKey) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var ownedScrollInProgress = false
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                // Only a real scroll's settled transition transfers viewport
+                // ownership. A keyed row insertion can move the measured
+                // index without any reader gesture and must not revoke follow.
+                if (ownedScrollInProgress && !scrolling && newestIndex >= 0) {
+                    followingBottom = atBottomNow
+                }
+                ownedScrollInProgress = scrolling
+            }
+    }
+    var liveArrivalMarkers by rememberSaveable(
+        arrivalStateKey,
+        stateSaver = LiveArrivalMarkerStateSaver,
+    ) {
+        mutableStateOf(LiveArrivalMarkerState())
+    }
+    val observedLiveArrivalChatIds = remember(
+        routeChatId,
+        routeMemberChatIds,
+        uiState.chat?.id,
+        uiState.chat?.memberChatIds,
+    ) {
+        liveArrivalChatIds(
+            chatId = routeChatId ?: uiState.chat?.id,
+            memberChatIds = buildList {
+                addAll(routeMemberChatIds.orEmpty())
+                uiState.chat?.id?.let(::add)
+                addAll(uiState.chat?.memberChatIds.orEmpty())
+            },
+        )
+    }
+    val membershipResolved = routeMemberChatIds != null || uiState.chat != null
+    val currentLiveArrivalChatIds by rememberUpdatedState(observedLiveArrivalChatIds)
+    val currentMembershipResolved by rememberUpdatedState(membershipResolved)
+    val currentOpenThread by rememberUpdatedState(openThread)
+    var deferredMembershipArrivals by rememberSaveable(
+        arrivalStateKey,
+        stateSaver = DeferredLiveArrivalStateSaver,
+    ) {
+        mutableStateOf(DeferredLiveArrivalState())
+    }
+    var liveArrivalSequence by rememberSaveable(arrivalStateKey) {
+        mutableLongStateOf(LiveMessageArrivals.latestSequence)
+    }
+    LaunchedEffect(arrivalStateKey) {
+        LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.sequence <= liveArrivalSequence) return@collect
+            liveArrivalSequence = arrival.sequence
+            val focusedThread = currentOpenThread
+            if (focusedThread != null &&
+                arrival.threadRootGuid == focusedThread.rootGuid &&
+                arrival.threadPart == focusedThread.part
+            ) {
+                // The visible thread owns this arrival. Advancing the cursor
+                // without queuing it prevents a stale hidden-transcript pill.
+                return@collect
+            }
+            if (!currentMembershipResolved) {
+                // Membership resolves from the repository off-main. Retain the
+                // short startup window because the intake flow intentionally
+                // has no replay.
+                deferredMembershipArrivals = deferredMembershipArrivals.added(
+                    arrival.chatId,
+                    arrival.messageGuid,
+                )
+            } else if (arrival.chatId in currentLiveArrivalChatIds) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+    }
+    LaunchedEffect(membershipResolved, observedLiveArrivalChatIds) {
+        if (!membershipResolved || deferredMembershipArrivals.arrivals.isEmpty()) return@LaunchedEffect
+        deferredMembershipArrivals.arrivals.forEach { arrival ->
+            if (arrival.chatId in observedLiveArrivalChatIds) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+        deferredMembershipArrivals = DeferredLiveArrivalState()
+    }
+    val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
+    val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
+
+    // Reset per conversation: a new chat establishes its own baseline and can
+    // never inherit the previous transcript's pending count.
+    var arrivals by rememberSaveable(
+        arrivalStateKey,
+        stateSaver = ArrivalStateSaver,
+    ) { mutableStateOf(ArrivalState()) }
+
+    LaunchedEffect(openThread?.rootGuid, openThread?.part, openThread?.messages) {
+        val viewedGuids = openThread?.messages?.mapTo(LinkedHashSet()) { it.guid }.orEmpty()
+        if (viewedGuids.isNotEmpty()) {
+            arrivals = arrivals.viewed(viewedGuids)
+            liveArrivalMarkers = liveArrivalMarkers.consumed(viewedGuids)
+        }
+    }
+
+    val currentEntries by rememberUpdatedState(entries)
+    val currentTyping by rememberUpdatedState(isTyping)
+    var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
+
+    fun currentNewestTarget(): Pair<Int, String>? {
+        val key = newestMessageKey(currentEntries) ?: return null
+        val index = newestMessageIndex(currentEntries, currentTyping)
+        return index.takeIf { it >= 0 }?.let { it to key }
+    }
+
+    suspend fun scrollToNewest(): Boolean {
+        // This jump supersedes any in-flight history restoration; completion
+        // must not pull the viewport back into older rows.
+        pagingAnchor = null
+        repeat(3) {
+            val (targetIndex, targetKey) = currentNewestTarget() ?: return false
+            if (reduceMotion) {
+                listState.scrollToItem(targetIndex)
+            } else {
+                listState.animateScrollToItem(targetIndex)
+            }
+            withFrameNanos { }
+            val resolved = currentNewestTarget()
+            if (resolved?.second == targetKey &&
+                listState.layoutInfo.visibleItemsInfo.any { it.key == targetKey }
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    suspend fun jumpToNewest() {
+        // Clear only once the stable newest-message key is actually visible.
+        if (scrollToNewest()) arrivals = arrivals.cleared()
+    }
+
+    LaunchedEffect(uiState.outgoingSendEvent) {
+        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
+        if (pendingEffectId == event.effectId) stagePendingEffect(null)
+        if (openThread != null) return@LaunchedEffect
+        // Re-resolve by stable message key if a typing row changes during the
+        // move, and only consume the event once the sent row is visible.
+        if (scrollToNewest()) onOutgoingSendEventConsumed(event.messageId)
+    }
+
+    LaunchedEffect(
+        uiState.messages,
+        arrivalStateKey,
+        historySyncActive,
+        liveArrivalSnapshot,
+        liveArrivalFallback,
+        transcriptAnchor.isScrollInProgress,
+        followingBottom,
+    ) {
+        // Keep both the row and its exact marker pending until gesture/fling
+        // ownership settles; consuming during motion cannot be reconsidered.
+        if (transcriptAnchor.isScrollInProgress) return@LaunchedEffect
+        val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
+        val outcome = reduceArrivals(
+            state = arrivals,
+            messages = uiState.messages,
+            followingBottom = pinned,
+            historySyncActive = historySyncActive,
+            liveArrivalGuids = liveArrivalSnapshot,
+            chronologicalFallback = liveArrivalFallback,
+        )
+        arrivals = outcome.state
+        // Scroll only after the arriving row is part of the rendered snapshot.
+        if (outcome.pinToNewest && scrollToNewest()) {
+            arrivals = arrivals.cleared()
+        }
+        // Marker state is an effect key. Consume it only after a suspending pin
+        // finishes, otherwise recomposition cancels the move midway through.
+        liveArrivalMarkers = liveArrivalMarkers.consumed(
+            outcome.matchedLiveGuids,
+            fallbackGuids = outcome.reconciledFallbackGuids,
+        )
+    }
+
+    // Reaching the bottom by hand clears the pill, but only after the newest
+    // row is really visible and the gesture has settled.
+    LaunchedEffect(atBottomNow, transcriptAnchor.isScrollInProgress, newestIndex) {
+        if (arrivals.pendingCount == 0) return@LaunchedEffect
+        if (!atBottomNow || transcriptAnchor.isScrollInProgress) return@LaunchedEffect
+        val newestKey = newestMessageKey(currentEntries)
+        if (newestKey != null && listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
     // Reverse layout: the visual top of the list is the highest index.
     val nearTop by remember(entries.size) {
         derivedStateOf {
@@ -684,8 +922,37 @@ fun ChatScreen(
             entries.size > 12 && lastVisibleIndex >= entries.size - 5
         }
     }
+    // Older pages append at higher indices in the reversed list, so the reading
+    // position normally survives insertion untouched; the captured anchor is the
+    // guard that proves it and restores the exact offset if it ever moves.
+    val userDraggingTranscript by listState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(userDraggingTranscript) {
+        if (userDraggingTranscript) pagingAnchor = null
+    }
     LaunchedEffect(nearTop) {
-        if (nearTop) onLoadOlder()
+        if (!nearTop) return@LaunchedEffect
+        pagingAnchor = capturePagingAnchor(
+            anchor = transcriptAnchor,
+            visibleKeys = listState.layoutInfo.visibleItemsInfo
+                .mapNotNull { info -> (info.key as? String)?.let { info.index to it } }
+                .toMap(),
+        )
+        if (!onLoadOlder()) pagingAnchor = null
+    }
+    LaunchedEffect(uiState.loadingOlder) {
+        if (uiState.loadingOlder) return@LaunchedEffect
+        val anchor = pagingAnchor ?: return@LaunchedEffect
+        // The repository's expanded-window emission can arrive one frame after
+        // the loading flag clears. Read the latest composition after that frame;
+        // an empty final page still reaches this completion path and clears.
+        withFrameNanos { }
+        pagingAnchor = null
+        val keys = buildList {
+            if (currentTyping) add("typing-indicator")
+            currentEntries.forEach { add(it.key) }
+        }
+        val target = pagingAnchorScrollTarget(anchor, keys) ?: return@LaunchedEffect
+        listState.scrollToItem(target.first, target.second)
     }
 
     val background = rememberChatBackground(
@@ -716,7 +983,12 @@ fun ChatScreen(
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrimAlpha)))
         }
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (reactionTarget != null) Modifier.clearAndSetSemantics { }
+                    else Modifier,
+                ),
             containerColor = when {
                 background != null -> Color.Transparent
                 LocalIsMultiPane.current -> MaterialTheme.colorScheme.surface
@@ -908,15 +1180,23 @@ fun ChatScreen(
                     }
                     openThread != null -> ReplyThreadPane(
                         thread = openThread,
+                        outgoingSendEvent = uiState.outgoingSendEvent,
+                        onOutgoingSendEventConsumed = onOutgoingSendEventConsumed,
                         smsChat = smsChat,
+                        historySyncActive = historySyncActive,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
                         onReply = onReplyFromThread,
                         onLongPressPart = { message, part ->
-                            if (message.status != MessageStatus.SENDING) {
+                            if (canOpenMessageActions(message)) {
                                 selectedAction = SelectedMessageAction(message, part)
+                            }
+                        },
+                        onDoubleTapPart = { message, part ->
+                            if (canDoubleTapMessageActions(message)) {
+                                reactionTarget = SelectedMessageAction(message, part)
                             }
                         },
                         onDownloadSticker = { guid ->
@@ -938,7 +1218,9 @@ fun ChatScreen(
                     else -> LazyColumn(
                         state = listState,
                         reverseLayout = true,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = if (arrivals.pendingCount > 0) 68.dp else 0.dp),
                         contentPadding = PaddingValues(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -975,7 +1257,7 @@ fun ChatScreen(
                                     showSenderName = entry.showSenderName,
                                     showAvatarGutter = isGroupChat,
                                     showAvatar = entry.showAvatar,
-                                    smsChat = smsChat,
+                                    smsChat = entry.message.isSms,
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
@@ -1024,10 +1306,15 @@ fun ChatScreen(
                                             ),
                                         )
                                     },
-                                    onLongPressPart = if (entry.message.status == MessageStatus.SENDING) {
-                                        null
-                                    } else {
+                                    onLongPressPart = if (canOpenMessageActions(entry.message)) {
                                         { part -> selectedAction = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
+                                    },
+                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message)) {
+                                        { part -> reactionTarget = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
                                     },
                                     onSwipeReply = if (canSwipeReply(entry.message)) {
                                         { part -> onReply(entry.message, part) }
@@ -1072,6 +1359,19 @@ fun ChatScreen(
                         }
                     }
                 }
+                // Overlay above the measured composer edge. The LazyColumn
+                // reserves the pill's 48dp target plus its 12dp offset so the
+                // control never covers transcript content or intercepts it.
+                if (openThread == null) {
+                    NewMessagesJumpPill(
+                        visible = arrivals.pendingCount > 0 && !uiState.initialLoading,
+                        count = arrivals.pendingCount,
+                        onClick = { scope.launch { jumpToNewest() } },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp),
+                    )
+                }
             }
         }
 
@@ -1093,6 +1393,51 @@ fun ChatScreen(
                 )
             }
         }
+
+        // Centered reaction picker. It lives inside the chat pane so a
+        // list-detail layout dims the conversation rather than the whole app,
+        // and it reads the live row so "who reacted" updates while it is open.
+        reactionTarget?.let { selection ->
+            val live = messagesByGuid[selection.message.guid]
+            val eligible = live?.let(::canDoubleTapMessageActions) == true
+            LaunchedEffect(selection.message.guid, eligible) {
+                if (!eligible) reactionTarget = null
+            }
+            if (live != null && eligible) {
+                TapbackPickerOverlay(
+                    reactions = reactionsForPart(live.reactions, selection.part),
+                    resolveName = { address ->
+                        senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
+                    },
+                    onReact = { index, emoji, enable ->
+                        reactionTarget = null
+                        onReact(live, selection.part, index, emoji, enable)
+                    },
+                    onCustomReaction = {
+                        reactionTarget = null
+                        customReactionTarget = SelectedMessageAction(live, selection.part)
+                    },
+                    onDismiss = { reactionTarget = null },
+                )
+            }
+        }
+    }
+
+    customReactionTarget?.let { selection ->
+        val live = messagesByGuid[selection.message.guid]
+        val eligible = live?.let(::canDoubleTapMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) customReactionTarget = null
+        }
+        if (live != null && eligible) {
+            CustomReactionDialog(
+                onReact = { emoji ->
+                    customReactionTarget = null
+                    onReact(live, selection.part, CustomReactionIndex, emoji, true)
+                },
+                onDismiss = { customReactionTarget = null },
+            )
+        }
     }
 
     // Effect picker sheet (long-press the send button).
@@ -1107,18 +1452,27 @@ fun ChatScreen(
     }
 
     selectedAction?.let { selection ->
-        val message = selection.message
+        val message = messagesByGuid[selection.message.guid]
+        val eligible = message?.let(::canOpenMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) selectedAction = null
+        }
+        if (message != null && eligible) key(message.guid, selection.part) {
         MessageActionSheet(
             message = message,
+            selectedPart = selection.part,
             chatGuid = uiState.chat?.guid.orEmpty(),
             chatTitle = uiState.chat?.title.orEmpty(),
-            isSms = uiState.chat?.isSms == true,
+            // Contact-grouped transcripts can contain iMessage rows even when
+            // their representative conversation is SMS. Actions route through
+            // the row's source chat, so eligibility must use that same service.
+            isSms = message.isSms,
             isGroup = uiState.chat?.isGroup == true,
             attachmentFile = attachmentFile,
             onDownloadAttachment = onDownloadAttachment,
-            onReact = { index, emoji ->
+            onReact = { index, emoji, enable ->
                 selectedAction = null
-                onReact(message, selection.part, index, emoji)
+                onReact(message, selection.part, index, emoji, enable)
             },
             onReply = {
                 selectedAction = null
@@ -1126,7 +1480,7 @@ fun ChatScreen(
             },
             onSticker = {
                 selectedAction = null
-                stickerTarget = selection
+                stickerTarget = SelectedMessageAction(message, selection.part)
                 pickSticker.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
@@ -1200,6 +1554,7 @@ fun ChatScreen(
             },
             onDismiss = { selectedAction = null },
         )
+        }
     }
 
     val placementTarget = stickerTarget

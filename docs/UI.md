@@ -44,7 +44,9 @@ Bubbles ([`MessageBubble.kt`](../app-native/src/main/kotlin/app/openbubbles/nati
 mine end-aligned (theme primary, or SMS green); theirs start-aligned `surfaceContainerHigh`;
 20.dp corners, 8.dp on grouped same-author edges; width 78% of the **transcript pane**, cap 320.dp.
 Status ticks only on the latest outgoing or FAILED. Group events and unsends are centered captions.
-Slide a bubble toward the start edge to begin an inline reply (long-press still opens the action sheet).
+Slide a bubble toward the start edge to begin an inline reply. Double-tap an iMessage, or
+long-press any eligible message, to open the existing action/reaction sheet. SMS keeps
+long-press only so it never presents a Tapback shortcut.
 A reply shows a smaller original-message bubble above it; tapping that quote focuses the thread
 in the conversation instead of opening a sheet.
 
@@ -115,7 +117,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Chat list | `ui/chatlist/ChatListScreen.kt`, `ChatListViewModel.kt` | VM + `ChatListRepository`; long-press selects many chats for archive/delete; single selection's action sheet adds pin/mute and the per-chat "Send from" override |
 | Search | `ui/search/SearchScreen.kt`, `SearchViewModel.kt` | VM + `SearchRepository`; chats/people/messages/links sections, match highlighting |
 | Archived chats | same list screen, `ChatListKind.Archive` | Opened from Settings; unarchive or delete |
-| Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt` | VM + send/action/attachment/typing ports |
+| Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt`, `ChatScrollPolicy.kt`, `NewMessagesPill.kt` | VM + send/action/attachment/typing ports; arrival/bottom-follow reducer for the "New messages" pill |
 | New chat | `ui/chatcreator/NewChatScreen.kt` | local + `CoreGraph.findOrCreateChat` |
 | Chat info | `ui/chatinfo/ChatInfoScreen.kt`, `ContactSheet.kt` | hoisted `AppGraph.chatInfo*`; 1:1 shows the contact card, group participants open a contact sheet |
 | Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
@@ -192,6 +194,10 @@ case; a group-specific change needs a direct-chat counterexample.
   coordinate system; it must not silently swap message ownership.
 - A visual relationship that carries meaning needs sufficient contrast. Interactive labels retain
   48.dp minimum targets even when their visible text/icon is compact.
+- In the reversed transcript, decide "the reader is following the newest message" from the position at
+  the last settled scroll, never from the geometry measured after a snapshot lands: inserting a row at
+  the visual bottom keeps its predecessor anchored and shifts every laid-out index by one.
+  `ChatScrollPolicy.kt` owns that decision, the bottom threshold, and arrival classification.
 - Do not fix a golden by increasing renderer tolerance until the measured drift is proven sparse,
   host-specific, and below a deliberate threshold. Product-level differences must continue to fail.
 
@@ -220,7 +226,8 @@ Back chevron only when `showBackButton` (false in multi-pane for list-detail chi
 **New bubble / attachment kind.** Extend the *core* DTO and map in `CoreGraph` (`coreMessageToUi` /
 `enrichWithEntityDetails`). Branch in `MessageBubble` or `AttachmentBubbles`. Keep grouping via
 `buildConversationEntries` in `ChatScreen.kt`. Viewer: `AttachmentKey` + `sharedAttachment(guid)`.
-Long-press is part-aware — pass the Apple part index.
+Long-press and double-tap are part-aware — pass the Apple part index. Double-tap is the
+iMessage Tapback shortcut; SMS keeps long-press only.
 
 **Settings row.** `SettingsGroup` + `SettingsInfoItem` / `SettingsActionItem` /
 `SettingsToggleItem` in `SettingsRows.kt`. Compact is a titled single column

@@ -45,6 +45,61 @@ class SwipeToReplyTest {
         assertEquals(1f, replySwipeProgress(-96f, thresholdPx = 48f))
     }
 
+    @Test
+    fun `threshold-crossing horizontal drag cancels double tap`() {
+        val outcome = resolveMessageSurfaceOutcome(
+            gesture = MessageSurfaceGesture.DoubleTap,
+            actionsEnabled = true,
+            doubleTapActionsEnabled = true,
+            horizontalAbsPx = ReplySwipeThresholdDp,
+            touchSlopPx = 8f,
+            replyArmed = true,
+        )
+        assertEquals(MessageSurfaceOutcome.CommitReply, outcome)
+        assertEquals(0, messageActionInvocationCount(listOf(outcome)))
+    }
+
+    @Test
+    fun `short drag does not create a reply or open actions`() {
+        val outcome = resolveMessageSurfaceOutcome(
+            gesture = MessageSurfaceGesture.HorizontalDrag,
+            actionsEnabled = true,
+            doubleTapActionsEnabled = true,
+            horizontalAbsPx = 12f,
+            touchSlopPx = 8f,
+            replyArmed = false,
+        )
+        assertEquals(MessageSurfaceOutcome.None, outcome)
+        assertFalse(replySwipeArmed(-12f, thresholdPx = ReplySwipeThresholdDp))
+    }
+
+    @Test
+    fun `long press does not duplicate the action callback`() {
+        val outcomes = listOf(
+            resolveMessageSurfaceOutcome(
+                gesture = MessageSurfaceGesture.LongPress,
+                actionsEnabled = true,
+                doubleTapActionsEnabled = true,
+                horizontalAbsPx = 0f,
+                touchSlopPx = 8f,
+                replyArmed = false,
+            ),
+            resolveMessageSurfaceOutcome(
+                gesture = MessageSurfaceGesture.DoubleTap,
+                actionsEnabled = true,
+                doubleTapActionsEnabled = true,
+                horizontalAbsPx = 0f,
+                touchSlopPx = 8f,
+                replyArmed = false,
+            ),
+        )
+        // CombinedClickable treats the two recognizers as exclusive; a real
+        // long-press never also delivers the double-tap. The policy still
+        // counts each delivered outcome so a duplicate would fail here.
+        assertEquals(1, messageActionInvocationCount(outcomes.take(1)))
+        assertEquals(MessageSurfaceOutcome.OpenActions, outcomes.first())
+    }
+
     private fun message(
         status: MessageStatus = MessageStatus.DELIVERED,
         unsent: Boolean = false,

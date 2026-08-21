@@ -962,6 +962,8 @@ private val TAPBACK_EMOJI = mapOf(
     "love" to "❤️", "like" to "👍", "dislike" to "👎", "laugh" to "😂",
     "emphasize" to "‼️", "question" to "❓",
 )
+private val TAPBACK_INDEX = TAPBACK_EMOJI.keys.withIndex().associate { (index, type) -> type to index }
+private const val CUSTOM_REACTION_INDEX = 6
 
 /** Transcript + contact search backed by the local store; links parse lazily in the mapper. */
 private class CoreSearchRepository(
@@ -996,6 +998,19 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     isGroupEvent = item.kind == app.openbubbles.core.model.MessageKind.GROUP_EVENT,
     reactionEmoji = item.reactionEmoji
         ?: item.reactionType?.removePrefix("-")?.let { TAPBACK_EMOJI[it] },
+    reactions = item.reactions.mapNotNull { reaction ->
+        val type = reaction.type.removePrefix("-")
+        val emoji = reaction.emoji
+            ?: TAPBACK_EMOJI[type]
+            ?: return@mapNotNull null
+        MessageReactionUi(
+            emoji = emoji,
+            senderAddress = reaction.senderAddress,
+            isFromMe = reaction.isFromMe,
+            targetPart = reaction.targetPart,
+            reactionIndex = TAPBACK_INDEX[type] ?: CUSTOM_REACTION_INDEX,
+        )
+    },
     senderAddress = item.senderAddress,
     guid = item.guid,
     replyToGuid = item.threadOriginatorGuid,
@@ -1020,6 +1035,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
         )
     },
     chatId = item.chatId,
+    isSms = item.isSms,
     isBookmarked = item.isBookmarked,
     hasBeenForwarded = item.hasBeenForwarded,
     dateDeleted = item.dateDeleted?.time,

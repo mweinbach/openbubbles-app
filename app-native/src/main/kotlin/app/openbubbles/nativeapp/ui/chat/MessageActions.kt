@@ -28,12 +28,20 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
@@ -46,19 +54,17 @@ import java.io.File
 import java.text.DateFormat
 import java.time.ZonedDateTime
 
-private val ActionTapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
-private val ActionReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
-
 @Composable
 internal fun MessageActionSheet(
     message: MessageItem,
+    selectedPart: Long,
     chatGuid: String,
     chatTitle: String,
     isSms: Boolean,
     isGroup: Boolean,
     attachmentFile: (String) -> File?,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
-    onReact: (Int, String?) -> Unit,
+    onReact: (Int, String?, Boolean) -> Unit,
     onReply: () -> Unit,
     onSticker: () -> Unit,
     onEdit: () -> Unit,
@@ -76,13 +82,12 @@ internal fun MessageActionSheet(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showCustomReaction by remember(message.guid) { mutableStateOf(false) }
-    var customReaction by remember(message.guid) { mutableStateOf("") }
     var showInfo by remember(message.guid) { mutableStateOf(false) }
     var showReminder by remember(message.guid) { mutableStateOf(false) }
-    val normalizedCustomReaction = normalizeCustomReaction(customReaction)
     val attachments = message.attachmentMetas.ifEmpty { listOfNotNull(message.attachmentMeta) }
     val downloaded = attachments.mapNotNull { meta -> attachmentFile(meta.guid)?.let { meta to it } }
     val url = message.richLink?.url ?: Regex("https?://\\S+").find(message.text)?.value
+    val selectedReaction = myReactionSelection(reactionsForPart(message.reactions, selectedPart))
 
     fun finish(action: () -> Unit) {
         onDismiss()
@@ -93,20 +98,20 @@ internal fun MessageActionSheet(
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp)) {
             if (!isSms) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                    ) {
-                        ActionTapbacks.forEachIndexed { index, emoji ->
-                            FilledTonalIconButton(
-                                onClick = { onReact(index, null) },
-                                shapes = IconButtonDefaults.shapes(),
-                                modifier = Modifier.weight(1f),
-                            ) { Text(emoji, style = MaterialTheme.typography.titleMedium) }
-                        }
+                    MessageActionTapbacks(
+                        // Mine, not simply the newest: a group message can
+                        // carry someone else's tapback as its latest.
+                        selected = selectedReaction,
+                        onReact = onReact,
+                    )
+                }
+                item {
+                    val custom = selectedReaction?.takeIf { it.reactionIndex == CustomReactionIndex }
+                    ActionRow(if (custom == null) "Custom reaction" else "Remove custom reaction") {
+                        if (custom == null) showCustomReaction = true
+                        else onReact(CustomReactionIndex, custom.emoji, false)
                     }
                 }
-                item { ActionRow("Custom reaction") { showCustomReaction = true } }
             }
             item { ActionRow("Reply") { finish(onReply) } }
             if (!isSms) item { ActionRow("Add sticker") { finish(onSticker) } }
@@ -149,31 +154,9 @@ internal fun MessageActionSheet(
     }
 
     if (showCustomReaction) {
-        AlertDialog(
-            onDismissRequest = { showCustomReaction = false },
-            title = { Text("Custom reaction") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        ActionReactionSuggestions.forEach { emoji ->
-                            FilledTonalIconButton(onClick = { customReaction = emoji }) { Text(emoji) }
-                        }
-                    }
-                    TextField(
-                        value = customReaction,
-                        onValueChange = { customReaction = it },
-                        singleLine = true,
-                        label = { Text("Emoji") },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = normalizedCustomReaction != null,
-                    onClick = { onReact(6, requireNotNull(normalizedCustomReaction)) },
-                ) { Text("React") }
-            },
-            dismissButton = { TextButton(onClick = { showCustomReaction = false }) { Text("Cancel") } },
+        CustomReactionDialog(
+            onReact = { emoji -> onReact(CustomReactionIndex, emoji, true) },
+            onDismiss = { showCustomReaction = false },
         )
     }
     if (showInfo) {
@@ -189,6 +172,99 @@ internal fun MessageActionSheet(
             },
             onDismiss = { showReminder = false },
         )
+    }
+}
+
+/**
+ * Emoji entry for a custom tapback, shared by the action sheet and the
+ * centered reaction picker so both send through the same reaction index.
+ */
+@Composable
+internal fun CustomReactionDialog(
+    onReact: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var customReaction by remember { mutableStateOf("") }
+    val normalized = normalizeCustomReaction(customReaction)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom reaction") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    CustomReactionSuggestions.forEach { emoji ->
+                        FilledTonalIconButton(
+                            onClick = { customReaction = emoji },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .semantics { contentDescription = "Reaction $emoji" },
+                        ) {
+                            Text(text = emoji, modifier = Modifier.clearAndSetSemantics {})
+                        }
+                    }
+                }
+                TextField(
+                    value = customReaction,
+                    onValueChange = { customReaction = it },
+                    singleLine = true,
+                    label = { Text("Emoji") },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = normalized != null,
+                onClick = { onReact(requireNotNull(normalized)) },
+            ) { Text("React") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+internal fun MessageActionTapbacks(
+    selected: MyReactionSelection?,
+    onReact: (Int, String?, Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics { isTraversalGroup = true },
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        ActionTapbacks.forEachIndexed { index, emoji ->
+            val isSelected = selected?.reactionIndex == index
+            FilledTonalIconButton(
+                onClick = {
+                    onReact(index, null, enableTappedReaction(selected, index))
+                },
+                shapes = IconButtonDefaults.shapes(),
+                colors = if (isSelected) {
+                    IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                } else {
+                    IconButtonDefaults.filledTonalIconButtonColors()
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .minimumInteractiveComponentSize()
+                    .semantics {
+                        contentDescription = tapbackContentDescription(emoji)
+                        if (isSelected) stateDescription = "Selected"
+                    },
+            ) {
+                Text(
+                    text = emoji,
+                    style = MaterialTheme.typography.titleMedium,
+                    // The label already names the tapback.
+                    modifier = Modifier.clearAndSetSemantics {},
+                )
+            }
+        }
     }
 }
 

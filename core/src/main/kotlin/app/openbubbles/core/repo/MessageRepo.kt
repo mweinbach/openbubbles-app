@@ -7,6 +7,7 @@ import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.InteractivePayloadParser
 import app.openbubbles.core.model.MessageKind
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.MessageReaction
 import app.openbubbles.core.model.MessageStatus
 import app.openbubbles.core.model.StickerPlacement
 import app.openbubbles.db.Attachment
@@ -516,9 +517,9 @@ class MessageRepo(
 
     private fun toItem(message: Message, activeReactions: List<Message>): MessageItem {
         val kind = kindOf(message)
-        val activeReaction = activeReactions
+        val tapbacks = activeReactions
             .filterNot { it.associatedMessageType?.removePrefix("-") in STICKER_TYPES }
-            .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+        val activeReaction = tapbacks.maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
         return MessageItem(
             id = message.id,
             guid = message.guid,
@@ -536,6 +537,17 @@ class MessageRepo(
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageType else null,
             reactionEmoji = activeReaction?.associatedMessageEmoji
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
+            reactions = tapbacks.mapNotNull { reaction ->
+                val type = reaction.associatedMessageType ?: return@mapNotNull null
+                MessageReaction(
+                    type = type,
+                    emoji = reaction.associatedMessageEmoji,
+                    senderAddress = reaction.handleRelation.target?.address,
+                    isFromMe = reaction.isFromMe,
+                    date = reaction.dateCreated,
+                    targetPart = reaction.associatedMessagePart ?: 0L,
+                )
+            },
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
             attachmentStamps = if (message.hasAttachments) {
@@ -574,6 +586,7 @@ class MessageRepo(
             },
             stickers = activeReactions.flatMap(::stickerPlacements),
             chatId = message.chat.targetId,
+            isSms = message.chat.target?.isRpSms == true,
             isBookmarked = message.isBookmarked == true,
             hasBeenForwarded = message.hasBeenForwarded,
             dateDeleted = message.dateDeleted,
@@ -603,7 +616,7 @@ class MessageRepo(
 
     /**
      * Collapses reaction rows onto their target bubble. Each sender owns one
-     * active tapback; a later `-type` row removes that sender's matching one.
+     * active tapback per part; a later `-type` row removes the matching part.
      */
     private fun activeReactionsFor(messageGuid: String): List<Message> {
         val reactions = messageBox.query()
@@ -638,7 +651,7 @@ class MessageRepo(
     }
 
     private fun collapseReactions(reactions: List<Message>): List<Message> {
-        val bySender = linkedMapOf<String, Message>()
+        val bySenderAndPart = linkedMapOf<Pair<String, Long>, Message>()
         val stickers = mutableListOf<Message>()
         reactions.forEach { reaction ->
             val type = reaction.associatedMessageType ?: return@forEach
@@ -651,16 +664,18 @@ class MessageRepo(
             } else {
                 "handle:${reaction.handleId ?: reaction.handleRelation.targetId}"
             }
+            val key = senderKey to (reaction.associatedMessagePart ?: 0L)
             if (type.startsWith("-")) {
                 val removedType = type.removePrefix("-")
-                if (bySender[senderKey]?.associatedMessageType == removedType) {
-                    bySender.remove(senderKey)
+                if (bySenderAndPart[key]?.associatedMessageType == removedType) {
+                    bySenderAndPart.remove(key)
                 }
             } else {
-                bySender[senderKey] = reaction
+                bySenderAndPart[key] = reaction
             }
         }
-        return bySender.values + stickers
+        return (bySenderAndPart.values + stickers)
+            .sortedBy { it.dateCreated?.time ?: Long.MIN_VALUE }
     }
 
     private fun stickerPlacements(reaction: Message): List<StickerPlacement> {

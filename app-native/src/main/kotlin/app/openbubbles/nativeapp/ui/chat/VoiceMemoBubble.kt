@@ -3,7 +3,7 @@ package app.openbubbles.nativeapp.ui.chat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -112,6 +112,8 @@ fun VoiceMemoBubble(
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     fromMe: Boolean,
     smsChat: Boolean,
+    onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(18.dp),
 ) {
@@ -132,6 +134,8 @@ fun VoiceMemoBubble(
                 onPlayCircle = palette.onPlayCircle,
                 wave = palette.wave,
                 fallbackLabel = attachment.name,
+                onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
             )
         }
     } else {
@@ -202,6 +206,8 @@ internal fun VoiceMemoPlayerContent(
     onPlayCircle: Color,
     wave: Color,
     fallbackLabel: String?,
+    onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val playback by ChatAudioPlayer.state.collectAsStateWithLifecycle()
@@ -231,6 +237,8 @@ internal fun VoiceMemoPlayerContent(
             circle = playCircle,
             onCircle = onPlayCircle,
             onClick = { ChatAudioPlayer.toggle(playerKey, file) },
+            onLongPress = onLongPress,
+            onDoubleTap = onDoubleTap,
         )
         Column(modifier = Modifier.padding(start = 4.dp)) {
             WavySeekBar(
@@ -242,6 +250,8 @@ internal fun VoiceMemoPlayerContent(
                 seekingEnabled = mine != null,
                 playing = playing,
                 color = wave,
+                onLongPress = onLongPress,
+                onDoubleTap = onDoubleTap,
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
@@ -264,6 +274,8 @@ internal fun PlayPauseMorphButton(
     circle: Color,
     onCircle: Color,
     onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -278,12 +290,14 @@ internal fun PlayPauseMorphButton(
             .size(48.dp)
             .clip(RoundedCornerShape(cornerPercent.roundToInt()))
             .background(circle)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
                 role = androidx.compose.ui.semantics.Role.Button,
                 onClickLabel = if (playing) "Pause voice memo" else "Play voice memo",
                 onClick = onClick,
+                onLongClick = onLongPress,
+                onDoubleClick = onDoubleTap,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -311,6 +325,8 @@ internal fun WavySeekBar(
     seekingEnabled: Boolean,
     playing: Boolean,
     color: Color,
+    onLongPress: (() -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalReduceMotion.current
@@ -341,11 +357,15 @@ internal fun WavySeekBar(
                     }
                 }
             }
-            .pointerInput(seekingEnabled) {
+            .pointerInput(seekingEnabled, onLongPress, onDoubleTap) {
                 if (!seekingEnabled) return@pointerInput
-                detectTapGestures { offset ->
-                    onSeek((offset.x / size.width).coerceIn(0f, 1f))
-                }
+                detectTapGestures(
+                    onDoubleTap = onDoubleTap?.let { callback -> { _: Offset -> callback() } },
+                    onLongPress = onLongPress?.let { callback -> { _: Offset -> callback() } },
+                    onTap = { offset ->
+                        onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                    },
+                )
             }
             .pointerInput(seekingEnabled) {
                 if (!seekingEnabled) return@pointerInput
