@@ -52,6 +52,10 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Surface-switcher policy — `TopLevelSurfaceTest` covers the order model, the persisted form and its
+  corrupt-value fallback, and the stack edit a switch performs from every reachable stack shape;
+  `SurfaceSwipePolicyTest` covers the swipe thresholds, direction, edge exclusion, and disabled
+  state. Both are pure: neither proves real touch arbitration on a device.
 - Optional screenshots — visual review of list, chat, and onboarding chrome. They are not a
   routine correctness gate and do not cover settings, login, Find My, or effects. They also do not
   prove touch/gesture arbitration, IME behavior, TalkBack order, platform authentication, predictive

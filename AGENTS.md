@@ -105,7 +105,10 @@ Claude project discovery. Update the canonical skill only; keep both discovery s
 to the same files.
 
 UI already uses Material 3 Expressive + Navigation3. Do not invent a bottom nav or extra top-bar
-destinations for Find My / Settings (those live in the chat-list profile menu).
+destinations for Find My / Settings (those live in the chat-list profile menu). Messages, Photos,
+Passwords, and Find My are peers of the one header switcher in
+`app-native/.../ui/navigation/`; route through it and the existing root back stack instead of adding
+another navigation container.
 
 | When | Load |
 |---|---|
