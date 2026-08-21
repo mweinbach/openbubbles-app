@@ -1,6 +1,8 @@
 package app.openbubbles.nativeapp.data
 
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,6 +11,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AccountLocalDataCleanupTest {
+
+    @Test
+    fun `map tile cleanup fence cancels and joins active publications`() = runTest {
+        val cancelled = CompletableDeferred<Unit>()
+        val lease = MapTileDownloadFence.begin { cancelled.complete(Unit) }
+        val cleanup = async { MapTileDownloadFence.cancelAndJoin() }
+
+        cancelled.await()
+        assertFalse(cleanup.isCompleted)
+        assertFalse(MapTileDownloadFence.isCurrent(lease))
+
+        MapTileDownloadFence.complete(lease)
+        cleanup.await()
+    }
 
     @Test
     fun `owned cache cleanup removes nested data and preserves every sibling`() {

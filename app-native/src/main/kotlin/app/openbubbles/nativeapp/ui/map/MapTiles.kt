@@ -5,17 +5,21 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import app.openbubbles.nativeapp.data.MapTileDownloadFence
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.coroutines.resume
 
 /**
  * Where map imagery comes from.
@@ -93,28 +97,37 @@ class MapTileStore(
             val file = fileFor(tile)
             decode(file)?.let { return@withContext it.also { image -> memory.put(tile, image) } }
             if (file.exists()) runCatching { file.delete() }
-            val bytes = network.withPermit { download(tile) } ?: run {
-                failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
-                return@withContext null
+            network.withPermit {
+                val call = client.newCall(requestFor(tile))
+                val lease = MapTileDownloadFence.begin(call::cancel)
+                try {
+                    val bytes = download(call) ?: run {
+                        failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
+                        return@withPermit null
+                    }
+                    if (!MapTileDownloadFence.isCurrent(lease)) return@withPermit null
+                    runCatching {
+                        file.parentFile?.mkdirs()
+                        val part = File(file.parentFile, file.name + ".part")
+                        part.writeBytes(bytes)
+                        // Publish atomically: a half-written tile must never be decoded
+                        // on the next pan.
+                        if (!part.renameTo(file)) part.delete()
+                    }
+                    pruneIfNeeded()
+                    val decoded = decode(file) ?: decodeBytes(bytes)
+                    if (decoded == null) {
+                        runCatching { file.delete() }
+                        failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
+                    } else if (MapTileDownloadFence.isCurrent(lease)) {
+                        failedUntilNanos.remove(tile)
+                        memory.put(tile, decoded)
+                    }
+                    decoded.takeIf { MapTileDownloadFence.isCurrent(lease) }
+                } finally {
+                    MapTileDownloadFence.complete(lease)
+                }
             }
-            runCatching {
-                file.parentFile?.mkdirs()
-                val part = File(file.parentFile, file.name + ".part")
-                part.writeBytes(bytes)
-                // Publish atomically: a half-written tile must never be decoded
-                // on the next pan.
-                if (!part.renameTo(file)) part.delete()
-            }
-            pruneIfNeeded()
-            val decoded = decode(file) ?: decodeBytes(bytes)
-            if (decoded == null) {
-                runCatching { file.delete() }
-                failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
-            } else {
-                failedUntilNanos.remove(tile)
-                memory.put(tile, decoded)
-            }
-            decoded
         }
     }
 
@@ -150,25 +163,31 @@ class MapTileStore(
             options.outHeight in 1..MAX_IMAGE_DIMENSION &&
             options.outWidth.toLong() * options.outHeight <= MAX_IMAGE_PIXELS
 
-    private fun download(tile: TileId): ByteArray? {
-        val request = Request.Builder()
+    private fun requestFor(tile: TileId): Request = Request.Builder()
             .url(source.url(tile))
             // Tile servers require a real identifying agent and reject generic
             // library defaults.
             .header("User-Agent", userAgent)
             .header("Accept", "image/png,image/*")
             .build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body ?: return null
-                val contentLength = body.contentLength()
-                if (contentLength > MAX_ENCODED_BYTES.toLong()) return null
-                body.byteStream().use(::readBounded)
-            }
-        } catch (error: IOException) {
-            null
+
+    private suspend fun download(call: Call): ByteArray? =
+        suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            val result = execute(call)
+            if (continuation.isActive) continuation.resume(result)
         }
+
+    private fun execute(call: Call): ByteArray? = try {
+        call.execute().use { response ->
+            if (!response.isSuccessful) return null
+            val body = response.body ?: return null
+            val contentLength = body.contentLength()
+            if (contentLength > MAX_ENCODED_BYTES.toLong()) return null
+            body.byteStream().use(::readBounded)
+        }
+    } catch (error: IOException) {
+        null
     }
 
     private fun readBounded(input: InputStream): ByteArray? {

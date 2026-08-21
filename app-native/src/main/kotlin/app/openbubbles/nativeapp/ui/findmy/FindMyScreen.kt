@@ -56,6 +56,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.separatingVerticalHingeBounds
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +75,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,6 +97,7 @@ import app.openbubbles.nativeapp.ui.map.OpenMap
 import app.openbubbles.nativeapp.ui.map.WebMercator
 import app.openbubbles.nativeapp.ui.map.cameraFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -289,6 +293,9 @@ private fun FindMyTracker(
     tiles: MapTileStore?,
     nowMillis: Long,
 ) {
+    val adaptiveInfo = currentWindowAdaptiveInfoV2()
+    val density = LocalDensity.current
+    val verticalHinge = adaptiveInfo.windowPosture.separatingVerticalHingeBounds.firstOrNull()
     // The camera is derived, not stored: with no manual camera it follows the
     // selected target's newest fix, or frames everything located. A pan or pinch
     // stores one and hands control to the user until they re-centre, which makes
@@ -304,7 +311,12 @@ private fun FindMyTracker(
     val following = manualCamera == null
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val splitPanes = maxWidth >= SplitWidth
+        val split = findMyPaneSplit(
+            containerWidthDp = maxWidth.value,
+            hingeLeftDp = verticalHinge?.let { with(density) { it.left.toDp().value } },
+            hingeRightDp = verticalHinge?.let { with(density) { it.right.toDp().value } },
+        )
+        val splitPanes = maxWidth >= SplitWidth || split.usesHinge
         val map: @Composable (Modifier) -> Unit = { mapModifier ->
             FindMyMap(
                 uiState = uiState,
@@ -342,7 +354,8 @@ private fun FindMyTracker(
         }
         if (splitPanes) {
             Row(modifier = Modifier.fillMaxSize()) {
-                panel(Modifier.width(380.dp).fillMaxHeight())
+                panel(Modifier.width(split.panelWidthDp.dp).fillMaxHeight())
+                if (split.gutterWidthDp > 0f) Spacer(Modifier.width(split.gutterWidthDp.dp))
                 map(Modifier.weight(1f).fillMaxHeight())
             }
         } else {
@@ -363,6 +376,29 @@ private fun FindMyTracker(
                 )
             }
         }
+    }
+}
+
+internal data class FindMyPaneSplit(
+    val panelWidthDp: Float,
+    val gutterWidthDp: Float,
+    val usesHinge: Boolean,
+)
+
+internal fun findMyPaneSplit(
+    containerWidthDp: Float,
+    hingeLeftDp: Float?,
+    hingeRightDp: Float?,
+    defaultPanelWidthDp: Float = 380f,
+    minPaneWidthDp: Float = 240f,
+): FindMyPaneSplit {
+    val validHinge = hingeLeftDp != null && hingeRightDp != null &&
+        hingeRightDp > hingeLeftDp && hingeLeftDp >= minPaneWidthDp &&
+        containerWidthDp - hingeRightDp >= minPaneWidthDp
+    return if (validHinge) {
+        FindMyPaneSplit(hingeLeftDp, hingeRightDp - hingeLeftDp, usesHinge = true)
+    } else {
+        FindMyPaneSplit(defaultPanelWidthDp, 0f, usesHinge = false)
     }
 }
 
@@ -593,10 +629,11 @@ private fun SelectedTargetCard(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val resizeSpec = defaultSpatialSpec<androidx.compose.ui.unit.IntSize>()
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth().animateContentSize(),
+        modifier = modifier.fillMaxWidth().animateContentSize(animationSpec = resizeSpec),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -733,6 +770,7 @@ private fun TargetRow(
         },
         modifier = Modifier
             .fillMaxWidth()
+            .semantics { this.selected = selected }
             .clickable(
                 onClick = onClick,
                 onClickLabel = if (target.located) "Show on map" else "Show details",

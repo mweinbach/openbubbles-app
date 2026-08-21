@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -72,7 +73,7 @@ data class MapMarker(
 )
 
 /** Marker touch target; also the anchor size the projection centres on. */
-private val MarkerSize = 44.dp
+private val MarkerSize = 48.dp
 
 /** How far off screen a marker may be before it stops being composed. */
 private const val MarkerCullSlopPx = 120f
@@ -179,13 +180,13 @@ fun OpenMap(
 
             markers.forEach { marker ->
                 if (marker.trail.size >= 2) {
-                    val path = Path()
-                    marker.trail.forEachIndexed { index, point ->
-                        val x = viewport.projectX(point.longitude)
-                        val y = viewport.projectY(point.latitude)
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    viewport.projectTrailSegments(marker.trail).forEach { segment ->
+                        val path = Path()
+                        segment.forEachIndexed { index, point ->
+                            if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                        }
+                        drawPath(path = path, color = trailColor, style = Stroke(width = trailWidthPx))
                     }
-                    drawPath(path = path, color = trailColor, style = Stroke(width = trailWidthPx))
                 }
                 val radiusMeters = marker.accuracyMeters?.takeIf { it > 0 } ?: return@forEach
                 val radiusPx = (
@@ -292,6 +293,7 @@ private fun MapMarkerPin(
             .semantics(mergeDescendants = true) {
                 contentDescription = marker.label
                 role = Role.Button
+                selected = marker.selected
             },
     ) {
         Box(contentAlignment = Alignment.Center) { marker.content(marker.selected) }

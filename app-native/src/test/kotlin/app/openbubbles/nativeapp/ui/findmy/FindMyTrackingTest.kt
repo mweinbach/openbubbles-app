@@ -103,6 +103,33 @@ class FindMyTargetsTest {
     }
 }
 
+class FindMyPaneSplitTest {
+    @Test
+    fun `separating hinge becomes the exact pane gutter`() {
+        val split = findMyPaneSplit(
+            containerWidthDp = 900f,
+            hingeLeftDp = 430f,
+            hingeRightDp = 450f,
+        )
+
+        assertTrue(split.usesHinge)
+        assertEquals(430f, split.panelWidthDp)
+        assertEquals(20f, split.gutterWidthDp)
+    }
+
+    @Test
+    fun `edge hinge falls back to the regular split`() {
+        val split = findMyPaneSplit(
+            containerWidthDp = 700f,
+            hingeLeftDp = 120f,
+            hingeRightDp = 140f,
+        )
+
+        assertFalse(split.usesHinge)
+        assertEquals(380f, split.panelWidthDp)
+    }
+}
+
 /** Session tracks. */
 class FindMyTrailTest {
     @Test

@@ -140,6 +140,26 @@ class MapViewportTest {
     }
 
     @Test
+    fun `trail crossing antimeridian is split when camera uses opposite world copies`() {
+        val viewport = MapViewport(
+            MapCamera(GeoPoint(0.0, 0.0), 3.0),
+            widthPx = 1000f,
+            heightPx = 1000f,
+        )
+        val segments = viewport.projectTrailSegments(
+            listOf(
+                GeoPoint(0.0, 178.0),
+                GeoPoint(0.0, 179.0),
+                GeoPoint(0.0, -179.0),
+                GeoPoint(0.0, -178.0),
+            ),
+        )
+
+        assertEquals(2, segments.size)
+        assertEquals(listOf(2, 2), segments.map { it.size })
+    }
+
+    @Test
     fun `visible tiles cover the viewport at the right zoom`() {
         val tiles = viewport.visibleTiles()
         assertTrue(tiles.isNotEmpty())

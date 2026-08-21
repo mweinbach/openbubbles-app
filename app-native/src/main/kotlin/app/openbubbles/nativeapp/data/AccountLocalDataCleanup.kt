@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.data
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import kotlinx.coroutines.CompletableDeferred
 
 internal const val ICLOUD_CONTACT_AVATAR_ROOT = "icloud_contact_avatars"
 internal const val ICLOUD_PHOTOS_CACHE_ROOT = "icloud_photos"
@@ -17,6 +18,48 @@ internal data class OwnedRootCleanup(
     val deletedEntries: Int,
     val complete: Boolean,
 )
+
+/**
+ * Account-generation fence for location-derived map tile publications.
+ *
+ * Sign-out advances the generation, cancels every in-flight HTTP call, and
+ * joins the complete download/write lease before deleting the owned cache.
+ */
+internal object MapTileDownloadFence {
+    internal class Lease internal constructor(
+        val id: Long,
+        val generation: Long,
+        val cancel: () -> Unit,
+        val completed: CompletableDeferred<Unit> = CompletableDeferred(),
+    )
+
+    private val lock = Any()
+    private var generation = 0L
+    private var nextId = 0L
+    private val active = LinkedHashMap<Long, Lease>()
+
+    fun begin(cancel: () -> Unit): Lease = synchronized(lock) {
+        Lease(++nextId, generation, cancel).also { active[it.id] = it }
+    }
+
+    fun isCurrent(lease: Lease): Boolean = synchronized(lock) {
+        lease.generation == generation && active[lease.id] === lease
+    }
+
+    fun complete(lease: Lease) {
+        synchronized(lock) { active.remove(lease.id, lease) }
+        lease.completed.complete(Unit)
+    }
+
+    suspend fun cancelAndJoin() {
+        val pending = synchronized(lock) {
+            generation += 1
+            active.values.toList()
+        }
+        pending.forEach { lease -> runCatching(lease.cancel) }
+        pending.forEach { lease -> lease.completed.await() }
+    }
+}
 
 /**
  * Deletes one whitelisted, app-owned child tree without following symlinks.

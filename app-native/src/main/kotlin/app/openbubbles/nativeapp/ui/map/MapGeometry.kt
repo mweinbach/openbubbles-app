@@ -194,6 +194,25 @@ data class MapViewport(
     }
 }
 
+internal data class ProjectedTrailPoint(val x: Float, val y: Float)
+
+/** Splits a trail when camera-relative world copies diverge at the antimeridian. */
+internal fun MapViewport.projectTrailSegments(points: List<GeoPoint>): List<List<ProjectedTrailPoint>> {
+    if (points.isEmpty()) return emptyList()
+    val splitThreshold = WebMercator.worldSizePx(camera.zoom) / 2.0
+    val segments = mutableListOf<MutableList<ProjectedTrailPoint>>()
+    points.forEach { point ->
+        val projected = ProjectedTrailPoint(projectX(point.longitude), projectY(point.latitude))
+        val current = segments.lastOrNull()
+        if (current == null || current.lastOrNull()?.let { kotlin.math.abs(projected.x - it.x) > splitThreshold } == true) {
+            segments += mutableListOf(projected)
+        } else {
+            current += projected
+        }
+    }
+    return segments.filter { it.size >= 2 }
+}
+
 /** Pans the camera by a screen-pixel delta, keeping it inside the projection. */
 fun MapCamera.panBy(dxPx: Float, dyPx: Float, viewportHeightPx: Float): MapCamera {
     val worldSize = WebMercator.worldSizePx(zoom)
