@@ -13,14 +13,26 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import java.io.File
 
 /** Mini original-message preview shown above a reply bubble. */
@@ -136,6 +148,8 @@ internal fun ensureThreadContains(
 @Composable
 internal fun ReplyThreadPane(
     thread: ReplyThreadState,
+    smsChat: Boolean,
+    historySyncActive: Boolean,
     senderNames: Map<String, String>,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
@@ -147,9 +161,97 @@ internal fun ReplyThreadPane(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val reduceMotion = LocalReduceMotion.current
     val lastFromMeId = remember(thread.messages) {
         thread.messages.lastOrNull { it.isFromMe && !it.isGroupEvent }?.id
     }
+
+    // Thread-scoped follow policy: the same reducer as the main transcript, but
+    // with its own counter over the selected root/part only. No typing row here,
+    // so the newest reply always holds the reversed list's bottom slot.
+    val newestIndex = if (thread.messages.isEmpty()) -1 else 0
+    val thresholdPx = with(LocalDensity.current) { FollowBottomThresholdDp.dp.roundToPx() }
+    val anchor by remember(listState) {
+        derivedStateOf {
+            TranscriptAnchor(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        }
+    }
+    val atBottomNow by remember(listState, newestIndex, thresholdPx) {
+        derivedStateOf {
+            isFollowingBottom(anchor, newestIndex, thresholdPx)
+        }
+    }
+    // As in the main transcript: the follow decision is the position at the last
+    // settled scroll, because inserting the newest reply moves every laid-out
+    // index by one before the arrival effect can read it.
+    var followingBottom by remember(thread.rootGuid, thread.part) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) followingBottom = atBottomNow
+        }
+    }
+    var liveArrivalMarkers by rememberSaveable(
+        thread.rootGuid,
+        thread.part,
+        stateSaver = LiveArrivalMarkerStateSaver,
+    ) {
+        mutableStateOf(LiveArrivalMarkerState())
+    }
+    LaunchedEffect(thread.rootGuid, thread.part) {
+        LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.threadRootGuid == thread.rootGuid && arrival.threadPart == thread.part) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+    }
+    val liveArrivalGuids = liveArrivalMarkers.reducerGuids
+    val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
+    // Selecting another root/part is a different viewport; closing the thread
+    // disposes this state entirely, so no stale announcement can replay.
+    var arrivals by rememberSaveable(
+        thread.rootGuid,
+        thread.part,
+        stateSaver = ArrivalStateSaver,
+    ) { mutableStateOf(ArrivalState()) }
+    LaunchedEffect(
+        thread.messages,
+        thread.rootGuid,
+        thread.part,
+        historySyncActive,
+        liveArrivalGuids,
+        liveArrivalFallback,
+    ) {
+        val outcome = reduceArrivals(
+            state = arrivals,
+            messages = thread.messages,
+            followingBottom = shouldAutoScrollToNewest(followingBottom, anchor),
+            historySyncActive = historySyncActive,
+            liveArrivalGuids = liveArrivalGuids,
+            chronologicalFallback = liveArrivalFallback,
+        )
+        arrivals = outcome.state
+        liveArrivalMarkers = liveArrivalMarkers.consumed(
+            outcome.matchedLiveGuids,
+            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+        )
+        if (outcome.pinToNewest && newestIndex >= 0) {
+            if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
+        }
+    }
+    LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {
+        if (arrivals.pendingCount == 0) return@LaunchedEffect
+        if (!atBottomNow || anchor.isScrollInProgress) return@LaunchedEffect
+        val newestKey = thread.messages.lastOrNull()?.let { "thread-${it.id}-${it.guid}" }
+        if (newestKey != null && listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         if (thread.messages.isEmpty() && thread.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -161,7 +263,10 @@ internal fun ReplyThreadPane(
             state = listState,
             reverseLayout = true,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
+            ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (thread.messages.isEmpty()) {
@@ -221,5 +326,23 @@ internal fun ReplyThreadPane(
                     .align(Alignment.TopCenter),
             )
         }
+        NewMessagesJumpPill(
+            visible = arrivals.pendingCount > 0,
+            count = arrivals.pendingCount,
+            thread = true,
+            onClick = {
+                scope.launch {
+                    val newest = thread.messages.lastOrNull() ?: return@launch
+                    val newestKey = "thread-${newest.id}-${newest.guid}"
+                    if (reduceMotion) listState.scrollToItem(0) else listState.animateScrollToItem(0)
+                    if (listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
+                        arrivals = arrivals.cleared()
+                    }
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
+        )
     }
 }

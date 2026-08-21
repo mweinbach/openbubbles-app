@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
 import app.openbubbles.nativeapp.ui.chat.MessageBubble
+import app.openbubbles.nativeapp.ui.chat.NewMessagesJumpPill
 import app.openbubbles.nativeapp.ui.chat.ReplyTarget
 import app.openbubbles.nativeapp.ui.chat.ReplyThreadState
 import app.openbubbles.nativeapp.ui.chat.TapbackPickerOverlay
@@ -843,6 +845,30 @@ fun MessageReactionPickerScreenshot() {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The "New messages" jump pill in both scopes. It is rendered standalone
+ * because its visibility is a runtime viewport decision: a static ChatScreen
+ * preview always establishes a baseline at the bottom, which is exactly the
+ * case where the pill must stay hidden.
+ */
+@PreviewTest
+@Preview(name = "chat-new-messages-pill", showBackground = true)
+@Preview(name = "chat-new-messages-pill-dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatNewMessagesPillScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            NewMessagesJumpPill(visible = true, count = 0, onClick = {})
+            NewMessagesJumpPill(visible = true, count = 3, onClick = {})
+            NewMessagesJumpPill(visible = true, count = 250, onClick = {})
+            NewMessagesJumpPill(visible = true, count = 1, onClick = {}, thread = true)
         }
     }
 }

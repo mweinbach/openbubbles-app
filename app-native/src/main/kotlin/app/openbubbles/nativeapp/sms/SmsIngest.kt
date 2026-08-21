@@ -1,11 +1,15 @@
 package app.openbubbles.nativeapp.sms
 
 import android.content.Context
+import app.openbubbles.core.model.MessageMapper
 import app.openbubbles.db.Chat
 import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.LiveMessageArrival
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.service.Notifications
+import uniffi.rust_lib_bluebubbles.UMessage
 import uniffi.rust_lib_bluebubbles.UPushMessage
 
 /**
@@ -37,7 +41,8 @@ internal object SmsIngest {
         val ingestor = CoreGraph.ingestor ?: return null
         val store = CoreGraph.store ?: return null
 
-        val chat = ingestor.ingest(push, PushStateHolder.myHandles) ?: return null
+        val result = ingestor.ingestWithResult(push, PushStateHolder.myHandles)
+        val chat = result.chat ?: return null
 
         // Track the telephony thread id on first sight (senders/notifications
         // key off it later; never overwrite an existing binding).
@@ -48,6 +53,18 @@ internal object SmsIngest {
             }
         }
 
+        liveArrivalGuid(push, result.isNewIncomingMessage)?.let { guid ->
+            val instance = (push as? UPushMessage.IMessage)?.inst
+            val normal = instance?.message as? UMessage.Normal
+            LiveMessageArrivals.publish(
+                LiveMessageArrival(
+                    messageGuid = guid,
+                    chatId = chat.id,
+                    threadRootGuid = normal?.replyGuid,
+                    threadPart = MessageMapper.replyPartIndex(normal?.replyPart),
+                ),
+            )
+        }
         notifyIncoming(context, push, chat, notificationText)
         return chat.id
     }
@@ -79,4 +96,11 @@ internal object SmsIngest {
     fun seedAppContext(context: Context) {
         AppContext.initialize(context)
     }
+}
+
+/** Mirrors the APNs intake boundary without publishing reactions or redeliveries. */
+internal fun liveArrivalGuid(push: UPushMessage, newlyIngested: Boolean): String? {
+    if (!newlyIngested) return null
+    val inst = (push as? UPushMessage.IMessage)?.inst ?: return null
+    return inst.id.takeIf { inst.message is UMessage.Normal }
 }

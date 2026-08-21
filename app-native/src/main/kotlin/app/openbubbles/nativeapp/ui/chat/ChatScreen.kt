@@ -105,11 +105,15 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -124,6 +128,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -140,6 +145,7 @@ import app.openbubbles.nativeapp.data.AppGraph
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.LiveMessageArrivals
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
@@ -363,7 +369,7 @@ fun ChatScreen(
     uiState: ChatUiState,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    onLoadOlder: () -> Unit,
+    onLoadOlder: () -> Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onSubjectChange: (String) -> Unit = {},
@@ -398,6 +404,7 @@ fun ChatScreen(
     onOpenAttachment: (String) -> Unit = {},
     onDownloadAttachment: (AttachmentMeta) -> Unit = {},
     attachmentFile: (String) -> File? = { null },
+    historySyncActive: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -510,13 +517,6 @@ fun ChatScreen(
     fun stagePendingEffect(option: SendEffectOption?) {
         pendingEffectId = option?.id
         PendingSendEffect.effectId = option?.id
-    }
-
-    LaunchedEffect(uiState.outgoingSendEvent) {
-        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
-        if (pendingEffectId == event.effectId) stagePendingEffect(null)
-        listState.animateScrollToItem(0)
-        onOutgoingSendEventConsumed(event.messageId)
     }
 
     fun stageAttachments(uris: List<Uri>) {
@@ -686,6 +686,146 @@ fun ChatScreen(
         }
     }
 
+    // ---- New-message follow policy -------------------------------------------
+    // Reversed list: index 0 is the visual bottom, and the optional typing row
+    // takes that slot when someone is typing, so the newest message row is
+    // resolved by entry position rather than assumed to be index 0.
+    val newestIndex = remember(entries, isTyping) { newestMessageIndex(entries, isTyping) }
+    val followThresholdBasePx = with(LocalDensity.current) {
+        FollowBottomThresholdDp.dp.roundToPx()
+    }
+    val transcriptAnchor by remember(listState) {
+        derivedStateOf {
+            TranscriptAnchor(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        }
+    }
+    val atBottomNow by remember(listState, newestIndex, followThresholdBasePx) {
+        derivedStateOf {
+            isFollowingBottom(
+                anchor = transcriptAnchor,
+                newestMessageIndex = newestIndex,
+                thresholdPx = followThresholdBasePx,
+            )
+        }
+    }
+    // Arrival decisions use the reading position as of the last settled scroll,
+    // not the position measured after the snapshot landed: a row inserted at the
+    // bottom of a reversed list keeps its predecessor anchored, which moves every
+    // laid-out index by one and would read as "the reader left the bottom".
+    var followingBottom by remember(uiState.chat?.id) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) followingBottom = atBottomNow
+        }
+    }
+    var liveArrivalMarkers by rememberSaveable(
+        uiState.chat?.id,
+        stateSaver = LiveArrivalMarkerStateSaver,
+    ) {
+        mutableStateOf(LiveArrivalMarkerState())
+    }
+    val observedLiveArrivalChatIds = remember(uiState.chat?.id, uiState.chat?.memberChatIds) {
+        liveArrivalChatIds(uiState.chat?.id, uiState.chat?.memberChatIds.orEmpty())
+    }
+    LaunchedEffect(observedLiveArrivalChatIds) {
+        if (observedLiveArrivalChatIds.isEmpty()) return@LaunchedEffect
+        LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.chatId in observedLiveArrivalChatIds) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+    }
+    val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
+    val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
+
+    // Reset per conversation: a new chat establishes its own baseline and can
+    // never inherit the previous transcript's pending count.
+    var arrivals by rememberSaveable(
+        uiState.chat?.id,
+        stateSaver = ArrivalStateSaver,
+    ) { mutableStateOf(ArrivalState()) }
+
+    val currentEntries by rememberUpdatedState(entries)
+    val currentTyping by rememberUpdatedState(isTyping)
+
+    fun currentNewestTarget(): Pair<Int, String>? {
+        val key = newestMessageKey(currentEntries) ?: return null
+        val index = newestMessageIndex(currentEntries, currentTyping)
+        return index.takeIf { it >= 0 }?.let { it to key }
+    }
+
+    suspend fun scrollToNewest(): Boolean {
+        repeat(3) {
+            val (targetIndex, targetKey) = currentNewestTarget() ?: return false
+            if (reduceMotion) {
+                listState.scrollToItem(targetIndex)
+            } else {
+                listState.animateScrollToItem(targetIndex)
+            }
+            withFrameNanos { }
+            val resolved = currentNewestTarget()
+            if (resolved?.second == targetKey &&
+                listState.layoutInfo.visibleItemsInfo.any { it.key == targetKey }
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    suspend fun jumpToNewest() {
+        // Clear only once the stable newest-message key is actually visible.
+        if (scrollToNewest()) arrivals = arrivals.cleared()
+    }
+
+    LaunchedEffect(uiState.outgoingSendEvent) {
+        val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
+        if (pendingEffectId == event.effectId) stagePendingEffect(null)
+        // Re-resolve by stable message key if a typing row changes during the
+        // move, and only consume the event once the sent row is visible.
+        if (scrollToNewest()) onOutgoingSendEventConsumed(event.messageId)
+    }
+
+    LaunchedEffect(
+        uiState.messages,
+        uiState.chat?.id,
+        historySyncActive,
+        liveArrivalSnapshot,
+        liveArrivalFallback,
+    ) {
+        val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
+        val outcome = reduceArrivals(
+            state = arrivals,
+            messages = uiState.messages,
+            followingBottom = pinned,
+            historySyncActive = historySyncActive,
+            liveArrivalGuids = liveArrivalSnapshot,
+            chronologicalFallback = liveArrivalFallback,
+        )
+        arrivals = outcome.state
+        liveArrivalMarkers = liveArrivalMarkers.consumed(
+            outcome.matchedLiveGuids,
+            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+        )
+        // Scroll only after the arriving row is part of the rendered snapshot.
+        if (outcome.pinToNewest) scrollToNewest()
+    }
+
+    // Reaching the bottom by hand clears the pill, but only after the newest
+    // row is really visible and the gesture has settled.
+    LaunchedEffect(atBottomNow, transcriptAnchor.isScrollInProgress, newestIndex) {
+        if (arrivals.pendingCount == 0) return@LaunchedEffect
+        if (!atBottomNow || transcriptAnchor.isScrollInProgress) return@LaunchedEffect
+        val newestKey = newestMessageKey(currentEntries)
+        if (newestKey != null && listState.layoutInfo.visibleItemsInfo.any { it.key == newestKey }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
     // Reverse layout: the visual top of the list is the highest index.
     val nearTop by remember(entries.size) {
         derivedStateOf {
@@ -693,8 +833,34 @@ fun ChatScreen(
             entries.size > 12 && lastVisibleIndex >= entries.size - 5
         }
     }
+    // Older pages append at higher indices in the reversed list, so the reading
+    // position normally survives insertion untouched; the captured anchor is the
+    // guard that proves it and restores the exact offset if it ever moves.
+    var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
     LaunchedEffect(nearTop) {
-        if (nearTop) onLoadOlder()
+        if (!nearTop) return@LaunchedEffect
+        pagingAnchor = capturePagingAnchor(
+            anchor = transcriptAnchor,
+            visibleKeys = listState.layoutInfo.visibleItemsInfo
+                .mapNotNull { info -> (info.key as? String)?.let { info.index to it } }
+                .toMap(),
+        )
+        if (!onLoadOlder()) pagingAnchor = null
+    }
+    LaunchedEffect(uiState.loadingOlder) {
+        if (uiState.loadingOlder) return@LaunchedEffect
+        val anchor = pagingAnchor ?: return@LaunchedEffect
+        // The repository's expanded-window emission can arrive one frame after
+        // the loading flag clears. Read the latest composition after that frame;
+        // an empty final page still reaches this completion path and clears.
+        withFrameNanos { }
+        pagingAnchor = null
+        val keys = buildList {
+            if (currentTyping) add("typing-indicator")
+            currentEntries.forEach { add(it.key) }
+        }
+        val target = pagingAnchorScrollTarget(anchor, keys) ?: return@LaunchedEffect
+        listState.scrollToItem(target.first, target.second)
     }
 
     val background = rememberChatBackground(
@@ -922,6 +1088,8 @@ fun ChatScreen(
                     }
                     openThread != null -> ReplyThreadPane(
                         thread = openThread,
+                        smsChat = smsChat,
+                        historySyncActive = historySyncActive,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,
@@ -957,7 +1125,10 @@ fun ChatScreen(
                         state = listState,
                         reverseLayout = true,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(
+                            top = 8.dp,
+                            bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
+                        ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
@@ -1094,6 +1265,19 @@ fun ChatScreen(
                             }
                         }
                     }
+                }
+                // Overlay above the measured composer edge. The LazyColumn
+                // reserves the pill's 48dp target plus its 12dp offset so the
+                // control never covers transcript content or intercepts it.
+                if (openThread == null) {
+                    NewMessagesJumpPill(
+                        visible = arrivals.pendingCount > 0 && !uiState.initialLoading,
+                        count = arrivals.pendingCount,
+                        onClick = { scope.launch { jumpToNewest() } },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp),
+                    )
                 }
             }
         }
