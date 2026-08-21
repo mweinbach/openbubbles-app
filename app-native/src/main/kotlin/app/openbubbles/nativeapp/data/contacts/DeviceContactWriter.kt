@@ -19,7 +19,6 @@ import android.provider.ContactsContract.CommonDataKinds.Photo
 import android.provider.ContactsContract.CommonDataKinds.StructuredName
 import android.provider.ContactsContract.Data
 import android.provider.ContactsContract.RawContacts
-import android.util.Log
 import androidx.core.content.ContextCompat
 import app.openbubbles.core.contacts.MergeAction
 import app.openbubbles.core.contacts.MergePlan
@@ -43,9 +42,8 @@ object DeviceContactWriter {
 
     const val ACCOUNT_TYPE = "com.openbubbles.messaging.icloud"
     const val ACCOUNT_NAME = "iCloud"
-    private const val TAG = "DeviceContactWriter"
     private const val MAX_OPS_PER_BATCH = 400
-    private const val MAX_PHOTO_DIM = 720
+    private const val MAX_PHOTO_BYTES_PER_BATCH = 512 * 1024
 
     data class ExistingRawContact(
         val rawContactId: Long,
@@ -168,19 +166,20 @@ object DeviceContactWriter {
         ensureAccount(context)
         val resolver = context.contentResolver
         var changed = 0
-        val batch = ArrayList<ContentProviderOperation>()
-
-        fun flush() {
-            if (batch.isEmpty()) return
-            runCatching { resolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(batch)) }
-                .onFailure { Log.w(TAG, "contact batch failed: ${it.message}") }
-            batch.clear()
+        val photos = ContactAvatarLoader()
+        val batch = ContactOperationBatcher(
+            maxOperations = MAX_OPS_PER_BATCH,
+            maxPayloadBytes = MAX_PHOTO_BYTES_PER_BATCH,
+        ) { operations ->
+            // Provider failures must escape syncNow so WorkManager retries
+            // instead of claiming contacts were written when the batch was
+            // rejected or the provider died.
+            resolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
         }
 
-        fun add(ops: List<ContentProviderOperation>) {
-            if (ops.isEmpty()) return
-            if (batch.size + ops.size > MAX_OPS_PER_BATCH) flush()
-            batch += ops
+        fun add(ops: ContactOperations) {
+            if (ops.operations.isEmpty()) return
+            batch.add(ops.operations, ops.photoBytes)
             changed++
         }
 
@@ -188,24 +187,26 @@ object DeviceContactWriter {
         // back reference, so an insert is rebuilt against index 0 whenever
         // appending it would overflow and force a flush first.
         fun addInsert(contact: RawContact) {
-            var ops = insertOps(contact, rawContactIndex = batch.size)
-            if (batch.size + ops.size > MAX_OPS_PER_BATCH) {
-                flush()
-                ops = insertOps(contact, rawContactIndex = 0)
+            var ops = insertOps(contact, rawContactIndex = batch.size, photos = photos)
+            if (batch.wouldFlush(ops.operations.size, ops.photoBytes)) {
+                batch.flush()
+                ops = insertOps(contact, rawContactIndex = 0, photos = photos)
             }
-            batch += ops
+            batch.add(ops.operations, ops.photoBytes)
             changed++
         }
 
         plan.deletions.forEach { sourceId ->
             existing[sourceId]?.let { gone ->
                 add(
-                    listOf(
-                        ContentProviderOperation.newDelete(
-                            syncAdapterUri(RawContacts.CONTENT_URI),
-                        )
-                            .withSelection("${RawContacts._ID}=?", arrayOf(gone.rawContactId.toString()))
-                            .build(),
+                    ContactOperations(
+                        listOf(
+                            ContentProviderOperation.newDelete(
+                                syncAdapterUri(RawContacts.CONTENT_URI),
+                            )
+                                .withSelection("${RawContacts._ID}=?", arrayOf(gone.rawContactId.toString()))
+                                .build(),
+                        ),
                     ),
                 )
             }
@@ -216,18 +217,27 @@ object DeviceContactWriter {
                 is MergeAction.Update -> {
                     val current = existing[action.contact.id]
                     if (current == null) addInsert(action.contact)
-                    else add(updateOps(action.contact, current))
+                    else add(updateOps(action.contact, current, photos))
                 }
                 is MergeAction.Skip, is MergeAction.AwaitDecision -> {}
             }
         }
-        flush()
+        batch.flush()
         return changed
     }
 
-    private fun insertOps(contact: RawContact, rawContactIndex: Int): List<ContentProviderOperation> {
+    private data class ContactOperations(
+        val operations: List<ContentProviderOperation>,
+        val photoBytes: Int = 0,
+    )
+
+    private fun insertOps(
+        contact: RawContact,
+        rawContactIndex: Int,
+        photos: ContactAvatarLoader,
+    ): ContactOperations {
         val ops = ArrayList<ContentProviderOperation>()
-        val photo = loadPhoto(contact.avatarPath)
+        val photo = (photos.resolve(contact.avatarPath, currentHash = null) as? ContactAvatarChange.Set)?.photo
         ops += ContentProviderOperation.newInsert(syncAdapterUri(RawContacts.CONTENT_URI))
             .withValue(RawContacts.ACCOUNT_TYPE, ACCOUNT_TYPE)
             .withValue(RawContacts.ACCOUNT_NAME, ACCOUNT_NAME)
@@ -277,16 +287,18 @@ object DeviceContactWriter {
                 .withValue(Photo.PHOTO, it.bytes)
                 .build()
         }
-        return ops
+        return ContactOperations(ops, photoBytes = photo?.bytes?.size ?: 0)
     }
 
     /** Only the rows that changed; an unchanged contact produces no ops. */
     private fun updateOps(
         contact: RawContact,
         current: ExistingRawContact,
-    ): List<ContentProviderOperation> {
+        photos: ContactAvatarLoader,
+    ): ContactOperations {
         val ops = ArrayList<ContentProviderOperation>()
         val rawId = current.rawContactId
+        var photoBytes = 0
 
         val wantedName = nameValues(contact)
         val nameChanged = (wantedName?.getAsString(StructuredName.DISPLAY_NAME) != current.displayName) ||
@@ -340,25 +352,33 @@ object DeviceContactWriter {
                 .build()
         }
 
-        val photo = loadPhoto(contact.avatarPath)
-        if (photo?.hash != current.photoHash) {
-            ops += replaceSingleRow(
-                rawId,
-                Photo.CONTENT_ITEM_TYPE,
-                photo?.let {
+        when (val photo = photos.resolve(contact.avatarPath, current.photoHash)) {
+            ContactAvatarChange.Unchanged -> Unit
+            ContactAvatarChange.Clear -> {
+                ops += replaceSingleRow(rawId, Photo.CONTENT_ITEM_TYPE, values = null)
+                ops += photoHashUpdate(rawId, hash = null)
+            }
+            is ContactAvatarChange.Set -> {
+                photoBytes = photo.photo.bytes.size
+                ops += replaceSingleRow(
+                    rawId,
+                    Photo.CONTENT_ITEM_TYPE,
                     ContentValues().apply {
                         put(Data.MIMETYPE, Photo.CONTENT_ITEM_TYPE)
-                        put(Photo.PHOTO, it.bytes)
-                    }
-                },
-            )
-            ops += ContentProviderOperation.newUpdate(syncAdapterUri(RawContacts.CONTENT_URI))
-                .withSelection("${RawContacts._ID}=?", arrayOf(rawId.toString()))
-                .withValue(RawContacts.SYNC1, photo?.hash)
-                .build()
+                        put(Photo.PHOTO, photo.photo.bytes)
+                    },
+                )
+                ops += photoHashUpdate(rawId, photo.photo.hash)
+            }
         }
-        return ops
+        return ContactOperations(ops, photoBytes)
     }
+
+    private fun photoHashUpdate(rawContactId: Long, hash: String?): ContentProviderOperation =
+        ContentProviderOperation.newUpdate(syncAdapterUri(RawContacts.CONTENT_URI))
+            .withSelection("${RawContacts._ID}=?", arrayOf(rawContactId.toString()))
+            .withValue(RawContacts.SYNC1, hash)
+            .build()
 
     private fun replaceSingleRow(
         rawContactId: Long,
@@ -411,40 +431,212 @@ object DeviceContactWriter {
     private fun emails(contact: RawContact): List<String> =
         contact.addresses.filter { it.contains('@') }
 
-    private class LoadedPhoto(val bytes: ByteArray, val hash: String)
-
-    /**
-     * Decodes and bounds the avatar so a photo data row stays well under the
-     * binder transaction limit; the provider derives its own thumbnail.
-     */
-    private fun loadPhoto(avatarPath: String?): LoadedPhoto? {
-        val file = avatarPath?.let(::File)?.takeIf(File::isFile) ?: return null
-        return runCatching {
-            val source = file.readBytes()
-            val hash = MessageDigest.getInstance("SHA-256")
-                .digest(source)
-                .joinToString("") { "%02x".format(it) }
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= MAX_PHOTO_DIM ||
-                bounds.outHeight / (sample * 2) >= MAX_PHOTO_DIM
-            ) {
-                sample *= 2
-            }
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, options) ?: return null
-            val output = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
-            bitmap.recycle()
-            LoadedPhoto(output.toByteArray(), hash)
-        }.getOrNull()
-    }
-
     private fun syncAdapterUri(uri: Uri): Uri = uri.buildUpon()
         .appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true")
         .appendQueryParameter(RawContacts.ACCOUNT_NAME, ACCOUNT_NAME)
         .appendQueryParameter(RawContacts.ACCOUNT_TYPE, ACCOUNT_TYPE)
         .build()
 }
+
+/**
+ * Small testable boundary around ContactsProvider batching. Photo payload is
+ * budgeted separately from operation count because a handful of blobs can
+ * exceed Binder's transaction buffer long before 400 operations do.
+ */
+internal class ContactOperationBatcher<T>(
+    private val maxOperations: Int,
+    private val maxPayloadBytes: Int,
+    private val applyBatch: (List<T>) -> Unit,
+) {
+    private val pending = ArrayList<T>()
+    private var payloadBytes = 0
+
+    init {
+        require(maxOperations > 0)
+        require(maxPayloadBytes > 0)
+    }
+
+    val size: Int get() = pending.size
+
+    fun wouldFlush(operationCount: Int, addedPayloadBytes: Int): Boolean =
+        pending.isNotEmpty() &&
+            (pending.size > maxOperations - operationCount ||
+                payloadBytes > maxPayloadBytes - addedPayloadBytes)
+
+    fun add(operations: List<T>, addedPayloadBytes: Int = 0) {
+        if (operations.isEmpty()) return
+        require(addedPayloadBytes in 0..maxPayloadBytes) {
+            "contact photo payload exceeds batch limit"
+        }
+        require(operations.size <= maxOperations) { "contact update has too many operations" }
+        if (wouldFlush(operations.size, addedPayloadBytes)) flush()
+        pending += operations
+        payloadBytes += addedPayloadBytes
+    }
+
+    fun flush() {
+        if (pending.isEmpty()) return
+        // Deliberately clear only after success. Callers see the provider
+        // exception and can retry the whole convergent merge pass.
+        applyBatch(ArrayList(pending))
+        pending.clear()
+        payloadBytes = 0
+    }
+}
+
+internal data class ContactAvatarPhoto(
+    val bytes: ByteArray,
+    val hash: String,
+    val width: Int,
+    val height: Int,
+)
+
+internal sealed interface ContactAvatarChange {
+    data object Unchanged : ContactAvatarChange
+    data object Clear : ContactAvatarChange
+    data class Set(val photo: ContactAvatarPhoto) : ContactAvatarChange
+}
+
+/**
+ * Per-apply-pass avatar resolver. It hashes source files as streams and does
+ * not decode or JPEG-compress when SYNC1 already holds the same source hash.
+ * Multiple contacts that reference one iCloud avatar also share both work.
+ */
+internal class ContactAvatarLoader(
+    private val maxDecodedBytes: Int = DEFAULT_AVATAR_CACHE_BYTES,
+    private val maxDimension: Int = MAX_CONTACT_PHOTO_DIM,
+    private val decode: (File, String) -> ContactAvatarPhoto? = ::decodeContactAvatar,
+) {
+    private data class Source(val file: File, val hash: String)
+
+    private val sources = HashMap<String, Source?>()
+    private val decoded = LinkedHashMap<String, ContactAvatarPhoto>(16, 0.75f, true)
+    private val decodeFailures = HashSet<String>()
+    private var decodedBytes = 0
+
+    init {
+        require(maxDecodedBytes >= 0)
+        require(maxDimension > 0)
+    }
+
+    fun resolve(avatarPath: String?, currentHash: String?): ContactAvatarChange {
+        val file = avatarPath?.let(::File)?.takeIf(File::isFile)
+            ?: return if (currentHash == null) ContactAvatarChange.Unchanged else ContactAvatarChange.Clear
+        val key = runCatching { file.canonicalPath }.getOrElse { file.absolutePath }
+        if (key !in sources) sources[key] = streamHash(file)?.let { Source(file, it) }
+        val source = sources[key]
+            ?: return if (currentHash == null) ContactAvatarChange.Unchanged else ContactAvatarChange.Clear
+        if (source.hash == currentHash) return ContactAvatarChange.Unchanged
+        if (key in decodeFailures) {
+            return if (currentHash == null) ContactAvatarChange.Unchanged else ContactAvatarChange.Clear
+        }
+        val photo = decoded[key] ?: decode(source.file, source.hash)
+            ?.takeIf { candidate ->
+                candidate.width in 1..maxDimension &&
+                    candidate.height in 1..maxDimension &&
+                    candidate.bytes.size <= MAX_CONTACT_PHOTO_BYTES
+            }
+            ?.also { candidate -> cache(key, candidate) }
+            ?: run {
+                decodeFailures += key
+                return if (currentHash == null) ContactAvatarChange.Unchanged else ContactAvatarChange.Clear
+            }
+        return ContactAvatarChange.Set(photo)
+    }
+
+    private fun cache(key: String, photo: ContactAvatarPhoto) {
+        if (photo.bytes.size > maxDecodedBytes) return
+        while (decodedBytes > maxDecodedBytes - photo.bytes.size && decoded.isNotEmpty()) {
+            val iterator = decoded.entries.iterator()
+            val eldest = iterator.next()
+            decodedBytes -= eldest.value.bytes.size
+            iterator.remove()
+        }
+        decoded[key] = photo
+        decodedBytes += photo.bytes.size
+    }
+}
+
+private fun streamHash(file: File): String? = runCatching {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    digest.digest().joinToString("") { "%02x".format(it) }
+}.getOrNull()
+
+/** Bounds a changed avatar for the provider; unchanged files never reach here. */
+private fun decodeContactAvatar(file: File, hash: String): ContactAvatarPhoto? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > MAX_CONTACT_PHOTO_DIM ||
+        bounds.outHeight / sample > MAX_CONTACT_PHOTO_DIM) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val decoded = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+    val scale = minOf(
+        1f,
+        MAX_CONTACT_PHOTO_DIM.toFloat() / maxOf(decoded.width, decoded.height),
+    )
+    val bounded = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            decoded,
+            maxOf(1, (decoded.width * scale).toInt()),
+            maxOf(1, (decoded.height * scale).toInt()),
+            true,
+        ).also { decoded.recycle() }
+    } else {
+        decoded
+    }
+    try {
+        val encoded = encodeBoundedContactAvatar(bounded) ?: return null
+        ContactAvatarPhoto(encoded.bytes, hash, encoded.width, encoded.height)
+    } finally {
+        bounded.recycle()
+    }
+}.getOrNull()
+
+private data class EncodedAvatar(val bytes: ByteArray, val width: Int, val height: Int)
+
+private fun encodeBoundedContactAvatar(bitmap: Bitmap): EncodedAvatar? {
+    var current = bitmap
+    var ownsCurrent = false
+    try {
+        while (true) {
+            for (quality in intArrayOf(90, 80, 70, 60, 50)) {
+                val output = ByteArrayOutputStream()
+                if (!current.compress(Bitmap.CompressFormat.JPEG, quality, output)) return null
+                val bytes = output.toByteArray()
+                if (bytes.size <= MAX_CONTACT_PHOTO_BYTES) {
+                    return EncodedAvatar(bytes, current.width, current.height)
+                }
+            }
+            if (maxOf(current.width, current.height) <= MIN_CONTACT_PHOTO_DIM) return null
+            val scale = 0.75f
+            val smaller = Bitmap.createScaledBitmap(
+                current,
+                maxOf(MIN_CONTACT_PHOTO_DIM, (current.width * scale).toInt()),
+                maxOf(MIN_CONTACT_PHOTO_DIM, (current.height * scale).toInt()),
+                true,
+            )
+            if (ownsCurrent) current.recycle()
+            current = smaller
+            ownsCurrent = true
+        }
+    } finally {
+        if (ownsCurrent) current.recycle()
+    }
+}
+
+private const val MAX_CONTACT_PHOTO_DIM = 720
+private const val MIN_CONTACT_PHOTO_DIM = 96
+private const val MAX_CONTACT_PHOTO_BYTES = 256 * 1024
+private const val DEFAULT_AVATAR_CACHE_BYTES = 4 * 1024 * 1024

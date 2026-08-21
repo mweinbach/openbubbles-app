@@ -258,6 +258,23 @@ class AttachmentStore(
         return row
     }
 
+    /**
+     * Repairs a stale downloaded flag when the canonical payload is absent or
+     * invalid. Persisting the transition before a retry gives every observer
+     * a real false -> true generation when the replacement is published.
+     */
+    fun markNotDownloaded(attachmentGuid: String): Attachment? {
+        val row = attachmentBox.query()
+            .equal(Attachment_.guid, attachmentGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?: return null
+        if (row.isDownloaded) {
+            row.isDownloaded = false
+            attachmentBox.put(row)
+        }
+        return row
+    }
+
     // ------------------------------------------------------------------
     // Sanitization + traversal guard
     // ------------------------------------------------------------------

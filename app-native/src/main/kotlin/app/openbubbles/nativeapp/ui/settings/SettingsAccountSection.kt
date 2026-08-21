@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ProfilePrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.deleteOwnedFile
+import app.openbubbles.nativeapp.data.profileImagesDirectory
+import app.openbubbles.nativeapp.data.promoteProfileImage
+import app.openbubbles.nativeapp.data.stageProfileImage
 import app.openbubbles.nativeapp.service.NativePushService
 import app.openbubbles.nativeapp.ui.AccountConnectionAction
 import app.openbubbles.nativeapp.ui.AccountConnectionTone
@@ -63,47 +68,89 @@ internal fun rememberAccountSection(
     var lastName by remember { mutableStateOf(profilePrefs.lastName) }
     var displayName by remember { mutableStateOf(profilePrefs.displayName) }
     var avatarPath by remember { mutableStateOf(profilePrefs.avatarPath) }
+    val pendingAvatarState = remember { mutableStateOf<File?>(null) }
+    var pendingAvatar by pendingAvatarState
     var nameAndPhotoSharing by remember { mutableStateOf(profilePrefs.nameAndPhotoSharing) }
     var shareAutomatically by remember { mutableStateOf(profilePrefs.shareAutomatically) }
     var profileSaving by remember { mutableStateOf(false) }
+    var profilePhotoPreparing by remember { mutableStateOf(false) }
+    var profilePhotoGeneration by remember { mutableStateOf(0L) }
+    var activeProfilePickerGeneration by remember { mutableStateOf<Long?>(null) }
     var profileError by remember { mutableStateOf<String?>(null) }
+    fun discardPendingAvatar() {
+        profilePhotoGeneration++
+        activeProfilePickerGeneration = null
+        profilePhotoPreparing = false
+        deleteOwnedFile(pendingAvatar, profileImagesDirectory(context))
+        pendingAvatar = null
+        firstName = profilePrefs.firstName
+        lastName = profilePrefs.lastName
+        displayName = profilePrefs.displayName
+        avatarPath = profilePrefs.avatarPath
+    }
     val profilePhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        val pickerGeneration = activeProfilePickerGeneration
+            ?: return@rememberLauncherForActivityResult
+        if (uri == null) {
+            if (profilePhotoGeneration == pickerGeneration) {
+                activeProfilePickerGeneration = null
+                profilePhotoPreparing = false
+            }
+            return@rememberLauncherForActivityResult
+        }
         scope.launch {
-            avatarPath = withContext(Dispatchers.IO) {
-                val destination = File(context.filesDir, "profile/avatar.img")
-                destination.parentFile?.mkdirs()
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destination.outputStream().use(input::copyTo)
-                } ?: error("Could not read profile photo")
-                destination.absolutePath
+            profileError = null
+            runCatching {
+                withContext(Dispatchers.IO) { stageProfileImage(context, uri) }
+            }.onSuccess { staged ->
+                if (profilePhotoGeneration == pickerGeneration && !profileSaving && showProfileDialog) {
+                    deleteOwnedFile(pendingAvatar, profileImagesDirectory(context))
+                    pendingAvatar = staged
+                    avatarPath = staged.absolutePath
+                } else {
+                    deleteOwnedFile(staged, profileImagesDirectory(context))
+                }
+            }.onFailure { failure ->
+                if (profilePhotoGeneration == pickerGeneration) {
+                    profileError = failure.message ?: "Could not prepare profile photo"
+                }
+            }
+            if (profilePhotoGeneration == pickerGeneration) {
+                activeProfilePickerGeneration = null
+                profilePhotoPreparing = false
             }
         }
     }
 
+    DisposableEffect(profilePrefs) {
+        onDispose {
+            deleteOwnedFile(pendingAvatarState.value, profileImagesDirectory(context))
+        }
+    }
+
     fun saveProfile() {
-        if (profileSaving) return
+        if (profileSaving || profilePhotoPreparing) return
         profileSaving = true
         profileError = null
         scope.launch {
             runCatching {
-                profilePrefs.firstName = firstName.trim()
-                profilePrefs.lastName = lastName.trim()
-                profilePrefs.displayName = displayName.trim()
-                profilePrefs.avatarPath = avatarPath
+                val selectedAvatar = pendingAvatar
+                val resolvedFirstName = firstName.trim()
+                val resolvedLastName = lastName.trim()
+                val resolvedDisplayName = displayName.trim()
                 if (nameAndPhotoSharing) {
                     val state = pushState ?: error("Connect to iMessage before publishing your profile")
                     val image = withContext(Dispatchers.IO) {
-                        avatarPath?.let(::File)?.takeIf(File::isFile)?.readBytes()
+                        (selectedAvatar ?: avatarPath?.let(::File))?.takeIf(File::isFile)?.readBytes()
                     }
-                    val resolvedDisplayName = displayName.trim().ifBlank {
-                        listOf(firstName.trim(), lastName.trim()).filter(String::isNotBlank).joinToString(" ")
+                    val publishedName = resolvedDisplayName.ifBlank {
+                        listOf(resolvedFirstName, resolvedLastName).filter(String::isNotBlank).joinToString(" ")
                     }
                     val json = withContext(Dispatchers.IO) {
                         state.setProfile(
-                            resolvedDisplayName,
-                            firstName.trim(),
-                            lastName.trim(),
+                            publishedName,
+                            resolvedFirstName,
+                            resolvedLastName,
                             image,
                             null,
                             profilePrefs.shareProfileJson,
@@ -112,6 +159,17 @@ internal fun rememberAccountSection(
                     profilePrefs.shareProfileJson = json
                     profilePrefs.clearSharedContacts()
                 }
+                val committedAvatar = withContext(Dispatchers.IO) {
+                    selectedAvatar?.let { promoteProfileImage(context, it).absolutePath }
+                        ?: profilePrefs.avatarPath
+                }
+                profilePrefs.firstName = resolvedFirstName
+                profilePrefs.lastName = resolvedLastName
+                profilePrefs.displayName = resolvedDisplayName
+                profilePrefs.avatarPath = committedAvatar
+                avatarPath = committedAvatar
+                pendingAvatar = null
+                profilePhotoGeneration++
             }.onSuccess {
                 showProfileDialog = false
             }.onFailure { profileError = it.message ?: "Could not update profile" }
@@ -213,7 +271,10 @@ internal fun rememberAccountSection(
                     supporting = displayName.ifBlank {
                         listOf(firstName, lastName).filter(String::isNotBlank).joinToString(" ")
                     }.ifBlank { "Set your shared name and photo" },
-                    onClick = { showProfileDialog = true },
+                    onClick = {
+                        discardPendingAvatar()
+                        showProfileDialog = true
+                    },
                     index = 0,
                     count = 3,
                     icon = Icons.Filled.AccountCircle,
@@ -248,7 +309,12 @@ internal fun rememberAccountSection(
         dialogs = {
             if (showProfileDialog) {
                 AlertDialog(
-                    onDismissRequest = { if (!profileSaving) showProfileDialog = false },
+                    onDismissRequest = {
+                        if (!profileSaving) {
+                            discardPendingAvatar()
+                            showProfileDialog = false
+                        }
+                    },
                     title = { Text("Name and Photo Sharing") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -270,7 +336,20 @@ internal fun rememberAccountSection(
                                 label = { Text("Display name") },
                                 singleLine = true,
                             )
-                            TextButton(onClick = { profilePhotoPicker.launch("image/*") }) {
+                            TextButton(
+                                onClick = {
+                                    profilePhotoGeneration++
+                                    activeProfilePickerGeneration = profilePhotoGeneration
+                                    profilePhotoPreparing = true
+                                    runCatching { profilePhotoPicker.launch("image/*") }
+                                        .onFailure { failure ->
+                                            activeProfilePickerGeneration = null
+                                            profilePhotoPreparing = false
+                                            profileError = failure.message ?: "Could not open photo picker"
+                                        }
+                                },
+                                enabled = !profileSaving && !profilePhotoPreparing,
+                            ) {
                                 Text(if (avatarPath == null) "Choose photo" else "Change photo")
                             }
                             profileError?.let {
@@ -281,11 +360,15 @@ internal fun rememberAccountSection(
                     confirmButton = {
                         TextButton(
                             onClick = ::saveProfile,
-                            enabled = !profileSaving && (displayName.isNotBlank() || firstName.isNotBlank() || lastName.isNotBlank()),
+                            enabled = !profileSaving && !profilePhotoPreparing &&
+                                (displayName.isNotBlank() || firstName.isNotBlank() || lastName.isNotBlank()),
                         ) { Text(if (profileSaving) "Saving…" else "Save") }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showProfileDialog = false }, enabled = !profileSaving) {
+                        TextButton(onClick = {
+                            discardPendingAvatar()
+                            showProfileDialog = false
+                        }, enabled = !profileSaving) {
                             Text("Cancel")
                         }
                     },

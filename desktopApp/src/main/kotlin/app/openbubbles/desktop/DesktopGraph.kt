@@ -422,7 +422,7 @@ object DesktopGraph {
     private fun rustDownloader(
         st: BoxStore,
         pushState: () -> NativePushState?,
-    ): AttachmentDownloader = AttachmentDownloader { attachmentGuid, destPath, onProgress ->
+    ): AttachmentDownloader = AttachmentDownloader { attachmentGuid, destPath, maxBytes, onProgress ->
         val state = pushState()
             ?: return@AttachmentDownloader Result.failure(IllegalStateException("not connected"))
         val xml = st.boxFor(Attachment::class.java)
@@ -437,6 +437,7 @@ object DesktopGraph {
             state.downloadAttachment(
                 uatt,
                 destPath,
+                maxBytes?.takeIf { it > 0L }?.toULong(),
                 object : uniffi.rust_lib_bluebubbles.UProgressCallback {
                     override fun onProgress(done: ULong, total: ULong) {
                         onProgress(done.toLong(), total.toLong())

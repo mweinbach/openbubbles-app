@@ -49,6 +49,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
@@ -61,6 +63,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.awaitClose
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UConversation
 import uniffi.rust_lib_bluebubbles.UIndexedPart
@@ -141,9 +144,9 @@ object CoreGraph {
     /**
      * Applies Apple chat backgrounds arriving over live push. History sync
      * builds its own copy (CloudSyncWiring); both coordinate through the
-     * store's process-wide write mutex and the same chat_backgrounds
-     * directory, so a background set on another Apple device lands from
-     * whichever path sees it first.
+     * store's process-wide per-chat lock and the same atomic file lifecycle,
+     * so live/history delivery cannot duplicate or overwrite one another
+     * while unrelated MMCS downloads remain concurrent.
      */
     private val transcriptBackgroundStore: TranscriptBackgroundStore? by lazy {
         val context = AppContext.current ?: return@lazy null
@@ -168,7 +171,7 @@ object CoreGraph {
             AttachmentManager(
                 store = st,
                 rootDir = root,
-                downloader = AttachmentDownloader { attachmentGuid, destPath, onProgress ->
+                downloader = AttachmentDownloader { attachmentGuid, destPath, maxBytes, onProgress ->
                     val pushState = PushStateHolder.state
                         ?: return@AttachmentDownloader Result.failure(IllegalStateException("not connected"))
                     val attachmentBox = st.boxFor(app.openbubbles.db.Attachment::class.java)
@@ -184,7 +187,11 @@ object CoreGraph {
                     val cloudRecordId = attachment.metadata?.get("cloud") as? String
                     if (cloudRecordId != null) {
                         return@AttachmentDownloader runCatching {
-                            pushState.downloadCloudAttachment(cloudRecordId, destPath)
+                            pushState.downloadCloudAttachment(
+                                cloudRecordId,
+                                destPath,
+                                maxBytes?.takeIf { it > 0L }?.toULong(),
+                            )
                         }
                     }
                     val xml = attachment.metadata?.get("rustpush") as? String
@@ -195,6 +202,7 @@ object CoreGraph {
                         pushState.downloadAttachment(
                             uatt,
                             destPath,
+                            maxBytes?.takeIf { it > 0L }?.toULong(),
                             object : uniffi.rust_lib_bluebubbles.UProgressCallback {
                                 override fun onProgress(done: kotlin.ULong, total: kotlin.ULong) {
                                     onProgress(done.toLong(), total.toLong())
@@ -546,27 +554,25 @@ object CoreGraph {
         val manager = attachmentManager ?: return
         val st = store ?: return
         scope.launch(Dispatchers.IO) {
-            val attachment = runCatching {
-                st.boxFor(Attachment::class.java)
+            val pair = runCatching {
+                st.callInReadTx {
+                    val box = st.boxFor(Attachment::class.java)
+                    val attachment = box
                     .query()
                     .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                     .build().use { it.findFirst() }
-            }.getOrNull() ?: return@launch
-            val box = st.boxFor(Attachment::class.java)
-            val pairGuids = listOfNotNull(
-                attachment.guid,
-                attachment.metadata?.get("livePhotoMotionGuid") as? String,
-                attachment.metadata?.get("livePhotoStillGuid") as? String,
-            ).distinct()
-            pairGuids.forEach { pairGuid ->
-                val pair = if (pairGuid == attachment.guid) {
-                    attachment
-                } else {
-                    box.query()
+                        ?: return@callInReadTx emptyList()
+                    val siblings = attachment.message.target?.dbAttachments.orEmpty()
+                        .ifEmpty { listOf(attachment) }
+                    livePhotoTransferGuids(attachment, siblings).mapNotNull { pairGuid ->
+                        if (pairGuid == attachment.guid) attachment else box.query()
                         .equal(Attachment_.guid, pairGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                         .build().use { it.findFirst() }
-                } ?: return@forEach
-                runCatching { manager.download(pair).collect { /* terminal is enough here */ } }
+                    }
+                }
+            }.getOrDefault(emptyList())
+            pair.forEach { attachment ->
+                runCatching { manager.download(attachment).collect { /* terminal is enough here */ } }
             }
         }
     }
@@ -602,7 +608,10 @@ object CoreGraph {
                 .forEach { attachment ->
                     launch {
                         runCatching {
-                            manager.download(attachment).collect { /* terminal is enough here */ }
+                            manager.download(
+                                attachment,
+                                maxBytes = maxBytes.takeIf { it != MessagingPrefs.AUTO_DOWNLOAD_UNLIMITED },
+                            ).collect { /* terminal is enough here */ }
                         }
                     }
                 }
@@ -990,6 +999,7 @@ internal fun attachmentToMeta(attachment: Attachment) = AttachmentMeta(
 
 internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<AttachmentMeta> {
     val metas = attachments.map(::attachmentToMeta)
+    val metasByGuid = metas.associateBy(AttachmentMeta::guid)
     val hiddenMotionGuids = metas.filter(AttachmentMeta::isLivePhotoMotion).mapTo(mutableSetOf(), AttachmentMeta::guid)
     val inferredMotionByStill = metas.asSequence()
         .filter { it.isImage && it.livePhotoMotionGuid == null && isHeicName(it.name) }
@@ -1003,9 +1013,35 @@ internal fun visibleAttachmentMetas(attachments: List<Attachment>): List<Attachm
         }
         .toMap()
     return metas.mapNotNull { meta ->
-        if (meta.guid in hiddenMotionGuids) null
-        else inferredMotionByStill[meta.guid]?.let { meta.copy(livePhotoMotionGuid = it) } ?: meta
+        if (meta.guid in hiddenMotionGuids) return@mapNotNull null
+        val motionGuid = inferredMotionByStill[meta.guid] ?: meta.livePhotoMotionGuid
+        meta.copy(
+            livePhotoMotionGuid = motionGuid,
+            livePhotoMotionDownloaded = motionGuid?.let { metasByGuid[it]?.downloaded } == true,
+        )
     }
+}
+
+/**
+ * Resolves both explicit Iris metadata and legacy same-stem HEIC/MOV pairs
+ * for the transfer path. Keeping this on the same projection as rendering
+ * prevents a manually tapped inferred Live Photo from downloading only its
+ * still image.
+ */
+internal fun livePhotoTransferGuids(
+    requested: Attachment,
+    siblings: List<Attachment>,
+): List<String> {
+    val requestedGuid = requested.guid ?: return emptyList()
+    val visible = visibleAttachmentMetas(siblings)
+    val pair = visible.firstOrNull { it.guid == requestedGuid }
+        ?: visible.firstOrNull { it.livePhotoMotionGuid == requestedGuid }
+    return listOfNotNull(
+        pair?.guid ?: requestedGuid,
+        pair?.livePhotoMotionGuid,
+        requested.metadata?.get("livePhotoStillGuid") as? String,
+        requested.metadata?.get("livePhotoMotionGuid") as? String,
+    ).distinct()
 }
 
 private fun isHeicName(name: String?): Boolean {
@@ -1628,8 +1664,25 @@ private class CoreAttachmentProvider(
             .build().use { it.findFirst() }
     }.getOrNull()
 
-    override fun byGuid(guid: String): AttachmentMeta? =
-        attachmentByGuid(guid)?.let(::attachmentToMeta)
+    override fun byGuid(guid: String): AttachmentMeta? {
+        val attachment = attachmentByGuid(guid) ?: return null
+        return runCatching {
+            visibleAttachmentMetas(attachment.message.target?.dbAttachments.orEmpty())
+                .firstOrNull { it.guid == guid }
+                ?: attachmentToMeta(attachment)
+        }.getOrElse { attachmentToMeta(attachment) }
+    }
+
+    override fun observe(guid: String): Flow<AttachmentMeta?> = callbackFlow {
+        val subscription = store.subscribe(Attachment::class.java)
+            .onlyChanges()
+            .observer { trySend(Unit) }
+        trySend(Unit)
+        awaitClose { subscription.cancel() }
+    }.conflate()
+        .map { byGuid(guid) }
+        .flowOn(Dispatchers.IO)
+        .distinctUntilChanged()
 
     override fun localFile(guid: String): File? {
         val attachment = attachmentByGuid(guid) ?: return null
@@ -2209,6 +2262,7 @@ private object CoreChatInfoActions : ChatInfoActions {
     override suspend fun setGroupIcon(chatId: Long, file: File) {
         require(file.isFile) { "group photo is unavailable" }
         val context = context(chatId)
+        val androidContext = AppContext.current ?: error("app context unavailable")
         val version = nextGroupVersion(context.chat)
         val inst = context.state.setGroupIcon(
             context.conversation,
@@ -2217,23 +2271,37 @@ private object CoreChatInfoActions : ChatInfoActions {
             version,
             null,
         )
-        context.chat.customAvatarPath = file.absolutePath
-        context.chat.photoAttachmentGuid = inst.id
-        context.chat.groupVersion = version.toLong()
-        CoreGraph.store?.boxFor(Chat::class.java)?.put(context.chat)
+        // Do not adopt or retire any local image until both the remote
+        // mutation and local message ingest have succeeded.
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+        val chatBox = CoreGraph.store?.boxFor(Chat::class.java) ?: error("store unavailable")
+        val refreshed = chatBox.get(chatId) ?: error("no chat $chatId after group icon ingest")
+        val previous = refreshed.customAvatarPath?.let(::File)
+        refreshed.customAvatarPath = file.absolutePath
+        refreshed.photoAttachmentGuid = inst.id
+        refreshed.groupVersion = version.toLong()
+        chatBox.put(refreshed)
+        val replacesPrevious = runCatching { previous?.canonicalFile != file.canonicalFile }
+            .getOrDefault(previous?.absolutePath != file.absolutePath)
+        if (replacesPrevious) {
+            deleteOwnedGroupIcon(previous, androidContext)
+        }
     }
 
     override suspend fun removeGroupIcon(chatId: Long) {
         val context = context(chatId)
+        val androidContext = AppContext.current ?: error("app context unavailable")
         val version = nextGroupVersion(context.chat)
         val inst = context.state.removeGroupIcon(context.conversation, context.sender, version)
-        context.chat.customAvatarPath?.let { runCatching { File(it).delete() } }
-        context.chat.customAvatarPath = null
-        context.chat.photoAttachmentGuid = null
-        context.chat.groupVersion = version.toLong()
-        CoreGraph.store?.boxFor(Chat::class.java)?.put(context.chat)
         context.ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+        val chatBox = CoreGraph.store?.boxFor(Chat::class.java) ?: error("store unavailable")
+        val refreshed = chatBox.get(chatId) ?: error("no chat $chatId after group icon ingest")
+        val previous = refreshed.customAvatarPath?.let(::File)
+        refreshed.customAvatarPath = null
+        refreshed.photoAttachmentGuid = null
+        refreshed.groupVersion = version.toLong()
+        chatBox.put(refreshed)
+        deleteOwnedGroupIcon(previous, androidContext)
     }
 
     override suspend fun leave(chatId: Long) {
@@ -2318,38 +2386,36 @@ private data class GroupActionContext(
 private object CoreChatBackgroundActions : ChatBackgroundActions {
     override suspend fun setLocalBackground(chatId: Long, file: File) = withContext(Dispatchers.IO) {
         require(file.isFile) { "background image is unavailable" }
-        val store = CoreGraph.store ?: error("store unavailable")
-        val context = AppContext.current ?: error("app context unavailable")
-        val chatBox = store.boxFor(Chat::class.java)
-        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
-        val directory = File(context.filesDir, "chat_backgrounds").apply { mkdirs() }
-        val extension = file.extension.takeIf { it.length in 2..5 } ?: "jpg"
-        val destination = File(directory, "local-$chatId-${UUID.randomUUID()}.$extension")
-        file.copyTo(destination, overwrite = true)
-        deleteOwnedBackground(chat.customBackgroundPath, directory, destination)
-        chat.customBackgroundPath = destination.absolutePath
-        chatBox.put(chat)
+        withChatBackgroundLock(chatId) {
+            val store = CoreGraph.store ?: error("store unavailable")
+            val context = AppContext.current ?: error("app context unavailable")
+            val chatBox = store.boxFor(Chat::class.java)
+            val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+            val extension = file.extension.takeIf { it.length in 2..5 } ?: "jpg"
+            ChatBackgroundStorage(context.filesDir).commitFile(
+                destinationName = "local-$chatId-${UUID.randomUUID()}.$extension",
+                source = file,
+                previousPath = chat.customBackgroundPath,
+            ) { destination ->
+                chat.customBackgroundPath = destination.absolutePath
+                chatBox.put(chat)
+            }
+        }
         Unit
     }
 
     override suspend fun clearLocalBackground(chatId: Long) = withContext(Dispatchers.IO) {
-        val store = CoreGraph.store ?: error("store unavailable")
-        val context = AppContext.current ?: error("app context unavailable")
-        val chatBox = store.boxFor(Chat::class.java)
-        val chat = chatBox.get(chatId) ?: error("no chat $chatId")
-        val directory = File(context.filesDir, "chat_backgrounds")
-        deleteOwnedBackground(chat.customBackgroundPath, directory, null)
-        chat.customBackgroundPath = null
-        chatBox.put(chat)
-        Unit
-    }
-
-    private fun deleteOwnedBackground(path: String?, directory: File, except: File?) {
-        val candidate = path?.let(::File)?.canonicalFile ?: return
-        val root = directory.canonicalFile.toPath()
-        if (candidate.toPath().startsWith(root) && candidate != except) {
-            runCatching { candidate.delete() }
+        withChatBackgroundLock(chatId) {
+            val store = CoreGraph.store ?: error("store unavailable")
+            val context = AppContext.current ?: error("app context unavailable")
+            val chatBox = store.boxFor(Chat::class.java)
+            val chat = chatBox.get(chatId) ?: error("no chat $chatId")
+            ChatBackgroundStorage(context.filesDir).commitRemoval(chat.customBackgroundPath) {
+                chat.customBackgroundPath = null
+                chatBox.put(chat)
+            }
         }
+        Unit
     }
 }
 
@@ -2388,7 +2454,7 @@ internal fun attachmentSendProgressCallback(): UProgressCallback? = null
 /**
  * Attachment send path mirroring [CoreSender]'s staging/promotion/echo
  * semantics: stage optimistically under a temp guid with placeholder
- * attachment rows (payloads moved into the canonical store layout so the
+ * attachment rows (payloads copied into the canonical store layout so the
  * bubbles preview immediately), upload everything through the Rust
  * sendAttachments binding as the parts of one message, surface a coarse
  * indeterminate upload state, promote the row to the Rust staging guid, then
@@ -2425,46 +2491,47 @@ internal object CoreAttachmentSender : AttachmentSender {
                 "app_flutter",
             )
             val disk = AttachmentStore(store, root)
-            val stagedGuids = ArrayList<String>(attachments.size)
-            val payloads = ArrayList<File>(attachments.size)
-            try {
-                attachments.forEachIndexed { index, attachment ->
-                    val attachmentGuid = "${tempGuid}_att$index"
-                    val displayName = attachment.name ?: "attachment"
-                    val payload = File(
-                        disk.directoryFor(attachmentGuid),
-                        disk.sanitizeFileName(displayName),
-                    )
-                    moveOutgoingAttachment(attachment.file, payload)
-                    stagedGuids += attachmentGuid
-                    payloads += payload
-                }
-                val message = CoreGraphStageHolder.messageRepo(store)
-                    .stageOutgoingMessageWithAttachments(
-                        chatGuid = chat.guid,
-                        sender = myHandle,
-                        text = caption.orEmpty(),
-                        stagingGuid = tempGuid,
-                        attachments = attachments.mapIndexed { index, attachment ->
-                            MessageRepo.OutgoingAttachmentStage(
-                                guid = stagedGuids[index],
-                                mimeType = attachment.mime,
-                                uti = attachment.uti,
-                                transferName = attachment.name ?: "attachment",
-                                totalBytes = payloads[index].length(),
-                            )
-                        },
-                        subject = subject,
-                    )
-                PreparedAttachmentSend(
-                    messageId = message.id,
-                    tempGuid = tempGuid,
-                    myHandle = myHandle,
-                    conversation = sendConversation(store, chat, myHandle),
-                    disk = disk,
-                    stagedGuids = stagedGuids,
-                    payloads = payloads,
+            val stagedGuids = attachments.indices.map { index -> "${tempGuid}_att$index" }
+            val destinations = attachments.mapIndexed { index, attachment ->
+                File(
+                    disk.directoryFor(stagedGuids[index]),
+                    disk.sanitizeFileName(attachment.name ?: "attachment"),
                 )
+            }
+            try {
+                stageOutgoingPayloadBatch(
+                    stages = attachments.mapIndexed { index, attachment ->
+                        OutgoingPayloadStage(attachment.file, destinations[index])
+                    },
+                    cacheRoot = AppContext.current?.cacheDir ?: error("no cache dir"),
+                ) { payloads ->
+                    val message = CoreGraphStageHolder.messageRepo(store)
+                        .stageOutgoingMessageWithAttachments(
+                            chatGuid = chat.guid,
+                            sender = myHandle,
+                            text = caption.orEmpty(),
+                            stagingGuid = tempGuid,
+                            attachments = attachments.mapIndexed { index, attachment ->
+                                MessageRepo.OutgoingAttachmentStage(
+                                    guid = stagedGuids[index],
+                                    mimeType = attachment.mime,
+                                    uti = attachment.uti,
+                                    transferName = attachment.name ?: "attachment",
+                                    totalBytes = payloads[index].length(),
+                                )
+                            },
+                            subject = subject,
+                        )
+                    PreparedAttachmentSend(
+                        messageId = message.id,
+                        tempGuid = tempGuid,
+                        myHandle = myHandle,
+                        conversation = sendConversation(store, chat, myHandle),
+                        disk = disk,
+                        stagedGuids = stagedGuids,
+                        payloads = payloads,
+                    )
+                }
             } catch (failure: Throwable) {
                 stagedGuids.forEach { disk.directoryFor(it).deleteRecursively() }
                 throw failure
@@ -2609,10 +2676,10 @@ private object CoreStickerSender : StickerSender {
             val disk = AttachmentStore(store, root)
             val destination = disk.pathFor(row)
             destination.parentFile?.mkdirs()
-            sticker.file.copyTo(destination, overwrite = true)
+            copyOutgoingAttachment(sticker.file, destination)
             disk.markDownloaded(attachmentGuid, destination.length())
         }
-        runCatching { sticker.file.delete() }
+        AppContext.current?.cacheDir?.let { deleteOwnedOutgoingDraft(sticker.file, it) }
         return OutgoingStickerSend(attachmentGuid)
     }
 }

@@ -106,7 +106,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -142,6 +141,7 @@ import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.deleteOwnedOutgoingDraft
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.ContactDisplay
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
@@ -405,7 +405,8 @@ fun ChatScreen(
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
-    var pendingSticker by remember { mutableStateOf<OutgoingAttachment?>(null) }
+    val pendingStickerState = remember { mutableStateOf<OutgoingAttachment?>(null) }
+    var pendingSticker by pendingStickerState
 
     // The persisted chat contract is authoritative. Inferring a group from
     // historical sender handles misclassifies 1:1 chats when the same contact
@@ -528,14 +529,26 @@ fun ChatScreen(
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> stageAttachments(listOfNotNull(uri)) }
-    var captureFile by remember { mutableStateOf<File?>(null) }
+    val captureFileState = remember { mutableStateOf<File?>(null) }
+    var captureFile by captureFileState
     var captureVideo by remember { mutableStateOf(false) }
-    var reviewCapture by remember { mutableStateOf<File?>(null) }
+    val reviewCaptureState = remember { mutableStateOf<File?>(null) }
+    var reviewCapture by reviewCaptureState
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) reviewCapture = captureFile else captureFile?.delete()
+        if (ok) {
+            reviewCapture = captureFile
+        } else {
+            captureFile?.let { deleteOwnedOutgoingDraft(it, context.cacheDir) }
+            captureFile = null
+        }
     }
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
-        if (ok) reviewCapture = captureFile else captureFile?.delete()
+        if (ok) {
+            reviewCapture = captureFile
+        } else {
+            captureFile?.let { deleteOwnedOutgoingDraft(it, context.cacheDir) }
+            captureFile = null
+        }
     }
     fun startCapture(video: Boolean) {
         val file = File(context.cacheDir, "captures/${System.currentTimeMillis()}.${if (video) "mp4" else "jpg"}")
@@ -581,7 +594,8 @@ fun ChatScreen(
     // Started from the + menu (after the mic runtime permission). While a
     // take is live the composer swaps to a timer + live level bars, the send
     // circle stops-and-sends, and discard (or leaving the screen) deletes it.
-    var audioRecording by remember { mutableStateOf<AudioRecordingSession?>(null) }
+    val audioRecordingState = remember { mutableStateOf<AudioRecordingSession?>(null) }
+    var audioRecording by audioRecordingState
     val focusManager = LocalFocusManager.current
 
     fun startAudioRecording() {
@@ -624,9 +638,14 @@ fun ChatScreen(
     }
 
     // Navigating away (or any disposal) mid-take must not leak the recorder.
-    val latestRecording = rememberUpdatedState(audioRecording)
     DisposableEffect(Unit) {
-        onDispose { latestRecording.value?.discard() }
+        onDispose {
+            audioRecordingState.value?.discard()
+            listOfNotNull(captureFileState.value, reviewCaptureState.value)
+                .distinctBy(File::getAbsolutePath)
+                .forEach { deleteOwnedOutgoingDraft(it, context.cacheDir) }
+            pendingStickerState.value?.file?.let { deleteOwnedOutgoingDraft(it, context.cacheDir) }
+        }
     }
 
     // Voice-memo playback belongs to this transcript; leaving it goes quiet.
@@ -1196,6 +1215,7 @@ fun ChatScreen(
                 stickerTarget = null
             },
             onDismiss = {
+                deleteOwnedOutgoingDraft(sticker.file, context.cacheDir)
                 pendingSticker = null
                 stickerTarget = null
             },
@@ -1224,7 +1244,12 @@ fun ChatScreen(
         CaptureReview(
             file = file,
             video = captureVideo,
-            onRetake = { reviewCapture = null; requestCapture(captureVideo) },
+            onRetake = {
+                deleteOwnedOutgoingDraft(file, context.cacheDir)
+                reviewCapture = null
+                captureFile = null
+                requestCapture(captureVideo)
+            },
             onUse = {
                 onStageAttachments(
                     listOf(
@@ -1238,8 +1263,13 @@ fun ChatScreen(
                     ),
                 )
                 reviewCapture = null
+                captureFile = null
             },
-            onDismiss = { file.delete(); reviewCapture = null },
+            onDismiss = {
+                deleteOwnedOutgoingDraft(file, context.cacheDir)
+                reviewCapture = null
+                captureFile = null
+            },
         )
     }
 }

@@ -33,8 +33,8 @@ private const val MAX_CONCURRENT_TRANSFERS = 4
  * line of Kotlin they plug into:
  *
  * ```kotlin
- * AttachmentDownloader { guid, destPath, onProgress ->
- *     uniffi.rust_lib_bluebubbles.downloadAttachment(guid, destPath) { done, total ->
+ * AttachmentDownloader { guid, destPath, maxBytes, onProgress ->
+ *     uniffi.rust_lib_bluebubbles.downloadAttachment(guid, destPath, maxBytes) { done, total ->
  *         onProgress(done, total)
  *     }.map { }.recoverCatching { ... }  // adapt the UniFFI surface
  * }
@@ -43,6 +43,7 @@ private const val MAX_CONCURRENT_TRANSFERS = 4
  * Contract: write the payload to [destPath] (already sanitized and parent
  * directories created by the caller), invoke [onProgress] with
  * `(bytesDone, bytesTotal)` as data arrives (total may be 0 when unknown),
+ * stop the writer before it exceeds `maxBytes` when non-null,
  * and return success only after the file is complete on disk. Errors are
  * returned, never thrown.
  */
@@ -50,6 +51,7 @@ fun interface AttachmentDownloader {
     suspend fun download(
         attachmentGuid: String,
         destPath: String,
+        maxBytes: Long?,
         onProgress: (Long, Long) -> Unit,
     ): Result<Unit>
 }
@@ -130,7 +132,7 @@ class AttachmentManager(
      * not abort the underlying transfer; other subscribers (or a later
      * re-subscribe) still observe completion.
      */
-    fun download(attachment: Attachment): Flow<TransferState> = flow {
+    fun download(attachment: Attachment, maxBytes: Long? = null): Flow<TransferState> = flow {
         val guid = attachment.guid
         if (guid == null) {
             emit(TransferState.Failed("Attachment has no guid"))
@@ -152,11 +154,14 @@ class AttachmentManager(
             emit(TransferState.Done)
             return@flow
         }
+        if (current?.isDownloaded == true) {
+            disk.markNotDownloaded(guid)
+        }
 
         val entry = inFlightGuard.withLock {
             inFlight.getOrPut(guid) {
                 InFlight().also { entry ->
-                    scope.launch { runTransfer(guid, entry) }
+                    scope.launch { runTransfer(guid, entry, maxBytes) }
                 }
             }
         }
@@ -193,7 +198,7 @@ class AttachmentManager(
      * progress into [InFlight.states], persists `isDownloaded` + real byte
      * length on success, and cleans up on failure.
      */
-    private suspend fun runTransfer(guid: String, entry: InFlight): Unit = transferPermits.withPermit {
+    private suspend fun runTransfer(guid: String, entry: InFlight, maxBytes: Long?): Unit = transferPermits.withPermit {
         var ownedPartial: File? = null
         try {
             val fresh = attachmentBox.query()
@@ -222,7 +227,7 @@ class AttachmentManager(
             // implicitly across a new downloader invocation.
             disk.deleteDownloadPartial(fresh)
 
-            val result = downloader.download(guid, partial.absolutePath) { done, total ->
+            val result = downloader.download(guid, partial.absolutePath, maxBytes) { done, total ->
                 // StateFlow assignment is thread-safe; the Rust callback may
                 // fire from any thread.
                 entry.states.value = TransferState.Progress(done, total)

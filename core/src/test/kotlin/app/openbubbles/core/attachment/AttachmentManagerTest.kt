@@ -16,6 +16,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -66,6 +67,7 @@ class AttachmentManagerTest {
     private class FakeDownloader : AttachmentDownloader {
         val calls = mutableListOf<String>()
         val destinations = mutableListOf<String>()
+        val limits = mutableListOf<Long?>()
         @Volatile var failAfterWrite = false
         var stepDelayMs = 20L
         val payload = "payload-bytes!".toByteArray()
@@ -73,10 +75,12 @@ class AttachmentManagerTest {
         override suspend fun download(
             attachmentGuid: String,
             destPath: String,
+            maxBytes: Long?,
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> {
             synchronized(calls) { calls += attachmentGuid }
             synchronized(destinations) { destinations += destPath }
+            synchronized(limits) { limits += maxBytes }
             val total = payload.size.toLong()
             onProgress(0, total)
             File(destPath).writeBytes(payload)
@@ -90,6 +94,19 @@ class AttachmentManagerTest {
                 Result.success(Unit)
             }
         }
+    }
+
+    @Test
+    fun `unknown-size auto download forwards a hard byte ceiling to the stream writer`() = runBlocking<Unit> {
+        val chat = seedChat("chat-bounded-unknown", "friend@icloud.com")
+        val attachment = seedAttachment(chat, "bounded-unknown", "voice.m4a", expectedBytes = null)
+
+        val states = withTimeout(5_000) {
+            manager.download(attachment, maxBytes = 10L * 1024L * 1024L).toList()
+        }
+
+        assertEquals(TransferState.Done, states.last())
+        assertEquals(10L * 1024L * 1024L, fake.limits.single())
     }
 
     // ------------------------------------------------------------------
@@ -282,6 +299,33 @@ class AttachmentManagerTest {
     }
 
     @Test
+    fun `missing completed payload publishes pending state before redownload`() = runBlocking<Unit> {
+        val chat = seedChat("chat-missing-complete", "friend@icloud.com")
+        val att = seedAttachment(
+            chat,
+            "att-missing-complete",
+            "photo.mov",
+            expectedBytes = fake.payload.size.toLong(),
+            downloaded = true,
+        )
+        var observedPending = false
+
+        val states = withTimeout(5_000) {
+            manager.download(att)
+                .onEach { state ->
+                    if (state !is TransferState.Done) {
+                        observedPending = observedPending || stored("att-missing-complete")?.isDownloaded == false
+                    }
+                }
+                .toList()
+        }
+
+        assertTrue(observedPending, "stale true flag must transition through pending")
+        assertEquals(TransferState.Done, states.last())
+        assertTrue(stored("att-missing-complete")!!.isDownloaded)
+    }
+
+    @Test
     fun `wrong-size completed transfer is rejected without replacing the canonical file`() = runBlocking<Unit> {
         val chat = seedChat("chat-size", "friend@icloud.com")
         val att = seedAttachment(
@@ -324,7 +368,7 @@ class AttachmentManagerTest {
         val restarted = AttachmentManager(
             store,
             rootDir,
-            AttachmentDownloader { _, destPath, _ ->
+            AttachmentDownloader { _, destPath, _, _ ->
                 val destination = File(destPath)
                 assertEquals(partial.canonicalFile, destination.canonicalFile)
                 sawCleanStart = !destination.exists() && !canonical.exists()
@@ -397,7 +441,7 @@ class AttachmentManagerTest {
 
         val active = java.util.concurrent.atomic.AtomicInteger(0)
         val maxActive = java.util.concurrent.atomic.AtomicInteger(0)
-        val gated = AttachmentDownloader { _, destPath, _ ->
+        val gated = AttachmentDownloader { _, destPath, _, _ ->
             val now = active.incrementAndGet()
             maxActive.updateAndGet { seen -> maxOf(seen, now) }
             delay(50)

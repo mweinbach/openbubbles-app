@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.AppGraph
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.ChatListRepository
@@ -26,6 +27,7 @@ import app.openbubbles.nativeapp.data.StickerSender
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.data.TypingRepository
+import app.openbubbles.nativeapp.data.deleteOwnedOutgoingDraft
 import app.openbubbles.nativeapp.sms.SmsBridge
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoWarmCache
 import kotlinx.coroutines.CancellationException
@@ -182,6 +184,7 @@ class ChatViewModel(
         AppGraph.chatInfo.participantAddresses(it)
     },
     private val participantLookupDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val outgoingCacheRoot: File? = AppContext.current?.cacheDir,
 ) : ViewModel() {
 
     init {
@@ -529,6 +532,7 @@ class ChatViewModel(
     fun removePendingAttachment(attachment: OutgoingAttachment) {
         composerRevision++
         pendingAttachments.value = pendingAttachments.value - attachment
+        deleteDraft(attachment.file)
     }
 
     /**
@@ -770,6 +774,7 @@ class ChatViewModel(
                 confirmOptimisticSticker(target.guid, token, accepted.attachmentGuid)
             }.onFailure { failure ->
                 removeOptimisticSticker(target.guid, token)
+                deleteDraft(sticker.file)
                 actionError.value = failure.message ?: "Could not send sticker"
             }
         }
@@ -912,7 +917,20 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        pendingAttachments.value.forEach { deleteDraft(it.file) }
+        pendingAttachments.value = emptyList()
+        optimisticMessageOverlays.value.values
+            .flatMap(OptimisticMessageOverlay::stickers)
+            .mapNotNull(OptimisticSticker::file)
+            .distinctBy(File::getAbsolutePath)
+            .forEach(::deleteDraft)
+        optimisticMessageOverlays.value = emptyMap()
         messageRepository.release(chatId)
+        super.onCleared()
+    }
+
+    private fun deleteDraft(file: File) {
+        outgoingCacheRoot?.let { deleteOwnedOutgoingDraft(file, it) }
     }
 
     companion object {

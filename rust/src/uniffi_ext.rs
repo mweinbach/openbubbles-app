@@ -2634,6 +2634,41 @@ fn create_dest(dest_path: &str) -> Result<std::fs::File, UError> {
         .map_err(|e| UError::Failed { reason: format!("failed to create {dest_path}: {e}") })
 }
 
+/// Write adapter used by automatic downloads whose remote metadata omitted
+/// a trustworthy size. Returning `WriteZero` stops MMCS/CloudKit immediately
+/// instead of discovering the overage after the whole payload reached disk.
+struct BoundedWriter<W> {
+    inner: W,
+    max_bytes: Option<u64>,
+    written: u64,
+}
+
+impl<W> BoundedWriter<W> {
+    fn new(inner: W, max_bytes: Option<u64>) -> Self {
+        Self { inner, max_bytes, written: 0 }
+    }
+}
+
+impl<W: Write> Write for BoundedWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(max_bytes) = self.max_bytes {
+            if bytes.len() as u64 > max_bytes.saturating_sub(self.written) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    format!("attachment exceeded the {max_bytes}-byte download limit"),
+                ));
+            }
+        }
+        let count = self.inner.write(bytes)?;
+        self.written = self.written.saturating_add(count as u64);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 #[cfg(test)]
 mod download_destination_tests {
     use super::*;
@@ -2652,6 +2687,15 @@ mod download_destination_tests {
         drop(file);
         std::fs::remove_file(path).expect("remove staged file");
         assert_eq!(bytes, b"preview");
+    }
+
+    #[test]
+    fn bounded_writer_rejects_the_chunk_that_crosses_its_limit() {
+        let mut writer = BoundedWriter::new(Vec::new(), Some(4));
+        writer.write_all(b"1234").expect("at limit");
+        let error = writer.write_all(b"5").expect_err("over limit");
+        assert_eq!(std::io::ErrorKind::WriteZero, error.kind());
+        assert_eq!(4, writer.written);
     }
 }
 
@@ -2791,11 +2835,12 @@ impl NativePushState {
         &self,
         attachment: Arc<UAttachment>,
         dest_path: String,
+        max_bytes: Option<u64>,
         progress: Option<Arc<dyn UProgressCallback>>,
     ) -> Result<(), UError> {
         let state = self.shared_arc();
         drive_ffi(async move {
-            let mut file = create_dest(&dest_path)?;
+            let mut file = BoundedWriter::new(create_dest(&dest_path)?, max_bytes);
             attachment.inner.get_attachment(&state.conn, &mut file, progress_cb(progress))
                 .await
                 .map_err(|e| UError::Failed { reason: format!("attachment download failed: {e}") })?;
@@ -3921,12 +3966,13 @@ impl NativePushState {
         &self,
         record_id: String,
         path: String,
+        max_bytes: Option<u64>,
     ) -> Result<(), UError> {
         let client = cloud_messages_client(self.shared())?;
         drive_ffi(async move {
-            api::download_cloud_attachments(&client, vec![(path, record_id)])
-                .await
-                .map_err(sync_err)
+            let mut files = HashMap::new();
+            files.insert(record_id, BoundedWriter::new(create_dest(&path)?, max_bytes));
+            client.download_attachment(files).await.map_err(sync_err)
         }).await
     }
 

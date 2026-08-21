@@ -193,7 +193,9 @@ private fun LivePhotoAttachmentBubble(
 ) {
     val stillFile = remember(attachment.guid, attachment.downloaded) { attachmentFile(attachment.guid) }
     val motionGuid = attachment.livePhotoMotionGuid
-    val motionFile = remember(motionGuid, attachment.downloaded) { motionGuid?.let(attachmentFile) }
+    val motionFile = remember(motionGuid, attachment.livePhotoMotionDownloaded) {
+        motionGuid?.let(attachmentFile)
+    }
     val decoded = rememberDecodedImage(file = stillFile, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
     var playing by remember(attachment.guid) { mutableStateOf(false) }

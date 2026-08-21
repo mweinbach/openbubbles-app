@@ -6,7 +6,16 @@ import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -205,5 +214,179 @@ class TranscriptBackgroundStoreTest {
         assertFailsWith<IllegalArgumentException> {
             readTranscriptBackgroundPackage(oversized)
         }
+    }
+
+    @Test
+    fun `different chats download concurrently while duplicate same-chat delivery is serialized`() = runBlocking {
+        val secondChat = Chat().apply { guid = "second-chat" }
+            .also(store.boxFor(Chat::class.java)::put)
+        val entered = Channel<Long>(Channel.UNLIMITED)
+        val release = CompletableDeferred<Unit>()
+        val loads = AtomicInteger()
+        val loader: suspend (String, File) -> ByteArray = { xml, _ ->
+            loads.incrementAndGet()
+            entered.send(xml.toLong())
+            release.await()
+            byteArrayOf(xml.toByte())
+        }
+        val backgroundStore = TranscriptBackgroundStore(store, filesDir, cacheDir, loader)
+        val historyBackgroundStore = TranscriptBackgroundStore(store, filesDir, cacheDir, loader)
+
+        val first = launch {
+            backgroundStore.apply(
+                TranscriptBackgroundUpdate(chat.id, 1, remove = false, mmcsXml = chat.id.toString()),
+            )
+        }
+        val other = launch {
+            backgroundStore.apply(
+                TranscriptBackgroundUpdate(secondChat.id, 1, remove = false, mmcsXml = secondChat.id.toString()),
+            )
+        }
+        val duplicate = launch {
+            historyBackgroundStore.apply(
+                TranscriptBackgroundUpdate(chat.id, 1, remove = false, mmcsXml = chat.id.toString()),
+            )
+        }
+
+        val concurrentChats = withTimeout(2_000) { setOf(entered.receive(), entered.receive()) }
+        assertEquals(setOf(chat.id, secondChat.id), concurrentChats)
+        assertEquals(2, loads.get())
+        release.complete(Unit)
+        joinAll(first, other, duplicate)
+
+        assertEquals(2, loads.get(), "same chat/version must not download twice")
+        assertEquals(0, activeChatBackgroundLockCountForTest())
+        assertTrue(File(requireNotNull(store.boxFor(Chat::class.java).get(chat.id).transcriptPosterPath)).isFile)
+        assertTrue(File(requireNotNull(store.boxFor(Chat::class.java).get(secondChat.id).transcriptPosterPath)).isFile)
+    }
+
+    @Test
+    fun `background lifecycle removes owned crash leftovers and preserves active and foreign files`() {
+        val storage = ChatBackgroundStorage(filesDir)
+        val directory = storage.directory
+        val activeShared = File(directory, "shared-${chat.id}-9.img").apply { writeText("shared") }
+        val activeLocal = File(directory, "local-${chat.id}-123e4567-e89b-12d3-a456-426614174000.jpg")
+            .apply { writeText("local") }
+        val orphan = File(directory, "shared-999-1.img").apply { writeText("orphan") }
+        val interruptedStage = File(directory, ".ob-background-123.tmp").apply { writeText("stage") }
+        val oldBackup = File(
+            directory,
+            "local-999-123e4567-e89b-12d3-a456-426614174000.jpg.bak",
+        ).apply { writeText("backup") }
+        val tombstone = File(directory, "shared-999-2.img.tombstone").apply { writeText("gone") }
+        val foreign = File(directory, "wallpaper.jpg").apply { writeText("user") }
+        val misleadingForeign = File(directory, "local-wallpaper.jpg").apply { writeText("user") }
+
+        val removed = storage.reconcile { listOf(activeShared.absolutePath, activeLocal.absolutePath) }
+
+        assertEquals(4, removed)
+        assertTrue(activeShared.isFile)
+        assertTrue(activeLocal.isFile)
+        assertTrue(foreign.isFile)
+        assertTrue(misleadingForeign.isFile)
+        assertFalse(orphan.exists())
+        assertFalse(interruptedStage.exists())
+        assertFalse(oldBackup.exists())
+        assertFalse(tombstone.exists())
+    }
+
+    @Test
+    fun `failed database publication rolls back new background without deleting previous`() {
+        val storage = ChatBackgroundStorage(filesDir)
+        val previous = File(
+            storage.directory,
+            "local-${chat.id}-123e4567-e89b-12d3-a456-426614174000.jpg",
+        ).apply { writeText("old") }
+
+        assertFailsWith<IllegalStateException> {
+            storage.commitBytes(
+                destinationName = "local-${chat.id}-123e4567-e89b-12d3-a456-426614174001.jpg",
+                bytes = "new".toByteArray(),
+                previousPath = previous.absolutePath,
+            ) { error("database failed") }
+        }
+
+        assertTrue(previous.isFile)
+        assertFalse(
+            File(
+                storage.directory,
+                "local-${chat.id}-123e4567-e89b-12d3-a456-426614174001.jpg",
+            ).exists(),
+        )
+    }
+
+    @Test
+    fun `failed tombstone publication preserves the referenced background`() {
+        val storage = ChatBackgroundStorage(filesDir)
+        val previous = File(storage.directory, "shared-${chat.id}-3.img").apply { writeText("old") }
+
+        assertFailsWith<IllegalStateException> {
+            storage.commitRemoval(previous.absolutePath) { error("database failed") }
+        }
+
+        assertTrue(previous.isFile)
+    }
+
+    @Test
+    fun `reconcile snapshots active paths inside the publication lock`() {
+        val storage = ChatBackgroundStorage(filesDir)
+        val old = File(storage.directory, "shared-${chat.id}-3.img").apply { writeText("old") }
+        val active = java.util.concurrent.atomic.AtomicReference<String?>(old.absolutePath)
+        val snapshotEntered = CountDownLatch(1)
+        val releaseSnapshot = CountDownLatch(1)
+        val publicationAttempted = CountDownLatch(1)
+        val publicationRan = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val reconcile = executor.submit<Int> {
+                storage.reconcile {
+                    snapshotEntered.countDown()
+                    check(releaseSnapshot.await(2, TimeUnit.SECONDS))
+                    listOf(active.get())
+                }
+            }
+            assertTrue(snapshotEntered.await(2, TimeUnit.SECONDS))
+            val publish = executor.submit<File> {
+                publicationAttempted.countDown()
+                storage.commitBytes(
+                    destinationName = "shared-${chat.id}-4.img",
+                    bytes = "new".toByteArray(),
+                    previousPath = active.get(),
+                ) { destination ->
+                    active.set(destination.absolutePath)
+                    publicationRan.countDown()
+                }
+            }
+
+            assertTrue(publicationAttempted.await(2, TimeUnit.SECONDS))
+            assertFalse(
+                publicationRan.await(100, TimeUnit.MILLISECONDS),
+                "publication must wait until the active-path snapshot and scan finish",
+            )
+            releaseSnapshot.countDown()
+            reconcile.get(2, TimeUnit.SECONDS)
+            val published = publish.get(2, TimeUnit.SECONDS)
+
+            assertEquals(published.absolutePath, active.get())
+            assertTrue(published.isFile)
+            assertFalse(old.exists())
+        } finally {
+            releaseSnapshot.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `legacy migration does not retain locks for chats without posters`() = runBlocking {
+        repeat(500) { index ->
+            Chat().apply { guid = "plain-$index" }.also(store.boxFor(Chat::class.java)::put)
+        }
+        val backgroundStore = TranscriptBackgroundStore(store, filesDir, cacheDir) { _, _ ->
+            error("migration must not download")
+        }
+
+        backgroundStore.migrateLegacyPosters()
+
+        assertEquals(0, activeChatBackgroundLockCountForTest())
     }
 }

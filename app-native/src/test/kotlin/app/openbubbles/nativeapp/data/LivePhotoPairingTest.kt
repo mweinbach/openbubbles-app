@@ -5,8 +5,10 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class LivePhotoPairingTest {
     @Test
@@ -28,6 +30,10 @@ class LivePhotoPairingTest {
 
         assertEquals(1, visible.size)
         assertEquals("message_0_iris", visible.single().livePhotoMotionGuid)
+        assertFalse(visible.single().livePhotoMotionDownloaded)
+
+        motion.isDownloaded = true
+        assertTrue(visibleAttachmentMetas(listOf(still, motion)).single().livePhotoMotionDownloaded)
     }
 
     @Test
@@ -47,6 +53,10 @@ class LivePhotoPairingTest {
 
         assertEquals(1, visible.size)
         assertEquals("message_1", visible.single().livePhotoMotionGuid)
+        assertEquals(
+            listOf("message_0", "message_1"),
+            livePhotoTransferGuids(still, listOf(still, motion)),
+        )
     }
 
     @Test

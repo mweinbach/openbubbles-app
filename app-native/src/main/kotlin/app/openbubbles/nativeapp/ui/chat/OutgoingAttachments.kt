@@ -7,9 +7,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
+import app.openbubbles.nativeapp.data.copyWithByteLimit
+import app.openbubbles.nativeapp.data.promoteOwnedSibling
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 /**
  * Best-effort MIME → UTI map for outgoing attachments. Anything unrecognized
@@ -77,14 +81,25 @@ suspend fun prepareOutgoingAttachment(context: Context, uri: Uri): OutgoingAttac
                 }
             }
             val displayName = name ?: uri.lastPathSegment ?: "attachment"
+            if (size != null && size > MAX_OUTGOING_DRAFT_BYTES) {
+                error("Attachment is larger than ${MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)} MB")
+            }
 
             val dir = File(context.cacheDir, "outgoing").apply { mkdirs() }
-            val target = File(dir, "${System.currentTimeMillis()}-${displayName.replace(Regex("[<>:\"/\\\\|?*]"), "_")}")
-            resolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { input.copyTo(it) }
-            } ?: return@runCatching null
+            val target = File(dir, "${UUID.randomUUID()}-${displayName.replace(Regex("[<>:\"/\\\\|?*]"), "_")}")
+            val partial = File(dir, ".${target.name}.part")
+            try {
+                resolver.openInputStream(uri)?.use { input ->
+                    copyWithByteLimit(input, partial, MAX_OUTGOING_DRAFT_BYTES)
+                } ?: return@runCatching null
+                promoteOwnedSibling(partial, target)
+            } catch (failure: Throwable) {
+                partial.delete()
+                target.delete()
+                throw failure
+            }
 
-            val realSize = if (size != null && size > 0) size else target.length()
+            val realSize = target.length()
             OutgoingAttachment(
                 file = target,
                 mime = mime,

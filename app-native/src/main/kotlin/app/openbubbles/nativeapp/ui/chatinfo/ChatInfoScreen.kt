@@ -83,7 +83,9 @@ import app.openbubbles.nativeapp.data.ContactDisplay
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.UiContacts
+import app.openbubbles.nativeapp.data.deleteOwnedGroupIcon
 import app.openbubbles.nativeapp.data.effectiveBackgroundPath
+import app.openbubbles.nativeapp.data.stageGroupIcon
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
 import app.openbubbles.nativeapp.ui.settings.SettingsActionItem
@@ -209,10 +211,14 @@ fun ChatInfoScreen(
     val pickGroupPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val file = runCatching { prepareGroupIcon(context, uri) }
+            val file = runCatching { withContext(Dispatchers.IO) { stageGroupIcon(context, uri) } }
                 .onFailure { error = it.message ?: "Could not read group photo" }
                 .getOrNull() ?: return@launch
-            launchAction({ onSetGroupIcon(file) })
+            runCatching { onSetGroupIcon(file) }
+                .onFailure { failure ->
+                    deleteOwnedGroupIcon(file, context)
+                    error = failure.message ?: "Could not update group photo"
+                }
         }
     }
     val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -796,26 +802,6 @@ private fun TextInputDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-/** Decode, center-crop, and persist the 570px PNG expected by iMessage group icons. */
-private suspend fun prepareGroupIcon(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
-    val source = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-        ?: error("could not decode group photo")
-    val side = minOf(source.width, source.height)
-    val left = (source.width - side) / 2
-    val top = (source.height - side) / 2
-    val square = Bitmap.createBitmap(source, left, top, side, side)
-    val scaled = square.scale(570, 570)
-    val directory = File(context.filesDir, "group_icons").apply { mkdirs() }
-    val destination = File(directory, "outgoing-${UUID.randomUUID()}.png")
-    FileOutputStream(destination).use { output ->
-        check(scaled.compress(Bitmap.CompressFormat.PNG, 100, output)) { "could not encode group photo" }
-    }
-    if (scaled !== square) scaled.recycle()
-    if (square !== source) square.recycle()
-    source.recycle()
-    destination
 }
 
 private suspend fun prepareChatBackground(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {

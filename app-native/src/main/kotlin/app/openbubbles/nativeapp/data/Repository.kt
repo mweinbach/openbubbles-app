@@ -6,6 +6,7 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * UI-facing data contracts for the native Android client.
@@ -74,6 +75,8 @@ data class AttachmentMeta(
     val uti: String? = null,
     /** Paired MOV attachment for an Apple Live Photo. */
     val livePhotoMotionGuid: String? = null,
+    /** Changes when the hidden motion row finishes after the visible still. */
+    val livePhotoMotionDownloaded: Boolean = false,
     /** Internal sidecar rows are downloaded but never rendered independently. */
     val isLivePhotoMotion: Boolean = false,
 ) {
@@ -477,6 +480,7 @@ interface TypingRepository {
 interface AttachmentProvider {
     fun byGuid(guid: String): AttachmentMeta?
     fun localFile(guid: String): File?
+    fun observe(guid: String): Flow<AttachmentMeta?> = flowOf(byGuid(guid))
 }
 
 /**

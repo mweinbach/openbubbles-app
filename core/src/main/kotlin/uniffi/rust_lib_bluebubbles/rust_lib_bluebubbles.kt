@@ -2180,9 +2180,9 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_device_info(`ptr`: Poi
 ): RustBuffer.ByValue
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_do_special_apple_auth(`ptr`: Pointer,`clientDataHash`: RustBuffer.ByValue,`callback`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(`ptr`: Pointer,`attachment`: Pointer,`destPath`: RustBuffer.ByValue,`maxBytes`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
-fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,`maxBytes`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
 ): Long
@@ -2892,10 +2892,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_do_special_apple_auth() != 60368.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment() != 11940.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_attachment() != 30800.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 61402.toShort()) {
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_attachment() != 14005.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo() != 1527.toShort()) {
@@ -6413,12 +6413,12 @@ public interface NativePushStateInterface {
      * `download_attachment` sink loop, including inline attachments (bytes
      * written straight to the file).
      */
-    suspend fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+    suspend fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `maxBytes`: kotlin.ULong?, `progress`: UProgressCallback?)
 
     /**
      * Download one Messages-in-iCloud attachment asset directly to `path`.
      */
-    suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String)
+    suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String, `maxBytes`: kotlin.ULong?)
 
     /**
      * Download one Messages-in-iCloud group-photo asset (`CloudChat.group_photo`)
@@ -7376,12 +7376,12 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      */
     @Throws(UException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `progress`: UProgressCallback?) {
+    override suspend fun `downloadAttachment`(`attachment`: UAttachment, `destPath`: kotlin.String, `maxBytes`: kotlin.ULong?, `progress`: UProgressCallback?) {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_attachment(
                 thisPtr,
-                FfiConverterTypeUAttachment.lower(`attachment`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+                FfiConverterTypeUAttachment.lower(`attachment`),FfiConverterString.lower(`destPath`),FfiConverterOptionalULong.lower(`maxBytes`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
@@ -7401,12 +7401,12 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
      */
     @Throws(UException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String) {
+    override suspend fun `downloadCloudAttachment`(`recordId`: kotlin.String, `path`: kotlin.String, `maxBytes`: kotlin.ULong?) {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachment(
                 thisPtr,
-                FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),
+                FfiConverterString.lower(`recordId`),FfiConverterString.lower(`path`),FfiConverterOptionalULong.lower(`maxBytes`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },

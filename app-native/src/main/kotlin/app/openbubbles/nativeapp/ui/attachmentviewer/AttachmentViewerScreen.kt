@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.AttachmentMeta
@@ -82,19 +83,22 @@ fun AttachmentViewerScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val meta = remember(guid) { provider.byGuid(guid) }
+    val initialMeta = remember(guid, provider) { provider.byGuid(guid) }
+    val meta by remember(guid, provider) { provider.observe(guid) }
+        .collectAsStateWithLifecycle(initialValue = initialMeta)
+    val resolvedMeta = meta
     // Disk presence beats the persisted flag (same rule as the bubble).
-    val file = remember(guid) { provider.localFile(guid) }
+    val file = remember(guid, resolvedMeta?.downloaded) { provider.localFile(guid) }
     var chromeVisible by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var videoFailed by remember(guid) { mutableStateOf(false) }
-    val mediaKind = AttachmentMedia.kind(meta?.mime, meta?.uti, meta?.name)
+    val mediaKind = AttachmentMedia.kind(resolvedMeta?.mime, resolvedMeta?.uti, resolvedMeta?.name)
     val pdfPages = rememberPdfPageCount(file.takeIf { mediaKind == AttachmentMediaKind.PDF })
     val zoomable = mediaKind == AttachmentMediaKind.IMAGE && file != null
-    val playbackMime = meta?.playbackMime ?: meta?.mime
-    val livePhotoPair = remember(meta, guid) {
-        meta?.takeIf { it.livePhotoMotionGuid != null }?.let { resolveLivePhotoPair(it, provider) }
+    val playbackMime = resolvedMeta?.playbackMime ?: resolvedMeta?.mime
+    val livePhotoPair = remember(resolvedMeta, guid) {
+        resolvedMeta?.takeIf { it.livePhotoMotionGuid != null }?.let { resolveLivePhotoPair(it, provider) }
     }
 
     // No BackHandler here: NavDisplay's own back handling covers the pop, and
@@ -129,20 +133,21 @@ fun AttachmentViewerScreen(
             },
         contentAlignment = Alignment.Center,
     ) {
+        val resolvedLivePhotoPair = livePhotoPair
         val content: @Composable () -> Unit = when {
-            meta == null -> { { ViewerMessage("Attachment not found") } }
-            file == null -> { { ViewerMessage("${meta.name ?: "Attachment"} — not downloaded yet") } }
-            livePhotoPair != null -> {
-                { LivePhotoViewer(pair = livePhotoPair) }
+            resolvedMeta == null -> { { ViewerMessage("Attachment not found") } }
+            file == null -> { { ViewerMessage("${resolvedMeta.name ?: "Attachment"} — not downloaded yet") } }
+            resolvedLivePhotoPair != null -> {
+                { LivePhotoViewer(pair = resolvedLivePhotoPair) }
             }
-            mediaKind == AttachmentMediaKind.IMAGE || meta.isImage -> {
+            mediaKind == AttachmentMediaKind.IMAGE || resolvedMeta.isImage -> {
                 {
                     val decoded = rememberDecodedImage(file = file, maxDimensionPx = 2048)
                     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
                     if (decoded != null) {
                         Image(
                             bitmap = decoded.image,
-                            contentDescription = meta.name,
+                            contentDescription = resolvedMeta.name,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -175,7 +180,7 @@ fun AttachmentViewerScreen(
                     } else {
                         AttachmentPdfViewer(
                             file = file,
-                            name = meta.name,
+                            name = resolvedMeta.name,
                             pageCount = pdfPages,
                         )
                     }
@@ -184,7 +189,7 @@ fun AttachmentViewerScreen(
             else -> {
                 {
                     ExternalAttachmentActions(
-                        name = meta.name,
+                        name = resolvedMeta.name,
                         onOpen = {
                             if (!openAttachmentExternally(context, file, playbackMime)) {
                                 Toast.makeText(context, "No app can open this attachment", Toast.LENGTH_SHORT).show()
@@ -202,8 +207,8 @@ fun AttachmentViewerScreen(
         content()
         ViewerChrome(
             visible = chromeVisible,
-            title = meta?.name,
-            subtitle = formatBytes(meta?.sizeBytes),
+            title = resolvedMeta?.name,
+            subtitle = formatBytes(resolvedMeta?.sizeBytes),
             onBack = onBack,
             onShare = if (file == null) null else {
                 {

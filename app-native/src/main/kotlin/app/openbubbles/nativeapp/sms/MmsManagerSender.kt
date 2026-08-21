@@ -14,8 +14,9 @@ import app.openbubbles.nativeapp.data.AttachmentSender
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
+import app.openbubbles.nativeapp.data.OutgoingPayloadStage
 import app.openbubbles.nativeapp.data.PushStateHolder
-import app.openbubbles.nativeapp.data.moveOutgoingAttachment
+import app.openbubbles.nativeapp.data.stageOutgoingPayloadBatch
 import com.klinker.android.send_message.Message as CarrierMessage
 import com.klinker.android.send_message.Settings
 import com.klinker.android.send_message.Transaction
@@ -54,49 +55,45 @@ class MmsManagerSender(private val context: Context) : AttachmentSender {
 
             val tempGuid = MessageIngestor.tempGuid()
             val disk = AttachmentStore(store, File(context.dataDir, "app_flutter"))
-            // Move every staged payload into the canonical store layout
-            // before anything is persisted, so a copy failure aborts the
-            // whole send without leaving partial rows behind.
-            val media = try {
-                attachments.mapIndexed { index, attachment ->
-                    val attachmentGuid = "${tempGuid}_att$index"
-                    val displayName = attachment.name ?: "attachment"
-                    val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
-                    moveOutgoingAttachment(attachment.file, payload)
-                    StagedMedia(attachmentGuid, attachment.mime, attachment.uti, displayName, payload)
-                }
-            } catch (failure: Throwable) {
-                attachments.indices.forEach { index ->
-                    disk.directoryFor("${tempGuid}_att$index").deleteRecursively()
-                }
-                throw failure
+            val media = attachments.mapIndexed { index, attachment ->
+                val attachmentGuid = "${tempGuid}_att$index"
+                val displayName = attachment.name ?: "attachment"
+                val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(displayName))
+                StagedMedia(attachmentGuid, attachment.mime, attachment.uti, displayName, payload)
             }
             try {
-                val message = MessageRepo(store).stageOutgoingMessageWithAttachments(
-                    chatGuid = chatGuid,
-                    sender = myHandle,
-                    text = caption.orEmpty(),
-                    stagingGuid = tempGuid,
-                    attachments = media.map { item ->
-                        MessageRepo.OutgoingAttachmentStage(
-                            guid = item.guid,
-                            mimeType = item.mime,
-                            uti = item.uti,
-                            transferName = item.name,
-                            totalBytes = item.payload.length(),
-                        )
+                stageOutgoingPayloadBatch(
+                    stages = attachments.mapIndexed { index, attachment ->
+                        OutgoingPayloadStage(attachment.file, media[index].payload)
                     },
-                )
-                PreparedMmsSend(
-                    store = store,
-                    chatId = chatId,
-                    existingThreadId = chat.telephonyId,
-                    tempGuid = tempGuid,
-                    messageId = message.id,
-                    myAddress = myAddress,
-                    destinations = destinations,
-                    media = media,
-                )
+                    cacheRoot = context.cacheDir,
+                ) { payloads ->
+                    val message = MessageRepo(store).stageOutgoingMessageWithAttachments(
+                        chatGuid = chatGuid,
+                        sender = myHandle,
+                        text = caption.orEmpty(),
+                        stagingGuid = tempGuid,
+                        attachments = media.mapIndexed { index, item ->
+                            MessageRepo.OutgoingAttachmentStage(
+                                guid = item.guid,
+                                mimeType = item.mime,
+                                uti = item.uti,
+                                transferName = item.name,
+                                totalBytes = payloads[index].length(),
+                            )
+                        },
+                    )
+                    PreparedMmsSend(
+                        store = store,
+                        chatId = chatId,
+                        existingThreadId = chat.telephonyId,
+                        tempGuid = tempGuid,
+                        messageId = message.id,
+                        myAddress = myAddress,
+                        destinations = destinations,
+                        media = media,
+                    )
+                }
             } catch (failure: Throwable) {
                 media.forEach { disk.directoryFor(it.guid).deleteRecursively() }
                 throw failure

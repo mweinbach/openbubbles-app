@@ -28,8 +28,10 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
@@ -535,7 +537,7 @@ class ChatViewModelTest {
         val attachmentSender = FailingAttachmentSender()
         val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
         backgroundScope.launch(dispatcher) { model.uiState.collect() }
-        val one = tempAttachment("retry.jpg")
+        val (root, one) = ownedTempAttachment("retry.jpg")
 
         model.onInputChange("caption")
         model.stageAttachment(one)
@@ -545,7 +547,24 @@ class ChatViewModelTest {
         assertEquals("caption", model.uiState.value.input)
         assertEquals(listOf(one), model.uiState.value.pendingAttachments)
         assertEquals("upload broke", model.uiState.value.actionError)
-        one.file.delete()
+        assertTrue(one.file.exists())
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun `clearing the ViewModel deletes owned draft files`() = runTest(dispatcher) {
+        val (root, attachment) = ownedTempAttachment("abandoned.jpg")
+        val model = model(
+            RecordingSender(),
+            RecordingActions(),
+            outgoingCacheRoot = root.resolve("cache"),
+        )
+
+        model.stageAttachment(attachment)
+        viewModelStore.clear()
+
+        assertFalse(attachment.file.exists())
+        root.deleteRecursively()
     }
 
     @Test
@@ -830,6 +849,7 @@ class ChatViewModelTest {
         readReceiptSender: ReadReceiptSender = ReadReceiptSender { _, _ -> },
         historySyncActive: () -> Boolean = { false },
         openedAtMs: Long = 1_700_000_000_000L,
+        outgoingCacheRoot: File? = null,
     ): ChatViewModel {
         val created = ChatViewModel(
             chatId = 7L,
@@ -848,6 +868,7 @@ class ChatViewModelTest {
             openedAtMs = openedAtMs,
             participantAddresses = { emptyList() },
             participantLookupDispatcher = dispatcher,
+            outgoingCacheRoot = outgoingCacheRoot,
         )
         val factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -1129,6 +1150,15 @@ private fun tempAttachment(name: String): OutgoingAttachment {
         writeBytes(byteArrayOf(1, 2, 3))
     }
     return OutgoingAttachment(file, "image/jpeg", "public.jpeg", name, file.length())
+}
+
+private fun ownedTempAttachment(name: String): Pair<File, OutgoingAttachment> {
+    val root = Files.createTempDirectory("chat-draft-owned").toFile()
+    val file = root.resolve("cache/outgoing/$name").apply {
+        requireNotNull(parentFile).mkdirs()
+        writeBytes(byteArrayOf(1, 2, 3))
+    }
+    return root to OutgoingAttachment(file, "image/jpeg", "public.jpeg", name, file.length())
 }
 
 private class RecordingStickerSender : StickerSender {
