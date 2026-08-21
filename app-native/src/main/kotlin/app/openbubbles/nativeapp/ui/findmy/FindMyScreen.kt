@@ -80,7 +80,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -97,6 +96,7 @@ import app.openbubbles.nativeapp.ui.map.cameraFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /**
  * Find My: a live map of this account's devices, followed friends, and beacon
@@ -233,7 +233,8 @@ fun FindMyScreen(
 private fun rememberFreshnessClock(): Long {
     val lifecycleOwner = LocalLifecycleOwner.current
     val current by produceState(System.currentTimeMillis(), lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        lifecycleOwner.lifecycle.currentStateFlow.collectLatest { state ->
+            if (!state.isAtLeast(Lifecycle.State.STARTED)) return@collectLatest
             while (true) {
                 value = System.currentTimeMillis()
                 delay(30_000L)
