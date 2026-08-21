@@ -125,6 +125,7 @@ import app.openbubbles.nativeapp.data.photos.PhotoLibraryExport
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
 import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
 import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
+import app.openbubbles.nativeapp.ui.common.HdrColorModeEffect
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImageResult
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
@@ -1053,6 +1054,7 @@ private fun PhotoPage(
         when (asset.mediaKind) {
             PhotoMediaKind.Image -> {
                 val decoded = originalImage?.image ?: previewImage.takeIf { imageState.showPreview }
+                HdrColorModeEffect(decoded?.image.takeIf { playbackEnabled })
                 if (decoded != null) {
                     Image(
                         bitmap = decoded.image,
