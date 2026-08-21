@@ -230,6 +230,7 @@ class PhotoTransferCoordinator(
         mimeType: String?,
         orientation: Int,
         capturedAtMs: Long? = null,
+        timeZone: PhotoTimeZone? = null,
     ): PhotoTransfer = withContext(ioDispatcher) {
         val source = File(sourcePath)
         val preview = File(previewPath)
@@ -241,7 +242,11 @@ class PhotoTransferCoordinator(
             "The first iCloud Photos upload supports JPEG images only"
         }
         require(orientation in 1..8) { "Upload orientation is invalid" }
-        val staged = stageUploadSource(source, preview, orientation, capturedAtMs)
+        val staged = stageUploadSource(
+            source,
+            preview,
+            UploadMetadata(orientation, capturedAtMs, timeZone?.takeIf { it.name.isNotBlank() }),
+        )
         val timestamp = nowMs()
         val id = "upload:${staged.digest}"
         val existing = catalog.transfer(id)
@@ -291,6 +296,7 @@ class PhotoTransferCoordinator(
                 filename = transfer.filename ?: source.name,
                 capturedAtMs = metadata.capturedAtMs,
                 orientation = metadata.orientation,
+                fallbackTimeZone = metadata.timeZone,
             ).getOrThrow()
             current = current.copy(
                 assetId = receipt.masterId,
@@ -323,8 +329,7 @@ class PhotoTransferCoordinator(
     private fun stageUploadSource(
         source: File,
         preview: File,
-        orientation: Int,
-        capturedAtMs: Long?,
+        metadata: UploadMetadata,
     ): StagedUpload {
         uploadRoot.mkdirs()
         val partial = File(uploadRoot, ".${UUID.randomUUID()}.part")
@@ -353,10 +358,7 @@ class PhotoTransferCoordinator(
             }
             val previewDestination = uploadCompanion(destination, ".preview.jpg")
             copyDurable(preview, previewDestination)
-            writeUploadMetadata(
-                uploadCompanion(destination, ".metadata"),
-                UploadMetadata(orientation, capturedAtMs),
-            )
+            writeUploadMetadata(uploadCompanion(destination, ".metadata"), metadata)
             return StagedUpload(destination, previewDestination, digestHex)
         } catch (error: Throwable) {
             partial.delete()
@@ -406,14 +408,27 @@ class PhotoTransferCoordinator(
             }
         }
 
+        /**
+         * Sidecar format. Version 1 stored orientation and capture time;
+         * version 2 adds the device time zone. Readers accept both so rows
+         * staged before an upgrade still upload.
+         */
+        internal const val UPLOAD_METADATA_VERSION = 2
+
         private fun writeUploadMetadata(file: File, metadata: UploadMetadata) {
             val partial = File(file.parentFile, ".${UUID.randomUUID()}.part")
             try {
                 FileOutputStream(partial).use { stream ->
                     DataOutputStream(stream).use { output ->
-                        output.writeInt(1)
+                        output.writeInt(UPLOAD_METADATA_VERSION)
                         output.writeInt(metadata.orientation)
                         output.writeLong(metadata.capturedAtMs ?: -1L)
+                        val zone = metadata.timeZone
+                        output.writeBoolean(zone != null)
+                        if (zone != null) {
+                            output.writeUTF(zone.name)
+                            output.writeInt(zone.offsetSeconds)
+                        }
                         output.flush()
                         stream.fd.sync()
                     }
@@ -425,13 +440,23 @@ class PhotoTransferCoordinator(
             }
         }
 
-        private fun readUploadMetadata(file: File): UploadMetadata =
+        internal fun readUploadMetadata(file: File): UploadMetadata =
             DataInputStream(file.inputStream().buffered()).use { input ->
-                check(input.readInt() == 1) { "Unsupported Photos upload metadata" }
+                val version = input.readInt()
+                check(version in 1..UPLOAD_METADATA_VERSION) { "Unsupported Photos upload metadata" }
                 val orientation = input.readInt()
                 require(orientation in 1..8) { "Upload orientation is invalid" }
                 val capturedAtMs = input.readLong().takeIf { it >= 0 }
-                UploadMetadata(orientation, capturedAtMs)
+                val timeZone = if (version >= 2 && input.readBoolean()) {
+                    val name = input.readUTF()
+                    val offsetSeconds = input.readInt()
+                    PhotoTimeZone(name, offsetSeconds).takeIf {
+                        name.isNotBlank() && offsetSeconds in -18 * 3600..18 * 3600
+                    }
+                } else {
+                    null
+                }
+                UploadMetadata(orientation, capturedAtMs, timeZone)
             }
 
         private fun uploadCompanion(original: File, suffix: String): File {
@@ -442,7 +467,13 @@ class PhotoTransferCoordinator(
 }
 
 private data class StagedUpload(val file: File, val previewFile: File, val digest: String)
-private data class UploadMetadata(val orientation: Int, val capturedAtMs: Long?)
+
+/** What the staged sidecar remembers for the later explicit upload. */
+internal data class UploadMetadata(
+    val orientation: Int,
+    val capturedAtMs: Long?,
+    val timeZone: PhotoTimeZone? = null,
+)
 
 private fun ByteArray.toHex(): String =
     joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }

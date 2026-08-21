@@ -21,12 +21,12 @@ user-initiated transfers:
 4. persist metadata and transfer intent without treating missing local data as a cloud deletion;
 5. stage selected photos or manually scanned document-tree folders privately and require a
    separate explicit upload action;
-6. keep the implemented background worker hard-disabled until incremental changes and policy are
-   proven.
+6. offer one opt-in "Back up new camera photos" switch that stages and uploads images Android adds
+   to `DCIM` after the switch is turned on, and nothing older.
 
-Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. The
-single-JPEG upload milestone below does not imply background upload, device-gallery mirroring,
-remote deletion, album mutation, edits, favorites, hidden state, or Shared Photo Library writes.
+Do not call this "Photos sync" in shipping UI until incremental reconciliation is proven. The JPEG
+upload path and the opt-in camera backup do not imply device-gallery mirroring, remote deletion,
+album mutation, edits, favorites, hidden state, video uploads, or Shared Photo Library writes.
 
 ## What exists today
 
@@ -156,13 +156,78 @@ The 2026-08-19 static audit established that:
   they enter the existing JPEG-only Apple upload contract. Selection stages files only.
 - Users can persist read access to chosen Android document-tree folders. `Scan now` recursively
   finds at most 500 images and stages them; choosing a folder never scans or uploads it.
-- `PhotosBackgroundSyncWorker` contains the future folder scan, queued-upload, and metadata-refresh
-  pass, but `PhotosBackgroundSync.ENABLED` is a compile-time `false`, no scheduler exists, startup
-  cancels any work under its unique name, and the UI exposes no enable control.
+- `PhotosBackgroundSyncWorker` then contained the future queued-upload and metadata-refresh pass
+  behind a compile-time `false` with no scheduler or enable control. The capture-metadata and
+  camera-backup slice below replaced that with the opt-in `DCIM` backup switch.
 
 This slice has host coverage but no new hardware protocol claim. In particular, original images,
 original videos, converted HEIC uploads, multi-file batches, and folder batches still require
 device evidence before they can be described as live-proven.
+
+### Implemented capture metadata and camera backup slice (host-verified only)
+
+Status snapshot: 2026-08-21. Native Photos clients showed uploads at the wrong time, without a
+location, and with "No camera information" because the CPL records carried none of it: the
+master's `mediaMetaDataEnc` was a bare JFIF dictionary, the asset zone was hardcoded to UTC with a
+zero offset, and `locationEnc` was never written. Apple clients read those record fields, not the
+uploaded original, so the fix is record-side.
+
+- `rustpush/src/photos_metadata.rs` reads the staged JPEG's EXIF (kamadak-exif, primary IFD only)
+  and builds the ImageIO `CGImageProperties` dictionary a native import would store: top-level
+  `PixelWidth`/`PixelHeight`/`Orientation`/`DPIWidth`/`DPIHeight`/`ColorModel`/`Depth`/
+  `ProfileName`, `{TIFF}` (Make, Model, Software, DateTime, Orientation, resolution),
+  `{Exif}` (DateTimeOriginal, OffsetTime*, Subsec*, ExposureTime, FNumber, ISOSpeedRatings,
+  FocalLength, FocalLenIn35mmFilm, LensMake/LensModel/LensSpecification, ExifVersion, and the
+  rest of the tag set, with ImageIO's spelling), `{GPS}` (decimal `Latitude`/`Longitude` with refs,
+  `Altitude`, `TimeStamp`, `DateStamp`, speed, track, positioning error), and `{JFIF}` only when the
+  file actually has an APP0 segment. Maker notes, user comments, IFD pointers, and strip/tile
+  layout are never copied. `CPLMaster.mediaMetaDataType` is now `CGImageProperties`.
+- `CPLAsset.assetDate` (and `CPLMaster.originalCreationDate`) come from `DateTimeOriginal` plus the
+  EXIF UTC offset. `timeZoneOffset` is that offset in seconds and `timeZoneNameEnc` is the device's
+  IANA zone when its offset agrees, otherwise Apple's fixed `GMT±HHMM` spelling. A camera clock
+  without an offset is read in the device zone Kotlin resolved at that wall-clock time; a file with
+  no date falls back to the caller's capture instant, then to now, with the historical `UTC`/0 pair
+  only when nothing is known.
+- `CPLAsset.locationEnc` is a CoreLocation-shaped binary plist (`lat`, `lon`, `alt`, `course`,
+  `speed`, `horizontalAccuracy`, `verticalAccuracy`, `timestamp`) derived from the GPS IFD, with
+  CoreLocation's own unknown sentinels, and omitted entirely when the file has no valid coordinate.
+- `upload_photo_jpeg` gained an optional `UPhotoTimeZone { name, offset_seconds }` fallback and the
+  committed bindings were regenerated. `PhotoTransferCoordinator` stores the zone in a version-2
+  sidecar and still reads version-1 sidecars from earlier stagings.
+- Android reads MediaStore items with `MediaStore.setRequireOriginal` when `ACCESS_MEDIA_LOCATION`
+  is granted, so the GPS tags reach the staged JPEG instead of Android's redacted copy; a refused
+  original falls back to the redacted stream. A HEIC/PNG/WebP source that has to be re-encoded has
+  its EXIF copied onto the normalized JPEG (orientation reset to upright, pixel dimensions rewritten,
+  maker notes and thumbnails dropped) so the uploaded original carries the capture's metadata too.
+- `parseExifOriginalDateTime` no longer treats an offset-less camera clock as UTC; it reads it in
+  the device zone, and the picker also records that zone's offset at the capture wall-clock time.
+- The previously dormant `PhotosBackgroundSyncWorker` is now the opt-in "Back up new camera
+  photos" switch in the uploads sheet. Enabling requests `READ_MEDIA_IMAGES` (storage on 12L and
+  lower, "selected photos" on 14+) plus `ACCESS_MEDIA_LOCATION`, records the newest current
+  `DCIM` MediaStore id as a watermark, and schedules an hourly periodic pass plus a MediaStore
+  content-URI trigger that re-arms after every run. A pass stages at most 60 newer `DCIM` images
+  through the same picker/staging path, uploads queued rows (failed rows retry up to five times
+  automatically; a tap can still retry later), refreshes the cached library, and advances the
+  watermark per item so a crash resumes instead of repeating. Photos that already existed when the
+  switch was turned on are not uploaded; videos are skipped. Explicit uploads and the worker share
+  one process-wide upload gate. Disabling cancels both work names; sign-out clears the switch,
+  watermark, and schedule through `PhotosAccountCleanup`.
+- The Photos app bar now owns the "Add to iCloud Photos" action; the floating button over the grid
+  is gone and the density controls moved into the overflow menu.
+
+Host evidence on 2026-08-21:
+
+- `rustpush` library tests: 104 passed, 2 manual-network tests ignored, including the new
+  `photos_metadata` suite (ImageIO shape, capture-time resolution, location plist, key renames);
+- `:db:test`, `:core:test`, `:app-native:testDebugUnitTest`, `:db:checkModelParity`,
+  `:app-native:checkUniffiBindings`, `:app-native:lintDebug`, and `:app-native:assembleDebug`
+  passed;
+- the arm64 debug APK is 132,911,778 bytes with SHA-256
+  `f2d291093485b90228b6f467f7a98fc2aae3dc5601d172eb18fd97871bf0ea60`.
+
+Native iPhone/Mac appearance of the corrected date, location, and camera details for a fresh
+upload, and a real background backup pass on hardware, are the next device checkpoints and have not
+been claimed here.
 
 ### Implemented timeline and viewer slice (host-verified only)
 
@@ -363,8 +428,10 @@ The first two names are now committed; keep later additions narrow.
   resource kinds.
 - `download_photo_preview(master_id, media_kind, destination, progress)` is committed for the
   small image/video display rendition. Kotlin owns atomic promotion and durable state.
-- `upload_photo_jpeg(original_path, preview_path, filename, captured_at_ms, orientation)` is
-  committed for an explicitly staged JPEG pair and returns the CPL master/asset identifiers.
+- `upload_photo_jpeg(original_path, preview_path, filename, captured_at_ms, orientation,
+  fallback_time_zone)` is committed for an explicitly staged JPEG pair and returns the CPL
+  master/asset identifiers. Rust derives the capture date, zone, location, and camera metadata
+  from the file's EXIF; the caller's instant and `UPhotoTimeZone` only fill what the file omits.
 - `download_photo_original(master_id, media_kind, destination, progress)` is committed for an
   explicitly selected original. A later resource method must still cover Live Photo motion pairs
   and return verified size/checksum information.
@@ -412,8 +479,9 @@ like sync.
 
 ### Slice 4: background reconciliation
 
-1. The worker pass exists behind a compile-time false flag; add dedicated WorkManager scheduling
-   with network, charging, battery, and storage constraints only after the enablement review.
+1. The opt-in camera backup worker is scheduled (hourly periodic plus a MediaStore content trigger)
+   with connected-network, battery-not-low, and storage-not-low constraints and uploads only newer
+   `DCIM` images. Incremental *download* reconciliation of remote changes remains future work.
 2. APS notifications may mark Photos dirty and enqueue work; never perform a library sync inside
    the APS callback or message poll.
 3. Use foreground transfer behavior for user-initiated long downloads where Android requires it.
@@ -436,7 +504,8 @@ Do not expose mutation methods speculatively in the initial UniFFI API.
 
 ## Safety rules
 
-- Read-only is the default except for the separately tapped, JPEG-only upload milestone.
+- Read-only is the default except for the JPEG-only upload path: a separate tap in the uploads
+  sheet, or the user's own "Back up new camera photos" switch, which only ever adds images.
 - Missing local data is never evidence that a remote asset should be deleted.
 - Deleting an app cache entry must never delete an iCloud original.
 - Remote tombstones may remove catalog/cache state, but not user-exported MediaStore copies.

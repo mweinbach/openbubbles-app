@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -10,6 +11,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.core.photos.PhotoMediaKind
 import app.openbubbles.core.photos.PhotoResourceKind
 import app.openbubbles.core.photos.PhotoSummary
+import app.openbubbles.core.photos.PhotoTimeZone
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferCoordinator
 import app.openbubbles.core.photos.PhotoTransferDirection
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
@@ -66,7 +69,8 @@ data class PhotosUiState(
     val sourceMessage: String? = null,
     val showingCachedMetadata: Boolean = false,
     val error: String? = null,
-    val backgroundSyncEnabled: Boolean = PhotosBackgroundSync.ENABLED,
+    /** The user's camera-backup switch, mirrored from [PhotosBackupPort]. */
+    val backgroundSyncEnabled: Boolean = false,
 )
 
 private class LivePhotosPort(private val stateProvider: () -> NativePushState?) : PhotosPort {
@@ -94,7 +98,8 @@ private class LivePhotosPort(private val stateProvider: () -> NativePushState?) 
         filename: String,
         capturedAtMs: Long?,
         orientation: Int,
-    ) = port().uploadJpeg(originalPath, previewPath, filename, capturedAtMs, orientation)
+        fallbackTimeZone: PhotoTimeZone?,
+    ) = port().uploadJpeg(originalPath, previewPath, filename, capturedAtMs, orientation, fallbackTimeZone)
 }
 
 /** Fakeable seam for the one-way Android gallery mirror. */
@@ -129,6 +134,19 @@ private class AndroidPhotosFolderPort(
     override suspend fun photos(source: PhotoFolderSource): List<Uri> = folders.photos(source)
 }
 
+/** The opt-in camera backup switch, fakeable so the view model test needs no WorkManager. */
+internal interface PhotosBackupPort {
+    fun enabled(): Boolean
+
+    /** Returns the resulting state; enabling can be refused without media permission. */
+    suspend fun setEnabled(enabled: Boolean): Boolean
+}
+
+private class AndroidPhotosBackupPort(private val context: Context) : PhotosBackupPort {
+    override fun enabled(): Boolean = PhotosBackgroundSync.isEnabled(context)
+    override suspend fun setEnabled(enabled: Boolean): Boolean = PhotosBackgroundSync.setEnabled(context, enabled)
+}
+
 internal class PhotosViewModel(
     private val browser: PhotosBrowser,
     private val catalog: PhotosCatalog,
@@ -136,6 +154,7 @@ internal class PhotosViewModel(
     private val folders: PhotosFolderPort,
     private val gallery: PhotoGalleryPort,
     private val prepareUpload: suspend (Uri) -> PickedPhotoUpload,
+    private val backup: PhotosBackupPort,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(PhotosUiState())
     val uiState: StateFlow<PhotosUiState> = mutableState.asStateFlow()
@@ -199,6 +218,7 @@ internal class PhotosViewModel(
                 originalTransfers = originals,
                 uploadPlans = uploads,
                 folderSources = folderSources,
+                backgroundSyncEnabled = backup.enabled(),
                 loading = cached.assets.isEmpty(),
                 snapshot = cached.assets.takeIf(List<PhotoSummary>::isNotEmpty)?.let { assets ->
                     PhotosSnapshot(
@@ -468,6 +488,7 @@ internal class PhotosViewModel(
                     mimeType = candidate.mimeType,
                     orientation = candidate.orientation,
                     capturedAtMs = candidate.capturedAtMs,
+                    timeZone = candidate.timeZone,
                 )
                 staged += 1
                 mutableState.update { state ->
@@ -515,14 +536,47 @@ internal class PhotosViewModel(
         }
     }
 
+    // The background backup worker shares this gate, so a staged file is never
+    // mid-upload on two paths at once.
     private suspend fun runUpload(transfer: PhotoTransfer): PhotoTransfer =
-        coordinator.upload(transfer) { updated ->
-            mutableState.update { state ->
-                state.copy(
-                    uploadPlans = state.uploadPlans.map { if (it.id == updated.id) updated else it },
+        PhotosBackgroundSync.uploadGate.withLock {
+            coordinator.upload(transfer) { updated ->
+                mutableState.update { state ->
+                    state.copy(
+                        uploadPlans = state.uploadPlans.map { if (it.id == updated.id) updated else it },
+                    )
+                }
+            }
+        }
+
+    /**
+     * Flips the camera-backup switch. The host has already handled the
+     * permission prompt; if the port still refuses (no photo access), the
+     * switch stays off and the sheet says why.
+     */
+    fun setBackgroundSync(enabled: Boolean) {
+        launchWork {
+            var failure: Throwable? = null
+            val result = try {
+                backup.setEnabled(enabled)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                failure = error
+                backup.enabled()
+            }
+            mutableState.update {
+                it.copy(
+                    backgroundSyncEnabled = result,
+                    uploadError = when {
+                        failure != null -> failure.message ?: "Could not change camera backup"
+                        enabled && !result -> "Allow photo access to back up new camera photos"
+                        else -> it.uploadError
+                    },
                 )
             }
         }
+    }
 
     fun clearUploadError() {
         mutableState.update { it.copy(uploadError = null) }
@@ -540,7 +594,6 @@ internal class PhotosViewModel(
         fun factory(): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = checkNotNull(this[APPLICATION_KEY])
-                PhotosBackgroundSync.keepDisabled(application)
                 if (PushStateHolder.state != null) PhotosWorkRegistry.activate()
                 val port = LivePhotosPort { PushStateHolder.state }
                 val catalog = PhotosSqliteCatalog(application)
@@ -561,6 +614,7 @@ internal class PhotosViewModel(
                         }
                     },
                     prepareUpload = { uri -> preparePhotoUploadCandidate(application, uri) },
+                    backup = AndroidPhotosBackupPort(application),
                 )
             }
         }

@@ -59,6 +59,14 @@ fixtures.
 - Photos timeline — `PhotosTimelineTest` covers filtering, hidden-asset exclusion, capture-vs-added
   ordering, day/month/year sections across time zones, section-key uniqueness, the pinch threshold,
   and the info-sheet rows. It does not prove preview decoding, paging against iCloud, or transfers.
+- Photos upload metadata and camera backup — `rustpush` `photos_metadata` tests pin the ImageIO
+  `CGImageProperties` shape, EXIF-offset/device-zone capture resolution, and the CoreLocation
+  `locationEnc` plist; `PhotoUploadPickerTest` covers offset-less camera clocks in the device zone,
+  the zone/offset fallback, and which EXIF tags a re-encoded JPEG inherits; `PhotosBackgroundSyncTest`
+  covers the permission set per OS version, the `DCIM` selection, and the bounded automatic retry
+  policy; `PhotoTransferCoordinatorTest` covers the version-2 staging sidecar and version-1
+  compatibility. None of these prove native iPhone/Mac rendering of the uploaded date, place, or
+  camera details — that stays device evidence.
 - Map and Find My tracking — `MapGeometryTest` covers projection round-trips, antimeridian wrap,
   tile coverage at fractional zoom, pan clamping, pinch anchoring, bounding-box fit, and the scale
   bar; `FindMyTrackingTest` covers target ordering, session tracks, staleness, and every row string;

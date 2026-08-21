@@ -14,6 +14,7 @@ import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosBrowser
 import app.openbubbles.core.photos.PhotosCatalog
 import app.openbubbles.core.photos.PhotosPage
+import app.openbubbles.core.photos.PhotoTimeZone
 import app.openbubbles.core.photos.PhotosPort
 import app.openbubbles.core.photos.PhotoUploadReceipt
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
@@ -270,11 +271,59 @@ class PhotosViewModelTest {
             }
         }
 
+    @Test
+    fun `camera backup switch mirrors the port and explains a refusal`() = runTest(dispatcher) {
+        val root = createTempDirectory("photos-view-model-backup").toFile()
+        try {
+            val asset = photo("one")
+            val backup = FakeBackup(allowEnable = false)
+            val model = model(BlockingDownloadPort(listOf(asset)), FakeCatalog(CachedPhotos(listOf(asset))), root, backup = backup)
+            advanceUntilIdle()
+            assertEquals(false, model.uiState.value.backgroundSyncEnabled)
+
+            model.setBackgroundSync(true)
+            advanceUntilIdle()
+            assertEquals(false, model.uiState.value.backgroundSyncEnabled)
+            assertEquals(listOf(true), backup.requests)
+            assertEquals("Allow photo access to back up new camera photos", model.uiState.value.uploadError)
+
+            backup.allowEnable = true
+            model.setBackgroundSync(true)
+            advanceUntilIdle()
+            assertEquals(true, model.uiState.value.backgroundSyncEnabled)
+            assertEquals(listOf(true, true), backup.requests)
+
+            model.setBackgroundSync(false)
+            advanceUntilIdle()
+            assertEquals(false, model.uiState.value.backgroundSyncEnabled)
+            assertEquals(false, backup.enabled())
+        } finally {
+            PhotosWorkRegistry.cancelAndJoinAll()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `bootstrap restores the persisted camera backup switch`() = runTest(dispatcher) {
+        val root = createTempDirectory("photos-view-model-backup-restore").toFile()
+        try {
+            val asset = photo("one")
+            val backup = FakeBackup(allowEnable = true).apply { state = true }
+            val model = model(BlockingDownloadPort(listOf(asset)), FakeCatalog(CachedPhotos(listOf(asset))), root, backup = backup)
+            advanceUntilIdle()
+            assertEquals(true, model.uiState.value.backgroundSyncEnabled)
+        } finally {
+            PhotosWorkRegistry.cancelAndJoinAll()
+            root.deleteRecursively()
+        }
+    }
+
     private fun model(
         port: PhotosPort,
         catalog: PhotosCatalog,
         root: File,
         gallery: PhotoGalleryPort = FakeGallery(),
+        backup: PhotosBackupPort = FakeBackup(allowEnable = true),
     ): PhotosViewModel {
         PhotosWorkRegistry.activate()
         return PhotosViewModel(
@@ -291,7 +340,21 @@ class PhotosViewModelTest {
             folders = FakeFolders,
             gallery = gallery,
             prepareUpload = { error("Uploads are outside this test") },
+            backup = backup,
         )
+    }
+
+    private class FakeBackup(var allowEnable: Boolean) : PhotosBackupPort {
+        var state = false
+        val requests = mutableListOf<Boolean>()
+
+        override fun enabled(): Boolean = state
+
+        override suspend fun setEnabled(enabled: Boolean): Boolean {
+            requests += enabled
+            state = enabled && allowEnable
+            return state
+        }
     }
 
     private fun photo(id: String) = PhotoSummary(
@@ -360,6 +423,7 @@ class PhotosViewModelTest {
             filename: String,
             capturedAtMs: Long?,
             orientation: Int,
+            fallbackTimeZone: PhotoTimeZone?,
         ): Result<PhotoUploadReceipt> {
             uploads += 1
             return Result.failure(IllegalStateException("Uploads are outside this test"))

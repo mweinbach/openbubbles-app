@@ -101,6 +101,7 @@ fun PhotosScreenScreenshot() {
             onRemoveFolder = {},
             onUpload = {},
             onUploadAll = {},
+            onSetBackgroundSync = {},
             nowMillis = FIXED_NOW,
         )
     }
@@ -130,6 +131,7 @@ fun PhotosExpandedScreenshot() {
             onRemoveFolder = {},
             onUpload = {},
             onUploadAll = {},
+            onSetBackgroundSync = {},
             nowMillis = FIXED_NOW,
         )
     }
@@ -159,6 +161,7 @@ fun PhotosOfflineScreenshot() {
             onRemoveFolder = {},
             onUpload = {},
             onUploadAll = {},
+            onSetBackgroundSync = {},
             nowMillis = FIXED_NOW,
         )
     }
