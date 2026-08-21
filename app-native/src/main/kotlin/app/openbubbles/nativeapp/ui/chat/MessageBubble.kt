@@ -506,9 +506,17 @@ fun MessageBubble(
                     onDoubleClick = doubleTapActions?.let { callback -> { callback(textPart) } },
                 )
             }
-            attachments.forEach { attachment ->
+            attachments.forEachIndexed { attachmentIndex, attachment ->
                 val reactionSummary = bubbleReactionSummary(message, attachment.partIndex)
-                Box {
+                Box(
+                    modifier = Modifier.padding(
+                        top = if (attachmentIndex > 0 && reactionSummary != null) {
+                            ReactionChipRise - 3.dp
+                        } else {
+                            0.dp
+                        },
+                    ),
+                ) {
                     AttachmentContent(
                         attachment = attachment,
                         attachmentFile = attachmentFile,

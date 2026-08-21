@@ -241,6 +241,14 @@ internal fun MessageActionTapbacks(
                     onReact(index, null, enableTappedReaction(selected, index))
                 },
                 shapes = IconButtonDefaults.shapes(),
+                colors = if (isSelected) {
+                    IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                } else {
+                    IconButtonDefaults.filledTonalIconButtonColors()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .minimumInteractiveComponentSize()
