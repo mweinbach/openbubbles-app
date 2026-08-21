@@ -59,8 +59,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,10 +71,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
 import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.avatarColorFor
@@ -87,6 +96,7 @@ import app.openbubbles.nativeapp.ui.map.WebMercator
 import app.openbubbles.nativeapp.ui.map.cameraFor
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
+import kotlinx.coroutines.delay
 
 /**
  * Find My: a live map of this account's devices, followed friends, and beacon
@@ -118,9 +128,10 @@ fun FindMyScreen(
     imageryEnabled: Boolean = true,
     onSetImageryEnabled: (Boolean) -> Unit = {},
     /** Clock injected so previews and screenshots render fixed freshness text. */
-    nowMillis: Long = System.currentTimeMillis(),
+    nowMillis: Long? = null,
     surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
+    val freshnessNowMillis = nowMillis ?: rememberFreshnessClock()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = modifier,
@@ -133,7 +144,7 @@ fun FindMyScreen(
                         Column {
                             Text("Find My", style = MaterialTheme.typography.titleLarge)
                             Text(
-                                text = trackingStatus(uiState, nowMillis),
+                                text = trackingStatus(uiState, freshnessNowMillis),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -211,11 +222,25 @@ fun FindMyScreen(
                     onSelectTarget = onSelectTarget,
                     onRefresh = onRefresh,
                     tiles = tiles.takeIf { imageryEnabled },
-                    nowMillis = nowMillis,
+                    nowMillis = freshnessNowMillis,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun rememberFreshnessClock(): Long {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val current by produceState(System.currentTimeMillis(), lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = System.currentTimeMillis()
+                delay(30_000L)
+            }
+        }
+    }
+    return current
 }
 
 /** "Live · 5/7 located · just now" / "Paused · 3/6 located · 4 min ago". */
@@ -238,6 +263,23 @@ private val PanelCollapsedHeight = 196.dp
 private val PanelSelectedHeight = 300.dp
 private val PanelExpandedHeight = 420.dp
 
+private data class SaveableMapCamera(val camera: MapCamera?)
+
+private val SaveableMapCameraStateSaver = Saver<SaveableMapCamera, List<Double>>(
+    save = { state ->
+        state.camera?.let { camera ->
+            listOf(camera.center.latitude, camera.center.longitude, camera.zoom)
+        } ?: emptyList()
+    },
+    restore = { values ->
+        SaveableMapCamera(
+            values.takeIf { it.size == 3 }?.let {
+                MapCamera(GeoPoint(it[0], it[1]), it[2])
+            },
+        )
+    },
+)
+
 @Composable
 private fun FindMyTracker(
     uiState: FindMyUiState,
@@ -250,8 +292,14 @@ private fun FindMyTracker(
     // selected target's newest fix, or frames everything located. A pan or pinch
     // stores one and hands control to the user until they re-centre, which makes
     // "following" simply mean "no manual camera".
-    var manualCamera by remember { mutableStateOf<MapCamera?>(null) }
-    var panelExpanded by remember { mutableStateOf(false) }
+    var manualCameraState by rememberSaveable(stateSaver = SaveableMapCameraStateSaver) {
+        mutableStateOf(SaveableMapCamera(null))
+    }
+    var panelExpanded by rememberSaveable { mutableStateOf(false) }
+    val manualCamera = manualCameraState.camera
+    val setManualCamera: (MapCamera?) -> Unit = { camera ->
+        manualCameraState = SaveableMapCamera(camera)
+    }
     val following = manualCamera == null
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -260,17 +308,17 @@ private fun FindMyTracker(
             FindMyMap(
                 uiState = uiState,
                 manualCamera = manualCamera,
-                onCameraChange = { manualCamera = it },
+                onCameraChange = setManualCamera,
                 onSelectTarget = { id ->
-                    manualCamera = null
+                    setManualCamera(null)
                     onSelectTarget(id)
                 },
                 onFitAll = {
-                    manualCamera = null
+                    setManualCamera(null)
                     onSelectTarget(null)
                 },
                 following = following,
-                onFollow = { manualCamera = null },
+                onFollow = { setManualCamera(null) },
                 tiles = tiles,
                 nowMillis = nowMillis,
                 modifier = mapModifier,
@@ -284,7 +332,7 @@ private fun FindMyTracker(
                 onToggleExpanded = { panelExpanded = !panelExpanded },
                 showExpandToggle = !splitPanes,
                 onSelectTarget = { id ->
-                    manualCamera = null
+                    setManualCamera(null)
                     onSelectTarget(id)
                 },
                 onRefresh = onRefresh,
@@ -379,27 +427,32 @@ private fun FindMyMap(
             modifier = Modifier.fillMaxSize(),
         )
         Column(
-            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilledTonalButton(onClick = onFitAll, contentPadding = PaddingValues(12.dp)) {
-                Icon(Icons.Filled.CenterFocusStrong, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Fit all")
-            }
-            if (uiState.selectedTargetId != null && !following) {
-                FilledTonalButton(onClick = onFollow, contentPadding = PaddingValues(12.dp)) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Follow")
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilledTonalButton(onClick = onFitAll, contentPadding = PaddingValues(12.dp)) {
+                        Icon(Icons.Filled.CenterFocusStrong, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Fit all")
+                    }
+                    if (uiState.selectedTargetId != null && !following) {
+                        FilledTonalButton(onClick = onFollow, contentPadding = PaddingValues(12.dp)) {
+                            Icon(Icons.Filled.MyLocation, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Follow")
+                        }
+                    }
                 }
             }
-        }
-        if (uiState.refreshErrors.isNotEmpty()) {
-            RefreshNotice(
-                errors = uiState.refreshErrors,
-                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-            )
+            if (uiState.refreshErrors.isNotEmpty()) {
+                RefreshNotice(errors = uiState.refreshErrors)
+            }
         }
     }
 }
@@ -478,7 +531,16 @@ private fun TargetPanel(
                 Surface(
                     onClick = onToggleExpanded,
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = if (expanded) {
+                                "Collapse tracked locations panel"
+                            } else {
+                                "Expand tracked locations panel"
+                            }
+                            stateDescription = if (expanded) "Expanded" else "Collapsed"
+                        },
                 ) {
                     Box(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 28.dp),
