@@ -66,6 +66,21 @@ class StoreInvalidationCoordinatorTest {
     }
 
     @Test
+    fun `initial refresh is emitted only after change subscription is ready`() = runBlocking {
+        val coordinator = StoreInvalidationCoordinators.forStore(store)
+        val events = Channel<Unit>(Channel.UNLIMITED)
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            coordinator.changesForWithInitial(StoreEntityChange.MESSAGE).collect(events::send)
+        }
+
+        assertNotNull(withTimeout(2_000) { events.receive() })
+        store.boxFor(Message::class.java).put(Message().apply { guid = "after-initial" })
+        assertNotNull(withTimeout(2_000) { events.receive() })
+
+        collector.cancelAndJoin()
+    }
+
+    @Test
     fun `transient repositories share one observer owner and released owner stays inactive`() =
         runBlocking {
             val coordinator = StoreInvalidationCoordinators.forStore(store)

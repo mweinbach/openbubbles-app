@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.withContext
 
 internal enum class StoreEntityChange {
@@ -93,6 +94,19 @@ internal class StoreInvalidationCoordinator(
         val wanted = changes.toSet()
         return flushes
             .filter { emitted -> emitted.any(wanted::contains) }
+            .map { }
+    }
+
+    /**
+     * Emits once after the hot invalidation stream has installed this collector,
+     * then emits for matching store changes. Callers can treat the first value as
+     * a subscription-readiness signal without leaving a lost-update window.
+     */
+    fun changesForWithInitial(vararg changes: StoreEntityChange): Flow<Unit> {
+        val wanted = changes.toSet()
+        return flushes
+            .onSubscription { emit(emptySet()) }
+            .filter { emitted -> emitted.isEmpty() || emitted.any(wanted::contains) }
             .map { }
     }
 

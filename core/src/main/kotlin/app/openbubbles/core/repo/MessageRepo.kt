@@ -112,13 +112,10 @@ class MessageRepo(
 
     /** Invalidates warmed UI projections when transcript display data changes. */
     fun observeTranscriptChanges(): Flow<Unit> =
-        merge(
-            flowOf(Unit),
-            invalidations.changesFor(
-                StoreEntityChange.MESSAGE,
-                StoreEntityChange.ATTACHMENT,
-                StoreEntityChange.CONTACT,
-            ),
+        invalidations.changesForWithInitial(
+            StoreEntityChange.MESSAGE,
+            StoreEntityChange.ATTACHMENT,
+            StoreEntityChange.CONTACT,
         ).conflate()
 
     private fun messageQuery(chatIds: List<Long>, before: Message? = null): Query<Message> {
