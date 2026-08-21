@@ -10,6 +10,8 @@ import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Locale
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ImageExportPlan
 import app.openbubbles.nativeapp.data.LivePhotoPair
@@ -58,7 +60,7 @@ internal fun saveImageAttachmentToDevice(context: Context, meta: AttachmentMeta,
                 displayName = exportedImageDisplayName(name, plan),
                 mime = exportedImageMime(meta.mime, plan),
                 video = false,
-                dateTakenMillis = sourceExif?.dateTimeOriginal,
+                dateTakenMillis = sourceExif?.let(::dateTakenMillis),
                 afterWrite = { uri -> sourceExif?.let { copyExifMetadata(context, it, uri) } },
             ) { output ->
                 // API 34+ JPEG compression carries the gain map through,
@@ -74,6 +76,16 @@ internal fun saveImageAttachmentToDevice(context: Context, meta: AttachmentMeta,
         ) { output -> file.inputStream().use { it.copyTo(output) } }
     }
     return saved
+}
+
+/** Public-API EXIF timestamp reader; the convenience getter is library-restricted. */
+private fun dateTakenMillis(exif: ExifInterface): Long? {
+    val value = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL) ?: return null
+    return runCatching {
+        SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).apply {
+            isLenient = false
+        }.parse(value)?.time
+    }.getOrNull()
 }
 
 /** Saves a received video byte-identical into Movies/OpenBubbles. */
