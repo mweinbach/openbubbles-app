@@ -172,7 +172,7 @@ private fun StickerOverlay(
     attachmentFile: (String) -> File?,
     onDownloadSticker: (String) -> Unit,
 ) {
-    val file = remember(sticker.attachmentGuid, sticker.downloaded) {
+    val file = remember(sticker.attachmentGuid, sticker.downloaded, sticker.payload) {
         attachmentFile(sticker.attachmentGuid)
     }
     LaunchedEffect(sticker.attachmentGuid, file) {

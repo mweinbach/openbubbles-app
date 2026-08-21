@@ -49,6 +49,15 @@ data class AttachmentStamp(
     val sizeBytes: Long?,
     val mime: String?,
     val uti: String?,
+    /**
+     * Identity of the payload currently readable on disk, or null when nothing
+     * is readable yet. A transfer promoting its file can leave every attachment
+     * column untouched (the row may already claim `downloaded`, and the real
+     * byte length may equal the declared one), so without the file identity an
+     * open transcript would dedupe the completion away and keep rendering a
+     * placeholder until the conversation is reopened.
+     */
+    val payload: String? = null,
 )
 
 /** One sticker image positioned over a target message bubble. */
@@ -63,6 +72,8 @@ data class StickerPlacement(
     val scale: Double,
     val effectType: Long,
     val downloaded: Boolean,
+    /** Identity of the validated sticker payload currently readable on disk. */
+    val payload: String? = null,
 )
 
 /**

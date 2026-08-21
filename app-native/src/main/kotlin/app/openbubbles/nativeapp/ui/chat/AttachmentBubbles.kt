@@ -90,6 +90,22 @@ private fun rememberAttachmentDecodeBudget(): Int {
 private val AttachmentShape = RoundedCornerShape(18.dp)
 
 /**
+ * Disk lookup for a bubble's payload. Disk presence beats the persisted
+ * `downloaded` flag (the flag can drift), so [attachmentFile] returns null
+ * until a validated payload exists. Keyed on [AttachmentMeta.payloadStamp] as
+ * well as the flag: a transfer that promotes its file can leave the flag and
+ * the byte length untouched, and keying on the flag alone strands the bubble
+ * on its earlier null until the conversation is reopened.
+ */
+@Composable
+internal fun rememberAttachmentFile(
+    attachment: AttachmentMeta,
+    attachmentFile: (String) -> File?,
+): File? = remember(attachment.guid, attachment.downloaded, attachment.payloadStamp) {
+    attachmentFile(attachment.guid)
+}
+
+/**
  * Renders one attachment in a message bubble: image (thumbnail, tap opens
  * the viewer), video (poster + play affordance), or a generic file row.
  * Undownloaded transfers show a download chip wired to the callback.
@@ -204,9 +220,13 @@ private fun LivePhotoAttachmentBubble(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
-    val stillFile = remember(attachment.guid, attachment.downloaded) { attachmentFile(attachment.guid) }
+    val stillFile = rememberAttachmentFile(attachment, attachmentFile)
     val motionGuid = attachment.livePhotoMotionGuid
-    val motionFile = remember(motionGuid, attachment.livePhotoMotionDownloaded) {
+    val motionFile = remember(
+        motionGuid,
+        attachment.livePhotoMotionDownloaded,
+        attachment.livePhotoMotionPayloadStamp,
+    ) {
         motionGuid?.let(attachmentFile)
     }
     val decoded = rememberDecodedImage(file = stillFile, maxDimensionPx = rememberAttachmentDecodeBudget())
@@ -326,11 +346,7 @@ private fun ImageAttachmentBubble(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
-    // Disk presence beats the persisted `downloaded` flag (the flag can
-    // drift); attachmentFile returns null when nothing is on disk.
-    val file = remember(attachment.guid, attachment.downloaded) {
-        attachmentFile(attachment.guid)
-    }
+    val file = rememberAttachmentFile(attachment, attachmentFile)
     val decoded = rememberDecodedImage(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = decoded?.aspectRatio ?: FallbackAspectRatio
 
@@ -383,9 +399,7 @@ private fun VideoAttachmentBubble(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
-    val file = remember(attachment.guid, attachment.downloaded) {
-        attachmentFile(attachment.guid)
-    }
+    val file = rememberAttachmentFile(attachment, attachmentFile)
     val poster = rememberVideoPoster(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     val aspect = poster?.aspectRatio ?: FallbackAspectRatio
     Surface(
@@ -456,9 +470,7 @@ private fun PdfAttachmentBubble(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
-    val file = remember(attachment.guid, attachment.downloaded) {
-        attachmentFile(attachment.guid)
-    }
+    val file = rememberAttachmentFile(attachment, attachmentFile)
     val preview = rememberPdfPreview(file = file, maxDimensionPx = rememberAttachmentDecodeBudget())
     if (preview == null) {
         FileAttachmentRow(
@@ -523,9 +535,7 @@ private fun FileAttachmentRow(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = AttachmentShape,
 ) {
-    val file = remember(attachment.guid, attachment.downloaded) {
-        attachmentFile(attachment.guid)
-    }
+    val file = rememberAttachmentFile(attachment, attachmentFile)
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
