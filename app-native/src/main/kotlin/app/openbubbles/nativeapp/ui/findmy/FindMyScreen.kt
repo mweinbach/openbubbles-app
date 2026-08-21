@@ -345,18 +345,20 @@ private fun FindMyTracker(
                 map(Modifier.weight(1f).fillMaxHeight())
             }
         } else {
+            val desiredPanelHeight = when {
+                panelExpanded -> PanelExpandedHeight
+                uiState.selectedTargetId != null -> PanelSelectedHeight
+                else -> PanelCollapsedHeight
+            }
+            // Compact landscape and freeform windows still reserve meaningful
+            // room for the primary map; the panel itself remains scrollable.
+            val boundedPanelHeight = minOf(desiredPanelHeight, maxHeight * 0.6f)
             Column(modifier = Modifier.fillMaxSize()) {
                 map(Modifier.fillMaxWidth().weight(1f))
                 panel(
                     Modifier
                         .fillMaxWidth()
-                        .height(
-                            when {
-                                panelExpanded -> PanelExpandedHeight
-                                uiState.selectedTargetId != null -> PanelSelectedHeight
-                                else -> PanelCollapsedHeight
-                            },
-                        ),
+                        .height(boundedPanelHeight),
                 )
             }
         }
@@ -488,7 +490,7 @@ private fun TargetGlyph(target: FmTarget, selected: Boolean) {
     }
 }
 
-private fun FmTarget.deviceGlyphKey(): String = model ?: name
+private fun FmTarget.deviceGlyphKey(): String = deviceClass ?: model ?: name
 
 /** Non-blocking notice: stale data stays on the map, the failure is explained. */
 @Composable

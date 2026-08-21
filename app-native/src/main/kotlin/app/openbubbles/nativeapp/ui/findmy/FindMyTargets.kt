@@ -24,6 +24,8 @@ data class FmTarget(
     val name: String,
     val point: FmPoint? = null,
     val model: String? = null,
+    /** Apple's authoritative device family, preferred for the map glyph. */
+    val deviceClass: String? = null,
     val emoji: String? = null,
     val batteryPercent: Int? = null,
     val batteryStatus: String? = null,
@@ -78,6 +80,7 @@ fun findMyTargets(
             name = device.name,
             point = device.location,
             model = device.model,
+            deviceClass = device.deviceClass,
             batteryPercent = device.batteryPercent,
             batteryStatus = device.batteryStatus,
             lostMode = device.lostModeEnabled,

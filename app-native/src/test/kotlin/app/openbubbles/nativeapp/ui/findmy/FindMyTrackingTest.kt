@@ -66,6 +66,7 @@ class FindMyTargetsTest {
                     id = "d",
                     name = "Phone",
                     model = "iPhone 16",
+                    deviceClass = "Watch",
                     batteryPercent = 80,
                     batteryStatus = "Charging",
                     location = FmPoint(1.0, 2.0, 30.0, NOW, address = "1 Market St"),
@@ -82,6 +83,7 @@ class FindMyTargetsTest {
         )
         val (deviceTarget, friendTarget, itemTarget) = targets
         assertTrue(deviceTarget.located && deviceTarget.lostMode && deviceTarget.thisDevice)
+        assertEquals("Watch", deviceTarget.deviceClass)
         assertEquals("1 Market St", deviceTarget.point?.address)
         assertEquals("mom@icloud.com", friendTarget.address)
         assertTrue(friendTarget.locating)
