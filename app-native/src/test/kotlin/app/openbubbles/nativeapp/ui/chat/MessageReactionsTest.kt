@@ -5,7 +5,9 @@ import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class MessageReactionsTest {
 
@@ -51,6 +53,23 @@ class MessageReactionsTest {
     fun `my active reaction marks the picker selection`() {
         assertEquals("❤️", myReactionEmoji(listOf(reaction("👍", "alex@icloud.com"), mine("❤️"))))
         assertNull(myReactionEmoji(listOf(reaction("👍", "alex@icloud.com"))))
+    }
+
+    @Test
+    fun `tapping the selected reaction removes it while another reaction enables`() {
+        assertFalse(enableTappedReaction(selectedEmoji = "👍", tappedEmoji = "👍"))
+        assertTrue(enableTappedReaction(selectedEmoji = "👍", tappedEmoji = "❤️"))
+    }
+
+    @Test
+    fun `action sheet selection is scoped to the pressed part`() {
+        val reactions = listOf(
+            MessageReactionUi("❤️", null, true, targetPart = 0L),
+            MessageReactionUi("👍", null, true, targetPart = 1L),
+        )
+
+        assertEquals("❤️", myReactionEmoji(reactionsForPart(reactions, 0L)))
+        assertEquals("👍", myReactionEmoji(reactionsForPart(reactions, 1L)))
     }
 
     @Test

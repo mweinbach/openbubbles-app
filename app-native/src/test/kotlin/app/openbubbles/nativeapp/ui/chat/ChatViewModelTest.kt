@@ -366,6 +366,32 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `optimistic reaction removal hides only mine on the selected part`() = runTest(dispatcher) {
+        val target = message(
+            guid = "target",
+            reactions = listOf(
+                MessageReactionUi("❤️", null, true, targetPart = 0L),
+                MessageReactionUi("👍", null, true, targetPart = 1L),
+                MessageReactionUi("😂", "friend@icloud.com", false, targetPart = 1L),
+            ),
+        )
+        val messages = MutableMessages(listOf(target))
+        val actions = RecordingActions()
+        val model = model(RecordingSender(), actions, messageRepository = messages)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.react(target, part = 1L, reactionIndex = 1, enable = false)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(0L to "❤️", 1L to "😂"),
+            model.uiState.value.messages.single().reactions.map { it.targetPart to it.emoji },
+        )
+        assertEquals(false, actions.reactionEnable)
+    }
+
+    @Test
     fun `sticker preview is visible before upload completes and rolls back`() = runTest(dispatcher) {
         val target = message(guid = "target", text = "decorate")
         val messages = MutableMessages(listOf(target))
@@ -1102,6 +1128,7 @@ private class RecordingActions : MessageActions {
     var reactionPart: Long? = null
     var reactionEmoji: String? = null
     var reactionChatId: Long? = null
+    var reactionEnable: Boolean? = null
     var unsend: Pair<Long, String>? = null
 
     override suspend fun react(
@@ -1117,6 +1144,7 @@ private class RecordingActions : MessageActions {
         reaction = Triple(messageGuid, reactionIndex, messageText)
         reactionPart = messagePart
         reactionEmoji = emoji
+        reactionEnable = enable
     }
 
     override suspend fun edit(chatId: Long, messageGuid: String, newText: String) {

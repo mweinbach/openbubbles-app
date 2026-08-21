@@ -117,7 +117,12 @@ data class OutgoingSendEvent(
 )
 
 private data class OptimisticEdit(val token: Long, val text: String)
-private data class OptimisticReaction(val token: Long, val emoji: String, val targetPart: Long)
+private data class OptimisticReaction(
+    val token: Long,
+    val emoji: String,
+    val targetPart: Long,
+    val enable: Boolean,
+)
 private data class OptimisticUnsend(val token: Long)
 private data class OptimisticSticker(
     val token: Long,
@@ -675,11 +680,17 @@ class ChatViewModel(
         if (wasEditing) input.value = ""
     }
 
-    fun react(message: MessageItem, part: Long, reactionIndex: Int, emoji: String? = null) {
+    fun react(
+        message: MessageItem,
+        part: Long,
+        reactionIndex: Int,
+        emoji: String? = null,
+        enable: Boolean = true,
+    ) {
         val display = emoji ?: TAPBACK_EMOJI.getOrNull(reactionIndex) ?: return
         val token = optimisticToken()
         updateOptimisticOverlay(message.guid) { overlay ->
-            overlay.copy(reaction = OptimisticReaction(token, display, part))
+            overlay.copy(reaction = OptimisticReaction(token, display, part, enable))
         }
         viewModelScope.launch {
             runCatching {
@@ -690,6 +701,7 @@ class ChatViewModel(
                     messagePart = part,
                     reactionIndex = reactionIndex,
                     emoji = emoji,
+                    enable = enable,
                 )
             }.onFailure { failure ->
                 removeOptimisticReaction(message.guid, token)
@@ -873,11 +885,12 @@ class ChatViewModel(
             val updated = overlay.copy(
                 edit = overlay.edit?.takeUnless { persisted.edited && persisted.text == it.text },
                 reaction = overlay.reaction?.takeUnless { pending ->
-                    persisted.reactions.any { reaction ->
+                    val persistedMatch = persisted.reactions.any { reaction ->
                         reaction.isFromMe &&
                             reaction.targetPart == pending.targetPart &&
                             reaction.emoji == pending.emoji
                     }
+                    if (pending.enable) persistedMatch else !persistedMatch
                 },
                 unsend = overlay.unsend?.takeUnless { persisted.unsent },
                 stickers = overlay.stickers.filterNot { sticker ->
@@ -896,23 +909,33 @@ class ChatViewModel(
         overlays: Map<String, OptimisticMessageOverlay>,
     ): List<MessageItem> = list.map { message ->
         val overlay = overlays[message.guid] ?: return@map message
-        message.copy(
-            text = overlay.edit?.text ?: message.text,
-            edited = message.edited || overlay.edit != null,
-            unsent = message.unsent || overlay.unsend != null,
-            reactionEmoji = overlay.reaction?.emoji ?: message.reactionEmoji,
-            // One active tapback per sender and target part: an optimistic
-            // reaction replaces only my persisted reaction on that part.
-            reactions = overlay.reaction?.let { pending ->
-                message.reactions.filterNot {
-                    it.isFromMe && it.targetPart == pending.targetPart
-                } + MessageReactionUi(
+        val optimisticReactions = overlay.reaction?.let { pending ->
+            val retained = message.reactions.filterNot {
+                it.isFromMe && it.targetPart == pending.targetPart
+            }
+            if (pending.enable) {
+                retained + MessageReactionUi(
                     emoji = pending.emoji,
                     senderAddress = null,
                     isFromMe = true,
                     targetPart = pending.targetPart,
                 )
-            } ?: message.reactions,
+            } else {
+                retained
+            }
+        }
+        message.copy(
+            text = overlay.edit?.text ?: message.text,
+            edited = message.edited || overlay.edit != null,
+            unsent = message.unsent || overlay.unsend != null,
+            reactionEmoji = optimisticReactions?.lastOrNull()?.emoji ?: if (overlay.reaction != null) {
+                null
+            } else {
+                message.reactionEmoji
+            },
+            // One active tapback per sender and target part: an optimistic
+            // reaction replaces only my persisted reaction on that part.
+            reactions = optimisticReactions ?: message.reactions,
             stickers = message.stickers + overlay.stickers.map { it.placement },
         )
     }

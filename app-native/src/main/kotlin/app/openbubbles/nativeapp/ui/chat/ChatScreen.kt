@@ -126,6 +126,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -379,7 +380,7 @@ fun ChatScreen(
     onReplyFromThread: (MessageItem, Long) -> Unit = { _, _ -> },
     onSendSticker: (MessageItem, Long, OutgoingAttachment, StickerTransform) -> Unit = { _, _, _, _ -> },
     onEdit: (MessageItem) -> Unit = {},
-    onReact: (MessageItem, Long, Int, String?) -> Unit = { _, _, _, _ -> },
+    onReact: (MessageItem, Long, Int, String?, Boolean) -> Unit = { _, _, _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
@@ -413,11 +414,14 @@ fun ChatScreen(
     // historical sender handles misclassifies 1:1 chats when the same contact
     // has replied from multiple aliases, which adds an unnecessary avatar/name
     // gutter and leaves the reply rail visually detached from their bubble.
+    val openThread = uiState.replyThread
     val isGroupChat = uiState.chat?.isGroup == true
     val entries = remember(uiState.messages, isGroupChat) {
         buildConversationEntries(uiState.messages, showSenderNames = isGroupChat)
     }
-    val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
+    val messagesByGuid = remember(uiState.messages, openThread?.messages) {
+        (uiState.messages + openThread?.messages.orEmpty()).associateBy { it.guid }
+    }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
@@ -445,7 +449,6 @@ fun ChatScreen(
             }
         }
     }
-    val openThread = uiState.replyThread
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
 
     // Tapping a reply quote scrolls to the original and pulses it; the guid
@@ -718,7 +721,12 @@ fun ChatScreen(
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = scrimAlpha)))
         }
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (reactionTarget != null) Modifier.clearAndSetSemantics { }
+                    else Modifier,
+                ),
             containerColor = when {
                 background != null -> Color.Transparent
                 LocalIsMultiPane.current -> MaterialTheme.colorScheme.surface
@@ -1120,9 +1128,9 @@ fun ChatScreen(
                     resolveName = { address ->
                         senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
                     },
-                    onReact = { index, emoji ->
+                    onReact = { index, emoji, enable ->
                         reactionTarget = null
-                        onReact(live, selection.part, index, emoji)
+                        onReact(live, selection.part, index, emoji, enable)
                     },
                     onCustomReaction = {
                         reactionTarget = null
@@ -1144,7 +1152,7 @@ fun ChatScreen(
             CustomReactionDialog(
                 onReact = { emoji ->
                     customReactionTarget = null
-                    onReact(live, selection.part, CustomReactionIndex, emoji)
+                    onReact(live, selection.part, CustomReactionIndex, emoji, true)
                 },
                 onDismiss = { customReactionTarget = null },
             )
@@ -1167,15 +1175,16 @@ fun ChatScreen(
         val message = selection.message
         MessageActionSheet(
             message = message,
+            selectedPart = selection.part,
             chatGuid = uiState.chat?.guid.orEmpty(),
             chatTitle = uiState.chat?.title.orEmpty(),
             isSms = uiState.chat?.isSms == true,
             isGroup = uiState.chat?.isGroup == true,
             attachmentFile = attachmentFile,
             onDownloadAttachment = onDownloadAttachment,
-            onReact = { index, emoji ->
+            onReact = { index, emoji, enable ->
                 selectedAction = null
-                onReact(message, selection.part, index, emoji)
+                onReact(message, selection.part, index, emoji, enable)
             },
             onReply = {
                 selectedAction = null

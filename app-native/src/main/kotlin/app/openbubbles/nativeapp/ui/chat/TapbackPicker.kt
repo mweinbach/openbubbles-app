@@ -121,6 +121,10 @@ internal fun groupReactions(
 internal fun myReactionEmoji(reactions: List<MessageReactionUi>): String? =
     reactions.lastOrNull { it.isFromMe }?.emoji
 
+/** Tapping my active reaction removes it; every other choice enables/replaces it. */
+internal fun enableTappedReaction(selectedEmoji: String?, tappedEmoji: String): Boolean =
+    selectedEmoji != tappedEmoji
+
 /** "You and Alex reacted ❤️" — the spoken form of one summary bubble. */
 internal fun reactionGroupLabel(group: ReactionGroup): String =
     "${joinReactorNames(group.reactors.map { it.name })} reacted ${group.emoji}"
@@ -141,7 +145,7 @@ private fun joinReactorNames(names: List<String>): String = when (names.size) {
 @Composable
 internal fun TapbackPickerOverlay(
     reactions: List<MessageReactionUi>,
-    onReact: (Int, String?) -> Unit,
+    onReact: (Int, String?, Boolean) -> Unit,
     onCustomReaction: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -285,7 +289,7 @@ private fun ReactorAvatar(reactor: ReactionReactor, modifier: Modifier = Modifie
 @Composable
 private fun TapbackPickerBar(
     selectedEmoji: String?,
-    onReact: (Int, String?) -> Unit,
+    onReact: (Int, String?, Boolean) -> Unit,
     onCustomReaction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -308,14 +312,23 @@ private fun TapbackPickerBar(
                 TapbackEmojiButton(
                     emoji = emoji,
                     selected = selectedEmoji == emoji,
-                    onClick = { onReact(index, null) },
+                    onClick = {
+                        onReact(index, null, enableTappedReaction(selectedEmoji, emoji))
+                    },
                 )
             }
+            val customSelected = selectedEmoji != null && selectedEmoji !in ActionTapbacks
             PickerIconButton(
                 icon = Icons.Filled.AddReaction,
                 label = "Custom reaction",
-                selected = selectedEmoji != null && selectedEmoji !in ActionTapbacks,
-                onClick = onCustomReaction,
+                selected = customSelected,
+                onClick = {
+                    if (customSelected) {
+                        onReact(CustomReactionIndex, selectedEmoji, false)
+                    } else {
+                        onCustomReaction()
+                    }
+                },
             )
         }
     }

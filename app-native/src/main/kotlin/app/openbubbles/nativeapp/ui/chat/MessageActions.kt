@@ -57,13 +57,14 @@ import java.time.ZonedDateTime
 @Composable
 internal fun MessageActionSheet(
     message: MessageItem,
+    selectedPart: Long,
     chatGuid: String,
     chatTitle: String,
     isSms: Boolean,
     isGroup: Boolean,
     attachmentFile: (String) -> File?,
     onDownloadAttachment: (AttachmentMeta) -> Unit,
-    onReact: (Int, String?) -> Unit,
+    onReact: (Int, String?, Boolean) -> Unit,
     onReply: () -> Unit,
     onSticker: () -> Unit,
     onEdit: () -> Unit,
@@ -99,7 +100,9 @@ internal fun MessageActionSheet(
                     MessageActionTapbacks(
                         // Mine, not simply the newest: a group message can
                         // carry someone else's tapback as its latest.
-                        selectedEmoji = myReactionEmoji(message.reactions),
+                        selectedEmoji = myReactionEmoji(
+                            reactionsForPart(message.reactions, selectedPart),
+                        ),
                         onReact = onReact,
                     )
                 }
@@ -147,7 +150,7 @@ internal fun MessageActionSheet(
 
     if (showCustomReaction) {
         CustomReactionDialog(
-            onReact = { emoji -> onReact(CustomReactionIndex, emoji) },
+            onReact = { emoji -> onReact(CustomReactionIndex, emoji, true) },
             onDismiss = { showCustomReaction = false },
         )
     }
@@ -216,7 +219,7 @@ internal fun CustomReactionDialog(
 @Composable
 internal fun MessageActionTapbacks(
     selectedEmoji: String?,
-    onReact: (Int, String?) -> Unit,
+    onReact: (Int, String?, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -229,7 +232,9 @@ internal fun MessageActionTapbacks(
         ActionTapbacks.forEachIndexed { index, emoji ->
             val selected = selectedEmoji == emoji
             FilledTonalIconButton(
-                onClick = { onReact(index, null) },
+                onClick = {
+                    onReact(index, null, enableTappedReaction(selectedEmoji, emoji))
+                },
                 shapes = IconButtonDefaults.shapes(),
                 modifier = Modifier
                     .weight(1f)
