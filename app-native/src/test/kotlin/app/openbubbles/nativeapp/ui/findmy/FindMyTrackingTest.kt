@@ -119,6 +119,14 @@ class FindMyTrailTest {
     }
 
     @Test
+    fun `an older cached fix cannot reverse a chronological track`() {
+        val newest = FmPoint(1.0, 1.0, timestampMs = NOW)
+        val older = FmPoint(2.0, 2.0, timestampMs = NOW - 60_000)
+
+        assertEquals(listOf(newest), appendTrail(listOf(newest), older))
+    }
+
+    @Test
     fun `a target with no fix has no track`() {
         assertTrue(appendTrail(emptyList(), null).isEmpty())
     }

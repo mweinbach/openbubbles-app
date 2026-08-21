@@ -412,6 +412,11 @@ object CoreGraph {
             runAccountCleanupSteps(
                 { ICloudContactSync.clearAccountState(context).getOrThrow() },
                 { PhotosAccountCleanup.clear(context).getOrThrow() },
+                {
+                    check(clearOwnedMapTileRoot(context.cacheDir).complete) {
+                        "Could not clear account-derived map tiles"
+                    }
+                },
             )
         }
         Log.i("CoreGraph", "Apple account sign-out finished")

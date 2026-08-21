@@ -280,6 +280,29 @@ class MapFitTest {
         }
         assertTrue(camera.zoom >= WebMercator.MIN_ZOOM)
     }
+
+    @Test
+    fun `antimeridian neighbors fit along the short arc`() {
+        val points = listOf(GeoPoint(10.0, 179.0), GeoPoint(12.0, -179.0))
+        val camera = cameraFor(points, 1000f, 1000f)
+        val viewport = MapViewport(camera, 1000f, 1000f)
+
+        assertTrue(abs(abs(camera.center.longitude) - 180.0) < 0.01, "center=${camera.center}")
+        assertTrue(camera.zoom > 7.0, "nearby points should not produce a world view: $camera")
+        points.forEach { point -> assertTrue(viewport.projectX(point.longitude) in 0f..1000f) }
+    }
+
+    @Test
+    fun `fitted latitude center is the projected midpoint`() {
+        val points = listOf(GeoPoint(0.0, 0.0), GeoPoint(80.0, 0.0))
+        val camera = cameraFor(points, 1000f, 1000f)
+        val viewport = MapViewport(camera, 1000f, 1000f)
+        val firstY = viewport.projectY(points.first().latitude)
+        val secondY = viewport.projectY(points.last().latitude)
+
+        assertEquals(500f, (firstY + secondY) / 2f, 0.5f)
+        points.forEach { point -> assertTrue(viewport.projectY(point.latitude) in 0f..1000f) }
+    }
 }
 
 class MapScaleBarTest {

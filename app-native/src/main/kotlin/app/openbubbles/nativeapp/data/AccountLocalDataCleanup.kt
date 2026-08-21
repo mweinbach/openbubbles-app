@@ -6,6 +6,7 @@ import java.nio.file.LinkOption
 
 internal const val ICLOUD_CONTACT_AVATAR_ROOT = "icloud_contact_avatars"
 internal const val ICLOUD_PHOTOS_CACHE_ROOT = "icloud_photos"
+internal const val MAP_TILE_CACHE_ROOT = "map_tiles"
 
 private val APPLE_ACCOUNT_CACHE_ROOTS = setOf(
     ICLOUD_CONTACT_AVATAR_ROOT,
@@ -27,6 +28,20 @@ internal fun clearOwnedAppleAccountRoot(filesDir: File, rootName: String): Owned
     val root = File(filesDir, rootName)
     val expectedRoot = File(filesDir.canonicalFile, rootName).absoluteFile
     require(root.absoluteFile.parentFile == filesDir.absoluteFile) { "Cache root escaped filesDir" }
+
+    val deleted = deleteOwnedTree(root, expectedRoot)
+    val rootExists = Files.exists(root.toPath(), LinkOption.NOFOLLOW_LINKS)
+    val complete = !rootExists || (
+        !Files.isSymbolicLink(root.toPath()) && root.listFiles()?.isEmpty() == true
+    )
+    return OwnedRootCleanup(deletedEntries = deleted, complete = complete)
+}
+
+/** Deletes the allowlisted location-derived raster cache during Apple account teardown. */
+internal fun clearOwnedMapTileRoot(cacheDir: File): OwnedRootCleanup {
+    val root = File(cacheDir, MAP_TILE_CACHE_ROOT)
+    val expectedRoot = File(cacheDir.canonicalFile, MAP_TILE_CACHE_ROOT).absoluteFile
+    require(root.absoluteFile.parentFile == cacheDir.absoluteFile) { "Map cache root escaped cacheDir" }
 
     val deleted = deleteOwnedTree(root, expectedRoot)
     val rootExists = Files.exists(root.toPath(), LinkOption.NOFOLLOW_LINKS)

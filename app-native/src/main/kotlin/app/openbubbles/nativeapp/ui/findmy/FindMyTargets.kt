@@ -125,12 +125,15 @@ fun appendTrail(
 ): List<FmPoint> {
     if (point == null || limit <= 0) return existing
     val last = existing.lastOrNull()
-    if (last != null &&
-        last.latitude == point.latitude &&
-        last.longitude == point.longitude &&
-        last.timestampMs == point.timestampMs
-    ) {
-        return existing
+    if (last != null) {
+        val lastTime = last.timestampMs
+        val pointTime = point.timestampMs
+        if (lastTime != null && (pointTime == null || pointTime <= lastTime)) return existing
+        if (lastTime == null && pointTime == null &&
+            last.latitude == point.latitude && last.longitude == point.longitude
+        ) {
+            return existing
+        }
     }
     return (existing + point).takeLast(limit)
 }

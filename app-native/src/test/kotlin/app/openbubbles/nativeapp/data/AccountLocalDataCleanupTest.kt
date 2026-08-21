@@ -78,6 +78,28 @@ class AccountLocalDataCleanupTest {
     }
 
     @Test
+    fun `map tile cleanup removes only the allowlisted cache root`() {
+        val cache = Files.createTempDirectory("openbubbles-map-cache").toFile()
+        try {
+            val tiles = cache.resolve(MAP_TILE_CACHE_ROOT).apply { mkdirs() }
+            tiles.resolve("15/123_456.png").apply {
+                parentFile!!.mkdirs()
+                writeText("location-derived")
+            }
+            val updates = cache.resolve("updates").apply { mkdirs() }
+            updates.resolve("release.apk").writeText("keep")
+
+            val result = clearOwnedMapTileRoot(cache)
+
+            assertTrue(result.complete)
+            assertFalse(tiles.exists())
+            assertEquals("keep", updates.resolve("release.apk").readText())
+        } finally {
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `cleanup runs every step and retains each failure`() = runTest {
         val calls = mutableListOf<Int>()
         val result = runAccountCleanupSteps(

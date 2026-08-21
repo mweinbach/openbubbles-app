@@ -252,17 +252,19 @@ fun cameraFor(
     }
     val south = points.minOf { WebMercator.clampLatitude(it.latitude) }
     val north = points.maxOf { WebMercator.clampLatitude(it.latitude) }
-    val west = points.minOf { WebMercator.wrapLongitude(it.longitude) }
-    val east = points.maxOf { WebMercator.wrapLongitude(it.longitude) }
-    val center = GeoPoint((south + north) / 2, (west + east) / 2)
+    val longitudeArc = shortestLongitudeArc(points.map { it.longitude })
+    val projectedSouth = WebMercator.projectY(south, 0.0)
+    val projectedNorth = WebMercator.projectY(north, 0.0)
+    val center = GeoPoint(
+        latitude = WebMercator.unprojectLatitude((projectedSouth + projectedNorth) / 2, 0.0),
+        longitude = longitudeArc.center,
+    )
     val usableWidth = max(1f, widthPx - paddingPx)
     val usableHeight = max(1f, heightPx - paddingPx)
     // Find the largest zoom at which the whole span still fits both axes.
     var zoom = WebMercator.MAX_ZOOM
     while (zoom > WebMercator.MIN_ZOOM) {
-        val spanX = abs(
-            WebMercator.projectX(east, zoom) - WebMercator.projectX(west, zoom),
-        )
+        val spanX = longitudeArc.spanDegrees / 360.0 * WebMercator.worldSizePx(zoom)
         val spanY = abs(
             WebMercator.projectY(south, zoom) - WebMercator.projectY(north, zoom),
         )
@@ -270,6 +272,31 @@ fun cameraFor(
         zoom -= 0.25
     }
     return MapCamera(center, WebMercator.clampZoom(zoom))
+}
+
+internal data class LongitudeArc(val center: Double, val spanDegrees: Double)
+
+/** Smallest circular arc containing every longitude, including antimeridian crossings. */
+internal fun shortestLongitudeArc(longitudes: List<Double>): LongitudeArc {
+    if (longitudes.isEmpty()) return LongitudeArc(center = 0.0, spanDegrees = 0.0)
+    val normalized = longitudes.map { WebMercator.wrapLongitude(it) + 180.0 }.sorted()
+    var largestGap = -1.0
+    var arcStart = normalized.first()
+    normalized.indices.forEach { index ->
+        val current = normalized[index]
+        val next = if (index == normalized.lastIndex) normalized.first() + 360.0 else normalized[index + 1]
+        val gap = next - current
+        if (gap > largestGap) {
+            largestGap = gap
+            arcStart = next % 360.0
+        }
+    }
+    val span = (360.0 - largestGap).coerceIn(0.0, 360.0)
+    val centerNormalized = (arcStart + span / 2.0) % 360.0
+    return LongitudeArc(
+        center = WebMercator.wrapLongitude(centerNormalized - 180.0),
+        spanDegrees = span,
+    )
 }
 
 /**
