@@ -3325,6 +3325,8 @@ pub struct UCloudMessage {
     /// 3000+ tapback-removed) — the caller maps to the REACTION_* strings.
     pub associated_message_type: Option<i64>,
     pub associated_message_guid: Option<String>,
+    /// Target part parsed from Apple's `p:<part>/<guid>` association key.
+    pub associated_message_part: Option<u64>,
     /// Parsed from `msgProto2.reply` (`r:<part>:<guid>`).
     pub thread_originator_guid: Option<String>,
     pub thread_originator_part: Option<String>,
@@ -3598,6 +3600,20 @@ fn thread_originators(p2: Option<&rustpush::cloud_messages::GZipWrapper<rustpush
     Some((parts[parts.len() - 1].to_string(), parts[1..parts.len() - 1].join(":")))
 }
 
+fn cloud_associated_target(raw: Option<&str>) -> (Option<String>, Option<u64>) {
+    let Some(value) = raw else { return (None, None) };
+    let Some(rest) = value.strip_prefix("p:") else {
+        return (Some(value.to_string()), None);
+    };
+    let Some((part, guid)) = rest.split_once('/') else {
+        return (Some(value.to_string()), None);
+    };
+    match part.parse::<u64>() {
+        Ok(part) if !guid.is_empty() => (Some(guid.to_string()), Some(part)),
+        _ => (Some(value.to_string()), None),
+    }
+}
+
 fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
     let proto = &c.msg_proto.0;
 
@@ -3638,6 +3654,8 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
         c.r#type,
         proto.payload_data.as_deref(),
     );
+    let (associated_message_guid, associated_message_part) =
+        cloud_associated_target(proto.associated_message_guid.as_deref());
 
     UCloudMessage {
         guid: c.guid.clone(),
@@ -3661,7 +3679,8 @@ fn conv_cloud_message(c: &CloudMessage) -> UCloudMessage {
         date_read_ns: proto.date_read.filter(|t| *t != 0).map(|t| t as i64),
         date_delivered_ns: proto.date_delivered.filter(|t| *t != 0).map(|t| t as i64),
         associated_message_type: proto.associated_message_type.map(|t| t as i64),
-        associated_message_guid: proto.associated_message_guid.clone(),
+        associated_message_guid,
+        associated_message_part,
         thread_originator_guid: thread_guid,
         thread_originator_part: thread_part,
         associated_message_emoji: c.msg_proto_4.as_ref().and_then(|p4| p4.0.associated_message_emoji.clone()),

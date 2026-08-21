@@ -44,7 +44,9 @@ Bubbles ([`MessageBubble.kt`](../app-native/src/main/kotlin/app/openbubbles/nati
 mine end-aligned (theme primary, or SMS green); theirs start-aligned `surfaceContainerHigh`;
 20.dp corners, 8.dp on grouped same-author edges; width 78% of the **transcript pane**, cap 320.dp.
 Status ticks only on the latest outgoing or FAILED. Group events and unsends are centered captions.
-Slide a bubble toward the start edge to begin an inline reply (long-press still opens the action sheet).
+Slide a bubble toward the start edge to begin an inline reply. Double-tap an iMessage, or
+long-press any eligible message, to open the existing action/reaction sheet. SMS keeps
+long-press only so it never presents a Tapback shortcut.
 A reply shows a smaller original-message bubble above it; tapping that quote focuses the thread
 in the conversation instead of opening a sheet.
 
@@ -223,7 +225,8 @@ Back chevron only when `showBackButton` (false in multi-pane for list-detail chi
 **New bubble / attachment kind.** Extend the *core* DTO and map in `CoreGraph` (`coreMessageToUi` /
 `enrichWithEntityDetails`). Branch in `MessageBubble` or `AttachmentBubbles`. Keep grouping via
 `buildConversationEntries` in `ChatScreen.kt`. Viewer: `AttachmentKey` + `sharedAttachment(guid)`.
-Long-press is part-aware — pass the Apple part index.
+Long-press and double-tap are part-aware — pass the Apple part index. Double-tap is the
+iMessage Tapback shortcut; SMS keeps long-press only.
 
 **Settings row.** `SettingsGroup` + `SettingsInfoItem` / `SettingsActionItem` /
 `SettingsToggleItem` in `SettingsRows.kt`. Compact is a titled single column
