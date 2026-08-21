@@ -274,12 +274,21 @@ class CloudSyncManager(
 
                 // 2. Flush local deletions before pulling (Dart's
                 //    *DeletionIds-1 queues) or the pull resurrects them.
-                port.deleteMessagesRemote(syncStore.pendingMessageDeletes())
-                syncStore.savePendingMessageDeletes(emptyList())
-                port.deleteAttachmentsRemote(syncStore.pendingAttachmentDeletes())
-                syncStore.savePendingAttachmentDeletes(emptyList())
-                port.deleteChatsRemote(syncStore.pendingChatDeletes())
-                syncStore.savePendingChatDeletes(emptyList())
+                //    Empty queues are skipped entirely: the routine
+                //    reconnect-time incremental pass must not pay three
+                //    remote calls and three state commits for nothing.
+                syncStore.pendingMessageDeletes().takeIf { it.isNotEmpty() }?.let {
+                    port.deleteMessagesRemote(it)
+                    syncStore.savePendingMessageDeletes(emptyList())
+                }
+                syncStore.pendingAttachmentDeletes().takeIf { it.isNotEmpty() }?.let {
+                    port.deleteAttachmentsRemote(it)
+                    syncStore.savePendingAttachmentDeletes(emptyList())
+                }
+                syncStore.pendingChatDeletes().takeIf { it.isNotEmpty() }?.let {
+                    port.deleteChatsRemote(it)
+                    syncStore.savePendingChatDeletes(emptyList())
+                }
 
                 val lookup = HistorySyncLookup(store)
 
