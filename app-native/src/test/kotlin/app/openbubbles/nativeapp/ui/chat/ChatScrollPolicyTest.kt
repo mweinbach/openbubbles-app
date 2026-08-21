@@ -45,7 +45,7 @@ class ChatScrollPolicyTest {
     // ---- Passive incoming arrivals -------------------------------------------
 
     @Test
-    fun `incoming while following bottom pins the list and shows no pill`() {
+    fun `incoming while following bottom stays queued until a successful pin`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), true).state
         val outcome = reduceArrivals(
             base,
@@ -54,7 +54,7 @@ class ChatScrollPolicyTest {
         )
         assertEquals(1, outcome.arrivals)
         assertTrue(outcome.pinToNewest)
-        assertEquals(0, outcome.state.pendingCount)
+        assertEquals(1, outcome.state.pendingCount)
     }
 
     @Test
@@ -334,7 +334,7 @@ class ChatScrollPolicyTest {
     }
 
     @Test
-    fun `settling back at the bottom drops queued arrivals`() {
+    fun `pin intent retains queued arrivals until the viewport confirms success`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
         val queued = reduceArrivals(
             base,
@@ -347,8 +347,24 @@ class ChatScrollPolicyTest {
             listOf(message(1, start), message(2, start + 1_000), message(3, start + 2_000)),
             followingBottom = true,
         )
-        assertEquals(0, settled.state.pendingCount)
+        assertEquals(2, settled.state.pendingCount)
         assertTrue(settled.pinToNewest)
+    }
+
+    @Test
+    fun `exact live marker in initial snapshot is classified while unmarked rows baseline`() {
+        val live = message(2, start + 1_000)
+        val outcome = reduceArrivals(
+            state = ArrivalState(),
+            messages = listOf(message(1, start), live),
+            followingBottom = false,
+            liveArrivalGuids = setOf(live.guid),
+        )
+
+        assertEquals(1, outcome.arrivals)
+        assertEquals(setOf(live.guid), outcome.state.pendingGuids)
+        assertEquals(setOf(live.guid), outcome.matchedLiveGuids)
+        assertFalse(outcome.pinToNewest)
     }
 
     // ---- Reverse-layout geometry ---------------------------------------------

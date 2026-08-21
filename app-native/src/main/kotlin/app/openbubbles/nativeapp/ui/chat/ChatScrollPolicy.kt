@@ -163,19 +163,26 @@ internal fun reduceArrivals(
         .orEmpty()
     val newest = messages.last()
     if (!state.initialized) {
+        val initialArrivals = messages.filter {
+            !it.isFromMe && it.guid in liveArrivalGuids.orEmpty()
+        }
+        val pending = LinkedHashSet<String>().apply {
+            initialArrivals.mapTo(this) { it.guid }
+        }
         return ArrivalOutcome(
             ArrivalState(
                 initialized = true,
                 knownGuids = guids,
                 newestSeenDate = newest.date,
                 newestSeenId = newest.id,
+                pendingGuids = pending,
                 consumedLiveGuids = retainedConsumedLiveGuids(
                     state.consumedLiveGuids,
                     guids.filter { it in liveArrivalGuids.orEmpty() },
                 ),
             ),
-            arrivals = 0,
-            pinToNewest = false,
+            arrivals = initialArrivals.size,
+            pinToNewest = followingBottom && initialArrivals.isNotEmpty(),
             matchedLiveGuids = matchedLiveGuids,
         )
     }
@@ -199,19 +206,15 @@ internal fun reduceArrivals(
                     !historySyncActive && isNewerThanBaseline(it, state)
             }
     }
-    val pending = if (followingBottom) {
-        emptySet()
-    } else {
-        // Drop rows that left the window so the count always matches something
-        // the reader can still jump to.
-        LinkedHashSet<String>().apply {
-            state.pendingGuids.filterTo(this) { it in guids }
-            arrivals.mapTo(this) { it.guid }
-            while (size > PendingGuidRetention) {
-                iterator().run {
-                    next()
-                    remove()
-                }
+    // Queue before pinning. The UI clears this only after the newest row is
+    // visibly reached, so a gesture-cancelled animation leaves a usable pill.
+    val pending = LinkedHashSet<String>().apply {
+        state.pendingGuids.filterTo(this) { it in guids }
+        arrivals.mapTo(this) { it.guid }
+        while (size > PendingGuidRetention) {
+            iterator().run {
+                next()
+                remove()
             }
         }
     }

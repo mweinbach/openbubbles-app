@@ -144,6 +144,7 @@ import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.LiveMessageArrivals
+import app.openbubbles.nativeapp.data.LiveMessageArrival
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
@@ -376,8 +377,8 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     /** Stable navigation identity, available before the chat model loads. */
     routeChatId: Long? = uiState.chat?.id,
-    /** Synchronous repository membership, available before the chat-list flow emits. */
-    routeMemberChatIds: List<Long> = listOfNotNull(routeChatId),
+    /** Null while off-main repository membership is still resolving. */
+    routeMemberChatIds: List<Long>? = uiState.chat?.memberChatIds,
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -733,19 +734,38 @@ fun ChatScreen(
         liveArrivalChatIds(
             chatId = routeChatId ?: uiState.chat?.id,
             memberChatIds = buildList {
-                addAll(routeMemberChatIds)
+                addAll(routeMemberChatIds.orEmpty())
                 uiState.chat?.id?.let(::add)
                 addAll(uiState.chat?.memberChatIds.orEmpty())
             },
         )
     }
-    LaunchedEffect(observedLiveArrivalChatIds) {
-        if (observedLiveArrivalChatIds.isEmpty()) return@LaunchedEffect
+    val membershipResolved = routeMemberChatIds != null || uiState.chat != null
+    val currentLiveArrivalChatIds by rememberUpdatedState(observedLiveArrivalChatIds)
+    val currentMembershipResolved by rememberUpdatedState(membershipResolved)
+    val deferredMembershipArrivals = remember(arrivalStateKey) {
+        mutableListOf<LiveMessageArrival>()
+    }
+    LaunchedEffect(arrivalStateKey) {
         LiveMessageArrivals.events.collect { arrival ->
+            if (!currentMembershipResolved) {
+                // Membership resolves from the repository off-main. Retain the
+                // short startup window because the intake flow intentionally
+                // has no replay.
+                deferredMembershipArrivals += arrival
+            } else if (arrival.chatId in currentLiveArrivalChatIds) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+    }
+    LaunchedEffect(membershipResolved, observedLiveArrivalChatIds) {
+        if (!membershipResolved || deferredMembershipArrivals.isEmpty()) return@LaunchedEffect
+        deferredMembershipArrivals.forEach { arrival ->
             if (arrival.chatId in observedLiveArrivalChatIds) {
                 liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
             }
         }
+        deferredMembershipArrivals.clear()
     }
     val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
     val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
@@ -816,7 +836,9 @@ fun ChatScreen(
         )
         arrivals = outcome.state
         // Scroll only after the arriving row is part of the rendered snapshot.
-        if (outcome.pinToNewest) scrollToNewest()
+        if (outcome.pinToNewest && scrollToNewest()) {
+            arrivals = arrivals.cleared()
+        }
         // Marker state is an effect key. Consume it only after a suspending pin
         // finishes, otherwise recomposition cancels the move midway through.
         liveArrivalMarkers = liveArrivalMarkers.consumed(

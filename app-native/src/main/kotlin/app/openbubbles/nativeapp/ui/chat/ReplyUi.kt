@@ -236,6 +236,7 @@ internal fun ReplyThreadPane(
         arrivals = outcome.state
         if (outcome.pinToNewest && newestIndex >= 0) {
             if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
+            arrivals = arrivals.cleared()
         }
         // Keep the marker effect key stable until a suspending pin completes.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
