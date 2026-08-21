@@ -31,6 +31,12 @@ data class DecodedImage(
     val aspectRatio: Float,
 )
 
+/** Distinguishes an in-flight decode from a valid file this device cannot decode. */
+data class DecodedImageResult(
+    val image: DecodedImage?,
+    val isLoading: Boolean,
+)
+
 /** Size-bounded decoded bitmap cache shared by visible lazy-list rows. */
 object ImageDecodeCache {
     private const val MAX_SIZE_KB = 24 * 1024
@@ -115,21 +121,38 @@ private fun Bitmap.transformed(matrix: Matrix): Bitmap {
 fun rememberDecodedImage(
     file: File?,
     maxDimensionPx: Int = 512,
-): DecodedImage? {
+): DecodedImage? = rememberDecodedImageResult(file, maxDimensionPx).image
+
+/**
+ * Like [rememberDecodedImage], while exposing when both platform decoders have
+ * actually finished. A null bitmap alone also means "still loading" and is
+ * therefore insufficient for deciding whether to fall back to a preview.
+ */
+@Composable
+fun rememberDecodedImageResult(
+    file: File?,
+    maxDimensionPx: Int = 512,
+): DecodedImageResult {
     val cacheKey = remember(file?.absolutePath, file?.lastModified(), file?.length(), maxDimensionPx) {
         file?.let { "file:${it.absolutePath}:${it.lastModified()}:${it.length()}:$maxDimensionPx" }
     }
-    return produceState<DecodedImage?>(initialValue = null, cacheKey) {
-        val key = cacheKey ?: return@produceState
+    return produceState(
+        initialValue = DecodedImageResult(image = null, isLoading = cacheKey != null),
+        cacheKey,
+    ) {
+        val key = cacheKey ?: run {
+            value = DecodedImageResult(image = null, isLoading = false)
+            return@produceState
+        }
         ImageDecodeCache.get(key)?.let {
-            value = it
+            value = DecodedImageResult(image = it, isLoading = false)
             return@produceState
         }
         val decoded = withContext(Dispatchers.IO) {
             decodeLocalImage(file, maxDimensionPx)
         }
         if (decoded != null) ImageDecodeCache.put(key, decoded)
-        value = decoded
+        value = DecodedImageResult(image = decoded, isLoading = false)
     }.value
 }
 
