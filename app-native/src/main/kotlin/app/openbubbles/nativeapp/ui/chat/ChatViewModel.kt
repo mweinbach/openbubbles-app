@@ -1094,9 +1094,9 @@ class ChatViewModel(
      * Page in older history. Triggered when the user scrolls to the top of
      * the reversed message list; guarded so it runs one page at a time.
      */
-    fun loadOlder() {
-        if (loadingOlder.value || endReached) return
-        val oldestId = messages.value.firstOrNull()?.id ?: return
+    fun loadOlder(): Boolean {
+        if (loadingOlder.value || endReached) return false
+        val oldestId = messages.value.firstOrNull()?.id ?: return false
         loadingOlder.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1106,6 +1106,7 @@ class ChatViewModel(
                 loadingOlder.value = false
             }
         }
+        return true
     }
 
     override fun onCleared() {

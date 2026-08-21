@@ -552,6 +552,9 @@ object AppGraph {
     val chatInfoActions: ChatInfoActions get() = CoreGraph.chatInfoActions
     val chatBackgroundActions: ChatBackgroundActions get() = CoreGraph.chatBackgroundActions
 
+    /** Stable protocol-chat membership for arrival subscriptions during first composition. */
+    fun relatedDirectChatIds(chatId: Long): List<Long> = CoreGraph.relatedDirectChatIds(chatId)
+
     /** Fire-and-forget attachment download (no-op on the fake path). */
     fun requestAttachmentDownload(guid: String) = CoreGraph.requestAttachmentDownload(guid)
 
