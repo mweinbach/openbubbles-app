@@ -102,6 +102,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -723,13 +724,17 @@ fun ChatScreen(
     // laid-out index by one and would read as "the reader left the bottom".
     val arrivalStateKey = conversationArrivalStateKey(routeChatId, uiState.chat?.id)
     var followingBottom by rememberSaveable(arrivalStateKey) { mutableStateOf(true) }
-    LaunchedEffect(listState, newestIndex) {
-        snapshotFlow { Triple(listState.isScrollInProgress, newestIndex, atBottomNow) }
-            .collect { (scrolling, newest, atBottom) ->
-                // An empty restored viewport has no bottom to classify. Wait
-                // for the first laid-out message so it cannot overwrite the
-                // saved settled position.
-                if (!scrolling && newest >= 0) followingBottom = atBottom
+    LaunchedEffect(listState) {
+        var ownedScrollInProgress = false
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                // Only a real scroll's settled transition transfers viewport
+                // ownership. A keyed row insertion can move the measured
+                // index without any reader gesture and must not revoke follow.
+                if (ownedScrollInProgress && !scrolling && newestIndex >= 0) {
+                    followingBottom = atBottomNow
+                }
+                ownedScrollInProgress = scrolling
             }
     }
     var liveArrivalMarkers by rememberSaveable(
@@ -762,8 +767,13 @@ fun ChatScreen(
     ) {
         mutableStateOf(DeferredLiveArrivalState())
     }
+    var liveArrivalSequence by rememberSaveable(arrivalStateKey) {
+        mutableLongStateOf(LiveMessageArrivals.latestSequence)
+    }
     LaunchedEffect(arrivalStateKey) {
         LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.sequence <= liveArrivalSequence) return@collect
+            liveArrivalSequence = arrival.sequence
             if (!currentMembershipResolved) {
                 // Membership resolves from the repository off-main. Retain the
                 // short startup window because the intake flow intentionally
@@ -798,6 +808,7 @@ fun ChatScreen(
 
     val currentEntries by rememberUpdatedState(entries)
     val currentTyping by rememberUpdatedState(isTyping)
+    var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
 
     fun currentNewestTarget(): Pair<Int, String>? {
         val key = newestMessageKey(currentEntries) ?: return null
@@ -806,6 +817,9 @@ fun ChatScreen(
     }
 
     suspend fun scrollToNewest(): Boolean {
+        // This jump supersedes any in-flight history restoration; completion
+        // must not pull the viewport back into older rows.
+        pagingAnchor = null
         repeat(3) {
             val (targetIndex, targetKey) = currentNewestTarget() ?: return false
             if (reduceMotion) {
@@ -832,6 +846,7 @@ fun ChatScreen(
     LaunchedEffect(uiState.outgoingSendEvent) {
         val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
         if (pendingEffectId == event.effectId) stagePendingEffect(null)
+        if (openThread != null) return@LaunchedEffect
         // Re-resolve by stable message key if a typing row changes during the
         // move, and only consume the event once the sent row is visible.
         if (scrollToNewest()) onOutgoingSendEventConsumed(event.messageId)
@@ -887,7 +902,6 @@ fun ChatScreen(
     // Older pages append at higher indices in the reversed list, so the reading
     // position normally survives insertion untouched; the captured anchor is the
     // guard that proves it and restores the exact offset if it ever moves.
-    var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
     val userDraggingTranscript by listState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(userDraggingTranscript) {
         if (userDraggingTranscript) pagingAnchor = null
@@ -1143,6 +1157,8 @@ fun ChatScreen(
                     }
                     openThread != null -> ReplyThreadPane(
                         thread = openThread,
+                        outgoingSendEvent = uiState.outgoingSendEvent,
+                        onOutgoingSendEventConsumed = onOutgoingSendEventConsumed,
                         smsChat = smsChat,
                         historySyncActive = historySyncActive,
                         senderNames = senderNames,

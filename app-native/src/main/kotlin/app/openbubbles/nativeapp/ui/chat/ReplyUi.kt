@@ -16,12 +16,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -148,6 +150,8 @@ internal fun ensureThreadContains(
 @Composable
 internal fun ReplyThreadPane(
     thread: ReplyThreadState,
+    outgoingSendEvent: OutgoingSendEvent?,
+    onOutgoingSendEventConsumed: (Long) -> Unit,
     smsChat: Boolean,
     historySyncActive: Boolean,
     senderNames: Map<String, String>,
@@ -202,8 +206,13 @@ internal fun ReplyThreadPane(
     ) {
         mutableStateOf(LiveArrivalMarkerState())
     }
+    var liveArrivalSequence by rememberSaveable(thread.rootGuid, thread.part) {
+        mutableLongStateOf(LiveMessageArrivals.latestSequence)
+    }
     LaunchedEffect(thread.rootGuid, thread.part) {
         LiveMessageArrivals.events.collect { arrival ->
+            if (arrival.sequence <= liveArrivalSequence) return@collect
+            liveArrivalSequence = arrival.sequence
             if (arrival.threadRootGuid == thread.rootGuid && arrival.threadPart == thread.part) {
                 liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
             }
@@ -211,6 +220,24 @@ internal fun ReplyThreadPane(
     }
     val liveArrivalGuids = liveArrivalMarkers.reducerGuids
     val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
+
+    LaunchedEffect(outgoingSendEvent, thread.messages) {
+        val event = outgoingSendEvent ?: return@LaunchedEffect
+        val reversed = thread.messages.asReversed()
+        val targetIndex = reversed.indexOfFirst { it.id == event.messageId }
+        if (targetIndex < 0) return@LaunchedEffect
+        val target = reversed[targetIndex]
+        val targetKey = "thread-${target.id}-${target.guid}"
+        if (reduceMotion) {
+            listState.scrollToItem(targetIndex)
+        } else {
+            listState.animateScrollToItem(targetIndex)
+        }
+        withFrameNanos { }
+        if (listState.layoutInfo.visibleItemsInfo.any { it.key == targetKey }) {
+            onOutgoingSendEventConsumed(event.messageId)
+        }
+    }
     // Selecting another root/part is a different viewport; closing the thread
     // disposes this state entirely, so no stale announcement can replay.
     var arrivals by rememberSaveable(
