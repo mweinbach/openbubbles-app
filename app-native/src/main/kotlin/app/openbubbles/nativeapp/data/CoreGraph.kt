@@ -947,6 +947,16 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
     isGroupEvent = item.kind == app.openbubbles.core.model.MessageKind.GROUP_EVENT,
     reactionEmoji = item.reactionEmoji
         ?: item.reactionType?.removePrefix("-")?.let { TAPBACK_EMOJI[it] },
+    reactions = item.reactions.mapNotNull { reaction ->
+        val emoji = reaction.emoji
+            ?: TAPBACK_EMOJI[reaction.type.removePrefix("-")]
+            ?: return@mapNotNull null
+        MessageReactionUi(
+            emoji = emoji,
+            senderAddress = reaction.senderAddress,
+            isFromMe = reaction.isFromMe,
+        )
+    },
     senderAddress = item.senderAddress,
     guid = item.guid,
     replyToGuid = item.threadOriginatorGuid,

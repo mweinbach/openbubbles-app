@@ -152,6 +152,17 @@ data class RichLinkPreview(
     }
 }
 
+/**
+ * One active tapback with the handle that sent it, already resolved to the
+ * emoji the transcript draws. Apple allows one active tapback per sender, so
+ * [senderAddress] identifies the reactor and `null` means it came from me.
+ */
+data class MessageReactionUi(
+    val emoji: String,
+    val senderAddress: String?,
+    val isFromMe: Boolean,
+)
+
 data class MessageItem(
     val id: Long,
     val text: String,
@@ -162,6 +173,11 @@ data class MessageItem(
     val status: MessageStatus,
     val isGroupEvent: Boolean,
     val reactionEmoji: String?,
+    /**
+     * Every active tapback, one per sender, oldest first. The transcript
+     * summarizes these on the bubble; the reaction picker names who reacted.
+     */
+    val reactions: List<MessageReactionUi> = emptyList(),
     /** First attachment's display metadata, retained for source compatibility. */
     val attachmentMeta: AttachmentMeta? = null,
     /** Every attachment carried by the message, in database order. */

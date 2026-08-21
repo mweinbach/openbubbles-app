@@ -143,6 +143,7 @@ internal fun ReplyThreadPane(
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     onReply: (MessageItem, Long) -> Unit,
     onLongPressPart: ((MessageItem, Long) -> Unit)?,
+    onDoubleTapPart: ((MessageItem, Long) -> Unit)?,
     onDownloadSticker: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -196,6 +197,11 @@ internal fun ReplyThreadPane(
                         onDownloadSticker = onDownloadSticker,
                         onLongPressPart = if (canOpenMessageActions(message)) {
                             onLongPressPart?.let { callback -> { part -> callback(message, part) } }
+                        } else {
+                            null
+                        },
+                        onDoubleTapPart = if (canDoubleTapMessageActions(message, smsChat)) {
+                            onDoubleTapPart?.let { callback -> { part -> callback(message, part) } }
                         } else {
                             null
                         },

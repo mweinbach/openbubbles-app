@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -333,6 +334,8 @@ fun MessageBubble(
     onReplyCountTap: () -> Unit = {},
     onDownloadSticker: (String) -> Unit = {},
     onLongPressPart: ((Long) -> Unit)? = null,
+    /** Double-tap shortcut into the reaction picker (iMessage only). */
+    onDoubleTapPart: ((Long) -> Unit)? = null,
     /** Slide the bubble toward the start edge to begin an inline reply. */
     onSwipeReply: ((Long) -> Unit)? = null,
     /** True when this conversation is carrier SMS — outgoing bubbles go green. */
@@ -366,8 +369,9 @@ fun MessageBubble(
     val textPart = messageTextPart(message)
     val defaultReplyPart = defaultMessageActionPart(message)
     val openActions = onLongPressPart
-    val doubleTapActions = onLongPressPart?.takeUnless { smsChat }
+    val doubleTapActions = onDoubleTapPart?.takeUnless { smsChat }
     val avatarGutter = showAvatarGutter && !message.isFromMe
+    val reactionSummary = bubbleReactionSummary(message)
     // Pop the tapback only when it lands while the row is on screen; rows that
     // scroll in already reacted render it settled.
     val reactionPopsIn = remember(message.id) { message.reactionEmoji == null }
@@ -421,13 +425,21 @@ fun MessageBubble(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (onSwipeReply != null || openActions != null) {
+                    if (onSwipeReply != null || openActions != null || doubleTapActions != null) {
                         Modifier.semantics {
                             customActions = buildList {
                                 if (onSwipeReply != null) {
                                     add(
                                         CustomAccessibilityAction("Reply") {
                                             onSwipeReply.invoke(defaultReplyPart)
+                                            true
+                                        },
+                                    )
+                                }
+                                if (doubleTapActions != null) {
+                                    add(
+                                        CustomAccessibilityAction(AddReactionLabel) {
+                                            doubleTapActions.invoke(defaultReplyPart)
                                             true
                                         },
                                     )
@@ -516,9 +528,9 @@ fun MessageBubble(
                             { callback(attachment.partIndex) }
                         },
                     )
-                    message.reactionEmoji?.takeIf { index == attachments.lastIndex }?.let { emoji ->
+                    reactionSummary?.takeIf { index == attachments.lastIndex }?.let { summary ->
                         ReactionChip(
-                            emoji = emoji,
+                            summary = summary,
                             isFromMe = message.isFromMe,
                             popIn = reactionPopsIn,
                             modifier = Modifier.align(
@@ -547,9 +559,9 @@ fun MessageBubble(
                         },
                     )
                     if (attachments.isEmpty()) {
-                        message.reactionEmoji?.let { emoji ->
+                        reactionSummary?.let { summary ->
                             ReactionChip(
-                                emoji = emoji,
+                                summary = summary,
                                 isFromMe = message.isFromMe,
                                 popIn = reactionPopsIn,
                                 modifier = Modifier.align(
@@ -572,9 +584,9 @@ fun MessageBubble(
                             },
                         )
                         if (attachments.isEmpty() && !showTextBubble) {
-                            message.reactionEmoji?.let { emoji ->
+                            reactionSummary?.let { summary ->
                                 ReactionChip(
-                                    emoji = emoji,
+                                    summary = summary,
                                     isFromMe = message.isFromMe,
                                     popIn = reactionPopsIn,
                                     modifier = Modifier.align(
@@ -624,9 +636,9 @@ fun MessageBubble(
                             }
                         }
                         if (attachments.isEmpty()) {
-                            message.reactionEmoji?.let { emoji ->
+                            reactionSummary?.let { summary ->
                                 ReactionChip(
-                                    emoji = emoji,
+                                    summary = summary,
                                     isFromMe = message.isFromMe,
                                     popIn = reactionPopsIn,
                                     modifier = Modifier.align(
@@ -1069,11 +1081,13 @@ internal fun reactionTailDirection(isFromMe: Boolean, isLtr: Boolean): Float =
 /**
  * iOS-style tapback: a pill overlapping the bubble's top corner with a
  * two-dot thought-bubble tail descending toward the bubble, popping in on a
- * spatial spring when the reaction lands while visible.
+ * spatial spring when the reaction lands while visible. Several distinct
+ * reactions share one pill, so a busy message keeps a single anchored badge
+ * instead of a row of overlapping ones.
  */
 @Composable
 private fun ReactionChip(
-    emoji: String,
+    summary: BubbleReactionSummary,
     isFromMe: Boolean,
     modifier: Modifier = Modifier,
     popIn: Boolean = false,
@@ -1122,14 +1136,27 @@ private fun ReactionChip(
                 drawCircle(outline, bigRadius, big, style = Stroke(strokeWidth))
                 drawCircle(fill, smallRadius, small)
                 drawCircle(outline, smallRadius, small, style = Stroke(strokeWidth))
-            },
+            }
+            .semantics { contentDescription = summary.label },
     ) {
-        Text(
-            text = emoji,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(4.dp),
-        )
+        val shown = summary.emojis.take(BubbleReactionEmojiLimit)
+        val overflow = summary.emojis.size - shown.size
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            shown.forEach { emoji ->
+                Text(text = emoji, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+            if (overflow > 0) {
+                Text(
+                    text = "+$overflow",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

@@ -17,6 +17,7 @@ import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingMention
 import app.openbubbles.nativeapp.data.ReadReceiptSender
@@ -894,6 +895,12 @@ class ChatViewModel(
             edited = message.edited || overlay.edit != null,
             unsent = message.unsent || overlay.unsend != null,
             reactionEmoji = overlay.reaction?.emoji ?: message.reactionEmoji,
+            // One active tapback per sender: an optimistic reaction of mine
+            // replaces my persisted one instead of appearing twice.
+            reactions = overlay.reaction?.let { pending ->
+                message.reactions.filterNot { it.isFromMe } +
+                    MessageReactionUi(emoji = pending.emoji, senderAddress = null, isFromMe = true)
+            } ?: message.reactions,
             stickers = message.stickers + overlay.stickers.map { it.placement },
         )
     }

@@ -1,10 +1,13 @@
 package app.openbubbles.nativeapp.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Devices
@@ -13,16 +16,18 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
-import app.openbubbles.nativeapp.ui.chat.MessageActionTapbacks
 import app.openbubbles.nativeapp.ui.chat.MessageBubble
 import app.openbubbles.nativeapp.ui.chat.ReplyTarget
 import app.openbubbles.nativeapp.ui.chat.ReplyThreadState
+import app.openbubbles.nativeapp.ui.chat.TapbackPickerOverlay
+import app.openbubbles.nativeapp.ui.theme.LocalReduceMotion
 import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
@@ -774,36 +779,52 @@ fun ChatScreenTapbackScreenshot() {
 }
 
 /**
- * Open reaction/action header plus settled incoming/outgoing tapbacks.
- * The sheet itself is a modal; this pins the connected Tapback row the
- * double-tap shortcut opens.
+ * The centered reaction picker a double-tap opens: a "who reacted" card above
+ * the floating tapback pill, over a dimmed transcript. Reduce motion is forced
+ * so the surface renders settled instead of mid grow-in.
  */
 @PreviewTest
-@Preview(name = "chat-action-surface", device = Devices.PHONE, showBackground = true)
-@Preview(name = "chat-action-surface-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "chat-reaction-picker", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reaction-picker-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
-fun MessageActionSurfaceScreenshot() {
+fun MessageReactionPickerScreenshot() {
+    val reactorNames = mapOf(
+        "alex@icloud.com" to "Alex Chen",
+        "mark@icloud.com" to "Mark Reed",
+    )
+    val reactions = listOf(
+        MessageReactionUi(emoji = "\u2764\uFE0F", senderAddress = "alex@icloud.com", isFromMe = false),
+        MessageReactionUi(emoji = "\u2764\uFE0F", senderAddress = null, isFromMe = true),
+        MessageReactionUi(emoji = "\uD83D\uDE02", senderAddress = "mark@icloud.com", isFromMe = false),
+    )
     OpenBubblesTheme(dynamicColor = false) {
-        Surface {
-            Column(modifier = Modifier.padding(12.dp)) {
-                MessageActionTapbacks(
-                    selectedEmoji = "\u2764\uFE0F",
-                    onReact = { _, _ -> },
-                )
-                MessageBubble(
-                    message = message(1, "we got the permit!!", fromMe = false)
-                        .copy(reactionEmoji = "\u2764\uFE0F"),
-                    showStatus = false,
-                )
-                MessageBubble(
-                    message = message(
-                        2,
-                        "picking up the rental at nine",
-                        fromMe = true,
-                        status = MessageStatus.DELIVERED,
-                    ).copy(reactionEmoji = "\uD83D\uDC4D"),
-                    showStatus = true,
-                )
+        CompositionLocalProvider(LocalReduceMotion provides true) {
+            Surface {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                        MessageBubble(
+                            message = message(1, "we got the permit!!", fromMe = false)
+                                .copy(reactions = reactions, reactionEmoji = "\u2764\uFE0F"),
+                            showStatus = false,
+                        )
+                        MessageBubble(
+                            message = message(
+                                2,
+                                "picking up the rental at nine",
+                                fromMe = true,
+                                status = MessageStatus.DELIVERED,
+                            ).copy(reactionEmoji = "\uD83D\uDC4D"),
+                            showStatus = true,
+                        )
+                    }
+                    TapbackPickerOverlay(
+                        reactions = reactions,
+                        resolveName = { address -> reactorNames[address] },
+                        onReact = { _, _ -> },
+                        onCustomReaction = {},
+                        onDismiss = {},
+                    )
+                }
             }
         }
     }

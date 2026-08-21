@@ -10,6 +10,7 @@ import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.displayTextForRichLink
 
 internal const val MessageActionsLabel = "Message actions"
+internal const val AddReactionLabel = "Add reaction"
 
 internal const val TapbackLove = "❤️"
 internal const val TapbackLike = "👍"
@@ -18,6 +19,7 @@ internal const val TapbackLaugh = "😂"
 internal const val TapbackEmphasize = "‼️"
 internal const val TapbackQuestion = "❓"
 
+/** iMessage tapback set, in the order the protocol indexes them. */
 internal val ActionTapbacks = listOf(
     TapbackLove,
     TapbackLike,
@@ -26,6 +28,42 @@ internal val ActionTapbacks = listOf(
     TapbackEmphasize,
     TapbackQuestion,
 )
+
+/** Starting points offered in the custom-reaction dialog. */
+internal val CustomReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
+
+/** Protocol reaction index that carries a custom emoji instead of a tapback. */
+internal const val CustomReactionIndex = 6
+
+/**
+ * What the tapback pill on a bubble draws: the distinct emoji present, plus
+ * the spoken tally. Falls back to [MessageItem.reactionEmoji] so a projection
+ * that only carries the newest reaction still renders one pill.
+ */
+internal data class BubbleReactionSummary(
+    val emojis: List<String>,
+    val label: String,
+)
+
+/** Distinct emoji shown on the pill before it collapses into a "+N" tail. */
+internal const val BubbleReactionEmojiLimit = 3
+
+internal fun bubbleReactionSummary(message: MessageItem): BubbleReactionSummary? {
+    if (message.reactions.isEmpty()) {
+        val fallback = message.reactionEmoji ?: return null
+        return BubbleReactionSummary(listOf(fallback), "Reaction $fallback")
+    }
+    val counts = LinkedHashMap<String, Int>()
+    message.reactions.forEach { reaction ->
+        counts[reaction.emoji] = (counts[reaction.emoji] ?: 0) + 1
+    }
+    return BubbleReactionSummary(
+        emojis = counts.keys.toList(),
+        label = "Reactions: " + counts.entries.joinToString(", ") { (emoji, count) ->
+            if (count > 1) "$emoji $count" else emoji
+        },
+    )
+}
 
 internal fun canOpenMessageActions(message: MessageItem): Boolean =
     !message.isGroupEvent && !message.unsent && message.status != MessageStatus.SENDING

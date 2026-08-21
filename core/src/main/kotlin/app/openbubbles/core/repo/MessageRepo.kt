@@ -6,6 +6,7 @@ import app.openbubbles.core.model.MessageItem
 import app.openbubbles.core.model.InteractivePayloadParser
 import app.openbubbles.core.model.MessageKind
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.model.MessageReaction
 import app.openbubbles.core.model.MessageStatus
 import app.openbubbles.core.model.StickerPlacement
 import app.openbubbles.db.Attachment
@@ -493,9 +494,9 @@ class MessageRepo(
 
     private fun toItem(message: Message, activeReactions: List<Message>): MessageItem {
         val kind = kindOf(message)
-        val activeReaction = activeReactions
+        val tapbacks = activeReactions
             .filterNot { it.associatedMessageType?.removePrefix("-") in STICKER_TYPES }
-            .maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
+        val activeReaction = tapbacks.maxByOrNull { it.dateCreated?.time ?: Long.MIN_VALUE }
         return MessageItem(
             id = message.id,
             guid = message.guid,
@@ -513,6 +514,16 @@ class MessageRepo(
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageType else null,
             reactionEmoji = activeReaction?.associatedMessageEmoji
                 ?: if (kind == MessageKind.REACTION) message.associatedMessageEmoji else null,
+            reactions = tapbacks.mapNotNull { reaction ->
+                val type = reaction.associatedMessageType ?: return@mapNotNull null
+                MessageReaction(
+                    type = type,
+                    emoji = reaction.associatedMessageEmoji,
+                    senderAddress = reaction.handleRelation.target?.address,
+                    isFromMe = reaction.isFromMe,
+                    date = reaction.dateCreated,
+                )
+            },
             hasAttachments = message.hasAttachments,
             attachmentCount = if (message.hasAttachments) message.dbAttachments.size else 0,
             attachmentStamps = if (message.hasAttachments) {

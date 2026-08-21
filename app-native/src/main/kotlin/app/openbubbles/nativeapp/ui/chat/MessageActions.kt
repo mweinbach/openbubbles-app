@@ -54,8 +54,6 @@ import java.io.File
 import java.text.DateFormat
 import java.time.ZonedDateTime
 
-private val ActionReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
-
 @Composable
 internal fun MessageActionSheet(
     message: MessageItem,
@@ -83,10 +81,8 @@ internal fun MessageActionSheet(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showCustomReaction by remember(message.guid) { mutableStateOf(false) }
-    var customReaction by remember(message.guid) { mutableStateOf("") }
     var showInfo by remember(message.guid) { mutableStateOf(false) }
     var showReminder by remember(message.guid) { mutableStateOf(false) }
-    val normalizedCustomReaction = normalizeCustomReaction(customReaction)
     val attachments = message.attachmentMetas.ifEmpty { listOfNotNull(message.attachmentMeta) }
     val downloaded = attachments.mapNotNull { meta -> attachmentFile(meta.guid)?.let { meta to it } }
     val url = message.richLink?.url ?: Regex("https?://\\S+").find(message.text)?.value
@@ -101,7 +97,9 @@ internal fun MessageActionSheet(
             if (!isSms) {
                 item {
                     MessageActionTapbacks(
-                        selectedEmoji = message.reactionEmoji,
+                        // Mine, not simply the newest: a group message can
+                        // carry someone else's tapback as its latest.
+                        selectedEmoji = myReactionEmoji(message.reactions),
                         onReact = onReact,
                     )
                 }
@@ -148,39 +146,9 @@ internal fun MessageActionSheet(
     }
 
     if (showCustomReaction) {
-        AlertDialog(
-            onDismissRequest = { showCustomReaction = false },
-            title = { Text("Custom reaction") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        ActionReactionSuggestions.forEach { emoji ->
-                            FilledTonalIconButton(
-                                onClick = { customReaction = emoji },
-                                modifier = Modifier
-                                    .minimumInteractiveComponentSize()
-                                    .clearAndSetSemantics {
-                                        contentDescription = "Reaction $emoji"
-                                        role = Role.Button
-                                    },
-                            ) { Text(emoji) }
-                        }
-                    }
-                    TextField(
-                        value = customReaction,
-                        onValueChange = { customReaction = it },
-                        singleLine = true,
-                        label = { Text("Emoji") },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = normalizedCustomReaction != null,
-                    onClick = { onReact(6, requireNotNull(normalizedCustomReaction)) },
-                ) { Text("React") }
-            },
-            dismissButton = { TextButton(onClick = { showCustomReaction = false }) { Text("Cancel") } },
+        CustomReactionDialog(
+            onReact = { emoji -> onReact(CustomReactionIndex, emoji) },
+            onDismiss = { showCustomReaction = false },
         )
     }
     if (showInfo) {
@@ -197,6 +165,52 @@ internal fun MessageActionSheet(
             onDismiss = { showReminder = false },
         )
     }
+}
+
+/**
+ * Emoji entry for a custom tapback, shared by the action sheet and the
+ * centered reaction picker so both send through the same reaction index.
+ */
+@Composable
+internal fun CustomReactionDialog(
+    onReact: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var customReaction by remember { mutableStateOf("") }
+    val normalized = normalizeCustomReaction(customReaction)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom reaction") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    CustomReactionSuggestions.forEach { emoji ->
+                        FilledTonalIconButton(
+                            onClick = { customReaction = emoji },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .semantics { contentDescription = "Reaction $emoji" },
+                        ) {
+                            Text(text = emoji, modifier = Modifier.clearAndSetSemantics {})
+                        }
+                    }
+                }
+                TextField(
+                    value = customReaction,
+                    onValueChange = { customReaction = it },
+                    singleLine = true,
+                    label = { Text("Emoji") },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = normalized != null,
+                onClick = { onReact(requireNotNull(normalized)) },
+            ) { Text("React") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -220,13 +234,17 @@ internal fun MessageActionTapbacks(
                 modifier = Modifier
                     .weight(1f)
                     .minimumInteractiveComponentSize()
-                    .clearAndSetSemantics {
+                    .semantics {
                         contentDescription = tapbackContentDescription(emoji)
-                        role = Role.Button
                         if (selected) stateDescription = "Selected"
                     },
             ) {
-                Text(emoji, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = emoji,
+                    style = MaterialTheme.typography.titleMedium,
+                    // The label already names the tapback.
+                    modifier = Modifier.clearAndSetSemantics {},
+                )
             }
         }
     }

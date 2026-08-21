@@ -190,10 +190,6 @@ private val ConversationContentMaxWidth = 840.dp
 /** Per-picking cap for the multi-select system photo picker. */
 private const val PhotoPickerMaxItems = 10
 
-/** iMessage tapback set, in the order the protocol indexes them. */
-private val Tapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
-private val CustomReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
-
 /** Accept one emoji grapheme, including flags, skin tones, and ZWJ families. */
 internal fun normalizeCustomReaction(raw: String): String? {
     val value = raw.trim()
@@ -404,6 +400,10 @@ fun ChatScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    // Double-tap opens the centered reaction picker; long-press keeps the full
+    // action sheet. Only one of the two is ever presented.
+    var reactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    var customReactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     val pendingStickerState = remember { mutableStateOf<OutgoingAttachment?>(null) }
@@ -921,6 +921,11 @@ fun ChatScreen(
                                 selectedAction = SelectedMessageAction(message, part)
                             }
                         },
+                        onDoubleTapPart = { message, part ->
+                            if (canDoubleTapMessageActions(message, smsChat)) {
+                                reactionTarget = SelectedMessageAction(message, part)
+                            }
+                        },
                         onDownloadSticker = { guid ->
                             onDownloadAttachment(
                                 AttachmentMeta(
@@ -1031,6 +1036,11 @@ fun ChatScreen(
                                     } else {
                                         null
                                     },
+                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message, smsChat)) {
+                                        { part -> reactionTarget = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
+                                    },
                                     onSwipeReply = if (canSwipeReply(entry.message)) {
                                         { part -> onReply(entry.message, part) }
                                     } else {
@@ -1095,6 +1105,38 @@ fun ChatScreen(
                 )
             }
         }
+
+        // Centered reaction picker. It lives inside the chat pane so a
+        // list-detail layout dims the conversation rather than the whole app,
+        // and it reads the live row so "who reacted" updates while it is open.
+        reactionTarget?.let { selection ->
+            val live = messagesByGuid[selection.message.guid] ?: selection.message
+            TapbackPickerOverlay(
+                reactions = live.reactions,
+                resolveName = { address ->
+                    senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
+                },
+                onReact = { index, emoji ->
+                    reactionTarget = null
+                    onReact(live, selection.part, index, emoji)
+                },
+                onCustomReaction = {
+                    reactionTarget = null
+                    customReactionTarget = selection
+                },
+                onDismiss = { reactionTarget = null },
+            )
+        }
+    }
+
+    customReactionTarget?.let { selection ->
+        CustomReactionDialog(
+            onReact = { emoji ->
+                customReactionTarget = null
+                onReact(selection.message, selection.part, CustomReactionIndex, emoji)
+            },
+            onDismiss = { customReactionTarget = null },
+        )
     }
 
     // Effect picker sheet (long-press the send button).
