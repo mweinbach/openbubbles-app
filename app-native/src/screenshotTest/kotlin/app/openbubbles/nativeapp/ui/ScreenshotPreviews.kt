@@ -31,6 +31,8 @@ import app.openbubbles.nativeapp.ui.chatinfo.ParticipantRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListKind
 import app.openbubbles.nativeapp.ui.chatlist.ChatListRow
 import app.openbubbles.nativeapp.ui.chatlist.ChatListScreen
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurface
+import app.openbubbles.nativeapp.ui.navigation.TopLevelSurfaceSwitcher
 import app.openbubbles.nativeapp.ui.chatlist.ChatListUiState
 import app.openbubbles.nativeapp.ui.chatlist.SendFromDialog
 import app.openbubbles.nativeapp.ui.onboarding.OnboardingScreen
@@ -162,6 +164,32 @@ fun ChatListScreenScreenshot() {
         ChatListScreen(
             uiState = sampleState(),
             onChatClick = {},
+        )
+    }
+}
+
+/** The inbox with the peer-surface switcher pinned under its app bar. */
+@PreviewTest
+@Preview(name = "chat-list-surface-switcher", device = Devices.PHONE, showBackground = true)
+@Preview(
+    name = "chat-list-surface-switcher-dark",
+    device = Devices.PHONE,
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+fun ChatListSurfaceSwitcherScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        ChatListScreen(
+            uiState = sampleState(),
+            onChatClick = {},
+            surfaceSwitcher = {
+                TopLevelSurfaceSwitcher(
+                    current = TopLevelSurface.MESSAGES,
+                    onSelect = {},
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            },
         )
     }
 }

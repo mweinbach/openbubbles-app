@@ -166,6 +166,12 @@ fun ChatListScreen(
     header: @Composable ColumnScope.() -> Unit = {},
     footer: @Composable ColumnScope.() -> Unit = {},
     /**
+     * Peer-surface switcher pinned under the app bar on the inbox. It is the
+     * designated swipe region, so it lives in the app bar area rather than in
+     * the scrolling list, and it is hidden while a selection owns the bar.
+     */
+    surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
+    /**
      * Conversation ids currently on screen plus a small off-screen buffer.
      * Used to warm the newest transcripts so opening a row is instant.
      */
@@ -337,6 +343,15 @@ fun ChatListScreen(
                     ),
                     scrollBehavior = scrollBehavior,
                 )
+                if (kind == ChatListKind.Inbox && !selecting) {
+                    // An open sheet, dialog or menu owns input until dismissed.
+                    surfaceSwitcher(
+                        actionChat == null &&
+                            sendFromChat == null &&
+                            confirmDeleteIds == null &&
+                            !profileMenuExpanded,
+                    )
+                }
             }
         },
         floatingActionButton = {

@@ -21,6 +21,13 @@ password), `addPasswordTotp(site, username, setupString)`. Groups:
 `keychainPasskeyInsert`, `getSiteConfig`) remain on the state object for the
 autofill/credential service surfaces.
 
+`UVaultItem` carries `credentialId` and `userTag` for passkeys (`klbl` and `atag`).
+Both are public WebAuthn request metadata, and Android needs them to honour a
+relying party's `allowCredentials` list and to label a picker entry with the
+account. They are what lets the durable vault catalog answer a credential
+request without `getSiteConfig`, which returns full secrets — see
+[PERSISTENCE.md](../../PERSISTENCE.md#separate-databases).
+
 ## Shared Albums
 
 `listSharedAlbums(refresh)`, `acceptSharedAlbum(id)` / `acceptSharedAlbumToken(token)`,

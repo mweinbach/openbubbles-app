@@ -18,4 +18,13 @@ class CredentialOriginTest {
         assertFalse(originMatchesRpId("https://example.com.attacker.test", "example.com"))
         assertFalse(originMatchesRpId("not a valid origin", "example.com"))
     }
+
+    @Test
+    fun `privileged allowlist accepts only nonempty cache inside bounded grace`() {
+        val now = 100_000L
+        assertTrue(privilegedAllowlistCacheUsable(now - 10, 1, now, maxAgeMs = 20))
+        assertFalse(privilegedAllowlistCacheUsable(now - 21, 1, now, maxAgeMs = 20))
+        assertFalse(privilegedAllowlistCacheUsable(now - 10, 0, now, maxAgeMs = 20))
+        assertFalse(privilegedAllowlistCacheUsable(now + 1, 1, now, maxAgeMs = 20))
+    }
 }
