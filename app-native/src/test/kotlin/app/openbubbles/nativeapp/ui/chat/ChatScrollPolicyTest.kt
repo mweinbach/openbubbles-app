@@ -557,6 +557,10 @@ class ChatScrollPolicyTest {
             setOf(7L, 9L, 11L),
             liveArrivalChatIds(chatId = 7L, memberChatIds = listOf(7L, 9L, 11L)),
         )
+        assertEquals(
+            setOf(7L),
+            liveArrivalChatIds(chatId = 7L, memberChatIds = emptyList()),
+        )
     }
 
     @Test

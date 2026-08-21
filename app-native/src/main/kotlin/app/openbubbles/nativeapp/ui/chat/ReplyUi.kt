@@ -235,13 +235,14 @@ internal fun ReplyThreadPane(
             chronologicalFallback = liveArrivalFallback,
         )
         arrivals = outcome.state
+        if (outcome.pinToNewest && newestIndex >= 0) {
+            if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
+        }
+        // Keep the marker effect key stable until a suspending pin completes.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
             fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
         )
-        if (outcome.pinToNewest && newestIndex >= 0) {
-            if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
-        }
     }
     LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {
         if (arrivals.pendingCount == 0) return@LaunchedEffect

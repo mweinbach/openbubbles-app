@@ -731,8 +731,18 @@ fun ChatScreen(
     ) {
         mutableStateOf(LiveArrivalMarkerState())
     }
-    val observedLiveArrivalChatIds = remember(uiState.chat?.id, uiState.chat?.memberChatIds) {
-        liveArrivalChatIds(uiState.chat?.id, uiState.chat?.memberChatIds.orEmpty())
+    val observedLiveArrivalChatIds = remember(
+        routeChatId,
+        uiState.chat?.id,
+        uiState.chat?.memberChatIds,
+    ) {
+        liveArrivalChatIds(
+            chatId = routeChatId ?: uiState.chat?.id,
+            memberChatIds = buildList {
+                uiState.chat?.id?.let(::add)
+                addAll(uiState.chat?.memberChatIds.orEmpty())
+            },
+        )
     }
     LaunchedEffect(observedLiveArrivalChatIds) {
         if (observedLiveArrivalChatIds.isEmpty()) return@LaunchedEffect
@@ -810,12 +820,14 @@ fun ChatScreen(
             chronologicalFallback = liveArrivalFallback,
         )
         arrivals = outcome.state
+        // Scroll only after the arriving row is part of the rendered snapshot.
+        if (outcome.pinToNewest) scrollToNewest()
+        // Marker state is an effect key. Consume it only after a suspending pin
+        // finishes, otherwise recomposition cancels the move midway through.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
             fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
         )
-        // Scroll only after the arriving row is part of the rendered snapshot.
-        if (outcome.pinToNewest) scrollToNewest()
     }
 
     // Reaching the bottom by hand clears the pill, but only after the newest

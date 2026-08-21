@@ -98,8 +98,17 @@ object CloudSyncWiring {
 
         // Auto incremental sync on connect (Dart parity: startup + daily),
         // throttled so reconnect churn never becomes CloudKit churn. Poll
-        // mode (battery saver) drives its own single sync instead.
-        if (autoSync) {
+        // mode (battery saver) drives its own single sync instead. The armed
+        // first-run backfill owns the single-flight slot behind the lock
+        // screen, so connecting must not start a competing incremental pass.
+        if (InitialHistoryDownload.isPending(context)) {
+            // The service can restore the Apple session before any activity is
+            // composed. Resume the durable, cursor-backed initial download in
+            // that process too so its notification lock cannot strand users.
+            startInitialHistorySync(context.applicationContext)
+        } else if (autoSync &&
+            !InitialHistoryDownload.isPostSignInOnboardingActive(context)
+        ) {
             val now = System.currentTimeMillis()
             if (shouldAutoSyncOnConnect(prefs.getLong(KEY_AUTO_SYNC_ATTEMPT, 0L), now)) {
                 // Record the attempt regardless of outcome: a failing sync
@@ -108,6 +117,28 @@ object CloudSyncWiring {
                 startHistorySync(context, SyncMode.INCREMENTAL)
             }
         }
+    }
+
+    /**
+     * The one-time first-run backfill armed at the end of onboarding. Runs in
+     * the sync scope so the durable pending flag clears (and the user gets
+     * their "messages are ready" notification) even if the activity is gone.
+     */
+    fun startInitialHistorySync(context: Context): Boolean {
+        val app = context.applicationContext
+        // PushStateHolder is published immediately before onStateInstalled
+        // constructs this manager. Do not let that brief gap consume the
+        // coordinator's single-flight request with a null sync result.
+        if (managerRef.get() == null) return false
+        return syncCoordinator.start(
+            mode = InitialHistoryDownload.syncMode(app),
+            onStarting = { InitialHistoryDownload.markStarted(app) },
+            afterSuccessfulSync = {
+                CoreGraph.relinkContacts()
+                markHistorySyncComplete(app)
+                InitialHistoryDownload.finish(app)
+            },
+        )
     }
 
     /**
@@ -225,9 +256,14 @@ internal class HistorySyncCoordinator(
     val running: StateFlow<Boolean> = _running.asStateFlow()
     val lastSummary: StateFlow<SyncSummary?> = _lastSummary.asStateFlow()
 
-    fun start(mode: SyncMode, afterSuccessfulSync: suspend () -> Unit): Boolean =
+    fun start(
+        mode: SyncMode,
+        onStarting: () -> Unit = {},
+        afterSuccessfulSync: suspend () -> Unit,
+    ): Boolean =
         synchronized(lock) {
             if (activeJob?.isActive == true) return@synchronized false
+            onStarting()
             _lastSummary.value = null
             _running.value = true
 
