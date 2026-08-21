@@ -1,7 +1,12 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +55,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
@@ -82,6 +89,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -108,16 +116,22 @@ import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosAccess
 import app.openbubbles.core.photos.PhotosAvailability
+import androidx.core.content.ContextCompat
 import app.openbubbles.core.photos.PhotosSnapshot
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
+import app.openbubbles.nativeapp.data.photos.PhotoLibraryExport
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
 import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
+import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val PhotosReadyTag = "benchmark_photos_ready"
 private const val PhotosScrollableTag = "benchmark_photos_scrollable"
@@ -770,12 +784,38 @@ private fun PhotoViewer(
     )
     var showInfo by remember { mutableStateOf(false) }
     var chromeVisible by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingLegacySave by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacyMediaPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = pendingLegacySave
+        pendingLegacySave = null
+        if (granted) {
+            pending?.invoke()
+        } else {
+            Toast.makeText(
+                context,
+                "Storage permission is required to save photos",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
     LaunchedEffect(pagerState, assets) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { page -> assets.getOrNull(page)?.let(onPageSettled) }
     }
     val current = assets.getOrNull(pagerState.settledPage)
+    // Save and Share act on the downloaded original only. Exporting is a
+    // one-way copy into the Android gallery; it never writes to iCloud.
+    val currentOriginal = current
+        ?.let { uiState.originalTransfers[it.id] }
+        ?.takeIf { it.state == PhotoTransferState.Succeeded }
+        ?.localPath
+        ?.let(::File)
+        ?.takeIf { it.isFile && it.length() > 0 }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
@@ -821,6 +861,61 @@ private fun PhotoViewer(
                         color = Color.White.copy(alpha = 0.75f),
                         style = MaterialTheme.typography.labelMedium,
                     )
+                }
+                if (currentOriginal != null) {
+                    IconButton(
+                        onClick = {
+                            val save = {
+                                scope.launch {
+                                    val outcome = withContext(Dispatchers.IO) {
+                                        savePhotoToGallery(context, current, currentOriginal)
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        when (outcome) {
+                                            PhotoGalleryExportOutcome.Saved ->
+                                                "Saved to ${PhotoLibraryExport.ALBUM}"
+                                            PhotoGalleryExportOutcome.Unsupported ->
+                                                "This format cannot be saved to the gallery"
+                                            PhotoGalleryExportOutcome.Failed ->
+                                                "Unable to save this photo"
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                                Unit
+                            }
+                            val granted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (requiresLegacyMediaWritePermission(Build.VERSION.SDK_INT, granted)) {
+                                pendingLegacySave = save
+                                legacyMediaPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else {
+                                save()
+                            }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.SaveAlt,
+                            contentDescription = "Save to gallery",
+                            tint = Color.White,
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            if (!sharePhotoOriginal(context, current, currentOriginal)) {
+                                Toast.makeText(
+                                    context,
+                                    "Unable to share this photo",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share photo", tint = Color.White)
+                    }
                 }
                 IconButton(onClick = { showInfo = true }) {
                     Icon(Icons.Filled.Info, contentDescription = "Photo details", tint = Color.White)

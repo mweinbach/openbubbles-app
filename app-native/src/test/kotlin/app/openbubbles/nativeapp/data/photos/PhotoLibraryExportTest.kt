@@ -1,0 +1,90 @@
+package app.openbubbles.nativeapp.data.photos
+
+import app.openbubbles.core.photos.PhotoMediaKind
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class PhotoLibraryExportTest {
+
+    @Test
+    fun `image export lands in the pictures album with its iCloud name`() {
+        val plan = PhotoLibraryExport.plan(
+            cachedFileName = "abc123.heic",
+            filename = "IMG_4821.HEIC",
+            mediaKind = PhotoMediaKind.Image,
+            capturedAtMs = 1_700_000_000_000,
+        )
+
+        assertEquals("IMG_4821.HEIC", plan?.displayName)
+        assertEquals("image/heic", plan?.mimeType)
+        assertEquals("Pictures/iCloud Photos", plan?.relativePath)
+        assertEquals(false, plan?.video)
+        assertEquals(1_700_000_000_000, plan?.dateTakenMillis)
+    }
+
+    @Test
+    fun `video export lands in the movies album`() {
+        val plan = PhotoLibraryExport.plan(
+            cachedFileName = "def456.mov",
+            filename = "IMG_0007.MOV",
+            mediaKind = PhotoMediaKind.Video,
+            capturedAtMs = null,
+        )
+
+        assertEquals("video/quicktime", plan?.mimeType)
+        assertEquals("Movies/iCloud Photos", plan?.relativePath)
+        assertEquals(true, plan?.video)
+        assertNull(plan?.dateTakenMillis)
+    }
+
+    @Test
+    fun `the cached file decides the format when the iCloud name disagrees`() {
+        val plan = PhotoLibraryExport.plan(
+            cachedFileName = "abc123.jpg",
+            filename = "IMG_4821.HEIC",
+            mediaKind = PhotoMediaKind.Image,
+            capturedAtMs = null,
+        )
+
+        assertEquals("IMG_4821.jpg", plan?.displayName)
+        assertEquals("image/jpeg", plan?.mimeType)
+    }
+
+    @Test
+    fun `a missing or hostile name cannot escape the album`() {
+        assertEquals(
+            "abc123.jpg",
+            PhotoLibraryExport.plan("abc123.jpg", null, PhotoMediaKind.Image, null)?.displayName,
+        )
+        assertEquals(
+            "passwd.jpg",
+            PhotoLibraryExport.plan(
+                cachedFileName = "abc123.jpg",
+                filename = "../../etc/passwd",
+                mediaKind = PhotoMediaKind.Image,
+                capturedAtMs = null,
+            )?.displayName,
+        )
+        assertEquals(
+            "IMG_1.jpg",
+            PhotoLibraryExport.plan(
+                cachedFileName = "abc123.jpg",
+                filename = "IMG\n_1.jpg",
+                mediaKind = PhotoMediaKind.Image,
+                capturedAtMs = null,
+            )?.displayName,
+        )
+    }
+
+    @Test
+    fun `unknown or contradictory media is not exported`() {
+        assertNull(PhotoLibraryExport.plan("abc123.original", "IMG_1", PhotoMediaKind.Image, null))
+        assertNull(PhotoLibraryExport.plan("abc123.image", "IMG_1", PhotoMediaKind.Image, null))
+        assertNull(PhotoLibraryExport.plan("abc123.jpg", "IMG_1.jpg", PhotoMediaKind.Unknown, null))
+        // A video-typed asset whose cache file is an image, or the reverse,
+        // would misfile the row in the gallery.
+        assertNull(PhotoLibraryExport.plan("abc123.jpg", "IMG_1.jpg", PhotoMediaKind.Video, null))
+        assertNull(PhotoLibraryExport.plan("abc123.mov", "IMG_1.mov", PhotoMediaKind.Image, null))
+    }
+}

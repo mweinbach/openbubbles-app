@@ -217,7 +217,8 @@ private fun Bitmap.hasReadableGainmap(): Boolean =
 
 /**
  * Scoped-storage export with pending-row cleanup on failure. Images land in
- * Pictures/OpenBubbles, videos in Movies/OpenBubbles.
+ * Pictures/OpenBubbles and videos in Movies/OpenBubbles unless the caller names
+ * its own album with [relativePath] (the iCloud Photos export does).
  */
 internal fun saveToMediaStore(
     context: Context,
@@ -225,6 +226,7 @@ internal fun saveToMediaStore(
     mime: String,
     video: Boolean,
     dateTakenMillis: Long? = null,
+    relativePath: String? = null,
     afterWrite: (Uri) -> Unit = {},
     write: (OutputStream) -> Unit,
 ): Boolean = runCatching {
@@ -241,7 +243,7 @@ internal fun saveToMediaStore(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             put(
                 MediaStore.MediaColumns.RELATIVE_PATH,
-                if (video) "Movies/OpenBubbles" else "Pictures/OpenBubbles",
+                relativePath ?: if (video) "Movies/OpenBubbles" else "Pictures/OpenBubbles",
             )
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
