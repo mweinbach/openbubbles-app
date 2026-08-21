@@ -55,19 +55,34 @@ import kotlinx.coroutines.delay
 private const val HISTORY_CONNECTION_WAIT_MS = 15_000L
 
 /**
+ * How many times a resumed backfill that ends while still pending is silently
+ * restarted before the manual "Try again" affordance is surfaced. Covers
+ * transient CloudKit/APS dips and runs that stop without finalizing.
+ */
+internal const val MAX_HISTORY_AUTO_RETRIES = 4
+
+/** Growing backoff between auto-retries: 2s, 4s, 8s, 16s, capped at 30s. */
+internal fun historyRetryBackoffMs(attempt: Int): Long =
+    (2_000L shl attempt.coerceIn(0, 5)).coerceAtMost(30_000L)
+
+/**
  * Human-readable line for the phase the backfill is in. Record counts alone
  * read as noise to someone who just wants to know whether to put the phone
- * down, so each phase says what is being fetched.
+ * down, so each phase says what is being fetched. A leg that walks deletions
+ * or already-synced records advances the cursor without adding rows, so a
+ * zero count is suppressed rather than shown as a stalled "0 so far".
  */
 internal fun historyDownloadStatusLine(progress: SyncProgress?): String = when (progress?.phase) {
     null, SyncPhase.IDLE -> "Getting ready…"
     SyncPhase.CHECKING -> "Checking your iCloud account…"
-    SyncPhase.CHATS -> "Downloading conversations — ${progress.chatsDone} so far"
-    SyncPhase.MESSAGES -> "Downloading messages — ${progress.messagesDone} so far"
-    SyncPhase.ATTACHMENTS -> "Downloading photos and files — ${progress.attachmentsDone} so far"
+    SyncPhase.CHATS -> "Downloading conversations" + soFar(progress.chatsDone)
+    SyncPhase.MESSAGES -> "Downloading messages" + soFar(progress.messagesDone)
+    SyncPhase.ATTACHMENTS -> "Downloading photos and files" + soFar(progress.attachmentsDone)
     SyncPhase.DONE -> "Finishing up…"
     SyncPhase.FAILED -> "Download stopped"
 }
+
+private fun soFar(count: ULong): String = if (count > 0u) " — $count so far" else "…"
 
 /**
  * Full-screen, deliberately non-dismissible gate over the whole app while the
@@ -96,6 +111,8 @@ internal fun HistoryDownloadLockScreen(
     var startRequested by remember { mutableStateOf(false) }
     var connectionUnavailable by rememberSaveable { mutableStateOf(false) }
     var connectionAttempt by rememberSaveable { mutableStateOf(0) }
+    // Consecutive silent restarts of a run that ended while still pending.
+    var autoRetryAttempt by rememberSaveable { mutableStateOf(0) }
 
     LaunchedEffect(context, pushState, connectionAttempt) {
         connectionUnavailable = false
@@ -126,14 +143,55 @@ internal fun HistoryDownloadLockScreen(
         }
     }
 
+    // A run that ends while the backfill is still pending — a transient
+    // CloudKit/APS dip, or a run that stopped without finalizing — would
+    // otherwise strand the user on a spinner with no progress and no retry
+    // (the start effect above is single-shot per process). Watch the coordinator
+    // for a genuine running→idle edge and re-arm with a growing backoff; after
+    // MAX_HISTORY_AUTO_RETRIES quiet attempts, fall through to the manual retry
+    // UI below. A successful run clears the pending flag and removes this screen.
+    LaunchedEffect(context) {
+        if (context == null) return@LaunchedEffect
+        var wasSyncing = false
+        CloudSyncWiring.syncing.collect { running ->
+            val justEnded = wasSyncing && !running
+            wasSyncing = running
+            if (!justEnded || !startRequested) return@collect
+            if (
+                !InitialHistoryDownload.isPending(context) ||
+                connectionUnavailable ||
+                autoRetryAttempt >= MAX_HISTORY_AUTO_RETRIES
+            ) {
+                return@collect
+            }
+            val attempt = autoRetryAttempt
+            autoRetryAttempt = attempt + 1
+            delay(historyRetryBackoffMs(attempt))
+            if (
+                InitialHistoryDownload.isPending(context) &&
+                PushStateHolder.state != null &&
+                !CloudSyncWiring.syncing.value
+            ) {
+                startRequested = false // re-triggers the start effect
+            }
+        }
+    }
+
     // Back must not slip past the gate; leaving is an explicit choice below.
     BackHandler(enabled = true) { }
 
     val syncFailure = summary?.takeIf { it.error != null || it.cancelled }
+    val autoRetriesExhausted = autoRetryAttempt >= MAX_HISTORY_AUTO_RETRIES
     val failureMessage = when {
         connectionUnavailable -> "OpenGarden couldn't reconnect to your Apple account. " +
             "Try again, or skip this download and repair the connection from Settings."
-        syncFailure != null -> syncFailure.error ?: "The download was stopped before it finished."
+        // While silent retries remain, keep showing progress instead of an
+        // error the app is already recovering from on its own. Once they are
+        // spent, always surface the manual affordance — even if the run ended
+        // without a specific error — so it can never sit on a frozen spinner.
+        autoRetriesExhausted -> syncFailure?.error
+            ?: "The download keeps stopping before it finishes. " +
+            "Try again, or skip it and continue from Settings."
         else -> null
     }
     HistoryDownloadLockContent(
@@ -142,6 +200,7 @@ internal fun HistoryDownloadLockScreen(
         onRetry = {
             connectionUnavailable = false
             startRequested = false
+            autoRetryAttempt = 0
             connectionAttempt += 1
             context?.let(NativePushService::reloadAfterLogin)
         },
