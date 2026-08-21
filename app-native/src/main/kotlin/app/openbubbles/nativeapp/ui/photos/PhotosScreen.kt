@@ -581,7 +581,11 @@ private fun PhotoDetail(
                 }
             }
             PhotoMediaKind.Video -> if (originalFile != null) {
-                AttachmentVideoPlayer(file = originalFile, onPlaybackError = {})
+                AttachmentVideoPlayer(
+                    file = originalFile,
+                    controlsVisible = true,
+                    onOpenExternally = {},
+                )
             } else {
                 val poster = rememberVideoPoster(previewFile, maxDimensionPx = 1080)
                 poster?.let {

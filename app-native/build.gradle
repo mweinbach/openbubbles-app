@@ -242,10 +242,14 @@ dependencies {
     implementation libs.androidx.activity.compose
 
     // Oversized outgoing video compression (1080p/HEVC, HDR kept) before
-    // enqueue. Media3 Transformer uses platform codecs only — no native libs.
+    // enqueue, plus the attachment viewer's video playback (ExoPlayer handles
+    // QuickTime/HEVC/HDR far better than VideoView). Media3 uses platform
+    // codecs only — no native libs.
     implementation libs.androidx.media3.transformer
     implementation libs.androidx.media3.effect
     implementation libs.androidx.media3.common
+    implementation libs.androidx.media3.exoplayer
+    implementation libs.androidx.media3.ui.compose
 
     // QR pairing scanner (provisioning): CameraX + official ML Kit Analyzer
     implementation libs.androidx.camera.camera2
