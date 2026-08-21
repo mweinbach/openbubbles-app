@@ -234,6 +234,9 @@ class CloudSyncManagerTest {
         hasPayloadData: Boolean = false,
         msgType: Long = 0,
         transcriptBackground: UTranscriptBackground? = null,
+        associatedMessageType: Long? = null,
+        associatedMessageGuid: String? = null,
+        associatedMessagePart: ULong? = null,
     ) = UCloudMessage(
         guid = guid,
         chatId = chatId,
@@ -254,8 +257,9 @@ class CloudSyncManagerTest {
         effect = null,
         dateReadNs = null,
         dateDeliveredNs = null,
-        associatedMessageType = null,
-        associatedMessageGuid = null,
+        associatedMessageType = associatedMessageType,
+        associatedMessageGuid = associatedMessageGuid,
+        associatedMessagePart = associatedMessagePart,
         threadOriginatorGuid = null,
         threadOriginatorPart = null,
         associatedMessageEmoji = null,
@@ -409,6 +413,38 @@ class CloudSyncManagerTest {
         runSync()
 
         assertEquals(12L, messageByGuid("msg-rec-failed")?.error)
+    }
+
+    @Test
+    fun `cloud reaction retains its target message part`() {
+        port.chatPages += chatPage(
+            UChatChange("rec-chat", cloudChat("rec-chat"), blob = byteArrayOf()),
+        )
+        port.messagePages += messagePage(
+            UMessageChange(
+                "rec-target",
+                cloudMessage("rec-target", guid = "target", chatId = "iMessage;-;+15551234567"),
+                blob = byteArrayOf(),
+            ),
+            UMessageChange(
+                "rec-reaction",
+                cloudMessage(
+                    "rec-reaction",
+                    guid = "reaction",
+                    chatId = "iMessage;-;+15551234567",
+                    associatedMessageType = 2000,
+                    associatedMessageGuid = "target",
+                    associatedMessagePart = 2uL,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+
+        runSync()
+
+        val reaction = assertNotNull(messageByGuid("reaction"))
+        assertEquals("target", reaction.associatedMessageGuid)
+        assertEquals(2L, reaction.associatedMessagePart)
     }
 
     @Test

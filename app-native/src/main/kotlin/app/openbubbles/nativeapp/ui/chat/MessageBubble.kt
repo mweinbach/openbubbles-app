@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -1136,7 +1137,7 @@ private fun ReactionChip(
                 drawCircle(fill, smallRadius, small)
                 drawCircle(outline, smallRadius, small, style = Stroke(strokeWidth))
             }
-            .semantics { contentDescription = summary.label },
+            .clearAndSetSemantics { contentDescription = summary.label },
     ) {
         val shown = summary.emojis.take(BubbleReactionEmojiLimit)
         val overflow = summary.emojis.size - shown.size

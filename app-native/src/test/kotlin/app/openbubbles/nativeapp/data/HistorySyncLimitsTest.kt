@@ -87,6 +87,7 @@ class HistorySyncLimitsTest {
         dateDeliveredNs = null,
         associatedMessageType = null,
         associatedMessageGuid = null,
+        associatedMessagePart = null,
         threadOriginatorGuid = null,
         threadOriginatorPart = null,
         associatedMessageEmoji = null,

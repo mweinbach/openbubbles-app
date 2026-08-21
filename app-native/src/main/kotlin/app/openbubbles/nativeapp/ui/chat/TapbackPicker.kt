@@ -203,7 +203,7 @@ internal fun TapbackPickerOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .fillMaxWidth()
+                .widthIn(max = PickerMaxWidth)
                 .pointerInput(Unit) { detectTapGestures { } }
                 .graphicsLayer {
                     alpha = enter.value

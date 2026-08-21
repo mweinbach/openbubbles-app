@@ -13363,6 +13363,10 @@ data class UCloudMessage (
     var `associatedMessageType`: kotlin.Long?,
     var `associatedMessageGuid`: kotlin.String?,
     /**
+     * Target part parsed from Apple's `p:<part>/<guid>` association key.
+     */
+    var `associatedMessagePart`: kotlin.ULong?,
+    /**
      * Parsed from `msgProto2.reply` (`r:<part>:<guid>`).
      */
     var `threadOriginatorGuid`: kotlin.String?,
@@ -13404,6 +13408,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalULong.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
@@ -13433,6 +13438,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalLong.allocationSize(value.`dateDeliveredNs`) +
             FfiConverterOptionalLong.allocationSize(value.`associatedMessageType`) +
             FfiConverterOptionalString.allocationSize(value.`associatedMessageGuid`) +
+            FfiConverterOptionalULong.allocationSize(value.`associatedMessagePart`) +
             FfiConverterOptionalString.allocationSize(value.`threadOriginatorGuid`) +
             FfiConverterOptionalString.allocationSize(value.`threadOriginatorPart`) +
             FfiConverterOptionalString.allocationSize(value.`associatedMessageEmoji`)
@@ -13461,6 +13467,7 @@ public object FfiConverterTypeUCloudMessage: FfiConverterRustBuffer<UCloudMessag
             FfiConverterOptionalLong.write(value.`dateDeliveredNs`, buf)
             FfiConverterOptionalLong.write(value.`associatedMessageType`, buf)
             FfiConverterOptionalString.write(value.`associatedMessageGuid`, buf)
+            FfiConverterOptionalULong.write(value.`associatedMessagePart`, buf)
             FfiConverterOptionalString.write(value.`threadOriginatorGuid`, buf)
             FfiConverterOptionalString.write(value.`threadOriginatorPart`, buf)
             FfiConverterOptionalString.write(value.`associatedMessageEmoji`, buf)

@@ -87,6 +87,7 @@ internal fun MessageActionSheet(
     val attachments = message.attachmentMetas.ifEmpty { listOfNotNull(message.attachmentMeta) }
     val downloaded = attachments.mapNotNull { meta -> attachmentFile(meta.guid)?.let { meta to it } }
     val url = message.richLink?.url ?: Regex("https?://\\S+").find(message.text)?.value
+    val selectedReaction = myReactionSelection(reactionsForPart(message.reactions, selectedPart))
 
     fun finish(action: () -> Unit) {
         onDismiss()
@@ -100,13 +101,17 @@ internal fun MessageActionSheet(
                     MessageActionTapbacks(
                         // Mine, not simply the newest: a group message can
                         // carry someone else's tapback as its latest.
-                        selected = myReactionSelection(
-                            reactionsForPart(message.reactions, selectedPart),
-                        ),
+                        selected = selectedReaction,
                         onReact = onReact,
                     )
                 }
-                item { ActionRow("Custom reaction") { showCustomReaction = true } }
+                item {
+                    val custom = selectedReaction?.takeIf { it.reactionIndex == CustomReactionIndex }
+                    ActionRow(if (custom == null) "Custom reaction" else "Remove custom reaction") {
+                        if (custom == null) showCustomReaction = true
+                        else onReact(CustomReactionIndex, custom.emoji, false)
+                    }
+                }
             }
             item { ActionRow("Reply") { finish(onReply) } }
             if (!isSms) item { ActionRow("Add sticker") { finish(onSticker) } }
