@@ -89,6 +89,7 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
@@ -583,15 +584,36 @@ fun OpenBubblesApp(
         }
     }
 
-    if (pushState == null && !onboardingComplete && context != null) {
+    // Sign-in installs the push state mid-onboarding (the keychain and
+    // history steps need a live connection), so latch the flow open instead
+    // of letting the arriving state dismiss it.
+    var onboardingActive by remember { androidx.compose.runtime.mutableStateOf(false) }
+    if ((pushState == null || onboardingActive) && !onboardingComplete && context != null) {
         OnboardingScreen(
+            onSignedIn = {
+                onboardingActive = true
+                NativePushService.reloadAfterLogin(context)
+            },
             onFinished = {
                 onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
                 onboardingComplete = true
+                onboardingActive = false
                 NativePushService.reloadAfterLogin(context)
                 requestBatteryExemptionOnce(context)
             },
-            onLaunchSignIn = { },
+        )
+        return
+    }
+
+    // The one-time iCloud backfill armed at the end of onboarding owns the
+    // whole screen (and silences notifications) until it finishes.
+    val historyDownloadPending by InitialHistoryDownload.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(context) {
+        context?.let(InitialHistoryDownload::restore)
+    }
+    if (historyDownloadPending && context != null) {
+        HistoryDownloadLockScreen(
+            onDismiss = { InitialHistoryDownload.abandon(context) },
         )
         return
     }

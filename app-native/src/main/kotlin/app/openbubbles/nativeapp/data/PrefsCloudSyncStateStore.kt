@@ -75,9 +75,25 @@ object CloudSyncWiring {
         )
 
         // Auto incremental sync on connect (Dart parity: startup + daily).
-        // Poll mode (battery saver) drives its own single sync instead.
-        if (autoSync) {
+        // Poll mode (battery saver) drives its own single sync instead. The
+        // armed first-run backfill owns its own FULL run behind the lock
+        // screen, so connecting must not consume the single-flight slot.
+        if (autoSync && !InitialHistoryDownload.isPending(context)) {
             startHistorySync(context, SyncMode.INCREMENTAL)
+        }
+    }
+
+    /**
+     * The one-time first-run backfill armed at the end of onboarding. Runs in
+     * the sync scope so the durable pending flag clears (and the user gets
+     * their "messages are ready" notification) even if the activity is gone.
+     */
+    fun startInitialHistorySync(context: Context): Boolean {
+        val app = context.applicationContext
+        return syncCoordinator.start(SyncMode.FULL) {
+            CoreGraph.relinkContacts()
+            markHistorySyncComplete(app)
+            InitialHistoryDownload.finish(app)
         }
     }
 

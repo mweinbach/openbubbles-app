@@ -958,7 +958,7 @@ fun SettingsScreenScreenshot() {
 @Composable
 fun OnboardingScreenshot() {
     OpenBubblesTheme(dynamicColor = false) {
-        OnboardingScreen(onFinished = {}, onLaunchSignIn = {})
+        OnboardingScreen(onSignedIn = {}, onFinished = {})
     }
 }
 
