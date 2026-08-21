@@ -20,15 +20,19 @@ object VaultAccountCleanup {
     private val mutex = Mutex()
 
     suspend fun clear(context: Context): Result<Unit> = mutex.withLock {
-        runAccountCleanupSteps(
-            { VaultCatalogSync.cancelAndJoin() },
-            { PasswordsViewModel.clearSharedCacheForAccountCleanup() },
-            {
-                withContext(Dispatchers.IO) {
-                    VaultCatalogStore.of(context.applicationContext).clearAccountData()
-                }
-            },
-            { withContext(Dispatchers.IO) { VaultCatalogStore.closeAndDestroyKeys() } },
-        )
+        VaultCatalogSync.beginAccountCleanup()
+        try {
+            runAccountCleanupSteps(
+                { PasswordsViewModel.clearSharedCacheForAccountCleanup() },
+                {
+                    withContext(Dispatchers.IO) {
+                        VaultCatalogStore.of(context.applicationContext).clearAccountData()
+                    }
+                },
+                { withContext(Dispatchers.IO) { VaultCatalogStore.closeAndDestroyKeys() } },
+            )
+        } finally {
+            VaultCatalogSync.endAccountCleanup()
+        }
     }
 }

@@ -422,7 +422,14 @@ class PasswordsViewModel(
         refreshJob = viewModelScope.launch {
             // A cold process has no in-memory tier; restore the durable catalog
             // so a cold start paints the last known vault instead of a spinner.
-            if (cache.restore()) paintFromCache()
+            val restored = try {
+                cache.restore()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                false
+            }
+            if (restored) paintFromCache()
             // Cached content stays on screen; the full-screen spinner only
             // appears when there is nothing at all to show yet.
             val hasContent = mutableState.value.loadedCategories.isNotEmpty()

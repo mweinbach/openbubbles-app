@@ -151,6 +151,7 @@ class OBAutofillService : AutofillService() {
         val context = applicationContext
         scope.launch {
             try {
+                val generation = VaultCatalogSync.captureGeneration()
                 val catalog = VaultCatalogStore.of(context)
                 val snapshot = catalog.credentialsForSite(domain, PASSWORD_KIND)
                 val passwordRequest = VaultCredentialRequest(
@@ -168,7 +169,7 @@ class OBAutofillService : AutofillService() {
                     return@launch
                 }
                 val state = awaitPushState(context)
-                if (state == null) {
+                if (state == null || VaultCatalogSync.captureGeneration() != generation) {
                     // Signed out, locked, or a cold process the system started
                     // for this request. Answer with nothing rather than crash.
                     Log.i(TAG, "autofill skipped: Apple services are not connected")
@@ -176,7 +177,11 @@ class OBAutofillService : AutofillService() {
                     return@launch
                 }
                 val config = state.awaitSiteConfig(domain)
-                VaultCatalogSync.refresh(context, state)
+                if (VaultCatalogSync.captureGeneration() != generation || PushStateHolder.state !== state) {
+                    callback.onSuccess(null)
+                    return@launch
+                }
+                VaultCatalogSync.refreshIfCurrent(context, state, generation)
                 handleFillRequest(request, cancellationSignal, callback, config.passwords, structure)
             } catch (failure: Throwable) {
                 Log.w(TAG, "autofill fill request failed (${failure.javaClass.simpleName})")

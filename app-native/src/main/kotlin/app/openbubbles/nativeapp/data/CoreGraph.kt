@@ -410,7 +410,7 @@ object CoreGraph {
         // usable. Teardown can suspend, so waiting until local cleanup would
         // leave a window where the previous account could be republished.
         val vaultWriters = withContext(Dispatchers.IO) {
-            runCatching { VaultCatalogSync.cancelAndJoin() }
+            runCatching { VaultCatalogSync.beginAccountCleanup() }
         }
         val teardown = withContext(Dispatchers.IO) {
             runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }

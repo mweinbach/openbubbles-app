@@ -44,12 +44,33 @@ class VaultRefreshCoordinatorTest {
         )
         val oldGeneration = coordinator.captureGeneration()
 
-        coordinator.cancelAndJoin()
+        coordinator.beginAccountCleanup()
 
         var writes = 0
         assertNull(coordinator.publishIfCurrent(oldGeneration) { ++writes })
         coordinator.start(forced = true, expectedGeneration = oldGeneration) { ++writes }
         advanceUntilIdle()
         assertEquals(0, writes)
+        coordinator.endAccountCleanup()
+    }
+
+    @Test
+    fun `new refreshes stay blocked until account cleanup ends`() = runTest {
+        val coordinator = VaultRefreshCoordinator(
+            scope = this,
+            opportunisticIntervalMs = 60_000,
+            nowMs = { 100_000 },
+        )
+        coordinator.beginAccountCleanup()
+
+        var starts = 0
+        coordinator.start(forced = true) { starts += 1 }
+        advanceUntilIdle()
+        assertEquals(0, starts)
+
+        coordinator.endAccountCleanup()
+        coordinator.start(forced = true) { starts += 1 }
+        advanceUntilIdle()
+        assertEquals(1, starts)
     }
 }

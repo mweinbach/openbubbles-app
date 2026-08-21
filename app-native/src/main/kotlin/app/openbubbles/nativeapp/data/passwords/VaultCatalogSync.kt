@@ -86,8 +86,11 @@ object VaultCatalogSync {
         }
     }
 
-    /** Sign-out ordering step: invalidate late writers, then cancel and join. */
-    suspend fun cancelAndJoin() = coordinator.cancelAndJoin()
+    /** Opens the account-cleanup fence, invalidates late writers, then cancels and joins. */
+    suspend fun beginAccountCleanup() = coordinator.beginAccountCleanup()
+
+    /** Releases the fence only after rows and keys have been removed. */
+    fun endAccountCleanup() = coordinator.endAccountCleanup()
 
     internal fun captureGeneration(): Long = coordinator.captureGeneration()
 
@@ -113,6 +116,7 @@ internal class VaultRefreshCoordinator(
     private var running: Job? = null
     private var pendingForced: (suspend (Long) -> Unit)? = null
     private var lastStartedAtMs: Long = 0
+    private var cleanupInProgress: Boolean = false
 
     fun start(
         forced: Boolean,
@@ -120,6 +124,7 @@ internal class VaultRefreshCoordinator(
         work: suspend (Long) -> Unit,
     ) {
         synchronized(lock) {
+            if (cleanupInProgress) return
             if (expectedGeneration != null && generation != expectedGeneration) return
             if (running?.isActive == true) {
                 if (forced) pendingForced = work
@@ -140,8 +145,9 @@ internal class VaultRefreshCoordinator(
         if (captureGeneration() == capturedGeneration) write() else null
     }
 
-    suspend fun cancelAndJoin() {
+    suspend fun beginAccountCleanup() {
         val job = synchronized(lock) {
+            cleanupInProgress = true
             generation += 1
             lastStartedAtMs = 0
             pendingForced = null
@@ -152,6 +158,10 @@ internal class VaultRefreshCoordinator(
         // account cleanup runs only after this barrier and the worker join.
         publication.withLock { }
         job?.join()
+    }
+
+    fun endAccountCleanup() {
+        synchronized(lock) { cleanupInProgress = false }
     }
 
     private fun launchLocked(work: suspend (Long) -> Unit, startedAtMs: Long) {

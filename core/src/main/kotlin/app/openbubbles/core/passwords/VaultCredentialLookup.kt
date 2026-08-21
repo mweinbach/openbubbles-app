@@ -50,11 +50,6 @@ fun planVaultLookup(
     if (request.kinds.isEmpty()) return VaultLookupPlan.NoCredentials
     if (snapshot.siteKey == null) return VaultLookupPlan.NoCredentials
 
-    val coldKinds = request.kinds - snapshot.syncedKinds
-    if (coldKinds.isNotEmpty()) {
-        return if (backendReady) VaultLookupPlan.ConsultBackend else VaultLookupPlan.RequireUnlock
-    }
-
     val matches = snapshot.items.filter { it.kind in request.kinds }
     val allowed = request.allowedCredentialIds
     val usable = matches.filter { item ->
@@ -71,17 +66,26 @@ fun planVaultLookup(
     val droppedUnprovable = matches.any { item ->
         item.kind == VaultItemKind.Passkey && allowed != null && item.webauthnCredentialId == null
     }
-    if (usable.isEmpty()) {
-        val staleMiss = snapshot.syncedAtMs?.let { syncedAt ->
-            nowMs - syncedAt > VAULT_CATALOG_MISS_MAX_AGE_MS
-        } ?: true
-        return when {
-            backendReady -> VaultLookupPlan.ConsultBackend
-            droppedUnprovable -> VaultLookupPlan.RequireUnlock
-            staleMiss -> VaultLookupPlan.RequireUnlock
-            else -> VaultLookupPlan.NoCredentials
+    val coldKinds = request.kinds - snapshot.syncedKinds
+    if (usable.isNotEmpty()) {
+        if ((coldKinds.isNotEmpty() || droppedUnprovable) && backendReady) {
+            return VaultLookupPlan.ConsultBackend
         }
+        return VaultLookupPlan.Serve(usable)
     }
-    if (droppedUnprovable && backendReady) return VaultLookupPlan.ConsultBackend
-    return VaultLookupPlan.Serve(usable)
+
+    if (coldKinds.isNotEmpty()) {
+        return if (backendReady) VaultLookupPlan.ConsultBackend else VaultLookupPlan.RequireUnlock
+    }
+
+    val staleMiss = snapshot.syncedAtMs?.let { syncedAt ->
+        val age = nowMs - syncedAt
+        age < 0L || age > VAULT_CATALOG_MISS_MAX_AGE_MS
+    } ?: true
+    return when {
+        backendReady -> VaultLookupPlan.ConsultBackend
+        droppedUnprovable -> VaultLookupPlan.RequireUnlock
+        staleMiss -> VaultLookupPlan.RequireUnlock
+        else -> VaultLookupPlan.NoCredentials
+    }
 }

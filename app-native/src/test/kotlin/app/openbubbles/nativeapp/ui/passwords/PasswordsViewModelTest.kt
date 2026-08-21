@@ -1,6 +1,8 @@
 package app.openbubbles.nativeapp.ui.passwords
 
 import app.openbubbles.core.passwords.InMemoryVaultCatalog
+import app.openbubbles.core.passwords.CachedVault
+import app.openbubbles.core.passwords.VaultCatalog
 import app.openbubbles.core.passwords.VaultGroupRecord
 import app.openbubbles.core.passwords.VaultItemKind
 import app.openbubbles.core.passwords.VaultItemRecord
@@ -204,6 +206,23 @@ class PasswordsViewModelTest {
         listing.complete(Unit)
         advanceUntilIdle()
         assertEquals(emptyList(), model.uiState.value.items)
+    }
+
+    @Test
+    fun `a failed durable restore falls back to the live vault`() = runTest(dispatcher) {
+        val backing = InMemoryVaultCatalog()
+        val failingCatalog = object : VaultCatalog by backing {
+            override suspend fun load(): CachedVault = error("catalog unavailable")
+        }
+        val live = VaultItemUi("live", VaultCategory.Passwords, "example.com", "alice")
+        val port = FakePasswordsPort(items = listOf(live))
+
+        val model = PasswordsViewModel(port, VaultCacheStore(failingCatalog))
+        advanceUntilIdle()
+
+        assertEquals(listOf(live), model.uiState.value.items)
+        assertEquals(false, model.uiState.value.loading)
+        assertEquals(null, model.uiState.value.error)
     }
 
     @Test

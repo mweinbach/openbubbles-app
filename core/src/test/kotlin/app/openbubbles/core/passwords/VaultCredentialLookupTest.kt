@@ -82,6 +82,33 @@ class VaultCredentialLookupTest {
     }
 
     @Test
+    fun futureCatalogMarkerRevalidatesInsteadOfReturningEmpty() {
+        val plan = planVaultLookup(
+            snapshot(
+                items = emptyList(),
+                syncedKinds = setOf(VaultItemKind.Password),
+                syncedAtMs = 10_000,
+            ),
+            request(),
+            backendReady = false,
+            nowMs = 1_000,
+        )
+
+        assertEquals(VaultLookupPlan.RequireUnlock, plan)
+    }
+
+    @Test
+    fun siteHydrationServesKnownRowsBeforeAFullKindListing() {
+        val plan = planVaultLookup(
+            snapshot(listOf(password), syncedKinds = emptySet()),
+            request(),
+            backendReady = false,
+        )
+
+        assertEquals(VaultLookupPlan.Serve(listOf(password)), plan)
+    }
+
+    @Test
     fun coldCatalogAsksTheBackendWhenItIsAlreadyRunning() {
         val plan = planVaultLookup(
             snapshot(emptyList(), emptySet()),
