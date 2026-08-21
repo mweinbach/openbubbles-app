@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -59,6 +60,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -92,6 +95,10 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
+
+private const val PhotosReadyTag = "benchmark_photos_ready"
+private const val PhotosScrollableTag = "benchmark_photos_scrollable"
+private const val PhotosIdleTag = "openbubbles_photos_grid"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,7 +124,7 @@ fun PhotosScreen(
     var showTransfers by remember { mutableStateOf(false) }
     val snapshot = uiState.snapshot
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().testTag(PhotosReadyTag),
         topBar = {
             TopAppBar(
                 title = {
@@ -217,9 +224,17 @@ private fun PhotosGrid(
     onSelect: (PhotoSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val gridState = rememberLazyGridState()
+    val gridIsScrollable by remember {
+        derivedStateOf { gridState.canScrollForward || gridState.canScrollBackward }
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(112.dp),
-        modifier = modifier.fillMaxSize().navigationBarsPadding(),
+        modifier = modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .testTag(if (gridIsScrollable) PhotosScrollableTag else PhotosIdleTag),
+        state = gridState,
         contentPadding = PaddingValues(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),

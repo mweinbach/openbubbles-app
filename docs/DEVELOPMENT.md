@@ -99,13 +99,14 @@ cargo test --manifest-path rustpush/Cargo.toml --lib --locked
 (cd rust && ./build-uniffi.sh)
 ./gradlew :app-native:checkUniffiBindings --console=plain
 
-# Compose chrome
+# Deliberate visual review only; not part of the routine gate
 ./gradlew :app-native:validateDebugScreenshotTest --console=plain
 ```
 
 Within `.github/workflows/native.yml`, PR/push CI is test-only: it runs Rust tests plus JVM tests,
-model parity, lint, UniFFI binding validation, and screenshots. That workflow packages APK/AAB
-artifacts only on manual dispatch with the `package` input. The separate self-update release
+model parity, lint, and UniFFI binding validation. Screenshot rendering is opt-in because it is a
+comparatively expensive visual-review tool rather than a routine correctness gate. The workflow
+packages APK/AAB artifacts only on manual dispatch with the `package` input. The separate self-update release
 workflow builds a signed APK for a version-bump push or manual release. A local `assembleDebug`
 remains the pre-handoff packaging proof when the change affects the Android artifact.
 

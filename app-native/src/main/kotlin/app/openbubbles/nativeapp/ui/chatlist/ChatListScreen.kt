@@ -70,6 +70,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +84,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -105,6 +107,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 
 private val ListContentMaxWidth = 840.dp
+private const val ChatListReadyTag = "benchmark_chat_list_ready"
+private const val ChatListScrollableTag = "benchmark_chat_list_scrollable"
+private const val ChatListIdleTag = "openbubbles_chat_list"
 
 /** Minimum pinned-tile width, matching [GridCells.Adaptive] column math. */
 internal val PinnedChatMinCell = 120.dp
@@ -213,7 +218,9 @@ fun ChatListScreen(
         }
     }
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .testTag(ChatListReadyTag),
         containerColor = paneColor,
         topBar = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -487,6 +494,9 @@ private fun ChatSections(
     onVisibleChatsChanged: (List<Long>) -> Unit,
 ) {
     val itemSpecs = rememberItemAnimationSpecs()
+    val listIsScrollable by remember {
+        derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
+    }
     val orderedIds = remember(uiState.pinned, uiState.chats, uiState.archived, kind) {
         when (kind) {
             ChatListKind.Inbox -> uiState.pinned.map { it.id } + uiState.chats.map { it.id }
@@ -521,7 +531,9 @@ private fun ChatSections(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag(if (listIsScrollable) ChatListScrollableTag else ChatListIdleTag),
         state = listState,
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(0.dp),

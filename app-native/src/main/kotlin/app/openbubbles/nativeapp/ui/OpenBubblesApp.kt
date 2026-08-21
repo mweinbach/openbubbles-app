@@ -7,6 +7,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.edit
@@ -64,6 +65,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -662,7 +664,9 @@ fun OpenBubblesApp(
             } else {
                 MaterialTheme.colorScheme.surface
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics { testTagsAsResourceId = true },
         ) {
         CompositionLocalProvider(LocalIsMultiPane provides isMultiPane) {
         SharedTransitionLayout {
@@ -699,6 +703,7 @@ fun OpenBubblesApp(
                     val viewModel: ChatListViewModel =
                         viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    ReportDrawnWhen { !state.loading }
                     val registeredHandles by PushStateHolder.myHandlesFlow
                         .collectAsStateWithLifecycle()
                     val listContext = LocalContext.current

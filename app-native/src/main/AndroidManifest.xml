@@ -70,14 +70,17 @@
         android:enableOnBackInvokedCallback="true"
         tools:ignore="UnusedAttribute">
 
-        <!-- Collection is true only in release builds. Advertising identifiers
-             and personalization signals are intentionally disabled. -->
+        <!-- Collection is true only for production-signed release builds.
+             Advertising identifiers and personalization signals stay disabled. -->
         <meta-data
             android:name="firebase_analytics_collection_enabled"
             android:value="${firebaseTelemetryCollectionEnabled}" />
         <meta-data
             android:name="firebase_crashlytics_collection_enabled"
             android:value="${firebaseTelemetryCollectionEnabled}" />
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="${firebaseMessagingAutoInitEnabled}" />
         <meta-data
             android:name="google_analytics_adid_collection_enabled"
             android:value="false" />

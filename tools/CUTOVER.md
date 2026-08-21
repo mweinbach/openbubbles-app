@@ -12,7 +12,7 @@ already-completed mechanical cutover.
 - [x] ObjectBox model parity is enforced by `:db:checkModelParity`.
 - [x] Database, core, and Android JVM tests run in native CI.
 - [x] Fixture-free `rustpush` library tests run in native CI.
-- [x] Manual native workflow packaging assembles the debug APK for arm64 and x86_64.
+- [x] Manual native workflow packaging assembles the arm64 debug APK.
 - [x] PR/push native CI runs Android lint; manual package dispatch compiles the release AAB.
 - [x] Boot and package-replaced receiver can start the native push service.
 - [x] Poll-mode intent is applied before Rust initialization.

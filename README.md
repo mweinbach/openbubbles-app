@@ -43,15 +43,16 @@ See [AGENTS.md](AGENTS.md) for agent/contributor orientation,
 Required tooling:
 
 - JDK 21 or newer (Android Studio's bundled JBR is recommended)
-- Android SDK 36 and NDK `28.2.13676358`
-- stable Rust with `aarch64-linux-android` and `x86_64-linux-android`
+- Android SDK 37 and NDK `28.2.13676358`
+- stable Rust with `aarch64-linux-android`
 - `protoc`
 
 ### Android Studio
 
 Open the repository root as the project directory. Android Studio's bundled JBR is supported.
 After Gradle sync, select the `app-native` configuration and run it on an API 26+
-device or emulator. The launch activity is `app.openbubbles.nativeapp.NativeMainActivity`.
+arm64 device or arm64 emulator. The launch activity is
+`app.openbubbles.nativeapp.NativeMainActivity`.
 
 The Gradle project imports `app-native/`, `core/`, `db/`, `desktopApp/`, and the required
 `telephony_plus/android-smsmms/library` module from their repository-root locations.
@@ -99,7 +100,7 @@ hardware payload once, then generate Apple validation data locally on the
 Android device. It does not depend on the OpenBubbles hosted hardware relay.
 The APK contains no project-owned precompiled compatibility library. Gradle
 builds `librust_lib_bluebubbles.so` directly from `rust/` with Cargo and the
-pinned Android NDK for arm64 and x86_64. OpenAbsinthe's constructor, key
+pinned Android NDK for arm64. OpenAbsinthe's constructor, key
 establishment, and signing path execute recovered source on every platform;
 the signing circuit is a generated architecture-neutral program interpreted
 by Rust and never loads the historical engine at runtime. See

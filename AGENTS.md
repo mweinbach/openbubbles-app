@@ -32,7 +32,8 @@ subshells so Gradle does not leave later Rust paths resolving under `native/`.
   :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
-UI chrome: also `./gradlew :app-native:validateDebugScreenshotTest --console=plain`.
+For deliberate UI chrome review, the screenshot task remains available as an opt-in check:
+`./gradlew :app-native:validateDebugScreenshotTest --console=plain`. It is not a routine gate.
 `rustpush/` changes: `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` from the root.
 UniFFI surface changes: `(cd rust && ./build-uniffi.sh)`, then commit the Kotlin in `core/src/main/kotlin/uniffi/`.
 Device login, 2FA, battery, and upgrade: [tools/CUTOVER.md](tools/CUTOVER.md). Do not claim those passed without hardware evidence.

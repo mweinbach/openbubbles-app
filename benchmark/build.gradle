@@ -1,0 +1,65 @@
+// Release-like device benchmarks and Baseline Profile generation.
+plugins {
+    id "com.android.test"
+    id "androidx.baselineprofile"
+}
+
+android {
+    namespace "app.openbubbles.benchmark"
+    compileSdk 37
+
+    defaultConfig {
+        // Baseline Profiles are not needed below API 28 because those releases
+        // fully AOT-compile apps during installation.
+        minSdk 28
+        targetSdk 36
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    targetProjectPath = ":app-native"
+    // Macrobenchmark must run outside the target app process.
+    experimentalProperties["android.experimental.self-instrumenting"] = true
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+baselineProfile {
+    // The connected Pixel is the performance oracle. CI can compile this
+    // module without pretending emulator timings are representative.
+    useConnectedDevices = true
+}
+
+dependencies {
+    implementation libs.androidx.benchmark.macro.junit4
+    implementation libs.androidx.test.ext.junit
+    implementation libs.androidx.test.runner
+    implementation libs.androidx.test.uiautomator
+}
+
+// Dependency Baseline Profiles are not evidence that OpenBubbles' own startup,
+// chat-list, and Photos paths were captured. Refuse to launch a measurement
+// run until generation has produced the app-owned profile source. This check
+// runs before the connected task installs or uninstalls either APK.
+def appBaselineProfile = rootProject.file(
+        "app-native/src/release/generated/baselineProfiles/baseline-prof.txt",
+)
+def verifyAppBaselineProfile = tasks.register("verifyAppBaselineProfile") {
+    group = "verification"
+    description = "Requires a generated, committed OpenBubbles Baseline Profile before device measurement."
+    outputs.upToDateWhen { false }
+    doLast {
+        if (!appBaselineProfile.isFile() || appBaselineProfile.length() == 0L) {
+            throw new GradleException(
+                    "Generate and commit ${appBaselineProfile} before running Macrobenchmark; " +
+                    "dependency profiles alone do not cover OpenBubbles journeys.",
+            )
+        }
+    }
+}
+
+tasks.matching { it.name == "connectedBenchmarkReleaseAndroidTest" }.configureEach {
+    dependsOn verifyAppBaselineProfile
+}

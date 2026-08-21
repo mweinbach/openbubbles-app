@@ -96,10 +96,7 @@ abstract class CheckUniffiBindingsTask extends DefaultTask {
 def cargoRoot = project.layout.buildDirectory.dir("cargo-android").get().asFile
 
 def ABI_CONFIG = [
-        "arm64-v8a"   : [rust: "aarch64-linux-android", clang: "aarch64-linux-android", minSdk: 21],
-        "armeabi-v7a" : [rust: "armv7-linux-androideabi", clang: "armv7a-linux-androideabi", minSdk: 16],
-        "x86"         : [rust: "i686-linux-android", clang: "i686-linux-android", minSdk: 16],
-        "x86_64"      : [rust: "x86_64-linux-android", clang: "x86_64-linux-android", minSdk: 21],
+        "arm64-v8a": [rust: "aarch64-linux-android", clang: "aarch64-linux-android", minSdk: 21],
 ]
 
 def libname = "rust_lib_bluebubbles"
@@ -152,7 +149,7 @@ def cargoWorkspaceInputs = files(
         },
 )
 
-def cargoTasksByBuildType = [:]
+def cargoTasksByProfile = [:]
 
 androidComponents {
     onVariants(selector().all()) { variant ->
@@ -162,16 +159,22 @@ androidComponents {
         }
 
         def buildType = variant.buildType
-        def t = cargoTasksByBuildType[buildType]
+        // Only the debuggable app variant should carry an unoptimized Rust
+        // library. Baseline Profile and Macrobenchmark variants are separate
+        // Android build types, but must exercise the same release cdylib that
+        // ships to users. Keying the task by Cargo profile also lets every
+        // release-like Android variant reuse one native build.
+        def cargoProfile = buildType == "debug" ? "debug" : "release"
+        def t = cargoTasksByProfile[cargoProfile]
         if (t == null) {
-        def taskName = "cargoBuild${libname.capitalize()}${buildType.capitalize()}"
+        def taskName = "cargoBuild${libname.capitalize()}${cargoProfile.capitalize()}"
         t = tasks.register(taskName, CargoAndroidJniTask) {
-            description = "Builds ${libname} (.so) with Cargo and the Android NDK for ${buildType}"
-            outputDirectory.set(layout.buildDirectory.dir("cargo-android/jniLibs/${buildType}"))
+            description = "Builds ${libname} (.so) with Cargo and the Android NDK using the ${cargoProfile} profile"
+            outputDirectory.set(layout.buildDirectory.dir("cargo-android/jniLibs/${cargoProfile}"))
             inputs.files(cargoWorkspaceInputs)
                     .withPropertyName("cargoWorkspace")
                     .withPathSensitivity(PathSensitivity.RELATIVE)
-            inputs.property("buildType", buildType)
+            inputs.property("cargoProfile", cargoProfile)
             inputs.property("abis", abiFilters.toList().sort())
             inputs.property("minSdk", projectMinSdk)
             inputs.property("ndkVersion", ndkVersion)
@@ -261,7 +264,7 @@ androidComponents {
 
                     def linkerKey = "CARGO_TARGET_${rustTarget.replace('-', '_').toUpperCase()}_LINKER"
                     def cargoArgs = ["build", "--locked", "--lib", "--target", rustTarget]
-                    if (buildType == "release") cargoArgs += "--release"
+                    if (cargoProfile == "release") cargoArgs += "--release"
 
                     logger.lifecycle("Building ${libname} for ${abi} (${rustTarget})")
                     injected.execOps.exec {
@@ -280,8 +283,7 @@ androidComponents {
                         environment "RANLIB_${rustTarget}", llvmRanlib.absolutePath
                     }
 
-                    def profile = buildType == "release" ? "release" : "debug"
-                    def builtLibrary = new File(cargoTargetDir, "${rustTarget}/${profile}/lib${libname}.so")
+                    def builtLibrary = new File(cargoTargetDir, "${rustTarget}/${cargoProfile}/lib${libname}.so")
                     if (!builtLibrary.isFile()) {
                         throw new GradleException("Cargo produced no Android library: ${builtLibrary}")
                     }
@@ -291,7 +293,7 @@ androidComponents {
                 }
             }
         }
-            cargoTasksByBuildType[buildType] = t
+            cargoTasksByProfile[cargoProfile] = t
         }
 
         jniLibs.addGeneratedSourceDirectory(t) { it.outputDirectory }

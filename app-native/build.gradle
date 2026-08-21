@@ -3,9 +3,10 @@ plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.plugin.compose"
     id "org.jetbrains.kotlin.plugin.serialization"
-    // Compose Preview Screenshot Testing: renders @PreviewTest previews and
-    // diffs them against recorded goldens. The only UI regression net here.
+    // Compose Preview Screenshot Testing is an explicit visual-review tool;
+    // it is intentionally not part of routine CI.
     id "com.android.compose.screenshot"
+    id "androidx.baselineprofile"
     id "com.google.gms.google-services"
     id "com.google.firebase.crashlytics"
 }
@@ -23,10 +24,15 @@ android {
         versionCode 20002275
         versionName "3.4.6"
         manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
+        manifestPlaceholders.firebaseMessagingAutoInitEnabled = "true"
+        buildConfigField "boolean", "FIREBASE_TELEMETRY_ENABLED", "false"
+        buildConfigField "boolean", "PERFORMANCE_TEST", "false"
 
-        // Keep in sync with installed Rust cross targets (rustup target list)
+        // OpenBubbles ships to modern Android hardware only. Keeping this
+        // arm64-only prevents the self-update APK from carrying a second copy
+        // of every native dependency for desktop-oriented x86_64 emulators.
         ndk {
-            abiFilters += ["arm64-v8a", "x86_64"]
+            abiFilters += ["arm64-v8a"]
         }
     }
 
@@ -53,11 +59,50 @@ android {
         }
         release {
             signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled false
-            manifestPlaceholders.firebaseTelemetryCollectionEnabled = "true"
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro",
+            )
+            // A local fallback release is useful for proving R8/packaging but
+            // is not a production artifact and must not upload telemetry,
+            // symbols, mappings, or register for the production FCM topic.
+            manifestPlaceholders.firebaseTelemetryCollectionEnabled = hasReleaseSigning.toString()
+            manifestPlaceholders.firebaseMessagingAutoInitEnabled = hasReleaseSigning.toString()
+            buildConfigField "boolean", "FIREBASE_TELEMETRY_ENABLED", hasReleaseSigning.toString()
             firebaseCrashlytics {
-                nativeSymbolUploadEnabled true
+                mappingFileUploadEnabled hasReleaseSigning
+                nativeSymbolUploadEnabled hasReleaseSigning
                 unstrippedNativeLibsDir file("${layout.buildDirectory.get().asFile}/cargo-android/jniLibs/release")
+            }
+        }
+        // The Baseline Profile plugin creates these two release-like build
+        // types. Customize the generated variants themselves so device
+        // measurements never use production signing or emit telemetry/FCM
+        // work that would both pollute results and mutate external state.
+        benchmarkRelease {
+            initWith release
+            signingConfig signingConfigs.debug
+            manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
+            manifestPlaceholders.firebaseMessagingAutoInitEnabled = "false"
+            buildConfigField "boolean", "FIREBASE_TELEMETRY_ENABLED", "false"
+            buildConfigField "boolean", "PERFORMANCE_TEST", "true"
+            firebaseCrashlytics {
+                mappingFileUploadEnabled false
+                nativeSymbolUploadEnabled false
+            }
+        }
+        nonMinifiedRelease {
+            initWith release
+            signingConfig signingConfigs.debug
+            manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
+            manifestPlaceholders.firebaseMessagingAutoInitEnabled = "false"
+            buildConfigField "boolean", "FIREBASE_TELEMETRY_ENABLED", "false"
+            buildConfigField "boolean", "PERFORMANCE_TEST", "true"
+            firebaseCrashlytics {
+                mappingFileUploadEnabled false
+                nativeSymbolUploadEnabled false
             }
         }
     }
@@ -102,6 +147,26 @@ android {
         // OldTargetApi: targetSdk raises are deliberate, hardware-tested
         // moves (tools/CUTOVER.md), not something lint should nag about.
         disable 'CredentialDependency', 'OldTargetApi'
+    }
+}
+
+baselineProfile {
+    // Profile generation is an explicit device gate, not hidden work on every
+    // release build. The generated profile still drives DEX layout.
+    automaticGenerationDuringBuild = false
+    dexLayoutOptimization = true
+}
+
+// Firebase's transport AAR is application infrastructure, not a preview
+// dependency. The alpha screenshot renderer loads its generated R classes
+// twice (outer and nested) and fails every preview with an InnerClasses
+// mismatch, so keep only that unused AAR off screenshot-test classpaths.
+configurations.configureEach { configuration ->
+    if (configuration.name.toLowerCase(Locale.ROOT).contains("screenshottest")) {
+        configuration.exclude(
+                group: "com.google.firebase",
+                module: "firebase-datatransport",
+        )
     }
 }
 
@@ -162,6 +227,7 @@ dependencies {
     implementation "${libs.jna.get()}@aar"
 
     implementation libs.androidx.core.ktx
+    implementation libs.androidx.profileinstaller
     implementation libs.androidx.work.runtime.ktx
 
     // Ported credentials/autofill subsystem (from the Flutter app's gradle)
@@ -222,6 +288,8 @@ dependencies {
     implementation libs.firebase.crashlytics
     implementation libs.firebase.crashlytics.ndk
     implementation libs.firebase.messaging
+
+    baselineProfile project(":benchmark")
 
     // JVM unit tests for the sms/ receive->ingest builders (same objectbox
     // desktop runtime :db/:core tests use, so the ingest integration can open

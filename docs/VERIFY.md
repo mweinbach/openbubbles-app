@@ -12,9 +12,10 @@ Run each command independently from the repository root:
 | Persistence / entities | `./gradlew :db:test :db:checkModelParity` |
 | Ingest, repos, CloudKit, backup, contacts | `./gradlew :core:test` |
 | ViewModels, send routing, SMS builders, service policy | `./gradlew :app-native:testDebugUnitTest` |
-| List / chat / onboarding chrome | `./gradlew :app-native:validateDebugScreenshotTest` |
+| Deliberate visual review (optional) | `./gradlew :app-native:validateDebugScreenshotTest` |
 | UniFFI surface | `(cd rust && ./build-uniffi.sh)` then `./gradlew :app-native:checkUniffiBindings` |
 | `rustpush/` | `cargo test --manifest-path rustpush/Cargo.toml --lib --locked` |
+| Baseline Profile / Macrobenchmark sources | `./gradlew :benchmark:compileBenchmarkReleaseKotlin :benchmark:compileNonMinifiedReleaseKotlin` |
 
 Re-record goldens with
 `./gradlew :app-native:updateDebugScreenshotTest --console=plain`. Preview clocks
@@ -29,8 +30,8 @@ Do not invent `cargo test --manifest-path rust/Cargo.toml` as a gate — `rust/`
   :db:checkModelParity :app-native:assembleDebug --console=plain
 ```
 
-PR/push CI also runs `:app-native:lintDebug`, `:app-native:checkUniffiBindings`, and
-`:app-native:validateDebugScreenshotTest`; it does not package an APK or AAB. A manual native
+PR/push CI also runs `:app-native:lintDebug` and `:app-native:checkUniffiBindings`; it does not
+run the screenshot renderer or package an APK/AAB. A manual native
 workflow dispatch with `package` enabled adds `:app-native:assembleDebug` and
 `:app-native:bundleRelease`. The local default command above still assembles debug as the ordinary
 artifact proof.
@@ -45,9 +46,49 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
-- Screenshots — list, chat, onboarding chrome. Not settings, login, Find My, or effects.
+- Optional screenshots — visual review of list, chat, and onboarding chrome. They are not a
+  routine correctness gate and do not cover settings, login, Find My, or effects.
 
 ## Device and release
+
+Baseline Profiles and Macrobenchmarks are physical-device evidence, not host tests. AGP's connected
+test task installs and then uninstalls the target application; that removes its private data. Run
+these Gradle tasks only on a disposable benchmark device/user whose app state can be recreated, never
+on a primary signed-in installation. Verify that the test APK's certificate matches before starting.
+
+Run a dry instrumentation pass first, then generate the release profile:
+
+```bash
+ANDROID_SERIAL=<serial> ./gradlew :benchmark:connectedNonMinifiedReleaseAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true \
+  -Pandroid.testInstrumentationRunnerArguments.class=app.openbubbles.benchmark.BaselineProfileGenerator \
+  --console=plain --no-configuration-cache
+
+ANDROID_SERIAL=<serial> ./gradlew :app-native:generateReleaseBaselineProfile \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile \
+  -Pandroid.testInstrumentationRunnerArguments.class=app.openbubbles.benchmark.BaselineProfileGenerator \
+  --console=plain --no-configuration-cache
+```
+
+The committed profile belongs under `app-native/src/release/generated/baselineProfiles`. Rebuild
+`:app-native:assembleRelease` and confirm the APK contains `assets/dexopt/baseline.prof` and
+`assets/dexopt/baseline.profm`. The connected Macrobenchmark task intentionally fails before
+installation when the app-owned `baseline-prof.txt` is absent; dependency profiles are not accepted
+as proof of OpenBubbles startup/chat/Photos coverage.
+
+Measure startup, chat-list scrolling, and Photos scrolling only after the profile is packaged:
+
+```bash
+ANDROID_SERIAL=<serial> ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark \
+  -Pandroid.testInstrumentationRunnerArguments.class=app.openbubbles.benchmark.OpenBubblesMacrobenchmark \
+  --console=plain --no-configuration-cache
+```
+
+Record model/OS, fold posture and orientation, refresh rate, battery/thermal state, installed
+version/signature, and the generated JSON/Perfetto report paths. A compiled benchmark module or dry
+run proves wiring only; it is not performance evidence.
 
 Unchecked items in [CUTOVER.md](../tools/CUTOVER.md) need hardware evidence: OABS provision,
 Apple ID + 2FA, SMS/MMS, attachments, notifications, reboot, long-background live, battery-saver,

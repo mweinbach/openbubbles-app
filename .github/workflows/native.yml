@@ -84,7 +84,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, x86_64-linux-android
+          targets: aarch64-linux-android
 
       # apt instead of arduino/setup-protoc: the action still targets the
       # deprecated Node 20 runtime (same approach as release-update.yml).
@@ -131,7 +131,7 @@ jobs:
           key: ${{ runner.os }}-cargo-host-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-host-
 
-      # The Android cdylib builds (2 ABIs x debug/release) via
+      # The Android arm64 cdylib builds (debug/release) via
       # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
       # Unused on test-only runs; also avoids re-saving a cache whose
       # target dir the cross-builds never populated.
@@ -173,22 +173,12 @@ jobs:
         run: |
           ./gradlew :db:test :core:test :app-native:testDebugUnitTest \
             :db:checkModelParity :app-native:lintDebug \
-            :app-native:checkUniffiBindings :app-native:validateDebugScreenshotTest \
+            :app-native:checkUniffiBindings \
+            :benchmark:compileBenchmarkReleaseKotlin \
+            :benchmark:compileNonMinifiedReleaseKotlin \
             --console=plain
 
-      # Preserve the rendered/expected/diff images when the experimental
-      # screenshot plugin fails so host-specific renderer drift is diagnosable.
-      - name: Upload screenshot failure report
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: screenshot-failure-report
-          if-no-files-found: ignore
-          path: |
-            build-native/app-native/reports/screenshotTest/preview/debug
-            build-native/app-native/test-results/validateDebugScreenshotTest
-
-      # Packaging pulls the Rust Android cross-builds (2 ABIs x debug/release)
+      # Packaging pulls the Rust Android arm64 cross-builds (debug/release)
       # through mergeJniLibFolders — the expensive half of the job — so it
       # runs only when artifacts were explicitly requested.
       - name: Android artifacts

@@ -155,7 +155,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, x86_64-linux-android
+          targets: aarch64-linux-android
 
       # GitHub-releases binary first (runner-to-GitHub is fast and reliable;
       # slow Ubuntu mirrors have repeatedly blown the apt path's budget),
@@ -198,7 +198,7 @@ jobs:
           key: ${{ runner.os }}-cargo-host-${{ hashFiles('rust/Cargo.lock', 'rustpush/**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-host-
 
-      # The Android cdylib builds (2 ABIs x debug/release) via
+      # The Android arm64 cdylib builds (debug/release) via
       # app-native/cargo-android.gradle with CARGO_TARGET_DIR here.
       - name: Cache Android Cargo builds
         uses: actions/cache@v5

@@ -16,7 +16,7 @@ object AppTelemetry {
     private const val MAX_VALUE_LENGTH = 80
 
     fun initialize(context: Context) {
-        val enabled = !BuildConfig.DEBUG
+        val enabled = BuildConfig.FIREBASE_TELEMETRY_ENABLED
         FirebaseAnalytics.getInstance(context).setAnalyticsCollectionEnabled(enabled)
         FirebaseCrashlytics.getInstance().apply {
             setCrashlyticsCollectionEnabled(enabled)
@@ -30,7 +30,7 @@ object AppTelemetry {
     }
 
     fun event(context: Context, name: String, parameters: Map<String, String> = emptyMap()) {
-        if (BuildConfig.DEBUG) return
+        if (!BuildConfig.FIREBASE_TELEMETRY_ENABLED) return
         val safe = parameters.mapValues { (_, value) -> value.take(MAX_VALUE_LENGTH) }
         FirebaseAnalytics.getInstance(context).logEvent(
             name,
@@ -45,13 +45,13 @@ object AppTelemetry {
     }
 
     fun state(key: String, value: String) {
-        if (BuildConfig.DEBUG) return
+        if (!BuildConfig.FIREBASE_TELEMETRY_ENABLED) return
         FirebaseCrashlytics.getInstance().setCustomKey(key, value.take(MAX_VALUE_LENGTH))
     }
 
     /** Records only a sanitized category; the original throwable is never uploaded. */
     fun nonFatal(scope: String, kind: String) {
-        if (BuildConfig.DEBUG) return
+        if (!BuildConfig.FIREBASE_TELEMETRY_ENABLED) return
         FirebaseCrashlytics.getInstance().recordException(
             SanitizedDiagnosticException(scope.take(40), kind.take(40)),
         )

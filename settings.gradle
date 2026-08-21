@@ -21,6 +21,10 @@ pluginManagement {
 plugins {
     id "com.android.application" version "9.3.1" apply false
     id "com.android.library" version "9.3.1" apply false
+    id "com.android.test" version "9.3.1" apply false
+    // 1.5 is the first Baseline Profile plugin line that supports AGP 9's
+    // current DSL without the removed legacy AppExtension bridge.
+    id "androidx.baselineprofile" version "1.5.0-alpha07" apply false
     id "org.jetbrains.kotlin.multiplatform" version "2.4.10" apply false
     id "org.jetbrains.kotlin.jvm" version "2.4.10" apply false
     id "org.jetbrains.kotlin.plugin.compose" version "2.4.10" apply false
@@ -43,6 +47,8 @@ rootProject.name = "OpenBubbles"
 
 include ":app-native"
 project(":app-native").projectDir = file("app-native")
+include ":benchmark"
+project(":benchmark").projectDir = file("benchmark")
 include ":android-smsmms"
 project(":android-smsmms").projectDir = file("telephony_plus/android-smsmms/library")
 include ":db"
