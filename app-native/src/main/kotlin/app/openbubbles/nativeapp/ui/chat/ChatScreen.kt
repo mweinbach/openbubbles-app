@@ -322,15 +322,20 @@ fun buildConversationEntries(
         val above = entries.getOrNull(i + 1) as? ConversationEntry.Message
         val below = entries.getOrNull(i - 1) as? ConversationEntry.Message
         val isReply = message.replyToGuid != null
-        val belowIsReply = below?.message?.replyToGuid != null
+        val belowReplyTo = below?.message?.replyToGuid
+        val aboveSameReplyThread = isReply &&
+            above?.message?.replyToGuid == message.replyToGuid
+        val belowSameReplyThread = isReply &&
+            belowReplyTo != null &&
+            belowReplyTo == message.replyToGuid
         val tightTop = above != null &&
             above.message.rendersAsBubble() &&
             above.message.authorKey() == message.authorKey() &&
-            !isReply
+            (!isReply || aboveSameReplyThread)
         val tightBottom = below != null &&
             below.message.rendersAsBubble() &&
             below.message.authorKey() == message.authorKey() &&
-            !belowIsReply
+            (belowReplyTo == null || belowSameReplyThread)
         val showName = showSenderNames &&
             !message.isFromMe &&
             message.senderAddress != null &&

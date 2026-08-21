@@ -347,6 +347,34 @@ class ReplyUiTest {
         assertFalse(byGuid.getValue("child").tightTop)
     }
 
+    @Test
+    fun `consecutive same-author replies in a run do group with each other`() {
+        val root = message(id = 1, guid = "root", text = "original", fromMe = true)
+        val first = message(
+            id = 2,
+            guid = "one",
+            text = "first",
+            fromMe = false,
+            senderAddress = "emily@icloud.com",
+            replyToGuid = "root",
+        )
+        val second = message(
+            id = 3,
+            guid = "two",
+            text = "second",
+            fromMe = false,
+            senderAddress = "emily@icloud.com",
+            replyToGuid = "root",
+        )
+        val entries = buildConversationEntries(listOf(root, first, second))
+            .filterIsInstance<ConversationEntry.Message>()
+        val byGuid = entries.associate { it.message.guid to it }
+        assertFalse(byGuid.getValue("one").tightTop)
+        assertTrue(byGuid.getValue("one").tightBottom)
+        assertTrue(byGuid.getValue("two").tightTop)
+        assertFalse(byGuid.getValue("two").tightBottom)
+    }
+
     private fun message(
         id: Long = 1L,
         guid: String,

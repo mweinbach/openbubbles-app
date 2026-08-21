@@ -946,10 +946,15 @@ internal fun replyConnectorGeometry(
     val armStartX = legX + inward * armLength
 
     val legBottomY = reply.top - clearance
-    val overlapsQuote = quote != null &&
+    val floorY = if (
+        quote != null &&
         minOf(legX, armStartX) <= quote.right &&
         maxOf(legX, armStartX) >= quote.left
-    val floorY = if (overlapsQuote && quote != null) quote.bottom + clearance else Float.NEGATIVE_INFINITY
+    ) {
+        quote.bottom + clearance
+    } else {
+        Float.NEGATIVE_INFINITY
+    }
     val legTopY = maxOf(legBottomY - legLength, floorY).coerceAtMost(legBottomY)
 
     return ReplyConnectorGeometry(
