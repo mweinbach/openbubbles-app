@@ -79,6 +79,16 @@ data class AttachmentMeta(
     val livePhotoMotionDownloaded: Boolean = false,
     /** Internal sidecar rows are downloaded but never rendered independently. */
     val isLivePhotoMotion: Boolean = false,
+    /**
+     * Identity (path, length, mtime) of the payload readable on disk, or null
+     * while nothing is readable. A bubble memoizes its file lookup, and a
+     * completed transfer can promote the payload without changing [downloaded]
+     * or [sizeBytes], so this is what tells an already-mounted bubble to look
+     * again instead of waiting for the conversation to be reopened.
+     */
+    val payloadStamp: String? = null,
+    /** Same identity for the paired Live Photo motion payload. */
+    val livePhotoMotionPayloadStamp: String? = null,
 ) {
     val isVideo: Boolean
         get() = !isImage && AttachmentMedia.isVideo(mime, uti, name)
@@ -106,6 +116,7 @@ data class StickerPlacement(
     val scale: Double,
     val effectType: Long,
     val downloaded: Boolean,
+    val payload: String? = null,
 )
 
 /**

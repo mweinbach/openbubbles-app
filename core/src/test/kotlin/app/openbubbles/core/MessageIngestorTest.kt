@@ -1102,6 +1102,184 @@ class MessageIngestorTest {
     }
 
     @Test
+    fun `staged user SMIL attachment is preserved by the outgoing echo`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessageWithAttachments(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "",
+            stagingGuid = "temp-user-smil",
+            attachments = listOf(
+                MessageRepo.OutgoingAttachmentStage(
+                    guid = "temp-user-smil_att0",
+                    mimeType = "application/smil",
+                    uti = "public.smil",
+                    transferName = "presentation.smil",
+                    totalBytes = 42L,
+                ),
+            ),
+        )
+        val stagedAttachmentId = store.boxFor(Attachment::class.java).all.single().id
+        staged.guid = "real-user-smil"
+        staged.stagingGuid = "real-user-smil"
+        messageBox().put(staged)
+
+        val echo = UMessageInst(
+            id = "real-user-smil",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.Normal(
+                parts = listOf(
+                    UIndexedPart(
+                        UPart.Attachment(
+                            part = 0uL,
+                            uti = "public.smil",
+                            mime = "application/smil",
+                            name = "presentation.smil",
+                            iris = false,
+                            xml = "<plist>user selected metadata</plist>",
+                        ),
+                        null,
+                        null,
+                    ),
+                ),
+                effect = null,
+                replyGuid = null,
+                replyPart = null,
+                subject = null,
+                voice = false,
+                isSms = false,
+                appJson = null,
+                linkJson = null,
+                profileJson = null,
+            ),
+            sentTimestamp = 1_700_000_000_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(echo), myHandles)
+
+        val promoted = store.boxFor(Attachment::class.java).all.single()
+        assertEquals(stagedAttachmentId, promoted.id)
+        assertEquals("real-user-smil_0", promoted.guid)
+        assertEquals("application/smil", promoted.mimeType)
+        assertEquals("presentation.smil", promoted.transferName)
+        assertTrue(promoted.isDownloaded)
+        assertEquals("<plist>user selected metadata</plist>", promoted.metadata?.get("rustpush"))
+        assertEquals(
+            mapOf(0L to "0:0:1"),
+            MessageMapper.decodeReplyPartLocators(
+                assertNotNull(messageByGuid("real-user-smil")).dbAttributedBody,
+            ),
+        )
+    }
+
+    @Test
+    fun `unstaged SMIL remains hidden as incoming MMS layout metadata`() {
+        val mapped = MessageMapper.mapParts(
+            parts = listOf(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.smil",
+                        mime = "application/smil",
+                        name = "presentation.smil",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            msgId = "incoming-mms",
+            isOutgoing = false,
+        )
+
+        assertTrue(mapped.second.isEmpty())
+    }
+
+    @Test
+    fun `captioned multi attachment echo promotes every staged row exactly once`() = runBlocking<Unit> {
+        val chat = chatForFixture()
+        val staged = messageRepo.stageOutgoingMessageWithAttachments(
+            chatGuid = chat.guid,
+            sender = me,
+            text = "three of them",
+            stagingGuid = "temp-batch",
+            attachments = (0..2).map { index ->
+                MessageRepo.OutgoingAttachmentStage(
+                    guid = "temp-batch_att$index",
+                    mimeType = "image/jpeg",
+                    uti = "public.jpeg",
+                    transferName = "photo$index.jpg",
+                    totalBytes = 100L + index,
+                )
+            },
+        )
+
+        // CoreAttachmentSender swaps the message guid to the Rust id before
+        // ingesting the reflected echo.
+        staged.guid = "real-batch"
+        staged.stagingGuid = "real-batch"
+        messageBox().put(staged)
+
+        val echo = UMessageInst(
+            id = "real-batch",
+            sender = me,
+            conversation = conversation(me, friend),
+            message = UMessage.Normal(
+                parts = listOf(UIndexedPart(UPart.Text("three of them", ""), null, null)) +
+                    (0..2).map { index ->
+                        UIndexedPart(
+                            UPart.Attachment(
+                                part = index.toULong(),
+                                uti = "public.jpeg",
+                                mime = "image/jpeg",
+                                name = "photo$index.jpg",
+                                iris = false,
+                                xml = "<plist>real $index</plist>",
+                            ),
+                            null,
+                            null,
+                        )
+                    },
+                effect = null,
+                replyGuid = null,
+                replyPart = null,
+                subject = null,
+                voice = false,
+                isSms = false,
+                appJson = null,
+                linkJson = null,
+                profileJson = null,
+            ),
+            sentTimestamp = 1_700_000_000_000uL,
+            sendDelivered = false,
+            verificationFailed = false,
+        )
+
+        ingestor.ingest(push(echo), myHandles)
+        // A duplicate delivery must converge on the same rows.
+        ingestor.ingest(push(echo), myHandles)
+
+        assertEquals(1, messageBox().all.count { it.guid == "real-batch" })
+        val promoted = store.boxFor(Attachment::class.java).all.sortedBy { it.guid }
+        assertEquals(
+            listOf("real-batch_0", "real-batch_1", "real-batch_2"),
+            promoted.map { it.guid },
+        )
+        // Local payload bytes and download state survive promotion, so the
+        // bubble keeps its preview and stays retryable.
+        assertEquals(listOf(100L, 101L, 102L), promoted.map { it.totalBytes })
+        assertTrue(promoted.all { it.isDownloaded })
+        assertTrue(promoted.all { it.message.targetId == staged.id })
+        val reloaded = messageByGuid("real-batch")
+        assertNotNull(reloaded)
+        assertTrue(reloaded.hasAttachments)
+    }
+
+    @Test
     fun `edit event replaces text and records edited part`() = runBlocking<Unit> {
         ingestor.ingest(push(textInst("editable", friend, "before")), myHandles)
         val edit = UMessageInst(

@@ -442,9 +442,29 @@ pub enum DartSyncStatus {
     Syncing, // deleting remote/local
 }
 
-pub use rustpush::cloud_messages::{CloudChat, CloudMessageSummary, CloudProp, CloudParticipant, GZipWrapper, MMCSAttachmentMeta, AttachmentMeta, NumOrString, AttachmentMetaExtra, CloudProp001, CloudMessage, CloudAttachment, MessageFlags, cloudmessagesp::{ChatProto, MessageProto, MessageProto2, MessageProto3, MessageProto4}};
+pub use rustpush::cloud_messages::{CloudBackgroundProperties, CloudChat, CloudMessageSummary, CloudProp, CloudParticipant, GZipWrapper, MMCSAttachmentMeta, AttachmentMeta, NumOrString, AttachmentMetaExtra, CloudProp001, CloudMessage, CloudAttachment, MessageFlags, cloudmessagesp::{ChatProto, MessageProto, MessageProto2, MessageProto3, MessageProto4}};
 pub use rustpush::cloudkit_proto::Asset;
 pub use plist::Date;
+#[frb(mirror(CloudBackgroundProperties))]
+pub struct DartCloudBackgroundProperties {
+    #[frb(non_final)]
+    pub background_id: Option<String>,
+    #[frb(non_final)]
+    pub key: Option<String>,
+    #[frb(non_final)]
+    pub url: Option<String>,
+    #[frb(non_final)]
+    pub signature: Option<String>,
+    #[frb(non_final)]
+    pub version: Option<u64>,
+    #[frb(non_final)]
+    pub payload_version: Option<u32>,
+    #[frb(non_final)]
+    pub file_size: Option<u64>,
+    #[frb(non_final)]
+    pub object_id: Option<String>,
+}
+
 #[frb(mirror(CloudProp))]
 pub struct DartCloudProp {
     #[frb(non_final)]
@@ -465,6 +485,8 @@ pub struct DartCloudProp {
     pub group_photo_guid: Option<String>,
     #[frb(non_final)]
     pub last_modification_date: Option<plist::Date>, // not actually optional, just to get around default trait
+    #[frb(non_final)]
+    pub background_properties: Option<CloudBackgroundProperties>,
 }
 
 #[frb(mirror(CloudMessageSummary))]
