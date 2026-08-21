@@ -8,18 +8,23 @@ import kotlin.test.assertTrue
 
 class VaultSqliteCatalogSchemaTest {
     @Test
-    fun versionOneSchemaIsPinned() {
-        assertEquals(1, VaultSqliteCatalog.DATABASE_VERSION)
+    fun versionTwoSchemaIsPinned() {
+        assertEquals(2, VaultSqliteCatalog.DATABASE_VERSION)
         assertEquals(
-            "2e40b189cda4802de1ea399ad33f3977019d8817cca56b39b0bb79f8b7bf87ae",
+            "ba8f1620bda06dbc0a6b7f12bf56939989451a99eba4eacf098cf74cf3adef36",
             VaultSqliteCatalog.CREATE_STATEMENTS.joinToString("\n").sha256(),
         )
     }
 
     @Test
     fun versionBumpCannotSilentlySkipAMigration() {
-        assertEquals(emptyList(), VaultSqliteCatalog.migrationStatements(1, 1))
-        assertFailsWith<IllegalStateException> { VaultSqliteCatalog.migrationStatements(1, 2) }
+        assertEquals(emptyList(), VaultSqliteCatalog.migrationStatements(2, 2))
+        val migration = VaultSqliteCatalog.migrationStatements(1, 2).joinToString("\n")
+        assertTrue("DROP TABLE vault_items" in migration)
+        assertTrue("PRIMARY KEY (record_id, kind)" in migration)
+        assertTrue("DELETE FROM vault_sync_state" in migration)
+        assertTrue("CREATE TABLE vault_key_state" in migration)
+        assertFailsWith<IllegalStateException> { VaultSqliteCatalog.migrationStatements(2, 3) }
     }
 
     @Test
@@ -31,6 +36,7 @@ class VaultSqliteCatalogSchemaTest {
                 "vault_invites",
                 "vault_items",
                 "vault_sync_state",
+                "vault_key_state",
             ),
             VaultSqliteCatalog.ACCOUNT_CLEAR_TABLES,
         )
@@ -40,6 +46,8 @@ class VaultSqliteCatalogSchemaTest {
     fun theSiteLookupColumnIsIndexedAndNoSecretColumnExists() {
         val schema = VaultSqliteCatalog.CREATE_STATEMENTS.joinToString("\n")
         assertTrue("CREATE INDEX vault_items_site_idx ON vault_items(kind, site_index)" in schema)
+        assertTrue("PRIMARY KEY (record_id, kind)" in schema)
+        assertTrue("CREATE TABLE vault_key_state" in schema)
         // The catalog is metadata only. A column that could hold a secret would
         // move the whole security boundary off the Rust keychain state.
         listOf("password", "secret", "private_key", "totp", "seed").forEach { forbidden ->

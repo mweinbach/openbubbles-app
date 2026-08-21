@@ -59,32 +59,34 @@ class VaultSqliteCatalog(
 
     override suspend fun load(): CachedVault = withContext(Dispatchers.IO) {
         readOrReset {
-            val database = readableDatabase
-            val markers = database.syncMarkers()
-            CachedVault(
-                items = database.query(
-                    ITEMS_TABLE,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    "kind, sort_position, record_id",
-                ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.itemRecord()) } },
-                groups = database.groups(),
-                invites = database.query(
-                    INVITES_TABLE,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    "sort_position, invite_id",
-                ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.inviteRecord()) } },
-                syncedKinds = VaultItemKind.entries.filter { it.syncKey() in markers.keys }.toSet(),
-                groupsSynced = GROUPS_SYNC_KEY in markers.keys,
-                syncedAtMs = markers.values.maxOrNull(),
-            )
+            writableDatabase.inTransaction {
+                ensureIndexKey()
+                val markers = syncMarkers()
+                CachedVault(
+                    items = query(
+                        ITEMS_TABLE,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "kind, sort_position, record_id",
+                    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.itemRecord()) } },
+                    groups = groups(),
+                    invites = query(
+                        INVITES_TABLE,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "sort_position, invite_id",
+                    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.inviteRecord()) } },
+                    syncedKinds = VaultItemKind.entries.filter { it.syncKey() in markers.keys }.toSet(),
+                    groupsSynced = GROUPS_SYNC_KEY in markers.keys,
+                    syncedAtMs = markers.values.maxOrNull(),
+                )
+            }
         } ?: CachedVault()
     }
 
@@ -95,6 +97,7 @@ class VaultSqliteCatalog(
     ): Unit = withContext(Dispatchers.IO) {
         val database = writableDatabase
         database.inTransaction {
+            ensureIndexKey()
             delete(ITEMS_TABLE, "kind = ?", arrayOf(kind.name))
             items.forEachIndexed { index, item ->
                 insertWithOnConflict(
@@ -115,6 +118,7 @@ class VaultSqliteCatalog(
     ): Unit = withContext(Dispatchers.IO) {
         val database = writableDatabase
         database.inTransaction {
+            ensureIndexKey()
             delete(GROUP_MEMBERS_TABLE, null, null)
             delete(GROUPS_TABLE, null, null)
             delete(INVITES_TABLE, null, null)
@@ -172,6 +176,7 @@ class VaultSqliteCatalog(
         val siteIndex = siteIndex(site) ?: return@withContext
         val database = writableDatabase
         database.inTransaction {
+            ensureIndexKey()
             // A per-site hydration replaces exactly that site's rows for the
             // kind and never touches the sync marker: it is not a full listing,
             // so it must not make a cold catalog look complete.
@@ -194,23 +199,25 @@ class VaultSqliteCatalog(
         val siteKey = vaultSiteKey(site)
         if (siteKey == null || kinds.isEmpty()) return@withContext VaultSiteSnapshot(siteKey = siteKey)
         readOrReset {
-            val database = readableDatabase
-            val markers = database.syncMarkers()
-            val placeholders = kinds.joinToString(",") { "?" }
-            VaultSiteSnapshot(
-                siteKey = siteKey,
-                items = database.query(
-                    ITEMS_TABLE,
-                    null,
-                    "site_index = ? AND kind IN ($placeholders)",
-                    arrayOf(crypto.index(siteKey)) + kinds.map { it.name },
-                    null,
-                    null,
-                    "kind, sort_position, record_id",
-                ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.itemRecord()) } },
-                syncedKinds = kinds.filter { it.syncKey() in markers.keys }.toSet(),
-                syncedAtMs = markers.values.maxOrNull(),
-            )
+            writableDatabase.inTransaction {
+                ensureIndexKey()
+                val markers = syncMarkers()
+                val placeholders = kinds.joinToString(",") { "?" }
+                VaultSiteSnapshot(
+                    siteKey = siteKey,
+                    items = query(
+                        ITEMS_TABLE,
+                        null,
+                        "site_index = ? AND kind IN ($placeholders)",
+                        arrayOf(crypto.index(siteKey)) + kinds.map { it.name },
+                        null,
+                        null,
+                        "kind, sort_position, record_id",
+                    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.itemRecord()) } },
+                    syncedKinds = kinds.filter { it.syncKey() in markers.keys }.toSet(),
+                    syncedAtMs = markers.values.maxOrNull(),
+                )
+            }
         } ?: VaultSiteSnapshot(siteKey = siteKey)
     }
 
@@ -340,6 +347,36 @@ class VaultSqliteCatalog(
         )
     }
 
+    /**
+     * A database can outlive its AndroidKeyStore index key after restore or
+     * invalidation. Rows indexed by the old HMAC key are authoritative misses,
+     * so bind the cache to a keyed marker and make any mismatch cold.
+     */
+    private fun SQLiteDatabase.ensureIndexKey() {
+        val expected = crypto.index(INDEX_KEY_PROBE)
+        val stored = query(
+            KEY_STATE_TABLE,
+            arrayOf("key_check"),
+            "key_name = ?",
+            arrayOf(INDEX_KEY_NAME),
+            null,
+            null,
+            null,
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        if (stored == expected) return
+
+        ACCOUNT_CLEAR_TABLES.forEach { table -> delete(table, null, null) }
+        insertWithOnConflict(
+            KEY_STATE_TABLE,
+            null,
+            ContentValues().apply {
+                put("key_name", INDEX_KEY_NAME)
+                put("key_check", expected)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
     private inline fun <T> SQLiteDatabase.inTransaction(body: SQLiteDatabase.() -> T): T {
         beginTransaction()
         return try {
@@ -368,14 +405,18 @@ class VaultSqliteCatalog(
 
     companion object {
         const val DATABASE_NAME = "openbubbles-vault.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
 
         private const val ITEMS_TABLE = "vault_items"
         private const val GROUPS_TABLE = "vault_groups"
         private const val GROUP_MEMBERS_TABLE = "vault_group_members"
         private const val INVITES_TABLE = "vault_invites"
         private const val SYNC_TABLE = "vault_sync_state"
+        private const val KEY_STATE_TABLE = "vault_key_state"
         internal const val GROUPS_SYNC_KEY = "groups"
+
+        private const val INDEX_KEY_NAME = "site-index-v1"
+        private const val INDEX_KEY_PROBE = "openbubbles-vault-index-key-check-v1"
 
         /** Sites that are not hosts (a Wi-Fi SSID) can never match a request. */
         private const val UNINDEXED_SITE = ""
@@ -388,11 +429,12 @@ class VaultSqliteCatalog(
             INVITES_TABLE,
             ITEMS_TABLE,
             SYNC_TABLE,
+            KEY_STATE_TABLE,
         )
 
         private const val CREATE_ITEMS = """
             CREATE TABLE vault_items (
-                record_id TEXT PRIMARY KEY NOT NULL,
+                record_id TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 site_index TEXT NOT NULL,
                 site TEXT NOT NULL,
@@ -402,7 +444,8 @@ class VaultSqliteCatalog(
                 webauthn_credential_id TEXT,
                 group_id TEXT,
                 modified_at_ms INTEGER,
-                sort_position INTEGER NOT NULL
+                sort_position INTEGER NOT NULL,
+                PRIMARY KEY (record_id, kind)
             )
         """
         private const val CREATE_ITEMS_LOOKUP_INDEX =
@@ -442,6 +485,12 @@ class VaultSqliteCatalog(
                 updated_at_ms INTEGER NOT NULL
             )
         """
+        private const val CREATE_KEY_STATE = """
+            CREATE TABLE vault_key_state (
+                key_name TEXT PRIMARY KEY NOT NULL,
+                key_check TEXT NOT NULL
+            )
+        """
 
         internal val CREATE_STATEMENTS = listOf(
             CREATE_ITEMS.trimIndent(),
@@ -450,10 +499,18 @@ class VaultSqliteCatalog(
             CREATE_GROUP_MEMBERS.trimIndent(),
             CREATE_INVITES.trimIndent(),
             CREATE_SYNC_STATE.trimIndent(),
+            CREATE_KEY_STATE.trimIndent(),
         )
 
         internal fun migrationStatements(oldVersion: Int, newVersion: Int): List<String> = when {
             oldVersion == newVersion -> emptyList()
+            oldVersion == 1 && newVersion == 2 -> listOf(
+                "DROP TABLE vault_items",
+                CREATE_ITEMS.trimIndent(),
+                CREATE_ITEMS_LOOKUP_INDEX,
+                "DELETE FROM vault_sync_state",
+                CREATE_KEY_STATE.trimIndent(),
+            )
             else -> error(
                 "Missing vault catalog migration from version $oldVersion to $newVersion",
             )

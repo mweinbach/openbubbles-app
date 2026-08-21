@@ -81,6 +81,33 @@ class VaultCatalogContractTest {
     }
 
     @Test
+    fun theSameAppleRecordIdCanExistInDifferentItemKinds() = runBlocking {
+        val catalog = InMemoryVaultCatalog()
+        catalog.replaceItems(
+            VaultItemKind.Password,
+            listOf(password("shared-id", "example.com", "ada@example.com")),
+            syncedAtMs = 10,
+        )
+        catalog.replaceItems(
+            VaultItemKind.Code,
+            listOf(
+                VaultItemRecord(
+                    id = "shared-id",
+                    kind = VaultItemKind.Code,
+                    site = "example.com",
+                    title = "Example verification code",
+                ),
+            ),
+            syncedAtMs = 20,
+        )
+
+        assertEquals(
+            setOf(VaultItemKind.Password, VaultItemKind.Code),
+            catalog.load().items.map { it.kind }.toSet(),
+        )
+    }
+
+    @Test
     fun siteLookupIsExactAndScopedToTheRequestedKinds() = runBlocking {
         val catalog = InMemoryVaultCatalog()
         catalog.replaceItems(
