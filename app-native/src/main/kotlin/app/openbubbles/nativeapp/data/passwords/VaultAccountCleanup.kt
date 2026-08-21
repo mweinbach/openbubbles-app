@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.data.passwords
 
 import android.content.Context
 import app.openbubbles.nativeapp.data.runAccountCleanupSteps
+import app.openbubbles.nativeapp.ui.passwords.PasswordsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,7 @@ object VaultAccountCleanup {
     suspend fun clear(context: Context): Result<Unit> = mutex.withLock {
         runAccountCleanupSteps(
             { VaultCatalogSync.cancelAndJoin() },
+            { PasswordsViewModel.clearSharedCacheForAccountCleanup() },
             {
                 withContext(Dispatchers.IO) {
                     VaultCatalogStore.of(context.applicationContext).clearAccountData()

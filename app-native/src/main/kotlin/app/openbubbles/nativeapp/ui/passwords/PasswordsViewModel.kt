@@ -121,11 +121,15 @@ class VaultCacheStore(
     /** The vault changed, so the durable catalog must be re-read from Apple. */
     fun invalidateCatalog() = requestCatalogRefresh()
 
-    suspend fun clear() {
+    fun clearMemory() {
         inClique = null
         itemsByCategory = emptyMap()
         groups = null
         invites = null
+    }
+
+    suspend fun clear() {
+        clearMemory()
         catalog?.clearAccountData()
     }
 
@@ -618,6 +622,10 @@ class PasswordsViewModel(
                     if (context != null && state != null) VaultCatalogSync.refreshNow(context, state)
                 },
             )
+        }
+
+        internal fun clearSharedCacheForAccountCleanup() {
+            sharedCache.clearMemory()
         }
 
         fun factory(): ViewModelProvider.Factory = viewModelFactory {

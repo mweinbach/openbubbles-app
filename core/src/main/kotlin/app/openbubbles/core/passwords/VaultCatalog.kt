@@ -113,7 +113,8 @@ class InMemoryVaultCatalog : VaultCatalog {
     private var groups: List<VaultGroupRecord> = emptyList()
     private var invites: List<VaultInviteRecord> = emptyList()
     private var groupsSynced: Boolean = false
-    private var syncedAtMs: Long? = null
+    private var syncedAtByKind: Map<VaultItemKind, Long> = emptyMap()
+    private var groupsSyncedAtMs: Long? = null
 
     override suspend fun load(): CachedVault = synchronized(lock) {
         CachedVault(
@@ -122,7 +123,7 @@ class InMemoryVaultCatalog : VaultCatalog {
             invites = invites,
             syncedKinds = syncedKinds,
             groupsSynced = groupsSynced,
-            syncedAtMs = syncedAtMs,
+            syncedAtMs = (syncedAtByKind.values + listOfNotNull(groupsSyncedAtMs)).maxOrNull(),
         )
     }
 
@@ -133,7 +134,7 @@ class InMemoryVaultCatalog : VaultCatalog {
     ) = synchronized(lock) {
         itemsByKind = itemsByKind + (kind to items.filter { it.kind == kind })
         syncedKinds = syncedKinds + kind
-        this.syncedAtMs = syncedAtMs
+        syncedAtByKind = syncedAtByKind + (kind to syncedAtMs)
     }
 
     override suspend fun replaceGroups(
@@ -144,7 +145,7 @@ class InMemoryVaultCatalog : VaultCatalog {
         this.groups = groups
         this.invites = invites
         groupsSynced = true
-        this.syncedAtMs = syncedAtMs
+        groupsSyncedAtMs = syncedAtMs
     }
 
     override suspend fun mergeSiteItems(
@@ -174,7 +175,7 @@ class InMemoryVaultCatalog : VaultCatalog {
                     .filter { vaultSiteKey(it.site) == siteKey }
             },
             syncedKinds = syncedKinds intersect kinds,
-            syncedAtMs = syncedAtMs,
+            syncedAtMs = kinds.mapNotNull(syncedAtByKind::get).minOrNull(),
         )
     }
 
@@ -184,6 +185,7 @@ class InMemoryVaultCatalog : VaultCatalog {
         groups = emptyList()
         invites = emptyList()
         groupsSynced = false
-        syncedAtMs = null
+        syncedAtByKind = emptyMap()
+        groupsSyncedAtMs = null
     }
 }

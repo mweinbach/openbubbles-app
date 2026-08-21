@@ -38,13 +38,10 @@ class VaultCatalogKeystoreKeys : VaultCatalogKeys {
     fun destroy() = synchronized(lock) {
         data = null
         index = null
-        runCatching {
-            val keyStore = keyStore()
-            listOf(DATA_ALIAS, INDEX_ALIAS).forEach { alias ->
-                if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
-            }
+        val keyStore = keyStore()
+        destroyVaultAliases(listOf(DATA_ALIAS, INDEX_ALIAS)) { alias ->
+            if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias)
         }
-        Unit
     }
 
     private fun loadOrCreate(alias: String): SecretKey {
@@ -91,4 +88,20 @@ class VaultCatalogKeystoreKeys : VaultCatalogKeys {
         const val DATA_ALIAS = "openbubbles.vault.catalog.data.v1"
         const val INDEX_ALIAS = "openbubbles.vault.catalog.index.v1"
     }
+}
+
+internal fun destroyVaultAliases(
+    aliases: List<String>,
+    delete: (String) -> Unit,
+) {
+    var firstFailure: Throwable? = null
+    aliases.forEach { alias ->
+        try {
+            delete(alias)
+        } catch (failure: Throwable) {
+            val first = firstFailure
+            if (first == null) firstFailure = failure else first.addSuppressed(failure)
+        }
+    }
+    firstFailure?.let { throw it }
 }

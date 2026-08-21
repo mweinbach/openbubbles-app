@@ -11,6 +11,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.ui.Routes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -47,7 +48,7 @@ class CredentialUnlockActivity : FragmentActivity() {
 
             // offerUnlock = false: the user already took the unlock action, so a
             // still-unreachable backend must not loop them back into it.
-            val response = runCatching {
+            val response = runCatchingPreservingCancellation {
                 CredentialEntries.respond(applicationContext, query, offerUnlock = false)
             }
                 .onFailure { Log.w(TAG, "unlock lookup failed (${it.javaClass.simpleName})") }
@@ -83,4 +84,12 @@ class CredentialUnlockActivity : FragmentActivity() {
     private companion object {
         const val TAG = "CredentialUnlock"
     }
+}
+
+internal suspend fun <T> runCatchingPreservingCancellation(block: suspend () -> T): Result<T> = try {
+    Result.success(block())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Throwable) {
+    Result.failure(failure)
 }

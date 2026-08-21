@@ -215,7 +215,7 @@ class VaultSqliteCatalog(
                         "kind, sort_position, record_id",
                     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.itemRecord()) } },
                     syncedKinds = kinds.filter { it.syncKey() in markers.keys }.toSet(),
-                    syncedAtMs = markers.values.maxOrNull(),
+                    syncedAtMs = kinds.mapNotNull { markers[it.syncKey()] }.minOrNull(),
                 )
             }
         } ?: VaultSiteSnapshot(siteKey = siteKey)

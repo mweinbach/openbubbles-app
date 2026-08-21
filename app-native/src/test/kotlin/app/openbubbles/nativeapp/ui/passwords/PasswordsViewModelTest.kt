@@ -8,6 +8,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,6 +36,27 @@ private class GatedPasswordsPort(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordsViewModelTest {
+
+    @Test
+    fun `memory cache cleanup drops all previous account metadata`() {
+        val cache = VaultCacheStore().apply {
+            inClique = true
+            itemsByCategory = mapOf(
+                VaultCategory.Passwords to listOf(
+                    VaultItemUi("item", VaultCategory.Passwords, "example.com", "ada"),
+                ),
+            )
+            groups = listOf(VaultGroupUi("group", "Family", true, 2))
+            invites = listOf(VaultInviteUi("invite", "Family", "Ada"))
+        }
+
+        cache.clearMemory()
+
+        assertEquals(null, cache.inClique)
+        assertTrue(cache.itemsByCategory.isEmpty())
+        assertEquals(null, cache.groups)
+        assertEquals(null, cache.invites)
+    }
     private val dispatcher = StandardTestDispatcher()
 
     @BeforeTest

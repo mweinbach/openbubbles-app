@@ -193,6 +193,25 @@ class VaultCatalogContractTest {
     }
 
     @Test
+    fun aMultiKindSiteSnapshotUsesTheOldestRequestedSyncMarker() = runBlocking {
+        val catalog = InMemoryVaultCatalog()
+        catalog.replaceItems(VaultItemKind.Passkey, emptyList(), syncedAtMs = 10)
+        catalog.replaceItems(VaultItemKind.Password, emptyList(), syncedAtMs = 30)
+
+        assertEquals(
+            10,
+            catalog.credentialsForSite(
+                "example.com",
+                setOf(VaultItemKind.Password, VaultItemKind.Passkey),
+            ).syncedAtMs,
+        )
+        assertEquals(
+            30,
+            catalog.credentialsForSite("example.com", setOf(VaultItemKind.Password)).syncedAtMs,
+        )
+    }
+
+    @Test
     fun groupsAndInvitesArePublishedTogether() = runBlocking {
         val catalog = InMemoryVaultCatalog()
         catalog.replaceGroups(
