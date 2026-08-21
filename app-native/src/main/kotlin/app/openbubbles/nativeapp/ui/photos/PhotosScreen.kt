@@ -124,42 +124,53 @@ fun PhotosScreen(
     onUpload: (PhotoTransfer) -> Unit,
     onUploadAll: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Peer-surface switcher pinned under the app bar. Opening this surface
+     * through it stays metadata-first: the switcher only routes, it never asks
+     * for a refresh, a preview, or an upload.
+     */
+    surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
     var showTransfers by remember { mutableStateOf(false) }
     val snapshot = uiState.snapshot
     Scaffold(
         modifier = modifier.fillMaxSize().testTag(PhotosReadyTag),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Photos")
-                        snapshot?.let {
-                            Text(
-                                text = "${it.assets.size} items · Background sync off",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("Photos")
+                            snapshot?.let {
+                                Text(
+                                    text = "${it.assets.size} items · Background sync off",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showTransfers = true }) {
-                        Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
-                    }
-                    IconButton(
-                        onClick = onRefresh,
-                        enabled = !uiState.refreshing && !uiState.loading && !uiState.loadingMore,
-                    ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh Photos")
-                    }
-                },
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showTransfers = true }) {
+                            Icon(Icons.Filled.CloudUpload, contentDescription = "Uploads and folders")
+                        }
+                        IconButton(
+                            onClick = onRefresh,
+                            enabled = !uiState.refreshing && !uiState.loading && !uiState.loadingMore,
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh Photos")
+                        }
+                    },
+                )
+                // The photo detail and the uploads sheet cover this strip; while
+                // either owns the screen the swipe must not fire underneath it.
+                surfaceSwitcher(uiState.selectedAssetId == null && !showTransfers)
+            }
         },
     ) { padding ->
         when {

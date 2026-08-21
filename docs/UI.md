@@ -88,6 +88,22 @@ Do not add Navigation2 / Accompanist.
 - ~1200.dp: chat info is a third pane. Otherwise it uses detail-pane metadata (full-screen on phones, swaps beside the list on two-pane). Do not levitate it.
 - `openChat()` **swaps** the open conversation. Back from a chat always lands on the list.
 - Find My and Settings live in the chat-list **profile menu**, not extra top-bar icons or a bottom nav.
+- Messages / Photos / Passwords / Find My are peer surfaces of one **header switcher**
+  ([`ui/navigation/`](../app-native/src/main/kotlin/app/openbubbles/nativeapp/ui/navigation/)),
+  pinned under those four screens' app bars and passed in as the `surfaceSwitcher` slot. It is not a
+  second navigation container and not a bottom nav: it drives the same root back stack, and the
+  profile menu plus the Settings rows stay the routes they were.
+- A switch **resets to the target surface's root** — `TopLevelSurfaceSwitch.plan` keeps the stack
+  root, drops everything above it, and pushes at most one entry. Back from a switched-to surface
+  lands on the root surface, so no conversation or vault page survives beside an unrelated overlay.
+- The horizontal swipe is an accelerator on that strip only. `SurfaceSwipePolicy` resolves a drag
+  once, on release, and refuses gestures under 56dp, gestures that are not clearly horizontal,
+  gestures starting in the 24dp back-edge bands, and gestures while a modal owns input — so message
+  reply swipes, list-row swipes and predictive back keep their gestures.
+- Order and default surface are one versioned preference (`SurfaceSwitcherPrefs`); corrupt or
+  unknown values decode back to the canonical order, and Messages can never be removed from it.
+- The strip shows labels when the window and font size allow and drops to described icons when they
+  do not; nothing is selected on destinations no surface owns (Settings, login).
 - Opening a chat from Settings/Find My pops those keys first so the detail pane is not orphaned.
 - Selected-row highlight is multi-pane only.
 - Chat ViewModels are scoped with `rememberViewModelStoreNavEntryDecorator()` so they die on pop.

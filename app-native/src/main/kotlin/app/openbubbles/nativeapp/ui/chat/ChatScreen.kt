@@ -55,6 +55,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -374,6 +375,8 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     /** Stable navigation identity, available before the chat model loads. */
     routeChatId: Long? = uiState.chat?.id,
+    /** Null while off-main repository membership is still resolving. */
+    routeMemberChatIds: List<Long>? = uiState.chat?.memberChatIds,
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -719,11 +722,15 @@ fun ChatScreen(
     // bottom of a reversed list keeps its predecessor anchored, which moves every
     // laid-out index by one and would read as "the reader left the bottom".
     val arrivalStateKey = conversationArrivalStateKey(routeChatId, uiState.chat?.id)
-    var followingBottom by remember(arrivalStateKey) { mutableStateOf(true) }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) followingBottom = atBottomNow
-        }
+    var followingBottom by rememberSaveable(arrivalStateKey) { mutableStateOf(true) }
+    LaunchedEffect(listState, newestIndex) {
+        snapshotFlow { Triple(listState.isScrollInProgress, newestIndex, atBottomNow) }
+            .collect { (scrolling, newest, atBottom) ->
+                // An empty restored viewport has no bottom to classify. Wait
+                // for the first laid-out message so it cannot overwrite the
+                // saved settled position.
+                if (!scrolling && newest >= 0) followingBottom = atBottom
+            }
     }
     var liveArrivalMarkers by rememberSaveable(
         arrivalStateKey,
@@ -733,24 +740,51 @@ fun ChatScreen(
     }
     val observedLiveArrivalChatIds = remember(
         routeChatId,
+        routeMemberChatIds,
         uiState.chat?.id,
         uiState.chat?.memberChatIds,
     ) {
         liveArrivalChatIds(
             chatId = routeChatId ?: uiState.chat?.id,
             memberChatIds = buildList {
+                addAll(routeMemberChatIds.orEmpty())
                 uiState.chat?.id?.let(::add)
                 addAll(uiState.chat?.memberChatIds.orEmpty())
             },
         )
     }
-    LaunchedEffect(observedLiveArrivalChatIds) {
-        if (observedLiveArrivalChatIds.isEmpty()) return@LaunchedEffect
+    val membershipResolved = routeMemberChatIds != null || uiState.chat != null
+    val currentLiveArrivalChatIds by rememberUpdatedState(observedLiveArrivalChatIds)
+    val currentMembershipResolved by rememberUpdatedState(membershipResolved)
+    var deferredMembershipArrivals by rememberSaveable(
+        arrivalStateKey,
+        stateSaver = DeferredLiveArrivalStateSaver,
+    ) {
+        mutableStateOf(DeferredLiveArrivalState())
+    }
+    LaunchedEffect(arrivalStateKey) {
         LiveMessageArrivals.events.collect { arrival ->
+            if (!currentMembershipResolved) {
+                // Membership resolves from the repository off-main. Retain the
+                // short startup window because the intake flow intentionally
+                // has no replay.
+                deferredMembershipArrivals = deferredMembershipArrivals.added(
+                    arrival.chatId,
+                    arrival.messageGuid,
+                )
+            } else if (arrival.chatId in currentLiveArrivalChatIds) {
+                liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
+            }
+        }
+    }
+    LaunchedEffect(membershipResolved, observedLiveArrivalChatIds) {
+        if (!membershipResolved || deferredMembershipArrivals.arrivals.isEmpty()) return@LaunchedEffect
+        deferredMembershipArrivals.arrivals.forEach { arrival ->
             if (arrival.chatId in observedLiveArrivalChatIds) {
                 liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
             }
         }
+        deferredMembershipArrivals = DeferredLiveArrivalState()
     }
     val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
     val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
@@ -821,12 +855,14 @@ fun ChatScreen(
         )
         arrivals = outcome.state
         // Scroll only after the arriving row is part of the rendered snapshot.
-        if (outcome.pinToNewest) scrollToNewest()
+        if (outcome.pinToNewest && scrollToNewest()) {
+            arrivals = arrivals.cleared()
+        }
         // Marker state is an effect key. Consume it only after a suspending pin
         // finishes, otherwise recomposition cancels the move midway through.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
-            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+            fallbackGuids = outcome.reconciledFallbackGuids,
         )
     }
 
@@ -852,6 +888,10 @@ fun ChatScreen(
     // position normally survives insertion untouched; the captured anchor is the
     // guard that proves it and restores the exact offset if it ever moves.
     var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
+    val userDraggingTranscript by listState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(userDraggingTranscript) {
+        if (userDraggingTranscript) pagingAnchor = null
+    }
     LaunchedEffect(nearTop) {
         if (!nearTop) return@LaunchedEffect
         pagingAnchor = capturePagingAnchor(
@@ -1139,11 +1179,10 @@ fun ChatScreen(
                     else -> LazyColumn(
                         state = listState,
                         reverseLayout = true,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            top = 8.dp,
-                            bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
-                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = if (arrivals.pendingCount > 0) 68.dp else 0.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {

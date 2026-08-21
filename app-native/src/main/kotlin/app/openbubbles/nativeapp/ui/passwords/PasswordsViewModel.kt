@@ -5,7 +5,15 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.openbubbles.core.passwords.VaultCatalog
+import app.openbubbles.core.passwords.VaultGroupRecord
+import app.openbubbles.core.passwords.VaultItemRecord
+import app.openbubbles.core.passwords.record
+import app.openbubbles.nativeapp.credentials.vaultPasskeyUserDecoder
+import app.openbubbles.nativeapp.data.AppContext
 import app.openbubbles.nativeapp.data.PushStateHolder
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogStore
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,29 +75,90 @@ object VaultEditBus {
 }
 
 /**
- * Process-lifetime cache of vault listings (metadata only — never secrets),
- * so reopening the Passwords screen paints instantly while a background
- * refresh runs. Kept strictly in memory: it dies with the process and is
- * cleared when the account leaves the keychain clique.
+ * Cache of vault listings (metadata only — never secrets) so reopening the
+ * Passwords screen paints instantly while a background refresh runs.
+ *
+ * Two tiers. The in-memory maps survive screen opens; [catalog] survives
+ * process death, which is what a cold start actually hits. The catalog is
+ * read-only here — [VaultCatalogSync] is its single writer, so the rows the
+ * Android credential provider depends on cannot be narrowed by a UI-shaped
+ * projection. Both tiers are cleared when the account leaves the keychain
+ * clique.
  */
-class VaultCacheStore {
+class VaultCacheStore(
+    private val catalog: VaultCatalog? = null,
+    private val requestCatalogRefresh: () -> Unit = {},
+) {
     @Volatile var inClique: Boolean? = null
     @Volatile var itemsByCategory: Map<VaultCategory, List<VaultItemUi>> = emptyMap()
     @Volatile var groups: List<VaultGroupUi>? = null
     @Volatile var invites: List<VaultInviteUi>? = null
 
-    fun clear() {
+    /** Whether the in-memory tier can paint right now, with no disk read. */
+    fun warm(): Boolean = inClique == true && (itemsByCategory.isNotEmpty() || groups != null)
+
+    /**
+     * Restores the durable snapshot into the in-memory tier. Returns whether
+     * anything is now paintable; a cold catalog leaves the tiers untouched.
+     */
+    suspend fun restore(): Boolean {
+        if (warm()) return true
+        val cached = catalog?.load() ?: return false
+        if (cached.cold) return false
+        itemsByCategory = ITEM_CATEGORIES
+            .filter { it.itemKind().record() in cached.syncedKinds }
+            .associateWith { category ->
+                cached.items(category.itemKind().record()).map { it.ui(category) }
+            }
+        if (cached.groupsSynced) {
+            groups = cached.groups.map { it.ui() }
+            invites = cached.invites.map { VaultInviteUi(it.id, it.groupName, it.inviter) }
+        }
+        inClique = true
+        return itemsByCategory.isNotEmpty() || groups != null
+    }
+
+    /** The vault changed, so the durable catalog must be re-read from Apple. */
+    fun invalidateCatalog() = requestCatalogRefresh()
+
+    fun clearMemory() {
         inClique = null
         itemsByCategory = emptyMap()
         groups = null
         invites = null
     }
 
+    suspend fun clear() {
+        clearMemory()
+        catalog?.clearAccountData()
+    }
+
     companion object {
-        /** Shared across screen opens; test constructors default to a fresh store. */
-        val shared = VaultCacheStore()
+        private val ITEM_CATEGORIES = listOf(
+            VaultCategory.Passwords,
+            VaultCategory.Passkeys,
+            VaultCategory.Codes,
+            VaultCategory.Wifi,
+        )
     }
 }
+
+private fun VaultItemRecord.ui(category: VaultCategory) = VaultItemUi(
+    id = id,
+    category = category,
+    title = title,
+    username = username,
+    groupId = groupId,
+    modifiedAtMs = modifiedAtMs,
+)
+
+private fun VaultGroupRecord.ui() = VaultGroupUi(
+    id = id,
+    name = name,
+    owner = owner,
+    memberCount = memberCount,
+    members = members.map { VaultGroupMemberUi(it.name, it.handle, it.joined, it.currentUser) },
+)
 
 data class PasswordsUiState(
     val loading: Boolean = true,
@@ -151,14 +220,18 @@ class RustPasswordsPort(private val stateProvider: () -> NativePushState?) : Pas
     }
 
     override suspend fun listItems(category: VaultCategory): List<VaultItemUi> = withContext(Dispatchers.IO) {
+        val decoder = vaultPasskeyUserDecoder()
         state().listPasswords(category.itemKind()).map { item ->
+            // Apple gives a passkey no account of its own, so the label comes
+            // from its user tag rather than leaving the row blank.
+            val record = item.record(decoder)
             VaultItemUi(
-                id = item.id,
+                id = record.id,
                 category = item.kind.category(),
-                title = item.title,
-                username = item.username,
-                groupId = item.groupId,
-                modifiedAtMs = item.modifiedAtMs.toLong().takeIf { it > 0 },
+                title = record.title,
+                username = record.username,
+                groupId = record.groupId,
+                modifiedAtMs = record.modifiedAtMs,
             )
         }
     }
@@ -324,18 +397,23 @@ class PasswordsViewModel(
     private var refreshJob: Job? = null
 
     init {
-        seedFromCache()
+        // The in-memory tier paints without suspending, so reopening the screen
+        // has no empty frame at all; the durable tier is read inside [refresh].
+        paintFromCache()
         refresh()
         viewModelScope.launch {
             VaultEditBus.revisions.drop(1).collect {
                 if (mutableState.value.inClique != true) return@collect
+                val generation = VaultCatalogSync.captureGeneration()
                 try {
-                    loadEverything()
+                    loadEverything(generation)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
-                    mutableState.update {
-                        it.copy(error = error.message ?: "iCloud Passwords failed")
+                    VaultCatalogSync.publishIfCurrent(generation) {
+                        mutableState.update {
+                            it.copy(error = error.message ?: "iCloud Passwords failed")
+                        }
                     }
                 }
             }
@@ -345,6 +423,23 @@ class PasswordsViewModel(
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
+            val accountGeneration = VaultCatalogSync.captureGeneration()
+            // A cold process has no in-memory tier; restore the durable catalog
+            // so a cold start paints the last known vault instead of a spinner.
+            val restoredPublication = try {
+                VaultCatalogSync.publishIfCurrent(accountGeneration) { cache.restore() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                false
+            }
+            if (restoredPublication == null) return@launch
+            val restored = restoredPublication
+            if (restored && VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                    paintFromCache()
+                    true
+                } == null
+            ) return@launch
             // Cached content stays on screen; the full-screen spinner only
             // appears when there is nothing at all to show yet.
             val hasContent = mutableState.value.loadedCategories.isNotEmpty()
@@ -352,7 +447,11 @@ class PasswordsViewModel(
             try {
                 val inClique = port.isInClique()
                 if (!inClique) {
-                    cache.clear()
+                    val cleared = VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                        cache.clear()
+                        true
+                    }
+                    if (cleared == null) return@launch
                     mutableState.update {
                         it.copy(
                             loading = false,
@@ -367,20 +466,28 @@ class PasswordsViewModel(
                     }
                     return@launch
                 }
-                cache.inClique = true
-                mutableState.update { it.copy(inClique = true, loading = false) }
-                loadEverything()
+                if (VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                        cache.inClique = true
+                        mutableState.update { it.copy(inClique = true, loading = false) }
+                        true
+                    } == null
+                ) return@launch
+                if (!loadEverything(accountGeneration)) return@launch
                 port.sync()
-                loadEverything()
+                if (!loadEverything(accountGeneration)) return@launch
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update { it.copy(error = error.message ?: "iCloud Passwords failed") }
+                VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                    mutableState.update { it.copy(error = error.message ?: "iCloud Passwords failed") }
+                }
             } finally {
                 // A newer refresh may already be running; only the live one
                 // clears the progress flags.
                 if (coroutineContext.isActive) {
-                    mutableState.update { it.copy(loading = false, busy = false) }
+                    VaultCatalogSync.publishIfCurrent(accountGeneration) {
+                        mutableState.update { it.copy(loading = false, busy = false) }
+                    }
                 }
             }
         }
@@ -393,17 +500,20 @@ class PasswordsViewModel(
         // fallback covers a category whose eager load failed earlier.
         if (!alreadyLoaded && refreshJob?.isActive != true && mutableState.value.inClique == true) {
             viewModelScope.launch {
+                val generation = VaultCatalogSync.captureGeneration()
                 try {
                     if (category == VaultCategory.Groups) {
-                        applyGroups(port.listGroups(), port.listInvites())
+                        applyGroups(generation, port.listGroups(), port.listInvites())
                     } else {
-                        applyItems(category, port.listItems(category))
+                        applyItems(generation, category, port.listItems(category))
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
-                    mutableState.update {
-                        it.copy(error = error.message ?: "iCloud Passwords failed")
+                    VaultCatalogSync.publishIfCurrent(generation) {
+                        mutableState.update {
+                            it.copy(error = error.message ?: "iCloud Passwords failed")
+                        }
                     }
                 }
             }
@@ -412,41 +522,40 @@ class PasswordsViewModel(
 
     fun setQuery(query: String) = mutableState.update { it.copy(query = query) }
 
-    fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction {
+    fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction { generation ->
         port.createPassword(site.trim(), username.trim(), password, groupId)
-        refreshAfterWrite(VaultCategory.Passwords)
+        refreshAfterWrite(generation, VaultCategory.Passwords)
     }
 
-    fun createGroup(name: String) = runAction {
+    fun createGroup(name: String) = runAction { generation ->
         port.createGroup(name.trim())
-        refreshAfterWrite(VaultCategory.Groups)
+        refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
-    fun acceptInvite(id: String) = runAction {
+    fun acceptInvite(id: String) = runAction { generation ->
         port.acceptInvite(id)
-        refreshAfterWrite(VaultCategory.Groups)
+        refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
-    fun declineInvite(id: String) = runAction {
+    fun declineInvite(id: String) = runAction { generation ->
         port.declineInvite(id)
-        refreshAfterWrite(VaultCategory.Groups)
+        refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
     fun clearError() = mutableState.update { it.copy(error = null) }
 
     fun prepareCreatePassword() {
         if (mutableState.value.groupsLoaded) return
-        runAction {
-            applyGroups(port.listGroups(), port.listInvites())
+        runAction { generation ->
+            applyGroups(generation, port.listGroups(), port.listInvites())
         }
     }
 
     /** Paint the last known vault immediately; [refresh] revalidates behind it. */
-    private fun seedFromCache() {
-        if (cache.inClique != true) return
+    private fun paintFromCache() {
+        if (!cache.warm()) return
         val cachedItems = cache.itemsByCategory
         val cachedGroups = cache.groups
-        if (cachedItems.isEmpty() && cachedGroups == null) return
         mutableState.update { state ->
             state.copy(
                 loading = false,
@@ -467,14 +576,24 @@ class PasswordsViewModel(
      * Fetch every category in parallel so counts and lists are all present
      * without tapping through, updating the screen as each one lands.
      */
-    private suspend fun loadEverything() = coroutineScope {
+    private suspend fun loadEverything(generation: Long): Boolean = coroutineScope {
         val loads = ITEM_CATEGORIES.map { category ->
-            async { applyItems(category, port.listItems(category)) }
-        } + async { applyGroups(port.listGroups(), port.listInvites()) }
-        loads.awaitAll()
+            async { applyItems(generation, category, port.listItems(category)) }
+        } + async { applyGroups(generation, port.listGroups(), port.listInvites()) }
+        if (!loads.awaitAll().all { it }) return@coroutineScope false
+        // The screen and the Android credential provider read the same vault;
+        // whatever this pass just saw has to reach the durable catalog too.
+        VaultCatalogSync.publishIfCurrent(generation) {
+            cache.invalidateCatalog()
+            true
+        } != null
     }
 
-    private fun applyItems(category: VaultCategory, items: List<VaultItemUi>) {
+    private suspend fun applyItems(
+        generation: Long,
+        category: VaultCategory,
+        items: List<VaultItemUi>,
+    ): Boolean = VaultCatalogSync.publishIfCurrent(generation) {
         cache.itemsByCategory = cache.itemsByCategory + (category to items)
         mutableState.update { state ->
             state.copy(
@@ -483,9 +602,14 @@ class PasswordsViewModel(
                 categoryCounts = state.categoryCounts + (category to items.size),
             )
         }
-    }
+        true
+    } != null
 
-    private fun applyGroups(groups: List<VaultGroupUi>, invites: List<VaultInviteUi>) {
+    private suspend fun applyGroups(
+        generation: Long,
+        groups: List<VaultGroupUi>,
+        invites: List<VaultInviteUi>,
+    ): Boolean = VaultCatalogSync.publishIfCurrent(generation) {
         cache.groups = groups
         cache.invites = invites
         mutableState.update { state ->
@@ -497,26 +621,36 @@ class PasswordsViewModel(
                 categoryCounts = state.categoryCounts + (VaultCategory.Groups to groups.size),
             )
         }
+        true
+    } != null
+
+    private suspend fun refreshAfterWrite(generation: Long, category: VaultCategory) {
+        if (VaultCatalogSync.publishIfCurrent(generation) {
+                mutableState.update { it.copy(category = category, query = "") }
+                true
+            } == null
+        ) return
+        loadEverything(generation)
     }
 
-    private suspend fun refreshAfterWrite(category: VaultCategory) {
-        mutableState.update { it.copy(category = category, query = "") }
-        loadEverything()
-    }
-
-    private fun runAction(action: suspend () -> Unit) {
+    private fun runAction(action: suspend (Long) -> Unit) {
         viewModelScope.launch {
+            val generation = VaultCatalogSync.captureGeneration()
             mutableState.update { it.copy(busy = true, error = null) }
             try {
-                action()
+                action(generation)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(error = error.message ?: "iCloud Passwords failed")
+                VaultCatalogSync.publishIfCurrent(generation) {
+                    mutableState.update {
+                        it.copy(error = error.message ?: "iCloud Passwords failed")
+                    }
                 }
             } finally {
-                mutableState.update { it.copy(busy = false) }
+                VaultCatalogSync.publishIfCurrent(generation) {
+                    mutableState.update { it.copy(busy = false) }
+                }
             }
         }
     }
@@ -529,9 +663,28 @@ class PasswordsViewModel(
             VaultCategory.Wifi,
         )
 
+        /**
+         * Shared across screen opens so reopening Passwords repaints from the
+         * warm tier; test constructors default to a fresh, catalog-less store.
+         */
+        private val sharedCache: VaultCacheStore by lazy {
+            VaultCacheStore(
+                catalog = AppContext.current?.let { VaultCatalogStore.of(it) },
+                requestCatalogRefresh = {
+                    val context = AppContext.current
+                    val state = PushStateHolder.state
+                    if (context != null && state != null) VaultCatalogSync.refreshNow(context, state)
+                },
+            )
+        }
+
+        internal fun clearSharedCacheForAccountCleanup() {
+            sharedCache.clearMemory()
+        }
+
         fun factory(): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                PasswordsViewModel(RustPasswordsPort { PushStateHolder.state }, VaultCacheStore.shared)
+                PasswordsViewModel(RustPasswordsPort { PushStateHolder.state }, sharedCache)
             }
         }
         fun factory(port: PasswordsPort): ViewModelProvider.Factory = viewModelFactory {

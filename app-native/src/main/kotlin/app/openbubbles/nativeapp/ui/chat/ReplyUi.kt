@@ -237,11 +237,12 @@ internal fun ReplyThreadPane(
         arrivals = outcome.state
         if (outcome.pinToNewest && newestIndex >= 0) {
             if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
+            arrivals = arrivals.cleared()
         }
         // Keep the marker effect key stable until a suspending pin completes.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
-            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+            fallbackGuids = outcome.reconciledFallbackGuids,
         )
     }
     LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {
@@ -263,11 +264,10 @@ internal fun ReplyThreadPane(
         LazyColumn(
             state = listState,
             reverseLayout = true,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = 8.dp,
-                bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
-            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = if (arrivals.pendingCount > 0) 68.dp else 0.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (thread.messages.isEmpty()) {

@@ -45,7 +45,7 @@ class ChatScrollPolicyTest {
     // ---- Passive incoming arrivals -------------------------------------------
 
     @Test
-    fun `incoming while following bottom pins the list and shows no pill`() {
+    fun `incoming while following bottom stays queued until a successful pin`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), true).state
         val outcome = reduceArrivals(
             base,
@@ -54,7 +54,7 @@ class ChatScrollPolicyTest {
         )
         assertEquals(1, outcome.arrivals)
         assertTrue(outcome.pinToNewest)
-        assertEquals(0, outcome.state.pendingCount)
+        assertEquals(1, outcome.state.pendingCount)
     }
 
     @Test
@@ -334,7 +334,7 @@ class ChatScrollPolicyTest {
     }
 
     @Test
-    fun `settling back at the bottom drops queued arrivals`() {
+    fun `pin intent retains queued arrivals until the viewport confirms success`() {
         val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
         val queued = reduceArrivals(
             base,
@@ -347,8 +347,40 @@ class ChatScrollPolicyTest {
             listOf(message(1, start), message(2, start + 1_000), message(3, start + 2_000)),
             followingBottom = true,
         )
-        assertEquals(0, settled.state.pendingCount)
+        assertEquals(2, settled.state.pendingCount)
         assertTrue(settled.pinToNewest)
+    }
+
+    @Test
+    fun `exact live marker in initial snapshot is classified while unmarked rows baseline`() {
+        val live = message(2, start + 1_000)
+        val outcome = reduceArrivals(
+            state = ArrivalState(),
+            messages = listOf(message(1, start), live),
+            followingBottom = false,
+            liveArrivalGuids = setOf(live.guid),
+        )
+
+        assertEquals(1, outcome.arrivals)
+        assertEquals(setOf(live.guid), outcome.state.pendingGuids)
+        assertEquals(setOf(live.guid), outcome.matchedLiveGuids)
+        assertFalse(outcome.pinToNewest)
+    }
+
+    @Test
+    fun `deferred membership markers retain their chat identity and bounded order`() {
+        var deferred = DeferredLiveArrivalState()
+        deferred = deferred.added(7L, "first")
+        deferred = deferred.added(8L, "second")
+        deferred = deferred.added(7L, "first")
+
+        assertEquals(
+            listOf(
+                DeferredLiveArrival(7L, "first"),
+                DeferredLiveArrival(8L, "second"),
+            ),
+            deferred.arrivals,
+        )
     }
 
     // ---- Reverse-layout geometry ---------------------------------------------
@@ -497,12 +529,18 @@ class ChatScrollPolicyTest {
         assertTrue(markers.chronologicalFallback)
         assertEquals(LiveMarkerRetention, markers.reducerGuids.size)
 
-        markers = markers.consumed(emptySet()).added("next")
+        markers = markers.consumed(emptySet()).added("overflow-2")
         assertTrue(markers.chronologicalFallback)
 
-        markers = markers.consumed(setOf("marker-0"), fallbackReconciled = true).added("next")
+        markers = markers.consumed(setOf("marker-0")).added("next")
+        assertTrue(markers.chronologicalFallback)
+        assertEquals(LiveMarkerRetention, markers.reducerGuids.size)
+
+        markers = markers.consumed(
+            emptySet(),
+            fallbackGuids = setOf("overflow", "overflow-2"),
+        )
         assertFalse(markers.chronologicalFallback)
-        assertEquals(setOf("next"), markers.reducerGuids)
     }
 
     @Test
@@ -521,7 +559,7 @@ class ChatScrollPolicyTest {
         )
         markers = markers.consumed(
             beforeRows.matchedLiveGuids,
-            fallbackReconciled = beforeRows.matchedLiveGuids.isNotEmpty() || beforeRows.arrivals > 0,
+            fallbackGuids = beforeRows.reconciledFallbackGuids,
         )
         assertTrue(markers.chronologicalFallback)
 
@@ -535,10 +573,41 @@ class ChatScrollPolicyTest {
         )
         markers = markers.consumed(
             afterRows.matchedLiveGuids,
-            fallbackReconciled = afterRows.matchedLiveGuids.isNotEmpty() || afterRows.arrivals > 0,
+            fallbackGuids = afterRows.reconciledFallbackGuids,
         )
         assertEquals(1, afterRows.arrivals)
+        assertTrue(markers.chronologicalFallback)
+
+        val overflowPersisted = message(3, start + 2_000).copy(guid = "overflow")
+        val overflowRows = reduceArrivals(
+            afterRows.state,
+            listOf(message(1, start), persisted, overflowPersisted),
+            followingBottom = false,
+            liveArrivalGuids = markers.reducerGuids,
+            chronologicalFallback = markers.chronologicalFallback,
+        )
+        markers = markers.consumed(
+            overflowRows.matchedLiveGuids,
+            fallbackGuids = overflowRows.reconciledFallbackGuids,
+        )
+        assertEquals(setOf("overflow"), overflowRows.reconciledFallbackGuids)
         assertFalse(markers.chronologicalFallback)
+    }
+
+    @Test
+    fun `partial overflow reconciliation retains every outstanding marker`() {
+        var markers = LiveArrivalMarkerState()
+        repeat(LiveMarkerRetention) { markers = markers.added("marker-$it") }
+        markers = markers.added("overflow-1").added("overflow-2")
+
+        markers = markers.consumed(
+            guids = setOf("marker-0"),
+            fallbackGuids = setOf("overflow-1"),
+        )
+
+        assertEquals(LiveMarkerRetention - 1, markers.reducerGuids.size)
+        assertEquals(1, markers.overflowCount)
+        assertTrue(markers.chronologicalFallback)
     }
 
     @Test

@@ -15457,7 +15457,18 @@ data class UVaultItem (
     var `title`: kotlin.String,
     var `username`: kotlin.String?,
     var `groupId`: kotlin.String?,
-    var `modifiedAtMs`: kotlin.ULong
+    var `modifiedAtMs`: kotlin.ULong,
+    /**
+     * WebAuthn credential id (passkey `klbl`). The Android credential provider
+     * needs it to honour a relying party's `allowCredentials` list without
+     * re-reading the keychain, and it is public request data, not key material.
+     */
+    var `credentialId`: kotlin.ByteArray?,
+    /**
+     * Passkey user tag (`atag`): CBOR name/displayName/userHandle. Metadata
+     * only; the private key never leaves the keychain through this listing.
+     */
+    var `userTag`: kotlin.ByteArray?
 ) {
 
     companion object
@@ -15475,6 +15486,8 @@ public object FfiConverterTypeUVaultItem: FfiConverterRustBuffer<UVaultItem> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
         )
     }
 
@@ -15484,7 +15497,9 @@ public object FfiConverterTypeUVaultItem: FfiConverterRustBuffer<UVaultItem> {
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterOptionalString.allocationSize(value.`username`) +
             FfiConverterOptionalString.allocationSize(value.`groupId`) +
-            FfiConverterULong.allocationSize(value.`modifiedAtMs`)
+            FfiConverterULong.allocationSize(value.`modifiedAtMs`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`credentialId`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`userTag`)
     )
 
     override fun write(value: UVaultItem, buf: ByteBuffer) {
@@ -15494,6 +15509,8 @@ public object FfiConverterTypeUVaultItem: FfiConverterRustBuffer<UVaultItem> {
             FfiConverterOptionalString.write(value.`username`, buf)
             FfiConverterOptionalString.write(value.`groupId`, buf)
             FfiConverterULong.write(value.`modifiedAtMs`, buf)
+            FfiConverterOptionalByteArray.write(value.`credentialId`, buf)
+            FfiConverterOptionalByteArray.write(value.`userTag`, buf)
     }
 }
 

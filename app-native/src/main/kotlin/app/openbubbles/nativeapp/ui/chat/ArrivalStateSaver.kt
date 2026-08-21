@@ -35,13 +35,31 @@ internal val LiveArrivalMarkerStateSaver = Saver<LiveArrivalMarkerState, Bundle>
                 "unmatched",
                 ArrayList(state.unmatchedGuids.toList().takeLast(LiveMarkerRetention)),
             )
-            putBoolean("fallback", state.chronologicalFallback)
+            putInt("overflowCount", state.overflowCount)
         }
     },
     restore = { saved ->
         LiveArrivalMarkerState(
             unmatchedGuids = saved.getStringArrayList("unmatched").orEmpty().toSet(),
-            chronologicalFallback = saved.getBoolean("fallback"),
+            overflowCount = saved.getInt("overflowCount"),
+        )
+    },
+)
+
+internal val DeferredLiveArrivalStateSaver = Saver<DeferredLiveArrivalState, Bundle>(
+    save = { state ->
+        Bundle().apply {
+            putLongArray("chatIds", state.arrivals.map { it.chatId }.toLongArray())
+            putStringArrayList("guids", ArrayList(state.arrivals.map { it.messageGuid }))
+        }
+    },
+    restore = { saved ->
+        val chatIds = saved.getLongArray("chatIds") ?: longArrayOf()
+        val guids = saved.getStringArrayList("guids").orEmpty()
+        DeferredLiveArrivalState(
+            arrivals = chatIds.indices.mapNotNull { index ->
+                guids.getOrNull(index)?.let { guid -> DeferredLiveArrival(chatIds[index], guid) }
+            },
         )
     },
 )
