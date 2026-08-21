@@ -47,6 +47,30 @@ fun SurfaceSwitcherStatesScreenshot() {
 }
 
 /**
+ * Right-to-left layout: the strip mirrors, so Messages sits at the start edge on
+ * the right and a swipe toward the right advances instead of reversing.
+ */
+@PreviewTest
+@Preview(
+    name = "surface-switcher-rtl",
+    device = Devices.PHONE,
+    showBackground = true,
+    locale = "ar",
+)
+@Composable
+fun SurfaceSwitcherRtlScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        Surface {
+            TopLevelSurfaceSwitcher(
+                current = TopLevelSurface.PASSWORDS,
+                onSelect = {},
+                modifier = Modifier.padding(12.dp),
+            )
+        }
+    }
+}
+
+/**
  * The narrow treatment used inside a two-pane list column, where the labels are
  * dropped and the icons carry the destination names.
  */
