@@ -60,6 +60,10 @@ internal data class ArrivalState(
     /** Clears the pill without rewinding the chronological baseline. */
     fun cleared(): ArrivalState =
         if (pendingGuids.isEmpty()) this else copy(pendingGuids = emptySet())
+
+    /** Removes arrivals already viewed in a focused reply thread. */
+    fun viewed(guids: Set<String>): ArrivalState =
+        if (pendingGuids.none { it in guids }) this else copy(pendingGuids = pendingGuids - guids)
 }
 
 /**

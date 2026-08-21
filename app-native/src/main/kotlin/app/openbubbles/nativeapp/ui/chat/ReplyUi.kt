@@ -252,7 +252,10 @@ internal fun ReplyThreadPane(
         historySyncActive,
         liveArrivalGuids,
         liveArrivalFallback,
+        anchor.isScrollInProgress,
+        followingBottom,
     ) {
+        if (anchor.isScrollInProgress) return@LaunchedEffect
         val outcome = reduceArrivals(
             state = arrivals,
             messages = thread.messages,
