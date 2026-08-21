@@ -140,6 +140,7 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.deleteOwnedOutgoingDraft
 import app.openbubbles.nativeapp.data.StickerTransform
@@ -150,6 +151,7 @@ import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
 import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
 import app.openbubbles.nativeapp.ui.chat.composer.MentionCandidate
 import app.openbubbles.nativeapp.ui.chat.composer.SubjectField
+import app.openbubbles.nativeapp.ui.chat.composer.VideoCompressionReview
 import app.openbubbles.nativeapp.ui.chat.composer.currentLocationMessage
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
@@ -375,6 +377,10 @@ fun ChatScreen(
      */
     showBackButton: Boolean = true,
     onStageAttachments: (List<OutgoingAttachment>) -> Unit = {},
+    onPrepareAttachments: (List<Uri>) -> Unit = {},
+    onPrepareCapturedVideo: (File) -> Unit = {},
+    onConfirmVideoCompression: () -> Unit = {},
+    onCancelVideoCompression: () -> Unit = {},
     onRemovePendingAttachment: (OutgoingAttachment) -> Unit = {},
     onReply: (MessageItem, Long) -> Unit = { _, _ -> },
     onOpenReplyThread: (MessageItem) -> Unit = {},
@@ -511,14 +517,7 @@ fun ChatScreen(
 
     fun stageAttachments(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        scope.launch {
-            val prepared = uris.mapNotNull { prepareOutgoingAttachment(context, it) }
-            if (prepared.isEmpty()) {
-                snackbarHostState.showSnackbar("Could not read attachment")
-                return@launch
-            }
-            onStageAttachments(prepared)
-        }
+        onPrepareAttachments(uris)
     }
 
     // System photo picker for images/videos (multi-select stages them on the
@@ -1251,17 +1250,25 @@ fun ChatScreen(
                 requestCapture(captureVideo)
             },
             onUse = {
-                onStageAttachments(
-                    listOf(
-                        OutgoingAttachment(
-                            file = file,
-                            mime = if (captureVideo) "video/mp4" else "image/jpeg",
-                            uti = if (captureVideo) "public.mpeg-4-movie" else "public.jpeg",
-                            name = file.name,
-                            sizeBytes = file.length(),
+                val sizeBytes = file.length()
+                if (captureVideo && sizeBytes > MAX_OUTGOING_DRAFT_BYTES) {
+                    // The capture is over the local draft policy; route it
+                    // through the same explicit compression review as picked
+                    // videos instead of failing later at send time.
+                    onPrepareCapturedVideo(file)
+                } else {
+                    onStageAttachments(
+                        listOf(
+                            OutgoingAttachment(
+                                file = file,
+                                mime = if (captureVideo) "video/mp4" else "image/jpeg",
+                                uti = if (captureVideo) "public.mpeg-4-movie" else "public.jpeg",
+                                name = file.name,
+                                sizeBytes = sizeBytes,
+                            ),
                         ),
-                    ),
-                )
+                    )
+                }
                 reviewCapture = null
                 captureFile = null
             },
@@ -1270,6 +1277,15 @@ fun ChatScreen(
                 reviewCapture = null
                 captureFile = null
             },
+        )
+    }
+    uiState.videoCompression?.let { compression ->
+        VideoCompressionReview(
+            request = compression.request,
+            inProgress = compression.inProgress,
+            progress = compression.progress,
+            onConfirm = onConfirmVideoCompression,
+            onCancel = onCancelVideoCompression,
         )
     }
 }

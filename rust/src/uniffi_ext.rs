@@ -3184,7 +3184,8 @@ impl NativePushState {
 // incrementally updates local history from iCloud.
 
 use rustpush::cloud_messages::{
-    CloudAttachment, CloudChat, CloudMessage, CloudMessagesClient, MessageSummaryInfo,
+    CloudAttachment, CloudBackgroundProperties, CloudChat, CloudMessage, CloudMessagesClient,
+    MessageSummaryInfo,
 };
 use rustpush::{coder_decode_flattened, NSAttributedString, NSString};
 
@@ -3249,6 +3250,11 @@ pub struct UCloudChat {
     /// A group-photo asset rides on the record. Download it with
     /// [`NativePushState::download_group_photo`].
     pub has_group_photo: bool,
+    /// Native per-chat transcript background from the record's
+    /// `backgroundProperties`, when one is set. Restore source for chats
+    /// whose type-138 message has left the message-sync window; callers
+    /// version-guard against the locally applied background.
+    pub transcript_background: Option<UTranscriptBackground>,
 }
 
 /// Mirror of the `MessageEncryptedv3` CloudKit record with the gzipped
@@ -3461,7 +3467,42 @@ fn conv_chat(c: &CloudChat) -> UCloudChat {
         last_seen_message_guid: c.properties.as_ref().and_then(|p| p.last_seen_message_guid.clone()),
         last_read_message_timestamp: c.last_read_message_timestamp,
         has_group_photo: c.group_photo.is_some(),
+        transcript_background: c
+            .properties
+            .as_ref()
+            .and_then(|p| p.background_properties.as_ref())
+            .and_then(|background| cloud_chat_transcript_background(&c.guid, background)),
     }
+}
+
+/// Convert a chat record's `backgroundProperties` into the same
+/// [`UTranscriptBackground`] shape a type-138 message carries, so the
+/// download/apply path is shared. Incomplete fields (no version, key, or
+/// MMCS reference) decode to `None` — a background we cannot download is
+/// not a background we can restore.
+fn cloud_chat_transcript_background(
+    guid: &str,
+    background: &CloudBackgroundProperties,
+) -> Option<UTranscriptBackground> {
+    let version = background.version?;
+    let message = SetTranscriptBackgroundMessage::Set {
+        aid: 1,
+        bid: version,
+        chat_id: Some(guid.to_string()),
+        object_id: background.object_id.clone()?,
+        payload_version: background.payload_version.unwrap_or(1),
+        background_id: background.background_id.clone().unwrap_or_default(),
+        url: background.url.clone()?,
+        signature: background.signature.clone()?,
+        key: background.key.clone()?,
+        file_size: usize::try_from(background.file_size?).ok()?,
+    };
+    Some(UTranscriptBackground {
+        version,
+        chat_id: Some(guid.to_string()),
+        remove: false,
+        mmcs_xml: message.to_mmcs().and_then(|file| to_plist_xml(&file).ok()),
+    })
 }
 
 /// Dart `convertAttachmentGuid`, preserving message guids that contain `_`:
@@ -3696,6 +3737,66 @@ mod transcript_background_tests {
         ).unwrap();
         assert_eq!(mmcs.key, vec![4, 5, 6]);
         assert_eq!(mmcs.size, 42);
+    }
+
+    /// A chat record's `backgroundProperties` converts into the same
+    /// UTranscriptBackground shape as a type-138 message, including the
+    /// leading-zero key strip, so one download/apply path serves both.
+    #[test]
+    fn conv_chat_exposes_record_background() {
+        let chat = CloudChat {
+            guid: "iMessage;+;chat71510134514464775".to_string(),
+            properties: Some(rustpush::cloud_messages::CloudProp {
+                background_properties: Some(CloudBackgroundProperties {
+                    background_id: Some("547CC841-5B0C-482B-B9E6-4AE369B8F66D".to_string()),
+                    // base64 of [0x00, 4, 5, 6] — Apple's leading zero byte.
+                    key: Some("AAQFBg==".to_string()),
+                    url: Some("https://content.icloud.example/background".to_string()),
+                    signature: Some("AQID".to_string()),
+                    version: Some(790448843634210048),
+                    payload_version: Some(1),
+                    file_size: Some(2137468),
+                    object_id: Some("MY94E02.C01USN00".to_string()),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let background = conv_chat(&chat).transcript_background.expect("record background");
+        assert_eq!(background.version, 790448843634210048);
+        assert!(!background.remove);
+        assert_eq!(background.chat_id.as_deref(), Some("iMessage;+;chat71510134514464775"));
+
+        let mmcs: MMCSFile = plist::from_reader_xml(
+            std::io::Cursor::new(background.mmcs_xml.expect("download reference")),
+        ).unwrap();
+        assert_eq!(mmcs.key, vec![4, 5, 6]); // Apple's leading zero byte stripped
+        assert_eq!(mmcs.size, 2137468);
+        assert_eq!(mmcs.object, "MY94E02.C01USN00");
+    }
+
+    #[test]
+    fn conv_chat_without_record_background_is_none() {
+        let chat = CloudChat {
+            guid: "iMessage;+;family".to_string(),
+            ..Default::default()
+        };
+        assert!(conv_chat(&chat).transcript_background.is_none());
+
+        // A background missing its MMCS reference cannot be restored.
+        let unusable = CloudChat {
+            guid: "iMessage;+;family".to_string(),
+            properties: Some(rustpush::cloud_messages::CloudProp {
+                background_properties: Some(CloudBackgroundProperties {
+                    version: Some(9),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(conv_chat(&unusable).transcript_background.is_none());
     }
 }
 
