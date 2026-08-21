@@ -80,6 +80,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -344,8 +345,8 @@ private fun PhotosGrid(
     }
     // Paging follows the viewport instead of an index guess, so a re-flow to a
     // denser grid cannot skip the fetch or fire it twice.
-    LaunchedEffect(gridState, snapshot.nextCursor) {
-        if (snapshot.nextCursor == null) return@LaunchedEffect
+    LaunchedEffect(gridState, snapshot.nextCursor, filter) {
+        if (snapshot.nextCursor == null || !shouldAutoPagePhotos(filter)) return@LaunchedEffect
         snapshotFlow {
             val info = gridState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -406,6 +407,17 @@ private fun PhotosGrid(
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+        } else if (snapshot.nextCursor != null && !shouldAutoPagePhotos(filter)) {
+            item(key = "filtered-load-more", span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FilledTonalButton(onClick = onLoadMore) {
+                        Text("Load more photos")
+                    }
                 }
             }
         }
@@ -960,17 +972,23 @@ private const val MaxPageZoom = 6f
  * down. At fit scale a horizontal drag therefore still belongs to the pager, so
  * zooming a photo and swiping to the next one never fight.
  */
+@Composable
 private fun Modifier.zoomablePage(
     assetId: String,
     scale: Float,
     onScale: (Float) -> Unit,
     offset: Offset,
     onOffset: (Offset) -> Unit,
-): Modifier = this.pointerInput(assetId, scale) {
+): Modifier {
+    val latestScale by rememberUpdatedState(scale)
+    val latestOffset by rememberUpdatedState(offset)
+    val latestOnScale by rememberUpdatedState(onScale)
+    val latestOnOffset by rememberUpdatedState(onOffset)
+    return this.pointerInput(assetId) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
-        var currentScale = scale
-        var currentOffset = offset
+        var currentScale = latestScale
+        var currentOffset = latestOffset
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.count { it.pressed }
@@ -982,21 +1000,22 @@ private fun Modifier.zoomablePage(
                     } else {
                         Offset.Zero
                     }
-                    onScale(currentScale)
-                    onOffset(currentOffset)
+                    latestOnScale(currentScale)
+                    latestOnOffset(currentOffset)
                     event.changes.forEach { it.consume() }
                 }
                 currentScale > 1f -> {
                     val pan = event.calculatePan()
                     if (pan != Offset.Zero) {
                         currentOffset += pan
-                        onOffset(currentOffset)
+                        latestOnOffset(currentOffset)
                         event.changes.forEach { it.consume() }
                     }
                 }
             }
         } while (event.changes.any { it.pressed })
     }
+}
 }
 
 private fun PhotoTransfer.progressFraction(): Float =
