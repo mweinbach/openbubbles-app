@@ -13,11 +13,20 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
@@ -147,9 +156,63 @@ internal fun ReplyThreadPane(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val lastFromMeId = remember(thread.messages) {
         thread.messages.lastOrNull { it.isFromMe && !it.isGroupEvent }?.id
     }
+
+    // Thread-scoped follow policy: the same reducer as the main transcript, but
+    // with its own counter over the selected root/part only. No typing row here,
+    // so the newest reply always holds the reversed list's bottom slot.
+    val newestIndex = if (thread.messages.isEmpty()) -1 else 0
+    val thresholdPx = with(LocalDensity.current) { FollowBottomThresholdDp.dp.roundToPx() }
+    val anchor by remember(listState) {
+        derivedStateOf {
+            TranscriptAnchor(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        }
+    }
+    val atBottomNow by remember(listState, newestIndex, thresholdPx) {
+        derivedStateOf {
+            val extent = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == newestIndex }?.size ?: 0
+            isFollowingBottom(anchor, newestIndex, followBottomThresholdPx(thresholdPx, extent))
+        }
+    }
+    // As in the main transcript: the follow decision is the position at the last
+    // settled scroll, because inserting the newest reply moves every laid-out
+    // index by one before the arrival effect can read it.
+    var followingBottom by remember(thread.rootGuid, thread.part) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) followingBottom = atBottomNow
+        }
+    }
+    // Selecting another root/part is a different viewport; closing the thread
+    // disposes this state entirely, so no stale announcement can replay.
+    var arrivals by remember(thread.rootGuid, thread.part) { mutableStateOf(ArrivalState()) }
+    LaunchedEffect(thread.messages, thread.rootGuid, thread.part) {
+        val outcome = reduceArrivals(
+            state = arrivals,
+            messages = thread.messages,
+            followingBottom = shouldAutoScrollToNewest(followingBottom, anchor),
+        )
+        arrivals = outcome.state
+        if (outcome.pinToNewest && newestIndex >= 0) {
+            listState.animateScrollToItem(newestIndex)
+        }
+    }
+    LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {
+        if (arrivals.pendingCount == 0) return@LaunchedEffect
+        if (!atBottomNow || anchor.isScrollInProgress) return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         if (thread.messages.isEmpty() && thread.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -216,5 +279,22 @@ internal fun ReplyThreadPane(
                     .align(Alignment.TopCenter),
             )
         }
+        NewMessagesJumpPill(
+            visible = arrivals.pendingCount > 0,
+            count = arrivals.pendingCount,
+            thread = true,
+            onClick = {
+                scope.launch {
+                    if (newestIndex < 0) return@launch
+                    listState.animateScrollToItem(newestIndex)
+                    if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+                        arrivals = arrivals.cleared()
+                    }
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp),
+        )
     }
 }

@@ -109,6 +109,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -123,6 +124,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -505,7 +507,10 @@ fun ChatScreen(
     LaunchedEffect(uiState.outgoingSendEvent) {
         val event = uiState.outgoingSendEvent ?: return@LaunchedEffect
         if (pendingEffectId == event.effectId) stagePendingEffect(null)
-        listState.animateScrollToItem(0)
+        // The staged row already exists (the ViewModel holds the event until it
+        // does); target the newest message rather than index 0 so a visible
+        // typing row cannot leave the sent bubble half off-screen.
+        listState.animateScrollToItem(newestMessageIndex(entries, isTyping).coerceAtLeast(0))
         onOutgoingSendEventConsumed(event.messageId)
     }
 
@@ -678,6 +683,78 @@ fun ChatScreen(
         }
     }
 
+    // ---- New-message follow policy -------------------------------------------
+    // Reversed list: index 0 is the visual bottom, and the optional typing row
+    // takes that slot when someone is typing, so the newest message row is
+    // resolved by entry position rather than assumed to be index 0.
+    val newestIndex = remember(entries, isTyping) { newestMessageIndex(entries, isTyping) }
+    val followThresholdBasePx = with(LocalDensity.current) {
+        FollowBottomThresholdDp.dp.roundToPx()
+    }
+    val transcriptAnchor by remember(listState) {
+        derivedStateOf {
+            TranscriptAnchor(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                firstVisibleOffsetPx = listState.firstVisibleItemScrollOffset,
+                isScrollInProgress = listState.isScrollInProgress,
+            )
+        }
+    }
+    val atBottomNow by remember(listState, newestIndex, followThresholdBasePx) {
+        derivedStateOf {
+            val extent = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == newestIndex }?.size ?: 0
+            isFollowingBottom(
+                anchor = transcriptAnchor,
+                newestMessageIndex = newestIndex,
+                thresholdPx = followBottomThresholdPx(followThresholdBasePx, extent),
+            )
+        }
+    }
+    // Arrival decisions use the reading position as of the last settled scroll,
+    // not the position measured after the snapshot landed: a row inserted at the
+    // bottom of a reversed list keeps its predecessor anchored, which moves every
+    // laid-out index by one and would read as "the reader left the bottom".
+    var followingBottom by remember(uiState.chat?.id) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) followingBottom = atBottomNow
+        }
+    }
+    // Reset per conversation: a new chat establishes its own baseline and can
+    // never inherit the previous transcript's pending count.
+    var arrivals by remember(uiState.chat?.id) { mutableStateOf(ArrivalState()) }
+
+    suspend fun jumpToNewest() {
+        val target = newestIndex
+        if (target < 0) return
+        listState.animateScrollToItem(target)
+        // Clear only once layout confirms the newest row is actually visible.
+        if (listState.layoutInfo.visibleItemsInfo.any { it.index == target }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
+    LaunchedEffect(uiState.messages, uiState.chat?.id) {
+        val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
+        val outcome = reduceArrivals(arrivals, uiState.messages, pinned)
+        arrivals = outcome.state
+        // Scroll only after the arriving row is part of the rendered snapshot.
+        if (outcome.pinToNewest && newestIndex >= 0) {
+            listState.animateScrollToItem(newestIndex)
+        }
+    }
+
+    // Reaching the bottom by hand clears the pill, but only after the newest
+    // row is really visible and the gesture has settled.
+    LaunchedEffect(atBottomNow, transcriptAnchor.isScrollInProgress, newestIndex) {
+        if (arrivals.pendingCount == 0) return@LaunchedEffect
+        if (!atBottomNow || transcriptAnchor.isScrollInProgress) return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.any { it.index == newestIndex }) {
+            arrivals = arrivals.cleared()
+        }
+    }
+
     // Reverse layout: the visual top of the list is the highest index.
     val nearTop by remember(entries.size) {
         derivedStateOf {
@@ -685,8 +762,29 @@ fun ChatScreen(
             entries.size > 12 && lastVisibleIndex >= entries.size - 5
         }
     }
+    // Older pages append at higher indices in the reversed list, so the reading
+    // position normally survives insertion untouched; the captured anchor is the
+    // guard that proves it and restores the exact offset if it ever moves.
+    var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
     LaunchedEffect(nearTop) {
-        if (nearTop) onLoadOlder()
+        if (!nearTop) return@LaunchedEffect
+        pagingAnchor = capturePagingAnchor(
+            anchor = transcriptAnchor,
+            visibleKeys = listState.layoutInfo.visibleItemsInfo
+                .mapNotNull { info -> (info.key as? String)?.let { info.index to it } }
+                .toMap(),
+        )
+        onLoadOlder()
+    }
+    LaunchedEffect(entries) {
+        val anchor = pagingAnchor ?: return@LaunchedEffect
+        pagingAnchor = null
+        val keys = buildList {
+            if (isTyping) add("typing-indicator")
+            entries.forEach { add(it.key) }
+        }
+        val target = pagingAnchorScrollTarget(anchor, keys) ?: return@LaunchedEffect
+        listState.scrollToItem(target.first, target.second)
     }
 
     val background = rememberChatBackground(
@@ -1072,6 +1170,20 @@ fun ChatScreen(
                             }
                         }
                     }
+                }
+                // Overlay, not a transcript item: the Scaffold content padding
+                // already ends above the composer (which owns the IME and
+                // navigation-bar insets), so the pill rides that measured edge
+                // with the keyboard open or closed and covers no bubble.
+                if (openThread == null) {
+                    NewMessagesJumpPill(
+                        visible = arrivals.pendingCount > 0 && !uiState.initialLoading,
+                        count = arrivals.pendingCount,
+                        onClick = { scope.launch { jumpToNewest() } },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp),
+                    )
                 }
             }
         }
