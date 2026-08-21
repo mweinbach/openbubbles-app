@@ -30,9 +30,12 @@ class OutgoingAttachmentFilesTest {
         val root = Files.createTempDirectory("outgoing-limit").toFile()
         val partial = root.resolve("payload.part")
         try {
-            assertFailsWith<IOException> {
+            // The typed too-large signal lets video staging offer compression
+            // instead of a generic read failure; it must stay an IOException.
+            val failure = assertFailsWith<DraftTooLargeException> {
                 copyWithByteLimit(ByteArrayInputStream(ByteArray(9)), partial, maxBytes = 8)
             }
+            assertTrue(failure is IOException)
             assertTrue(partial.length() <= 8L)
         } finally {
             root.deleteRecursively()
