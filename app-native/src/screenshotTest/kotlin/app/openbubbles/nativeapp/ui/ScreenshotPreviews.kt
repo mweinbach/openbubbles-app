@@ -989,9 +989,12 @@ fun ChatScreenSmsScreenshot() {
                     avatarColor = 0xFF3949AB,
                     isSms = true,
                 ),
+                // The green identity is per row, not per chat: a merged contact
+                // conversation carries iMessage and SMS rows side by side.
                 messages = listOf(
-                    message(1, "carrier thread below", fromMe = false),
-                    message(2, "green bubble out", fromMe = true, status = MessageStatus.SENT),
+                    message(1, "carrier thread below", fromMe = false).copy(isSms = true),
+                    message(2, "green bubble out", fromMe = true, status = MessageStatus.SENT)
+                        .copy(isSms = true),
                 ),
             ),
             onInputChange = {},
