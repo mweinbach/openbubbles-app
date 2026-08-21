@@ -42,6 +42,19 @@ class ChatScrollPolicyTest {
         assertEquals(restored, empty.state)
     }
 
+    @Test
+    fun `viewing a focused thread clears only its pending replies`() {
+        val state = ArrivalState(
+            initialized = true,
+            pendingGuids = linkedSetOf("thread-reply", "conversation-arrival"),
+        )
+
+        assertEquals(
+            setOf("conversation-arrival"),
+            state.viewed(setOf("thread-reply")).pendingGuids,
+        )
+    }
+
     // ---- Passive incoming arrivals -------------------------------------------
 
     @Test

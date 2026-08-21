@@ -752,6 +752,7 @@ fun ChatScreen(
     val membershipResolved = routeMemberChatIds != null || uiState.chat != null
     val currentLiveArrivalChatIds by rememberUpdatedState(observedLiveArrivalChatIds)
     val currentMembershipResolved by rememberUpdatedState(membershipResolved)
+    val currentOpenThread by rememberUpdatedState(openThread)
     var deferredMembershipArrivals by rememberSaveable(
         arrivalStateKey,
         stateSaver = DeferredLiveArrivalStateSaver,
@@ -765,6 +766,15 @@ fun ChatScreen(
         LiveMessageArrivals.events.collect { arrival ->
             if (arrival.sequence <= liveArrivalSequence) return@collect
             liveArrivalSequence = arrival.sequence
+            val focusedThread = currentOpenThread
+            if (focusedThread != null &&
+                arrival.threadRootGuid == focusedThread.rootGuid &&
+                arrival.threadPart == focusedThread.part
+            ) {
+                // The visible thread owns this arrival. Advancing the cursor
+                // without queuing it prevents a stale hidden-transcript pill.
+                return@collect
+            }
             if (!currentMembershipResolved) {
                 // Membership resolves from the repository off-main. Retain the
                 // short startup window because the intake flow intentionally
@@ -796,6 +806,14 @@ fun ChatScreen(
         arrivalStateKey,
         stateSaver = ArrivalStateSaver,
     ) { mutableStateOf(ArrivalState()) }
+
+    LaunchedEffect(openThread?.rootGuid, openThread?.part, openThread?.messages) {
+        val viewedGuids = openThread?.messages?.mapTo(LinkedHashSet()) { it.guid }.orEmpty()
+        if (viewedGuids.isNotEmpty()) {
+            arrivals = arrivals.viewed(viewedGuids)
+            liveArrivalMarkers = liveArrivalMarkers.consumed(viewedGuids)
+        }
+    }
 
     val currentEntries by rememberUpdatedState(entries)
     val currentTyping by rememberUpdatedState(isTyping)
@@ -849,7 +867,12 @@ fun ChatScreen(
         historySyncActive,
         liveArrivalSnapshot,
         liveArrivalFallback,
+        transcriptAnchor.isScrollInProgress,
+        followingBottom,
     ) {
+        // Keep both the row and its exact marker pending until gesture/fling
+        // ownership settles; consuming during motion cannot be reconsidered.
+        if (transcriptAnchor.isScrollInProgress) return@LaunchedEffect
         val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
         val outcome = reduceArrivals(
             state = arrivals,
