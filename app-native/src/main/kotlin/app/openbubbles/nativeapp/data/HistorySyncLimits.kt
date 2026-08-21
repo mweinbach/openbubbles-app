@@ -1,7 +1,7 @@
 package app.openbubbles.nativeapp.data
 
+import android.annotation.SuppressLint
 import android.content.Context
-import androidx.core.content.edit
 import app.openbubbles.core.sync.CloudSyncPort
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
@@ -71,8 +71,11 @@ class HistorySyncPreferences(context: Context) {
         get() = HistorySyncWindow.fromPersistedValue(
             prefs.getString(KEY_HISTORY_SYNC_WINDOW, null),
         )
+        @SuppressLint("UseKtx") // commit() establishes ordering before the download is armed.
         set(value) {
-            prefs.edit { putString(KEY_HISTORY_SYNC_WINDOW, value.persistedValue) }
+            check(prefs.edit().putString(KEY_HISTORY_SYNC_WINDOW, value.persistedValue).commit()) {
+                "failed to persist history sync window"
+            }
         }
 }
 

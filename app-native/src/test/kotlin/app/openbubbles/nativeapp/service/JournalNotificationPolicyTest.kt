@@ -92,6 +92,28 @@ class JournalNotificationPolicyTest {
     }
 
     @Test
+    fun `the locked first-run backfill withholds every alert it would otherwise post`() {
+        assertEquals(
+            IncomingNotificationDisposition.INITIAL_HISTORY_DOWNLOAD,
+            incomingNotificationDisposition(
+                eligibleFacts(newlyIngested = true, initialHistoryDownloadActive = true),
+            ),
+        )
+    }
+
+    @Test
+    fun `an unpersisted message still reports as unpersisted during the backfill`() {
+        // The service treats NOT_PERSISTED as a hard error; silencing alerts
+        // must not swallow that signal.
+        assertEquals(
+            IncomingNotificationDisposition.NOT_PERSISTED,
+            incomingNotificationDisposition(
+                eligibleFacts(persisted = false, initialHistoryDownloadActive = true),
+            ),
+        )
+    }
+
+    @Test
     fun `active notification matching requires both message and conversation identity`() {
         val identity = conversationIdentity(7L)
         val matching = ActiveMessageNotificationRef(
@@ -177,6 +199,7 @@ class JournalNotificationPolicyTest {
         blocked: Boolean = false,
         notificationsEnabled: Boolean = true,
         activeMatchingNotification: Boolean = false,
+        initialHistoryDownloadActive: Boolean = false,
     ) = IncomingNotificationFacts(
         source = source,
         newlyIngested = newlyIngested,
@@ -188,5 +211,6 @@ class JournalNotificationPolicyTest {
         blocked = blocked,
         notificationsEnabled = notificationsEnabled,
         activeMatchingNotification = activeMatchingNotification,
+        initialHistoryDownloadActive = initialHistoryDownloadActive,
     )
 }

@@ -90,6 +90,7 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MapPrefs
 import app.openbubbles.nativeapp.data.MessagingPrefs
@@ -212,6 +213,10 @@ data object SettingsKey : NavKey
 
 @Serializable
 data object PasswordsKey : NavKey
+
+internal fun passwordsReturnsToSettings(backStack: List<NavKey>): Boolean =
+    backStack.lastOrNull() is PasswordsKey &&
+        backStack.getOrNull(backStack.lastIndex - 1) is SettingsKey
 
 /**
  * One vault item opened as its own page. Carries the list row's snapshot so
@@ -436,6 +441,14 @@ fun OpenBubblesApp(
         }
     }
 
+    fun openICloudSettingsFromPasswords() {
+        if (passwordsReturnsToSettings(backStack)) {
+            popBack()
+        } else {
+            navigateTo(SettingsKey)
+        }
+    }
+
     /**
      * Opening a conversation from the list SWAPS the open one instead of
      * stacking on top of it. In two-pane this is the Material list-detail
@@ -623,14 +636,24 @@ fun OpenBubblesApp(
     var onboardingComplete by remember(onboardingPrefs) {
         androidx.compose.runtime.mutableStateOf(onboardingPrefs?.getBoolean("onboarding_complete", false) ?: true)
     }
+    // Sign-in installs the push state mid-onboarding (the keychain and
+    // history steps need a live connection), so latch the flow open instead
+    // of letting the arriving state dismiss it. This durable latch also tells
+    // a freshly restored process to revive the Apple session before rendering
+    // those post-sign-in steps.
+    var onboardingActive by remember(onboardingPrefs) {
+        androidx.compose.runtime.mutableStateOf(
+            context?.let(InitialHistoryDownload::isPostSignInOnboardingActive) == true,
+        )
+    }
 
     // A force-stop or process restart clears the in-memory holder even though
     // IDS registration remains on disk. Returning users must restore the live
     // state when the activity becomes usable again; boot broadcasts alone are
     // insufficient because Android suppresses them for force-stopped apps.
-    LaunchedEffect(context, onboardingComplete) {
+    LaunchedEffect(context, onboardingComplete, onboardingActive) {
         val ctx = context ?: return@LaunchedEffect
-        if (!onboardingComplete) return@LaunchedEffect
+        if (!onboardingComplete && !onboardingActive) return@LaunchedEffect
         val hasRegistration = withContext(Dispatchers.IO) {
             runCatching { hasSavedUsers(ctx.filesDir.absolutePath) }.getOrDefault(false)
         }
@@ -642,15 +665,33 @@ fun OpenBubblesApp(
         }
     }
 
-    if (pushState == null && !onboardingComplete && context != null) {
+    if ((pushState == null || onboardingActive) && !onboardingComplete && context != null) {
         OnboardingScreen(
-            onFinished = {
-                onboardingPrefs?.edit { putBoolean("onboarding_complete", true) }
-                onboardingComplete = true
+            resumeAfterSignIn = onboardingActive,
+            onSignedIn = {
+                onboardingActive = true
+                InitialHistoryDownload.setPostSignInOnboardingActive(context, true)
                 NativePushService.reloadAfterLogin(context)
+            },
+            onFinished = { completionPersisted ->
+                if (!completionPersisted) InitialHistoryDownload.completeOnboarding(context)
+                onboardingComplete = true
+                // Sign-in already reloaded the service; reloading again here
+                // would drop the connection just as the backfill starts.
+                if (!onboardingActive) NativePushService.reloadAfterLogin(context)
+                onboardingActive = false
                 requestBatteryExemptionOnce(context)
             },
-            onLaunchSignIn = { },
+        )
+        return
+    }
+
+    // The one-time iCloud backfill armed at the end of onboarding owns the
+    // whole screen (and silences notifications) until it finishes.
+    val historyDownloadPending by InitialHistoryDownload.pending.collectAsStateWithLifecycle()
+    if (historyDownloadPending && context != null) {
+        HistoryDownloadLockScreen(
+            onDismiss = { InitialHistoryDownload.abandon(context) },
         )
         return
     }
@@ -894,6 +935,10 @@ fun OpenBubblesApp(
                         onSend = viewModel::sendMessage,
                         onLoadOlder = viewModel::loadOlder,
                         onStageAttachments = viewModel::stageAttachments,
+                        onPrepareAttachments = { uris -> viewModel.prepareAttachments(conversationContext, uris) },
+                        onPrepareCapturedVideo = { file -> viewModel.prepareCapturedVideo(conversationContext, file) },
+                        onConfirmVideoCompression = { viewModel.confirmVideoCompression(conversationContext) },
+                        onCancelVideoCompression = viewModel::cancelVideoCompression,
                         onRemovePendingAttachment = viewModel::removePendingAttachment,
                         onReply = viewModel::beginReply,
                         onOpenReplyThread = viewModel::openReplyThread,
@@ -1053,7 +1098,7 @@ fun OpenBubblesApp(
                         uiState = state,
                         onBack = { popBack() },
                         onRefresh = viewModel::refresh,
-                        onOpenICloudSettings = { popBack() },
+                        onOpenICloudSettings = { openICloudSettingsFromPasswords() },
                         onCategory = viewModel::setCategory,
                         onQuery = viewModel::setQuery,
                         onSelect = { item ->
