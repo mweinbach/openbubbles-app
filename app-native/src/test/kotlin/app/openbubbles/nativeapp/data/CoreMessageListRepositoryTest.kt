@@ -11,17 +11,13 @@ import java.nio.file.Files
 import java.util.Date
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -368,20 +364,19 @@ class CoreMessageListRepositoryTest {
     @Test
     fun `warm gives up after two invalidated loads instead of spinning`() = runBlocking {
         val loads = AtomicInteger()
-        val changes = MessageRepo(store)
         repository.close()
         repository = CoreMessageListRepository(MessageRepo(store), store) { _, _ ->
-            coroutineScope {
-                val observed = async(start = CoroutineStart.UNDISPATCHED) {
-                    changes.observeTranscriptChanges().drop(1).first()
-                }
-                yield()
-                val sequence = loads.incrementAndGet()
-                store.boxFor(Message::class.java).put(Message().apply {
-                    guid = "invalidating-$sequence"
-                    chat.target = firstChat
-                })
-                withTimeout(2_000) { observed.await() }
+            val before = repository.observedChangeGeneration()
+            val sequence = loads.incrementAndGet()
+            store.boxFor(Message::class.java).put(Message().apply {
+                guid = "invalidating-$sequence"
+                chat.target = firstChat
+            })
+            // The load is only discarded when the repository itself has seen
+            // the invalidation, so wait for its counter and not for a second
+            // collector of the same store signal.
+            withTimeout(2_000) {
+                while (repository.observedChangeGeneration() == before) delay(1)
             }
             listOf(messageItem(loads.get().toLong(), "unstable"))
         }

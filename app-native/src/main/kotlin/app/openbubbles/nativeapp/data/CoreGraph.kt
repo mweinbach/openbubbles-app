@@ -1657,6 +1657,14 @@ internal class CoreMessageListRepository(
         return selected
     }
 
+    /**
+     * Invalidations this repository has already folded into its own state.
+     * Warm loads are only accepted when this does not move while they run, so
+     * a test proving that has to wait on this counter rather than on its own
+     * separate collector of the same store signal.
+     */
+    internal fun observedChangeGeneration(): Long = changeGeneration.get()
+
     internal fun close() {
         cacheScope.cancel()
     }
