@@ -777,6 +777,13 @@ pub struct UVaultItem {
     pub username: Option<String>,
     pub group_id: Option<String>,
     pub modified_at_ms: u64,
+    /// WebAuthn credential id (passkey `klbl`). The Android credential provider
+    /// needs it to honour a relying party's `allowCredentials` list without
+    /// re-reading the keychain, and it is public request data, not key material.
+    pub credential_id: Option<Vec<u8>>,
+    /// Passkey user tag (`atag`): CBOR name/displayName/userHandle. Metadata
+    /// only; the private key never leaves the keychain through this listing.
+    pub user_tag: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Record)]
@@ -1320,6 +1327,8 @@ impl NativePushState {
                     username: Some(password.acct),
                     group_id,
                     modified_at_ms: password.mdat,
+                    credential_id: None,
+                    user_tag: None,
                 })
                 .collect(),
             UVaultItemKind::Code => RUNTIME.block_on(api::get_passwords_meta(&manager))
@@ -1334,6 +1343,8 @@ impl NativePushState {
                         username: totp.account_name.or(Some(metadata.acct)),
                         group_id,
                         modified_at_ms: metadata.mdat,
+                        credential_id: None,
+                        user_tag: None,
                     })
                 })
                 .collect(),
@@ -1346,6 +1357,8 @@ impl NativePushState {
                     username: None,
                     group_id,
                     modified_at_ms: passkey.mdat,
+                    credential_id: Some(passkey.klbl),
+                    user_tag: Some(passkey.atag),
                 })
                 .collect(),
             UVaultItemKind::Wifi => RUNTIME.block_on(api::get_wifi_passwords(&manager))
@@ -1357,6 +1370,8 @@ impl NativePushState {
                     username: None,
                     group_id,
                     modified_at_ms: wifi.mdat,
+                    credential_id: None,
+                    user_tag: None,
                 })
                 .collect(),
         };
