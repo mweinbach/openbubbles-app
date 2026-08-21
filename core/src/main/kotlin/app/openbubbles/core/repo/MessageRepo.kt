@@ -1,5 +1,6 @@
 package app.openbubbles.core.repo
 
+import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.AttachmentStamp
 import app.openbubbles.core.model.MessageItem
@@ -23,10 +24,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Date
 
 /**
@@ -40,11 +40,18 @@ import java.util.Date
 class MessageRepo(
     private val store: BoxStore,
     private val chatRepo: ChatRepo = ChatRepo(store),
+    /**
+     * Data root holding `attachments/` (the Flutter-era `app_flutter`
+     * directory on Android). When absent the projection reports no payload
+     * identity, which is what non-rendering callers and host tests want.
+     */
+    attachmentsRoot: File? = null,
 ) {
 
     private val chatBox = store.boxFor(Chat::class.java)
     private val messageBox = store.boxFor(Message::class.java)
     private val invalidations = StoreInvalidationCoordinators.forStore(store)
+    private val attachmentDisk = attachmentsRoot?.let { AttachmentStore(store, it) }
 
     data class OutgoingAttachmentStage(
         val guid: String,
@@ -91,15 +98,20 @@ class MessageRepo(
      * Reactive newest-first bounded page. The entity-type subscription is only
      * an invalidation signal; every emission executes [messages] with a native
      * ObjectBox limit instead of materializing the entire transcript first.
+     *
+     * The first page comes from the subscription-readiness signal rather than a
+     * merged `flowOf(Unit)`: a separately merged initial value can query before
+     * the change subscription is installed, and any commit landing in that
+     * window is never observed. The window reopens on every resubscription
+     * (the UI restarts this flow whenever its bounded window grows), which is
+     * exactly when an incoming attachment download completes — the resulting
+     * stale transcript only repairs itself when the conversation is reopened.
      */
     fun observeMessages(chatId: Long, limit: Int = 50): Flow<List<MessageItem>> =
-        merge(
-            flowOf(Unit),
-            invalidations.changesFor(
-                StoreEntityChange.MESSAGE,
-                StoreEntityChange.ATTACHMENT,
-                StoreEntityChange.CONTACT,
-            ),
+        invalidations.changesForWithInitial(
+            StoreEntityChange.MESSAGE,
+            StoreEntityChange.ATTACHMENT,
+            StoreEntityChange.CONTACT,
         )
             .conflate()
             .map { messages(chatId, limit) }
@@ -491,6 +503,17 @@ class MessageRepo(
             },
         )
 
+    /**
+     * Path, length and mtime of the payload a renderer would actually open.
+     * [AttachmentStore.existingFile] already rejects an empty or size-mismatched
+     * file, so this is null until a validated payload is on disk.
+     */
+    private fun payloadIdentity(attachment: Attachment): String? {
+        val disk = attachmentDisk ?: return null
+        val file = runCatching { disk.existingFile(attachment) }.getOrNull() ?: return null
+        return "${file.path}:${file.length()}:${file.lastModified()}"
+    }
+
     private fun toItem(message: Message, activeReactions: List<Message>): MessageItem {
         val kind = kindOf(message)
         val activeReaction = activeReactions
@@ -524,6 +547,7 @@ class MessageRepo(
                         sizeBytes = attachment.totalBytes,
                         mime = attachment.mimeType,
                         uti = attachment.uti,
+                        payload = payloadIdentity(attachment),
                     )
                 }
             } else {
