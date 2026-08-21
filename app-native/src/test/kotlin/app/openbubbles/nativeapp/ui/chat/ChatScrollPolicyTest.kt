@@ -490,16 +490,55 @@ class ChatScrollPolicyTest {
     fun `live marker overflow falls back instead of silently evicting`() {
         var markers = LiveArrivalMarkerState()
         repeat(LiveMarkerRetention) { markers = markers.added("marker-$it") }
-        assertEquals(LiveMarkerRetention, markers.reducerGuids?.size)
+        assertEquals(LiveMarkerRetention, markers.reducerGuids.size)
 
         markers = markers.added("overflow")
 
         assertTrue(markers.chronologicalFallback)
-        assertNull(markers.reducerGuids)
+        assertEquals(LiveMarkerRetention, markers.reducerGuids.size)
 
         markers = markers.consumed(emptySet()).added("next")
+        assertTrue(markers.chronologicalFallback)
+
+        markers = markers.consumed(setOf("marker-0"), fallbackReconciled = true).added("next")
         assertFalse(markers.chronologicalFallback)
         assertEquals(setOf("next"), markers.reducerGuids)
+    }
+
+    @Test
+    fun `overflow fallback remains armed until a persisted row is reconciled`() {
+        val base = reduceArrivals(ArrivalState(), listOf(message(1, start)), false).state
+        var markers = LiveArrivalMarkerState()
+        repeat(LiveMarkerRetention) { markers = markers.added("marker-$it") }
+        markers = markers.added("overflow")
+
+        val beforeRows = reduceArrivals(
+            base,
+            listOf(message(1, start)),
+            followingBottom = false,
+            liveArrivalGuids = markers.reducerGuids,
+            chronologicalFallback = markers.chronologicalFallback,
+        )
+        markers = markers.consumed(
+            beforeRows.matchedLiveGuids,
+            fallbackReconciled = beforeRows.matchedLiveGuids.isNotEmpty() || beforeRows.arrivals > 0,
+        )
+        assertTrue(markers.chronologicalFallback)
+
+        val persisted = message(2, start + 1_000).copy(guid = "marker-0")
+        val afterRows = reduceArrivals(
+            base,
+            listOf(message(1, start), persisted),
+            followingBottom = false,
+            liveArrivalGuids = markers.reducerGuids,
+            chronologicalFallback = markers.chronologicalFallback,
+        )
+        markers = markers.consumed(
+            afterRows.matchedLiveGuids,
+            fallbackReconciled = afterRows.matchedLiveGuids.isNotEmpty() || afterRows.arrivals > 0,
+        )
+        assertEquals(1, afterRows.arrivals)
+        assertFalse(markers.chronologicalFallback)
     }
 
     @Test
@@ -510,6 +549,14 @@ class ChatScrollPolicyTest {
             .consumed(setOf("matched"))
 
         assertEquals(setOf("waiting"), markers.reducerGuids)
+    }
+
+    @Test
+    fun `grouped conversation observes every member chat arrival`() {
+        assertEquals(
+            setOf(7L, 9L, 11L),
+            liveArrivalChatIds(chatId = 7L, memberChatIds = listOf(7L, 9L, 11L)),
+        )
     }
 
     private fun message(

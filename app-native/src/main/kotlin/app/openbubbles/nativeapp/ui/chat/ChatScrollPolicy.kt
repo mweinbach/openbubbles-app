@@ -70,7 +70,8 @@ internal data class LiveArrivalMarkerState(
     val unmatchedGuids: Set<String> = emptySet(),
     val chronologicalFallback: Boolean = false,
 ) {
-    val reducerGuids: Set<String>? get() = unmatchedGuids.takeUnless { chronologicalFallback }
+    /** Exact markers stay usable while overflow reconciliation is active. */
+    val reducerGuids: Set<String> get() = unmatchedGuids
 
     fun added(guid: String): LiveArrivalMarkerState {
         if (chronologicalFallback || guid in unmatchedGuids) return this
@@ -80,17 +81,27 @@ internal data class LiveArrivalMarkerState(
         return copy(unmatchedGuids = LinkedHashSet(unmatchedGuids).apply { add(guid) })
     }
 
-    fun consumed(guids: Set<String>): LiveArrivalMarkerState =
+    fun consumed(
+        guids: Set<String>,
+        fallbackReconciled: Boolean = false,
+    ): LiveArrivalMarkerState =
         if (chronologicalFallback) {
-            // One chronological reconciliation drains the overflow batch; the
-            // next scoped live event returns to exact GUID matching.
-            LiveArrivalMarkerState()
+            // Do not leave fallback merely because its marker state triggered
+            // a reduction before ObjectBox delivered the corresponding rows.
+            if (fallbackReconciled) LiveArrivalMarkerState() else this
         } else if (guids.isEmpty()) {
             this
         } else {
             copy(unmatchedGuids = unmatchedGuids - guids)
         }
 }
+
+/** Every protocol chat represented by a contact-grouped conversation. */
+internal fun liveArrivalChatIds(chatId: Long?, memberChatIds: List<Long>): Set<Long> =
+    buildSet {
+        chatId?.let(::add)
+        addAll(memberChatIds)
+    }
 
 /** What the caller should do after folding one snapshot into [ArrivalState]. */
 internal data class ArrivalOutcome(
@@ -131,6 +142,8 @@ internal fun reduceArrivals(
     historySyncActive: Boolean = false,
     /** Exact GUIDs observed at live intake; null keeps the pure legacy fallback for host callers. */
     liveArrivalGuids: Set<String>? = null,
+    /** Also reconcile untracked overflow rows chronologically for this snapshot. */
+    chronologicalFallback: Boolean = false,
 ): ArrivalOutcome {
     if (messages.isEmpty()) {
         // Repository startup can briefly emit empty after saveable state was
@@ -171,7 +184,11 @@ internal fun reduceArrivals(
                 // Persistence and the process-local marker are delivered by
                 // independent flows. A row that was already baselined must
                 // still be recognized when its marker arrives later.
-                it.guid in liveArrivalGuids && it.guid !in state.consumedLiveGuids
+                (it.guid in liveArrivalGuids && it.guid !in state.consumedLiveGuids) ||
+                    (chronologicalFallback &&
+                        it.guid !in state.knownGuids &&
+                        !historySyncActive &&
+                        isNewerThanBaseline(it, state))
             } else {
                 it.guid !in state.knownGuids &&
                     !historySyncActive && isNewerThanBaseline(it, state)

@@ -719,15 +719,19 @@ fun ChatScreen(
     ) {
         mutableStateOf(LiveArrivalMarkerState())
     }
-    LaunchedEffect(uiState.chat?.id) {
-        val chatId = uiState.chat?.id ?: return@LaunchedEffect
+    val observedLiveArrivalChatIds = remember(uiState.chat?.id, uiState.chat?.memberChatIds) {
+        liveArrivalChatIds(uiState.chat?.id, uiState.chat?.memberChatIds.orEmpty())
+    }
+    LaunchedEffect(observedLiveArrivalChatIds) {
+        if (observedLiveArrivalChatIds.isEmpty()) return@LaunchedEffect
         LiveMessageArrivals.events.collect { arrival ->
-            if (arrival.chatId == chatId) {
+            if (arrival.chatId in observedLiveArrivalChatIds) {
                 liveArrivalMarkers = liveArrivalMarkers.added(arrival.messageGuid)
             }
         }
     }
     val liveArrivalSnapshot = liveArrivalMarkers.reducerGuids
+    val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
 
     // Reset per conversation: a new chat establishes its own baseline and can
     // never inherit the previous transcript's pending count.
@@ -777,7 +781,13 @@ fun ChatScreen(
         if (scrollToNewest()) onOutgoingSendEventConsumed(event.messageId)
     }
 
-    LaunchedEffect(uiState.messages, uiState.chat?.id, historySyncActive, liveArrivalSnapshot) {
+    LaunchedEffect(
+        uiState.messages,
+        uiState.chat?.id,
+        historySyncActive,
+        liveArrivalSnapshot,
+        liveArrivalFallback,
+    ) {
         val pinned = shouldAutoScrollToNewest(followingBottom, transcriptAnchor)
         val outcome = reduceArrivals(
             state = arrivals,
@@ -785,9 +795,13 @@ fun ChatScreen(
             followingBottom = pinned,
             historySyncActive = historySyncActive,
             liveArrivalGuids = liveArrivalSnapshot,
+            chronologicalFallback = liveArrivalFallback,
         )
         arrivals = outcome.state
-        liveArrivalMarkers = liveArrivalMarkers.consumed(outcome.matchedLiveGuids)
+        liveArrivalMarkers = liveArrivalMarkers.consumed(
+            outcome.matchedLiveGuids,
+            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+        )
         // Scroll only after the arriving row is part of the rendered snapshot.
         if (outcome.pinToNewest) scrollToNewest()
     }

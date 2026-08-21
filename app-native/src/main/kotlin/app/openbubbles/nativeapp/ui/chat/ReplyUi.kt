@@ -209,6 +209,7 @@ internal fun ReplyThreadPane(
         }
     }
     val liveArrivalGuids = liveArrivalMarkers.reducerGuids
+    val liveArrivalFallback = liveArrivalMarkers.chronologicalFallback
     // Selecting another root/part is a different viewport; closing the thread
     // disposes this state entirely, so no stale announcement can replay.
     var arrivals by rememberSaveable(
@@ -216,16 +217,27 @@ internal fun ReplyThreadPane(
         thread.part,
         stateSaver = ArrivalStateSaver,
     ) { mutableStateOf(ArrivalState()) }
-    LaunchedEffect(thread.messages, thread.rootGuid, thread.part, historySyncActive, liveArrivalGuids) {
+    LaunchedEffect(
+        thread.messages,
+        thread.rootGuid,
+        thread.part,
+        historySyncActive,
+        liveArrivalGuids,
+        liveArrivalFallback,
+    ) {
         val outcome = reduceArrivals(
             state = arrivals,
             messages = thread.messages,
             followingBottom = shouldAutoScrollToNewest(followingBottom, anchor),
             historySyncActive = historySyncActive,
             liveArrivalGuids = liveArrivalGuids,
+            chronologicalFallback = liveArrivalFallback,
         )
         arrivals = outcome.state
-        liveArrivalMarkers = liveArrivalMarkers.consumed(outcome.matchedLiveGuids)
+        liveArrivalMarkers = liveArrivalMarkers.consumed(
+            outcome.matchedLiveGuids,
+            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+        )
         if (outcome.pinToNewest && newestIndex >= 0) {
             if (reduceMotion) listState.scrollToItem(newestIndex) else listState.animateScrollToItem(newestIndex)
         }
