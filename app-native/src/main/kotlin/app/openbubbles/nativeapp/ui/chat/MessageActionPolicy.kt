@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.Modifier
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.displayTextForRichLink
 
@@ -68,9 +69,14 @@ internal fun bubbleReactionSummary(message: MessageItem): BubbleReactionSummary?
 internal fun canOpenMessageActions(message: MessageItem): Boolean =
     !message.isGroupEvent && !message.unsent && message.status != MessageStatus.SENDING
 
-/** Double-tap is the iMessage Tapback shortcut; SMS keeps long-press only. */
-internal fun canDoubleTapMessageActions(message: MessageItem, smsChat: Boolean): Boolean =
-    canOpenMessageActions(message) && !smsChat
+/** Double-tap is the iMessage Tapback shortcut; SMS and failed rows keep long-press only. */
+internal fun canDoubleTapMessageActions(message: MessageItem): Boolean =
+    canOpenMessageActions(message) && !message.isSms && message.status != MessageStatus.FAILED
+
+internal fun reactionsForPart(
+    reactions: List<MessageReactionUi>,
+    targetPart: Long,
+): List<MessageReactionUi> = reactions.filter { it.targetPart == targetPart }
 
 internal fun messageAttachments(message: MessageItem): List<AttachmentMeta> =
     message.attachmentMetas.ifEmpty { listOfNotNull(message.attachmentMeta) }

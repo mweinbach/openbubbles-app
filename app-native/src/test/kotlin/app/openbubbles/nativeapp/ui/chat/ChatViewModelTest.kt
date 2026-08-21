@@ -11,6 +11,7 @@ import app.openbubbles.nativeapp.data.FaceTimeLaunch
 import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageListRepository
+import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.data.OutgoingAttachment
 import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
@@ -334,6 +335,34 @@ class ChatViewModelTest {
 
         assertEquals(null, model.uiState.value.messages.single().reactionEmoji)
         assertEquals(false, model.uiState.value.messages.single().unsent)
+    }
+
+    @Test
+    fun `optimistic reaction replaces only my reaction on the selected part`() = runTest(dispatcher) {
+        val target = message(
+            guid = "target",
+            reactions = listOf(
+                MessageReactionUi("❤️", null, true, targetPart = 0L),
+                MessageReactionUi("😂", null, true, targetPart = 1L),
+            ),
+        )
+        val messages = MutableMessages(listOf(target))
+        val actions = DeferredActions()
+        val model = model(RecordingSender(), actions, messageRepository = messages)
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+        advanceUntilIdle()
+
+        model.react(target, 1L, 1)
+        runCurrent()
+        actions.reactionStarted.await()
+
+        assertEquals(
+            listOf(0L to "❤️", 1L to "👍"),
+            model.uiState.value.messages.single().reactions.map { it.targetPart to it.emoji },
+        )
+
+        actions.reactionRelease.complete(Unit)
+        advanceUntilIdle()
     }
 
     @Test
@@ -891,6 +920,7 @@ class ChatViewModelTest {
         date: Long = 1_700_000_000_000L,
         fromMe: Boolean = true,
         reactionEmoji: String? = null,
+        reactions: List<MessageReactionUi> = emptyList(),
         edited: Boolean = false,
         unsent: Boolean = false,
         stickers: List<StickerPlacement> = emptyList(),
@@ -902,6 +932,7 @@ class ChatViewModelTest {
         status = MessageStatus.SENT,
         isGroupEvent = false,
         reactionEmoji = reactionEmoji,
+        reactions = reactions,
         edited = edited,
         unsent = unsent,
         expressiveSendStyleId = effectId,

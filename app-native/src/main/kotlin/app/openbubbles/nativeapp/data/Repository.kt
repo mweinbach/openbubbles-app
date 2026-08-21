@@ -154,13 +154,15 @@ data class RichLinkPreview(
 
 /**
  * One active tapback with the handle that sent it, already resolved to the
- * emoji the transcript draws. Apple allows one active tapback per sender, so
- * [senderAddress] identifies the reactor and `null` means it came from me.
+ * emoji the transcript draws. Apple allows one active tapback per sender and
+ * message part, so [senderAddress] identifies the reactor and `null` means it
+ * came from me.
  */
 data class MessageReactionUi(
     val emoji: String,
     val senderAddress: String?,
     val isFromMe: Boolean,
+    val targetPart: Long = 0L,
 )
 
 data class MessageItem(
@@ -174,7 +176,7 @@ data class MessageItem(
     val isGroupEvent: Boolean,
     val reactionEmoji: String?,
     /**
-     * Every active tapback, one per sender, oldest first. The transcript
+     * Every active tapback, one per sender and part, oldest first. The transcript
      * summarizes these on the bubble; the reaction picker names who reacted.
      */
     val reactions: List<MessageReactionUi> = emptyList(),
@@ -222,6 +224,8 @@ data class MessageItem(
     val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
+    /** True when this row came from the local SIM/MMS service. */
+    val isSms: Boolean = false,
     val isBookmarked: Boolean = false,
     val hasBeenForwarded: Boolean = false,
     val dateDeleted: Long? = null,

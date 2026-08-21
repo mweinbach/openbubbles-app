@@ -147,7 +147,7 @@ internal fun TapbackPickerOverlay(
     modifier: Modifier = Modifier,
     resolveName: (String) -> String? = { null },
 ) {
-    val groups = remember(reactions) { groupReactions(reactions, resolveName) }
+    val groups = groupReactions(reactions, resolveName)
     val selected = remember(reactions) { myReactionEmoji(reactions) }
     // Reduce motion means no grow-in at all, so the surface starts settled
     // rather than animating from a spec that has been swapped for snap().
@@ -314,6 +314,7 @@ private fun TapbackPickerBar(
             PickerIconButton(
                 icon = Icons.Filled.AddReaction,
                 label = "Custom reaction",
+                selected = selectedEmoji != null && selectedEmoji !in ActionTapbacks,
                 onClick = onCustomReaction,
             )
         }
@@ -354,23 +355,37 @@ private fun TapbackEmojiButton(
 private fun PickerIconButton(
     icon: ImageVector,
     label: String,
+    selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val background = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val iconTint = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(PickerEmojiSize)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(background)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = label },
+            .semantics {
+                contentDescription = label
+                if (selected) stateDescription = "Selected"
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = iconTint,
             modifier = Modifier.size(18.dp),
         )
     }

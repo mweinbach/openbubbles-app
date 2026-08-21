@@ -55,6 +55,7 @@ class MessageRepoReactionsTest {
             item.reactions.map { it.type to it.senderAddress },
         )
         assertEquals(listOf(false, false, true), item.reactions.map { it.isFromMe })
+        assertEquals(listOf(0L, 0L, 0L), item.reactions.map { it.targetPart })
         // The newest reaction still drives the single-emoji legacy field.
         assertEquals("love", item.reactionType)
     }
@@ -84,6 +85,20 @@ class MessageRepoReactionsTest {
         assertEquals("🔥", item.reactions.single().emoji)
     }
 
+    @Test
+    fun `one sender can react independently to multiple message parts`() {
+        val alex = handle("alex@icloud.com")
+        target("target-parts", "caption plus photo")
+        reaction("text-like", "target-parts", "like", sender = alex, timestamp = 200L, part = 0L)
+        reaction("photo-love", "target-parts", "love", sender = alex, timestamp = 300L, part = 1L)
+        reaction("remove-text-like", "target-parts", "-like", sender = alex, timestamp = 400L, part = 0L)
+
+        val item = repo.messages(chat.id).single { it.guid == "target-parts" }
+
+        assertEquals(listOf("love"), item.reactions.map { it.type })
+        assertEquals(listOf(1L), item.reactions.map { it.targetPart })
+    }
+
     private fun handle(address: String): Handle = Handle().apply {
         this.address = address
         service = "iMessage"
@@ -108,12 +123,14 @@ class MessageRepoReactionsTest {
         sender: Handle? = null,
         fromMe: Boolean = false,
         emoji: String? = null,
+        part: Long = 0L,
     ) {
         store.boxFor(Message::class.java).put(Message().apply {
             this.guid = guid
             associatedMessageGuid = targetGuid
             associatedMessageType = type
             associatedMessageEmoji = emoji
+            associatedMessagePart = part
             dateCreated = Date(timestamp)
             isFromMe = fromMe
             sender?.let { handleRelation.target = it }

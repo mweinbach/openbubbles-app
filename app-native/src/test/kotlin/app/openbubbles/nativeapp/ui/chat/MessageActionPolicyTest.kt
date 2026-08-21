@@ -28,12 +28,23 @@ class MessageActionPolicyTest {
     }
 
     @Test
-    fun `double tap is an iMessage shortcut only`() {
-        assertTrue(canDoubleTapMessageActions(message(), smsChat = false))
-        assertFalse(canDoubleTapMessageActions(message(), smsChat = true))
-        assertFalse(canDoubleTapMessageActions(message(status = MessageStatus.SENDING), smsChat = false))
-        assertFalse(canDoubleTapMessageActions(message(unsent = true), smsChat = false))
-        assertFalse(canDoubleTapMessageActions(message(isGroupEvent = true), smsChat = false))
+    fun `double tap is an eligible iMessage shortcut only`() {
+        assertTrue(canDoubleTapMessageActions(message()))
+        assertFalse(canDoubleTapMessageActions(message(isSms = true)))
+        assertFalse(canDoubleTapMessageActions(message(status = MessageStatus.SENDING)))
+        assertFalse(canDoubleTapMessageActions(message(status = MessageStatus.FAILED)))
+        assertFalse(canDoubleTapMessageActions(message(unsent = true)))
+        assertFalse(canDoubleTapMessageActions(message(isGroupEvent = true)))
+    }
+
+    @Test
+    fun `picker shows only reactions for the selected part`() {
+        val reactions = listOf(
+            app.openbubbles.nativeapp.data.MessageReactionUi("👍", "alex", false, targetPart = 0L),
+            app.openbubbles.nativeapp.data.MessageReactionUi("❤️", "alex", false, targetPart = 1L),
+        )
+
+        assertEquals(listOf("❤️"), reactionsForPart(reactions, 1L).map { it.emoji })
     }
 
     @Test
@@ -147,7 +158,7 @@ class MessageBubbleInteractionTest {
         val bound = bindMessagePartInteraction(
             onClick = {},
             onOpenActions = {},
-            enableDoubleTapActions = canDoubleTapMessageActions(message, smsChat = true),
+            enableDoubleTapActions = canDoubleTapMessageActions(message.copy(isSms = true)),
         )
 
         assertNull(bound.onDoubleClick)
@@ -161,6 +172,7 @@ private fun message(
     status: MessageStatus = MessageStatus.DELIVERED,
     unsent: Boolean = false,
     isGroupEvent: Boolean = false,
+    isSms: Boolean = false,
     locators: Map<Long, String> = emptyMap(),
 ) = MessageItem(
     id = 1L,
@@ -172,6 +184,7 @@ private fun message(
     reactionEmoji = null,
     unsent = unsent,
     guid = "msg-1",
+    isSms = isSms,
     replyPartLocators = locators,
 )
 

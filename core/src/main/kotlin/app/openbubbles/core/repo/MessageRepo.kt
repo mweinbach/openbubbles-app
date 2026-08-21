@@ -522,6 +522,7 @@ class MessageRepo(
                     senderAddress = reaction.handleRelation.target?.address,
                     isFromMe = reaction.isFromMe,
                     date = reaction.dateCreated,
+                    targetPart = reaction.associatedMessagePart ?: 0L,
                 )
             },
             hasAttachments = message.hasAttachments,
@@ -561,6 +562,7 @@ class MessageRepo(
             },
             stickers = activeReactions.flatMap(::stickerPlacements),
             chatId = message.chat.targetId,
+            isSms = message.chat.target?.isRpSms == true,
             isBookmarked = message.isBookmarked == true,
             hasBeenForwarded = message.hasBeenForwarded,
             dateDeleted = message.dateDeleted,
@@ -590,7 +592,7 @@ class MessageRepo(
 
     /**
      * Collapses reaction rows onto their target bubble. Each sender owns one
-     * active tapback; a later `-type` row removes that sender's matching one.
+     * active tapback per part; a later `-type` row removes the matching part.
      */
     private fun activeReactionsFor(messageGuid: String): List<Message> {
         val reactions = messageBox.query()
@@ -625,7 +627,7 @@ class MessageRepo(
     }
 
     private fun collapseReactions(reactions: List<Message>): List<Message> {
-        val bySender = linkedMapOf<String, Message>()
+        val bySenderAndPart = linkedMapOf<Pair<String, Long>, Message>()
         val stickers = mutableListOf<Message>()
         reactions.forEach { reaction ->
             val type = reaction.associatedMessageType ?: return@forEach
@@ -638,16 +640,17 @@ class MessageRepo(
             } else {
                 "handle:${reaction.handleId ?: reaction.handleRelation.targetId}"
             }
+            val key = senderKey to (reaction.associatedMessagePart ?: 0L)
             if (type.startsWith("-")) {
                 val removedType = type.removePrefix("-")
-                if (bySender[senderKey]?.associatedMessageType == removedType) {
-                    bySender.remove(senderKey)
+                if (bySenderAndPart[key]?.associatedMessageType == removedType) {
+                    bySenderAndPart.remove(key)
                 }
             } else {
-                bySender[senderKey] = reaction
+                bySenderAndPart[key] = reaction
             }
         }
-        return bySender.values + stickers
+        return bySenderAndPart.values + stickers
     }
 
     private fun stickerPlacements(reaction: Message): List<StickerPlacement> {

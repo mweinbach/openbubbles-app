@@ -68,9 +68,9 @@ data class StickerPlacement(
 /**
  * One active tapback on a message, with the handle that sent it.
  *
- * Apple allows one active tapback per sender per message, so this list is
- * already collapsed: a later `-type` row removes that sender's entry rather
- * than adding one. [emoji] is only set for custom emoji tapbacks; the six
+ * Apple allows one active tapback per sender and message part, so this list is
+ * already collapsed: a later `-type` row removes that sender's entry on the
+ * same part rather than adding one. [emoji] is only set for custom emoji tapbacks; the six
  * protocol tapbacks carry their identity in [type] and are rendered by the
  * platform layer.
  */
@@ -80,6 +80,8 @@ data class MessageReaction(
     val senderAddress: String?,
     val isFromMe: Boolean,
     val date: Date?,
+    /** Message part this reaction targets. */
+    val targetPart: Long = 0L,
 )
 
 /**
@@ -113,7 +115,7 @@ data class MessageItem(
     val reactionType: String?,
     /** Custom emoji for emoji tapbacks. */
     val reactionEmoji: String?,
-    /** Every active tapback on this message, one per sender, oldest first. */
+    /** Every active tapback on this message, one per sender and part, oldest first. */
     val reactions: List<MessageReaction> = emptyList(),
     /** True when the message carries attachment metadata. */
     val hasAttachments: Boolean,
@@ -143,6 +145,8 @@ data class MessageItem(
     val subject: String? = null,
     /** Protocol chat that carried this message inside a grouped contact thread. */
     val chatId: Long? = null,
+    /** True when this row came from the local SIM/MMS service. */
+    val isSms: Boolean = false,
     val isBookmarked: Boolean = false,
     val hasBeenForwarded: Boolean = false,
     val dateDeleted: Date? = null,

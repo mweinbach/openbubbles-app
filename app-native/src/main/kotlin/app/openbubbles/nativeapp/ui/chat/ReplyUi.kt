@@ -136,7 +136,6 @@ internal fun ensureThreadContains(
 @Composable
 internal fun ReplyThreadPane(
     thread: ReplyThreadState,
-    smsChat: Boolean,
     senderNames: Map<String, String>,
     attachmentFile: (String) -> File?,
     onOpenAttachment: (String) -> Unit,
@@ -188,7 +187,7 @@ internal fun ReplyThreadPane(
                         showStatus = message.id == lastFromMeId ||
                             message.status == MessageStatus.FAILED,
                         showSenderName = showSender,
-                        smsChat = smsChat,
+                        smsChat = message.isSms,
                         attachmentFile = attachmentFile,
                         onOpenAttachment = onOpenAttachment,
                         onDownloadAttachment = onDownloadAttachment,
@@ -200,7 +199,7 @@ internal fun ReplyThreadPane(
                         } else {
                             null
                         },
-                        onDoubleTapPart = if (canDoubleTapMessageActions(message, smsChat)) {
+                        onDoubleTapPart = if (canDoubleTapMessageActions(message)) {
                             onDoubleTapPart?.let { callback -> { part -> callback(message, part) } }
                         } else {
                             null

@@ -955,6 +955,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
             emoji = emoji,
             senderAddress = reaction.senderAddress,
             isFromMe = reaction.isFromMe,
+            targetPart = reaction.targetPart,
         )
     },
     senderAddress = item.senderAddress,
@@ -980,6 +981,7 @@ private fun coreMessageToUi(item: app.openbubbles.core.model.MessageItem) = Mess
         )
     },
     chatId = item.chatId,
+    isSms = item.isSms,
     isBookmarked = item.isBookmarked,
     hasBeenForwarded = item.hasBeenForwarded,
     dateDeleted = item.dateDeleted?.time,

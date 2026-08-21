@@ -910,7 +910,6 @@ fun ChatScreen(
                     }
                     openThread != null -> ReplyThreadPane(
                         thread = openThread,
-                        smsChat = smsChat,
                         senderNames = senderNames,
                         attachmentFile = resolvedAttachmentFile,
                         onOpenAttachment = onOpenAttachment,
@@ -922,7 +921,7 @@ fun ChatScreen(
                             }
                         },
                         onDoubleTapPart = { message, part ->
-                            if (canDoubleTapMessageActions(message, smsChat)) {
+                            if (canDoubleTapMessageActions(message)) {
                                 reactionTarget = SelectedMessageAction(message, part)
                             }
                         },
@@ -982,7 +981,7 @@ fun ChatScreen(
                                     showSenderName = entry.showSenderName,
                                     showAvatarGutter = isGroupChat,
                                     showAvatar = entry.showAvatar,
-                                    smsChat = smsChat,
+                                    smsChat = entry.message.isSms,
                                     attachmentFile = resolvedAttachmentFile,
                                     onOpenAttachment = onOpenAttachment,
                                     onDownloadAttachment = onDownloadAttachment,
@@ -1036,7 +1035,7 @@ fun ChatScreen(
                                     } else {
                                         null
                                     },
-                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message, smsChat)) {
+                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message)) {
                                         { part -> reactionTarget = SelectedMessageAction(entry.message, part) }
                                     } else {
                                         null
@@ -1110,33 +1109,46 @@ fun ChatScreen(
         // list-detail layout dims the conversation rather than the whole app,
         // and it reads the live row so "who reacted" updates while it is open.
         reactionTarget?.let { selection ->
-            val live = messagesByGuid[selection.message.guid] ?: selection.message
-            TapbackPickerOverlay(
-                reactions = live.reactions,
-                resolveName = { address ->
-                    senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
-                },
-                onReact = { index, emoji ->
-                    reactionTarget = null
-                    onReact(live, selection.part, index, emoji)
-                },
-                onCustomReaction = {
-                    reactionTarget = null
-                    customReactionTarget = selection
-                },
-                onDismiss = { reactionTarget = null },
-            )
+            val live = messagesByGuid[selection.message.guid]
+            val eligible = live?.let(::canDoubleTapMessageActions) == true
+            LaunchedEffect(selection.message.guid, eligible) {
+                if (!eligible) reactionTarget = null
+            }
+            if (live != null && eligible) {
+                TapbackPickerOverlay(
+                    reactions = reactionsForPart(live.reactions, selection.part),
+                    resolveName = { address ->
+                        senderNames[address] ?: ContactDisplayWarmCache.peek(address)?.displayName
+                    },
+                    onReact = { index, emoji ->
+                        reactionTarget = null
+                        onReact(live, selection.part, index, emoji)
+                    },
+                    onCustomReaction = {
+                        reactionTarget = null
+                        customReactionTarget = SelectedMessageAction(live, selection.part)
+                    },
+                    onDismiss = { reactionTarget = null },
+                )
+            }
         }
     }
 
     customReactionTarget?.let { selection ->
-        CustomReactionDialog(
-            onReact = { emoji ->
-                customReactionTarget = null
-                onReact(selection.message, selection.part, CustomReactionIndex, emoji)
-            },
-            onDismiss = { customReactionTarget = null },
-        )
+        val live = messagesByGuid[selection.message.guid]
+        val eligible = live?.let(::canDoubleTapMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) customReactionTarget = null
+        }
+        if (live != null && eligible) {
+            CustomReactionDialog(
+                onReact = { emoji ->
+                    customReactionTarget = null
+                    onReact(live, selection.part, CustomReactionIndex, emoji)
+                },
+                onDismiss = { customReactionTarget = null },
+            )
+        }
     }
 
     // Effect picker sheet (long-press the send button).
