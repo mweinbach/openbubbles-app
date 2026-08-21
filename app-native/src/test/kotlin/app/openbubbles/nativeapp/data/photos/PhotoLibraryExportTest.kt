@@ -52,9 +52,37 @@ class PhotoLibraryExportTest {
     }
 
     @Test
+    fun `nameless sniffed HEIC exports as a camera-style photo`() {
+        val plan = PhotoLibraryExport.plan(
+            cachedFileName = "0123456789abcdef0123456789abcdef.heic",
+            filename = null,
+            mediaKind = PhotoMediaKind.Image,
+            capturedAtMs = 1_700_000_000_000,
+        )
+
+        assertEquals("IMG_0123456789ab.heic", plan?.displayName)
+        assertEquals("image/heic", plan?.mimeType)
+        assertEquals("DCIM/iCloud", plan?.relativePath)
+        assertEquals(false, plan?.video)
+    }
+
+    @Test
+    fun `nameless sniffed video uses a camera-style video filename`() {
+        val plan = PhotoLibraryExport.plan(
+            cachedFileName = "fedcba9876543210.mov",
+            filename = null,
+            mediaKind = PhotoMediaKind.Video,
+            capturedAtMs = null,
+        )
+
+        assertEquals("VID_fedcba987654.mov", plan?.displayName)
+        assertEquals("video/quicktime", plan?.mimeType)
+    }
+
+    @Test
     fun `a missing or hostile name cannot escape the album`() {
         assertEquals(
-            "abc123.jpg",
+            "IMG_abc123.jpg",
             PhotoLibraryExport.plan("abc123.jpg", null, PhotoMediaKind.Image, null)?.displayName,
         )
         assertEquals(

@@ -58,7 +58,7 @@ object PhotoLibraryExport {
             PhotoMediaKind.Video -> if (!isVideo) return null
             PhotoMediaKind.Unknown -> return null
         }
-        val name = displayName(filename, cachedFileName, extension) ?: return null
+        val name = displayName(filename, cachedFileName, extension, isVideo) ?: return null
         return PhotoGalleryExportPlan(
             displayName = name,
             mimeType = mime,
@@ -70,10 +70,16 @@ object PhotoLibraryExport {
 
     /**
      * The iCloud filename when it is safe and already names this format,
-     * otherwise the cache file's own name. Path separators and control
-     * characters are dropped so a hostile record name cannot escape the album.
+     * otherwise a short camera-style name derived from the deterministic cache
+     * key. Path separators and control characters are dropped so a hostile
+     * record name cannot escape the album.
      */
-    private fun displayName(filename: String?, cachedFileName: String, extension: String): String? {
+    private fun displayName(
+        filename: String?,
+        cachedFileName: String,
+        extension: String,
+        video: Boolean,
+    ): String? {
         val candidate = filename?.substringAfterLast('/')?.substringAfterLast('\\')
             ?.filter { it.code in 0x20..0x10FFFF && it != '/' && it != '\\' }
             ?.trim()
@@ -84,7 +90,12 @@ object PhotoLibraryExport {
         }
         val base = candidate?.substringBeforeLast('.')?.takeIf { it.isNotEmpty() }
         if (base != null) return "$base.$extension"
-        return cachedFileName.takeIf { it.isNotEmpty() && it.substringAfterLast('.', "").isNotEmpty() }
+        val identifier = cachedFileName.substringBeforeLast('.', "")
+            .filter(Char::isLetterOrDigit)
+            .take(12)
+            .takeIf(String::isNotEmpty)
+            ?: return null
+        return "${if (video) "VID" else "IMG"}_$identifier.$extension"
     }
 
     private val IMAGE_MIMES = mapOf(

@@ -180,7 +180,132 @@ class PhotoTransferCoordinatorTest {
             assertEquals(0, port.calls)
             assertEquals(1, port.originalCalls)
             assertTrue(File(transfer.localPath).parentFile == File(root, "originals"))
+            assertTrue(transfer.localPath.endsWith(".jpg"))
+            assertEquals("image/jpeg", transfer.mimeType)
             assertContentEquals(jpegPayload(), File(transfer.localPath).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun originalFormatIsSniffedFromMediaBytes() {
+        val root = createTempDirectory("photo-original-formats").toFile()
+        try {
+            val cases = listOf(
+                FormatCase(jpegPayload(), PhotoMediaKind.Image, "jpg", "image/jpeg"),
+                FormatCase(
+                    byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(),
+                        '\r'.code.toByte(), '\n'.code.toByte(), 0x1a, '\n'.code.toByte()),
+                    PhotoMediaKind.Image,
+                    "png",
+                    "image/png",
+                ),
+                FormatCase("GIF89a".toByteArray(), PhotoMediaKind.Image, "gif", "image/gif"),
+                FormatCase(
+                    "RIFF1234WEBP".toByteArray(),
+                    PhotoMediaKind.Image,
+                    "webp",
+                    "image/webp",
+                ),
+                FormatCase(tiffPayload(dng = false), PhotoMediaKind.Image, "tiff", "image/tiff"),
+                FormatCase(tiffPayload(dng = true), PhotoMediaKind.Image, "dng", "image/x-adobe-dng"),
+                FormatCase(ftypPayload("heic"), PhotoMediaKind.Image, "heic", "image/heic"),
+                FormatCase(ftypPayload("heix", "tmap"), PhotoMediaKind.Image, "heic", "image/heic"),
+                FormatCase(ftypPayload("mif1", "heic"), PhotoMediaKind.Image, "heic", "image/heic"),
+                FormatCase(ftypPayload("mif1", "avif"), PhotoMediaKind.Image, "avif", "image/avif"),
+                FormatCase(ftypPayload("qt  "), PhotoMediaKind.Video, "mov", "video/quicktime"),
+                FormatCase(ftypPayload("mp42", "isom"), PhotoMediaKind.Video, "mp4", "video/mp4"),
+            )
+
+            cases.forEachIndexed { index, expected ->
+                val source = File(root, "sample-$index").apply { writeBytes(expected.bytes) }
+                val actual = sniffPhotoOriginalFormat(source, expected.mediaKind)
+
+                assertEquals(expected.extension, actual?.extension, "extension for sample $index")
+                assertEquals(expected.mimeType, actual?.mimeType, "MIME for sample $index")
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun missingFilenamePromotesHeicOriginalUsingItsActualContainer() = runBlocking {
+        val root = createTempDirectory("photo-original-heic").toFile()
+        try {
+            val payload = ftypPayload("heix", "mif1", "tmap")
+            val catalog = FakeCatalog()
+            val transfer = PhotoTransferCoordinator(
+                port = FakePort(payload),
+                catalog = catalog,
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            ).downloadOriginal(photo().copy(filename = null))
+
+            assertEquals(PhotoTransferState.Succeeded, transfer.state)
+            assertTrue(transfer.localPath.endsWith(".heic"))
+            assertEquals("image/heic", transfer.mimeType)
+            assertContentEquals(payload, File(transfer.localPath).readBytes())
+            assertEquals(transfer, catalog.transfer(transfer.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun compatibleFilenameExtensionIsPreservedButMismatchedExtensionIsNot() = runBlocking {
+        val root = createTempDirectory("photo-original-extension").toFile()
+        try {
+            val coordinator = PhotoTransferCoordinator(
+                port = FakePort(jpegPayload()),
+                catalog = FakeCatalog(),
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            )
+
+            val compatible = coordinator.downloadOriginal(photo().copy(filename = "IMG_1.JPEG"))
+            val mismatched = coordinator.downloadOriginal(
+                photo().copy(id = "master-2", filename = "IMG_2.HEIC"),
+            )
+
+            assertTrue(compatible.localPath.endsWith(".jpeg"))
+            assertEquals("image/jpeg", compatible.mimeType)
+            assertTrue(mismatched.localPath.endsWith(".jpg"))
+            assertEquals("image/jpeg", mismatched.mimeType)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun legacyImageCacheIsRenamedAndRetypedWhenRestored() = runBlocking {
+        val root = createTempDirectory("photo-original-legacy").toFile()
+        try {
+            val asset = photo().copy(filename = null)
+            val catalog = FakeCatalog()
+            val port = FakePort(ftypPayload("heix", "mif1"))
+            val coordinator = PhotoTransferCoordinator(
+                port = port,
+                catalog = catalog,
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            )
+            val completed = coordinator.downloadOriginal(asset)
+            val legacy = File(completed.localPath.removeSuffix(".heic") + ".image")
+            assertTrue(File(completed.localPath).renameTo(legacy))
+            val previousRelease = completed.copy(localPath = legacy.absolutePath, mimeType = "image/*")
+            catalog.putTransfer(previousRelease)
+
+            val restored = coordinator.revalidateCompletedDownload(asset, previousRelease)
+
+            assertEquals(PhotoTransferState.Succeeded, restored.state)
+            assertTrue(restored.localPath.endsWith(".heic"))
+            assertEquals("image/heic", restored.mimeType)
+            assertTrue(File(restored.localPath).isFile)
+            assertFalse(legacy.exists())
+            assertEquals(1, port.originalCalls)
+            assertEquals(restored, catalog.transfer(restored.id))
         } finally {
             root.deleteRecursively()
         }
@@ -398,6 +523,33 @@ class PhotoTransferCoordinatorTest {
 
     private fun jpegPayload() = byteArrayOf(
         0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 0, 1, 2,
+    )
+
+    private fun ftypPayload(majorBrand: String, vararg compatibleBrands: String): ByteArray {
+        val size = 16 + compatibleBrands.size * 4
+        return byteArrayOf(0, 0, 0, size.toByte()) +
+            "ftyp".toByteArray() +
+            majorBrand.toByteArray() +
+            byteArrayOf(0, 0, 0, 0) +
+            compatibleBrands.joinToString(separator = "").toByteArray()
+    }
+
+    private fun tiffPayload(dng: Boolean): ByteArray = byteArrayOf(
+        'I'.code.toByte(), 'I'.code.toByte(), 42, 0,
+        8, 0, 0, 0,
+        1, 0,
+        if (dng) 0x12 else 0x00,
+        if (dng) 0xc6.toByte() else 0x01,
+        1, 0,
+        4, 0, 0, 0,
+        1, 4, 0, 0,
+    )
+
+    private data class FormatCase(
+        val bytes: ByteArray,
+        val mediaKind: PhotoMediaKind,
+        val extension: String,
+        val mimeType: String,
     )
 
     private class FakePort(private val payload: ByteArray) : PhotosPort {
