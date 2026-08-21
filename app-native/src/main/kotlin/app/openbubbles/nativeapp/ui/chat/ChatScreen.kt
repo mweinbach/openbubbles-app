@@ -2153,7 +2153,6 @@ private fun MessageInputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
             .imePadding(),
     ) {
