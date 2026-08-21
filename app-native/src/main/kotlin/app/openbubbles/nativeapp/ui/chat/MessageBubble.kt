@@ -864,7 +864,7 @@ private val ReplyConnectorStrokeWidth = 2.dp
  */
 private val ReplyConnectorEdgeInset = 14.dp
 private val ReplyConnectorArmLength = 32.dp
-private val ReplyConnectorLegLength = 18.dp
+private val ReplyConnectorLegLength = 22.dp
 
 /**
  * How far each tangent handle reaches along its own axis, as a fraction of the
@@ -876,11 +876,12 @@ private const val ReplyConnectorArmEase = 0.72f
 private const val ReplyConnectorLegEase = 0.72f
 
 /**
- * A straight run at the free end. A horizontal tangent alone still falls away
- * immediately, so the stroke needs real flat length to settle into before the
- * curve picks up.
+ * Straight runs at both ends. A tangent alone leaves its axis immediately, so
+ * each end needs real length to settle into: flat before the curve picks up,
+ * plumb after it lets go.
  */
 private val ReplyConnectorFlatTail = 10.dp
+private val ReplyConnectorFlatLeg = 7.dp
 
 /** Sits the flat run just below the leg's crown so the tail reads as level. */
 private val ReplyConnectorTipDrop = 2.dp
@@ -954,19 +955,22 @@ internal fun replyConnectorGeometry(
 internal fun replyConnectorPath(
     geometry: ReplyConnectorGeometry,
     flatTail: Float,
+    flatLeg: Float,
 ): Path = Path().apply {
     val (armStart, corner, legEnd) = geometry
     val reach = corner.x - armStart.x
     val tail = minOf(flatTail, kotlin.math.abs(reach)) * if (reach >= 0f) 1f else -1f
     val curveStartX = armStart.x + tail
-    val drop = legEnd.y - armStart.y
+    val curveEndY = legEnd.y - minOf(flatLeg, legEnd.y - armStart.y)
+
     moveTo(armStart.x, armStart.y)
     lineTo(curveStartX, armStart.y)
     cubicTo(
         curveStartX + (corner.x - curveStartX) * ReplyConnectorArmEase, armStart.y,
-        legEnd.x, legEnd.y - drop * ReplyConnectorLegEase,
-        legEnd.x, legEnd.y,
+        legEnd.x, curveEndY - (curveEndY - armStart.y) * ReplyConnectorLegEase,
+        legEnd.x, curveEndY,
     )
+    lineTo(legEnd.x, legEnd.y)
 }
 
 @Composable
@@ -1003,6 +1007,7 @@ private fun ReplyConnectorOverlay(
                     tipDrop = ReplyConnectorTipDrop.toPx(),
                 ),
                 flatTail = ReplyConnectorFlatTail.toPx(),
+                flatLeg = ReplyConnectorFlatLeg.toPx(),
             ),
             color = connectorColor,
             style = Stroke(width = ReplyConnectorStrokeWidth.toPx(), cap = StrokeCap.Round),
