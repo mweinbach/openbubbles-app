@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.net.Uri
 import android.view.ViewGroup
@@ -146,6 +147,11 @@ class NativeMainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // The chat composer is a floating capsule, not a filled bottom bar.
+        // Keep the system from painting a contrast scrim around it.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         AppearancePrefs.init(this)
         // Seeded before the first composition so a launch that resumes an
         // armed history download opens straight into the lock instead of
