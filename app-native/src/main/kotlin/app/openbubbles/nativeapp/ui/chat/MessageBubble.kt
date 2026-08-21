@@ -850,10 +850,10 @@ private val ReplyQuoteTopPadding = 4.dp
  * quote sits just above its reply — so this stays well under
  * [ReplyPairTopPadding], which separates the pair from the message above it.
  */
-private val ReplyConnectorSpan = 6.dp
+private val ReplyConnectorSpan = 16.dp
 
 /** Separates a quote+reply pair from whatever precedes it in the transcript. */
-private val ReplyPairTopPadding = 16.dp
+private val ReplyPairTopPadding = 26.dp
 private val ReplyConnectorStrokeWidth = 2.dp
 
 /**
@@ -863,12 +863,18 @@ private val ReplyConnectorStrokeWidth = 2.dp
  * reply rather than spanning the gap to the quote.
  */
 private val ReplyConnectorEdgeInset = 14.dp
-private val ReplyConnectorArmLength = 12.dp
-private val ReplyConnectorLegLength = 14.dp
-private val ReplyConnectorCornerRadius = 8.dp
+private val ReplyConnectorArmLength = 14.dp
+private val ReplyConnectorLegLength = 18.dp
+
+/**
+ * Large enough to consume nearly the whole arm and most of the leg, so the
+ * turn reads as one continuous sweep rather than a right angle with its
+ * corner filed off.
+ */
+private val ReplyConnectorCornerRadius = 12.dp
 
 /** Daylight between the marker and the bubbles it sits between. */
-private val ReplyConnectorClearance = 3.dp
+private val ReplyConnectorClearance = 5.dp
 
 private class ReplyConnectorBounds {
     var canvasInRoot: Rect? = null
@@ -934,6 +940,13 @@ internal fun replyConnectorGeometry(
     )
 }
 
+/**
+ * The turn is a cubic approximation of a circular quarter-arc rather than a
+ * quadratic through the corner. A quadratic bulges to about 0.354r of the
+ * corner against a circle's 0.414r, which is what made the bend read sharp.
+ */
+private const val CircularArcControl = 0.5522848f
+
 internal fun replyConnectorPath(geometry: ReplyConnectorGeometry): Path = Path().apply {
     val (armStart, corner, legEnd, radius) = geometry
     moveTo(armStart.x, armStart.y)
@@ -943,8 +956,14 @@ internal fun replyConnectorPath(geometry: ReplyConnectorGeometry): Path = Path()
         return@apply
     }
     val step = if (armStart.x >= corner.x) radius else -radius
-    lineTo(corner.x + step, corner.y)
-    quadraticTo(corner.x, corner.y, corner.x, corner.y + radius)
+    val arcStartX = corner.x + step
+    val arcEndY = corner.y + radius
+    lineTo(arcStartX, corner.y)
+    cubicTo(
+        arcStartX - step * CircularArcControl, corner.y,
+        corner.x, arcEndY - radius * CircularArcControl,
+        corner.x, arcEndY,
+    )
     lineTo(legEnd.x, legEnd.y)
 }
 
@@ -1041,7 +1060,7 @@ private fun ReplyQuotePreview(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
         }
