@@ -265,7 +265,6 @@ object CoreGraph {
                 store = st,
                 fileManager = { attachmentFiles },
                 manager = { attachmentManager },
-                requestPairDownload = ::requestAttachmentDownload,
             )
         } ?: FakeAttachmentProvider
     }
@@ -1707,7 +1706,6 @@ private class CoreAttachmentProvider(
     private val store: BoxStore,
     private val fileManager: () -> AttachmentFileManager?,
     private val manager: () -> AttachmentManager? = { null },
-    private val requestPairDownload: (String) -> Unit = {},
 ) : AttachmentProvider {
 
     private fun attachmentByGuid(guid: String): Attachment? = runCatching {
@@ -1732,10 +1730,29 @@ private class CoreAttachmentProvider(
             !canDownload(guid) ->
                 emit(TransferState.Failed("This attachment has no downloadable payload"))
             else -> {
-                // Kicks the Live Photo sibling too; the manager dedups this
-                // guid so the collection below joins the same transfer.
-                requestPairDownload(guid)
-                emitAll(transferManager.download(attachment))
+                val box = store.boxFor(Attachment::class.java)
+                val siblings = attachment.message.target?.dbAttachments.orEmpty()
+                    .ifEmpty { listOf(attachment) }
+                val pair = livePhotoTransferGuids(attachment, siblings).mapNotNull { pairGuid ->
+                    if (pairGuid == attachment.guid) attachment else box.query()
+                        .equal(Attachment_.guid, pairGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                        .build().use { it.findFirst() }
+                }
+                for (component in pair) {
+                    var componentFailure: String? = null
+                    transferManager.download(component).collect { state ->
+                        when (state) {
+                            is TransferState.Progress -> emit(state)
+                            is TransferState.Failed -> componentFailure = state.error
+                            TransferState.Done -> Unit
+                        }
+                    }
+                    componentFailure?.let { error ->
+                        emit(TransferState.Failed(error))
+                        return@flow
+                    }
+                }
+                emit(TransferState.Done)
             }
         }
     }.flowOn(Dispatchers.IO)

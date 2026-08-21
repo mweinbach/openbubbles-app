@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -82,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.openbubbles.core.photos.PhotoMediaKind
+import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.photos.PhotoSummary
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferState
@@ -90,6 +93,7 @@ import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosSnapshot
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
+import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -536,6 +540,7 @@ private fun PhotoDetail(
     onBack: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
+    val context = LocalContext.current
     BackHandler(onBack = onBack)
     val originalFile = original?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
@@ -584,7 +589,12 @@ private fun PhotoDetail(
                 AttachmentVideoPlayer(
                     file = originalFile,
                     controlsVisible = true,
-                    onOpenExternally = {},
+                    onOpenExternally = {
+                        val mime = AttachmentMedia.suggestedMime(null, null, asset.filename)
+                        if (!openAttachmentExternally(context, originalFile, mime)) {
+                            Toast.makeText(context, "No app can open this video", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                 )
             } else {
                 val poster = rememberVideoPoster(previewFile, maxDimensionPx = 1080)

@@ -1,7 +1,12 @@
 package app.openbubbles.nativeapp.ui.attachmentviewer
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,6 +59,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.core.attachment.TransferState
@@ -93,6 +99,16 @@ fun AttachmentViewerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingLegacySave by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacyMediaPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = pendingLegacySave
+        pendingLegacySave = null
+        if (granted) pending?.invoke() else {
+            Toast.makeText(context, "Storage permission is required to save media", Toast.LENGTH_SHORT).show()
+        }
+    }
     val initialMeta = remember(guid, provider) { provider.byGuid(guid) }
     val meta by remember(guid, provider) { provider.observe(guid) }
         .collectAsStateWithLifecycle(initialValue = initialMeta)
@@ -252,7 +268,7 @@ fun AttachmentViewerScreen(
         fun showToast(message: String) {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
-        val onSaveToDevice: (() -> Unit)? = when {
+        val saveToDevice: (() -> Unit)? = when {
             file == null || resolvedMeta == null -> null
             livePhotoPair != null -> {
                 {
@@ -264,6 +280,7 @@ fun AttachmentViewerScreen(
                                 LivePhotoSaveOutcome.MotionPhoto -> "Saved as motion photo"
                                 LivePhotoSaveOutcome.SeparateFiles -> "Saved Live Photo as photo + video"
                                 LivePhotoSaveOutcome.StillOnly -> "Saved still photo"
+                                LivePhotoSaveOutcome.MotionOnly -> "Saved Live Photo video"
                                 LivePhotoSaveOutcome.Failed -> "Unable to save Live Photo"
                             },
                         )
@@ -291,6 +308,20 @@ fun AttachmentViewerScreen(
                 }
             }
             else -> null
+        }
+        val onSaveToDevice = saveToDevice?.let { save ->
+            {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (requiresLegacyMediaWritePermission(Build.VERSION.SDK_INT, granted)) {
+                    pendingLegacySave = save
+                    legacyMediaPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                } else {
+                    save()
+                }
+            }
         }
         ViewerChrome(
             visible = chromeVisible,

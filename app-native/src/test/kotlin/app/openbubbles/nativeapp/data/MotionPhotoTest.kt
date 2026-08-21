@@ -67,6 +67,21 @@ class MotionPhotoTest {
     }
 
     @Test
+    fun `carrier writer leaves motion bytes to the caller for streaming`() {
+        val still = fakeJpeg(app0, exif)
+        val output = ByteArrayOutputStream()
+
+        assertTrue(writeJpegMotionPhotoCarrier(still, video.size.toLong(), "video/quicktime", output))
+        val carrierSize = output.size()
+        video.inputStream().use { it.copyTo(output) }
+
+        val assembled = output.toByteArray()
+        assertEquals(carrierSize + video.size, assembled.size)
+        assertContentEquals(video, assembled.copyOfRange(carrierSize, assembled.size))
+        assertTrue(outputXmp(assembled).contains("Item:Length=\"${video.size}\""))
+    }
+
+    @Test
     fun `readers can locate the video from the trailing length`() {
         val still = fakeJpeg(app0)
         val output = assertNotNull(buildJpegMotionPhoto(still, video, "video/mp4"))

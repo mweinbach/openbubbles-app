@@ -4,18 +4,20 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.OutputStream
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ImageExportPlan
 import app.openbubbles.nativeapp.data.LivePhotoPair
-import app.openbubbles.nativeapp.data.buildJpegMotionPhoto
 import app.openbubbles.nativeapp.data.exportedImageDisplayName
 import app.openbubbles.nativeapp.data.exportedImageMime
 import app.openbubbles.nativeapp.data.imageExportPlan
 import app.openbubbles.nativeapp.data.motionPhotoDisplayName
+import app.openbubbles.nativeapp.data.writeJpegMotionPhotoCarrier
 
 /**
  * Explicit save-to-device exports for downloaded attachments, converting
@@ -31,7 +33,10 @@ import app.openbubbles.nativeapp.data.motionPhotoDisplayName
 /** Decode ceiling for re-encodes; bounds peak bitmap memory (~64 MB RGBA). */
 private const val EXPORT_DECODE_MAX_DIMENSION = 4096
 
-internal enum class LivePhotoSaveOutcome { MotionPhoto, SeparateFiles, StillOnly, Failed }
+internal fun requiresLegacyMediaWritePermission(sdkInt: Int, permissionGranted: Boolean): Boolean =
+    sdkInt <= Build.VERSION_CODES.P && !permissionGranted
+
+internal enum class LivePhotoSaveOutcome { MotionPhoto, SeparateFiles, StillOnly, MotionOnly, Failed }
 
 /** Saves a received image, converting HDR HEIC to Ultra HDR JPEG when readable. */
 internal fun saveImageAttachmentToDevice(context: Context, meta: AttachmentMeta, file: File): Boolean {
@@ -47,11 +52,14 @@ internal fun saveImageAttachmentToDevice(context: Context, meta: AttachmentMeta,
     val saved = when (plan) {
         ImageExportPlan.ConvertToUltraHdrJpeg -> {
             val bitmap = decoded ?: return false
+            val sourceExif = runCatching { ExifInterface(file) }.getOrNull()
             saveToMediaStore(
                 context = context,
                 displayName = exportedImageDisplayName(name, plan),
                 mime = exportedImageMime(meta.mime, plan),
                 video = false,
+                dateTakenMillis = sourceExif?.dateTimeOriginal,
+                afterWrite = { uri -> sourceExif?.let { copyExifMetadata(context, it, uri) } },
             ) { output ->
                 // API 34+ JPEG compression carries the gain map through,
                 // producing an Ultra HDR JPEG.
@@ -86,51 +94,50 @@ internal fun saveVideoAttachmentToDevice(context: Context, meta: AttachmentMeta,
 internal fun saveLivePhotoToDevice(context: Context, pair: LivePhotoPair): LivePhotoSaveOutcome {
     val motionFile = pair.motionFile
     if (motionFile != null) {
-        val blob = runCatching {
+        val carrier = runCatching {
             val stillJpeg = jpegCarrierBytes(pair.stillFile) ?: return@runCatching null
-            val video = motionFile.readBytes()
-            buildJpegMotionPhoto(stillJpeg, video, pair.motion?.playbackMime ?: "video/quicktime")
+            stillJpeg
         }.getOrNull()
-        if (blob != null) {
+        if (carrier != null) {
+            val videoMime = pair.motion?.playbackMime ?: "video/quicktime"
             val saved = saveToMediaStore(
                 context = context,
                 displayName = motionPhotoDisplayName(pair.still.name ?: pair.stillFile.name),
                 mime = "image/jpeg",
                 video = false,
-            ) { output -> output.write(blob) }
+            ) { output ->
+                check(writeJpegMotionPhotoCarrier(carrier, motionFile.length(), videoMime, output)) {
+                    "Motion Photo carrier is unsupported"
+                }
+                motionFile.inputStream().use { it.copyTo(output) }
+            }
             if (saved) return LivePhotoSaveOutcome.MotionPhoto
         }
     }
-    return when (saveLivePhotoAsSeparateFiles(context, pair)) {
-        2 -> LivePhotoSaveOutcome.SeparateFiles
-        1 -> LivePhotoSaveOutcome.StillOnly
-        else -> LivePhotoSaveOutcome.Failed
-    }
+    return saveLivePhotoAsSeparateFiles(context, pair)
 }
 
 /** Historical two-file export: still into Pictures, motion into Movies. */
-internal fun saveLivePhotoAsSeparateFiles(context: Context, pair: LivePhotoPair): Int {
-    var saved = 0
-    if (saveToMediaStore(
+internal fun saveLivePhotoAsSeparateFiles(context: Context, pair: LivePhotoPair): LivePhotoSaveOutcome {
+    val stillSaved = saveToMediaStore(
             context = context,
             displayName = pair.still.name ?: pair.stillFile.name,
             mime = pair.still.playbackMime,
             video = false,
         ) { output -> pair.stillFile.inputStream().use { it.copyTo(output) } }
-    ) {
-        saved += 1
-    }
     val motionFile = pair.motionFile
-    if (motionFile != null && saveToMediaStore(
+    val motionSaved = motionFile != null && saveToMediaStore(
             context = context,
             displayName = pair.motion?.name ?: motionFile.name,
             mime = pair.motion?.playbackMime ?: "video/quicktime",
             video = true,
         ) { output -> motionFile.inputStream().use { it.copyTo(output) } }
-    ) {
-        saved += 1
+    return when {
+        stillSaved && motionSaved -> LivePhotoSaveOutcome.SeparateFiles
+        stillSaved -> LivePhotoSaveOutcome.StillOnly
+        motionSaved -> LivePhotoSaveOutcome.MotionOnly
+        else -> LivePhotoSaveOutcome.Failed
     }
-    return saved
 }
 
 /**
@@ -157,14 +164,7 @@ private fun jpegCarrierBytes(stillFile: File): ByteArray? {
 private fun decodeBoundedBitmap(file: File): Bitmap? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
-    var sample = 1
-    if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-        while (bounds.outWidth / (sample * 2) >= EXPORT_DECODE_MAX_DIMENSION ||
-            bounds.outHeight / (sample * 2) >= EXPORT_DECODE_MAX_DIMENSION
-        ) {
-            sample *= 2
-        }
-    }
+    val sample = boundedDecodeSample(bounds.outWidth, bounds.outHeight)
     BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
         ?: decodeBoundedWithImageDecoder(file)
 }.getOrNull()
@@ -179,12 +179,7 @@ private fun decodeBoundedWithImageDecoder(file: File): Bitmap? {
             val width = info.size.width
             val height = info.size.height
             if (width > 0 && height > 0) {
-                var sample = 1
-                while (width / (sample * 2) >= EXPORT_DECODE_MAX_DIMENSION ||
-                    height / (sample * 2) >= EXPORT_DECODE_MAX_DIMENSION
-                ) {
-                    sample *= 2
-                }
+                val sample = boundedDecodeSample(width, height)
                 decoder.setTargetSize(
                     (width / sample).coerceAtLeast(1),
                     (height / sample).coerceAtLeast(1),
@@ -192,6 +187,17 @@ private fun decodeBoundedWithImageDecoder(file: File): Bitmap? {
             }
         }
     }.getOrNull()
+}
+
+internal fun boundedDecodeSample(
+    width: Int,
+    height: Int,
+    maxDimension: Int = EXPORT_DECODE_MAX_DIMENSION,
+): Int {
+    if (width <= 0 || height <= 0 || maxDimension <= 0) return 1
+    var sample = 1
+    while (width / sample > maxDimension || height / sample > maxDimension) sample *= 2
+    return sample
 }
 
 private fun Bitmap.hasReadableGainmap(): Boolean =
@@ -206,6 +212,8 @@ internal fun saveToMediaStore(
     displayName: String,
     mime: String,
     video: Boolean,
+    dateTakenMillis: Long? = null,
+    afterWrite: (Uri) -> Unit = {},
     write: (OutputStream) -> Unit,
 ): Boolean = runCatching {
     val resolver = context.contentResolver
@@ -217,6 +225,7 @@ internal fun saveToMediaStore(
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
         put(MediaStore.MediaColumns.MIME_TYPE, mime)
+        dateTakenMillis?.let { put(MediaStore.Images.ImageColumns.DATE_TAKEN, it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             put(
                 MediaStore.MediaColumns.RELATIVE_PATH,
@@ -228,6 +237,7 @@ internal fun saveToMediaStore(
     val uri = resolver.insert(collection, values) ?: error("MediaStore insert failed")
     try {
         resolver.openOutputStream(uri)?.use(write) ?: error("MediaStore output unavailable")
+        afterWrite(uri)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
@@ -238,3 +248,44 @@ internal fun saveToMediaStore(
         throw error
     }
 }.isSuccess
+
+private val COPIED_EXIF_TAGS = listOf(
+    ExifInterface.TAG_DATETIME,
+    ExifInterface.TAG_DATETIME_ORIGINAL,
+    ExifInterface.TAG_DATETIME_DIGITIZED,
+    ExifInterface.TAG_SUBSEC_TIME,
+    ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+    ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
+    ExifInterface.TAG_OFFSET_TIME,
+    ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+    ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+    ExifInterface.TAG_ORIENTATION,
+    ExifInterface.TAG_MAKE,
+    ExifInterface.TAG_MODEL,
+    ExifInterface.TAG_LENS_MODEL,
+    ExifInterface.TAG_SOFTWARE,
+    ExifInterface.TAG_ARTIST,
+    ExifInterface.TAG_COPYRIGHT,
+    ExifInterface.TAG_EXPOSURE_TIME,
+    ExifInterface.TAG_F_NUMBER,
+    ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+    ExifInterface.TAG_FOCAL_LENGTH,
+    ExifInterface.TAG_FLASH,
+    ExifInterface.TAG_WHITE_BALANCE,
+    ExifInterface.TAG_GPS_LATITUDE,
+    ExifInterface.TAG_GPS_LATITUDE_REF,
+    ExifInterface.TAG_GPS_LONGITUDE,
+    ExifInterface.TAG_GPS_LONGITUDE_REF,
+    ExifInterface.TAG_GPS_ALTITUDE,
+    ExifInterface.TAG_GPS_ALTITUDE_REF,
+    ExifInterface.TAG_GPS_TIMESTAMP,
+    ExifInterface.TAG_GPS_DATESTAMP,
+)
+
+private fun copyExifMetadata(context: Context, source: ExifInterface, destination: Uri) {
+    context.contentResolver.openFileDescriptor(destination, "rw")?.use { descriptor ->
+        val target = ExifInterface(descriptor.fileDescriptor)
+        COPIED_EXIF_TAGS.forEach { tag -> source.getAttribute(tag)?.let { target.setAttribute(tag, it) } }
+        target.saveAttributes()
+    } ?: error("MediaStore EXIF destination unavailable")
+}

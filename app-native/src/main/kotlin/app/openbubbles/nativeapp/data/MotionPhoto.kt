@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 
 /**
  * Google Motion Photo v1 assembly (pure bytes, host-testable).
@@ -55,12 +56,29 @@ internal fun buildJpegMotionPhoto(
     videoMime: String,
 ): ByteArray? {
     if (video.isEmpty()) return null
-    if (videoMime.lowercase() !in MOTION_PHOTO_VIDEO_MIMES) return null
+    val output = ByteArrayOutputStream(stillJpeg.size + video.size)
+    if (!writeJpegMotionPhotoCarrier(stillJpeg, video.size.toLong(), videoMime, output)) return null
+    output.write(video)
+    return output.toByteArray()
+}
+
+/**
+ * Writes only the JPEG/XMP carrier for a Motion Photo. Callers can then copy
+ * the motion container into [output] without ever materializing it in memory.
+ */
+internal fun writeJpegMotionPhotoCarrier(
+    stillJpeg: ByteArray,
+    videoLength: Long,
+    videoMime: String,
+    output: OutputStream,
+): Boolean {
+    if (videoLength <= 0L) return false
+    if (videoMime.lowercase() !in MOTION_PHOTO_VIDEO_MIMES) return false
     if (stillJpeg.size < 4 ||
         (stillJpeg[0].toInt() and 0xFF) != JPEG_MARKER_PREFIX ||
         (stillJpeg[1].toInt() and 0xFF) != JPEG_SOI
     ) {
-        return null
+        return false
     }
 
     // Walk the pre-scan header segments: find the end of the leading
@@ -70,19 +88,19 @@ internal fun buildJpegMotionPhoto(
     var inLeadingAppRun = true
     val strippedRanges = mutableListOf<IntRange>()
     while (position + 4 <= stillJpeg.size) {
-        if ((stillJpeg[position].toInt() and 0xFF) != JPEG_MARKER_PREFIX) return null
+        if ((stillJpeg[position].toInt() and 0xFF) != JPEG_MARKER_PREFIX) return false
         val marker = stillJpeg[position + 1].toInt() and 0xFF
         if (marker == JPEG_SOS || marker == JPEG_EOI) break
         val length = ((stillJpeg[position + 2].toInt() and 0xFF) shl 8) or
             (stillJpeg[position + 3].toInt() and 0xFF)
-        if (length < 2 || position + 2 + length > stillJpeg.size) return null
+        if (length < 2 || position + 2 + length > stillJpeg.size) return false
         val segmentEnd = position + 2 + length
         if (marker == JPEG_APP1) {
             val payload = stillJpeg.copyOfRange(position + 4, segmentEnd)
-            if (payload.startsWith(EXTENDED_XMP_APP1_HEADER)) return null
+            if (payload.startsWith(EXTENDED_XMP_APP1_HEADER)) return false
             if (payload.startsWith(XMP_APP1_HEADER)) {
                 val xmp = String(payload, XMP_APP1_HEADER.size, payload.size - XMP_APP1_HEADER.size, Charsets.ISO_8859_1)
-                if (UNMERGEABLE_XMP_MARKERS.any { xmp.contains(it) }) return null
+                if (UNMERGEABLE_XMP_MARKERS.any { xmp.contains(it) }) return false
                 strippedRanges += position until segmentEnd
             }
         }
@@ -94,8 +112,7 @@ internal fun buildJpegMotionPhoto(
         position = segmentEnd
     }
 
-    val xmpSegment = motionPhotoXmpSegment(videoMime.lowercase(), video.size) ?: return null
-    val output = ByteArrayOutputStream(stillJpeg.size + xmpSegment.size + video.size)
+    val xmpSegment = motionPhotoXmpSegment(videoMime.lowercase(), videoLength) ?: return false
     var cursor = 0
     val skips = strippedRanges.sortedBy { it.first }
     var nextSkip = 0
@@ -115,8 +132,7 @@ internal fun buildJpegMotionPhoto(
         cursor = next
     }
     if (insertAt == stillJpeg.size) output.write(xmpSegment)
-    output.write(video)
-    return output.toByteArray()
+    return true
 }
 
 /**
@@ -140,7 +156,7 @@ private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
 }
 
 /** Complete APP1 segment (marker + length + header + packet) for the XMP. */
-private fun motionPhotoXmpSegment(videoMime: String, videoLength: Int): ByteArray? {
+private fun motionPhotoXmpSegment(videoMime: String, videoLength: Long): ByteArray? {
     val packet = """
         <?xpacket begin="${'\uFEFF'}" id="W5M0MpCehiHzreSzNTczkc9d"?>
         <x:xmpmeta xmlns:x="adobe:ns:meta/">

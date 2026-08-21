@@ -1,11 +1,27 @@
 package app.openbubbles.nativeapp.data
 
+import app.openbubbles.nativeapp.ui.attachmentviewer.boundedDecodeSample
+import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.Test
 
 class MediaExportPolicyTest {
+    @Test
+    fun `legacy MediaStore writes request permission only through android 9`() {
+        assertTrue(requiresLegacyMediaWritePermission(28, permissionGranted = false))
+        assertFalse(requiresLegacyMediaWritePermission(28, permissionGranted = true))
+        assertFalse(requiresLegacyMediaWritePermission(29, permissionGranted = false))
+    }
+
+    @Test
+    fun `decode sample keeps both bitmap dimensions within the ceiling`() {
+        assertEquals(1, boundedDecodeSample(4096, 3000))
+        assertEquals(2, boundedDecodeSample(8000, 6000))
+        assertEquals(4, boundedDecodeSample(12000, 5000))
+    }
+
     @Test
     fun `hdr heic with a readable gain map converts to ultra hdr jpeg on api 34`() {
         val plan = imageExportPlan(

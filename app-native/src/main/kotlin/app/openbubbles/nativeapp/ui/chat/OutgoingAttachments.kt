@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
+import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.nativeapp.data.DraftTooLargeException
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
 import app.openbubbles.nativeapp.data.OutgoingAttachment
@@ -110,7 +111,7 @@ suspend fun prepareOutgoingItem(context: Context, uri: Uri): PreparedOutgoingIte
             }
         }
         val displayName = name ?: uri.lastPathSegment ?: "attachment"
-        val isVideo = mime.lowercase().startsWith("video/")
+        val isVideo = isOutgoingVideo(mime, displayName)
         val resolvedSize = size ?: resolveContentLength(context, uri)
 
         if (resolvedSize != null && resolvedSize > MAX_OUTGOING_DRAFT_BYTES) {
@@ -158,6 +159,9 @@ suspend fun prepareOutgoingItem(context: Context, uri: Uri): PreparedOutgoingIte
             ),
         )
     }
+
+internal fun isOutgoingVideo(mime: String?, displayName: String?): Boolean =
+    AttachmentMedia.isVideo(mime, uti = null, name = displayName)
 
 /** Routes a proven-oversized video through the compression policy. */
 private fun oversizedVideoItem(

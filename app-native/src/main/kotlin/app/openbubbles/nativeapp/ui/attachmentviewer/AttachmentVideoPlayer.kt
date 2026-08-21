@@ -55,6 +55,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.modifiers.resizeWithContentScale
 import androidx.media3.ui.compose.state.rememberPresentationState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
@@ -80,6 +83,7 @@ fun AttachmentVideoPlayer(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val key = file.absolutePath
     var playing by remember(key) { mutableStateOf(true) }
     var playbackState by remember(key) { mutableIntStateOf(Player.STATE_IDLE) }
@@ -114,8 +118,26 @@ fun AttachmentVideoPlayer(
             )
         }
     }
-    DisposableEffect(key) {
-        onDispose { player.release() }
+    DisposableEffect(player, lifecycleOwner) {
+        var resumeAfterStop = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    resumeAfterStop = player.playWhenReady
+                    player.pause()
+                }
+                Lifecycle.Event.ON_START -> if (resumeAfterStop) {
+                    resumeAfterStop = false
+                    player.play()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.release()
+        }
     }
     LaunchedEffect(key) {
         while (isActive) {
