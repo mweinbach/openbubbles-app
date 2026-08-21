@@ -56,6 +56,10 @@ fixtures.
   provider lookup reducer, and the field crypto envelope; `:app-native` pins the SQLite schema,
   its migration guard, and the cleanup table list. None of it proves system provider selection,
   Chrome delegation, biometric prompts, or a real AndroidKeyStore key, which are device evidence.
+- Surface-switcher policy — `TopLevelSurfaceTest` covers the order model, the persisted form and its
+  corrupt-value fallback, and the stack edit a switch performs from every reachable stack shape;
+  `SurfaceSwipePolicyTest` covers the swipe thresholds, direction, edge exclusion, and disabled
+  state. Both are pure: neither proves real touch arbitration on a device.
 - Optional screenshots — visual review of list, chat, and onboarding chrome. They are not a
   routine correctness gate and do not cover settings, login, Find My, or effects. They also do not
   prove touch/gesture arbitration, IME behavior, TalkBack order, platform authentication, predictive
