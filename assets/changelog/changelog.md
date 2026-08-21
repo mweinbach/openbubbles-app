@@ -23,6 +23,8 @@ required to keep receiving future ones.
 
 ### Fixes
 
+- Release builds no longer crash when opening a conversation that includes
+  attachments.
 - Outgoing attachments, profile photos, and group icons are staged atomically
   and bounded, so an interrupted transfer no longer leaves partial media or
   abandoned drafts behind.
