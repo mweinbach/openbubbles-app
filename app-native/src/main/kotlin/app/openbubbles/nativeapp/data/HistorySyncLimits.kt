@@ -20,6 +20,18 @@ private const val MILLIS_PER_DAY = 86_400_000L
 private const val NANOS_PER_MILLI = 1_000_000L
 private const val TRANSCRIPT_BACKGROUND_MESSAGE_TYPE = 138L
 
+/**
+ * How much message history is kept on this device.
+ *
+ * The default, [ALL_HISTORY], mirrors Messages in iCloud. A narrower window
+ * is an explicit user opt-in and is applied client-side: CloudKit zone sync
+ * has no server-side date filter, so every record is still fetched and the
+ * continuation cursor still advances across the whole zone — a window only
+ * trims what is kept locally. It does not make the download faster. Titles
+ * and descriptions say "keeps" rather than "downloads" for that reason.
+ * Attachment payloads are never part of history sync regardless of window;
+ * only their metadata syncs, and files download when opened.
+ */
 enum class HistorySyncWindow(
     val persistedValue: String,
     val title: String,
@@ -29,33 +41,39 @@ enum class HistorySyncWindow(
     LAST_30_DAYS(
         persistedValue = "30_days",
         title = "Last 30 days",
-        description = "Downloads messages from the last month",
+        description = "Keeps only the last month of messages on this phone",
         days = 30,
     ),
     LAST_3_MONTHS(
         persistedValue = "3_months",
         title = "Last 3 months",
-        description = "Balances recent history with a smaller local database",
+        description = "Keeps the last three months for a smaller local database",
         days = 90,
     ),
     LAST_YEAR(
         persistedValue = "1_year",
         title = "Last year",
-        description = "Downloads up to one year of message history",
+        description = "Keeps up to one year of message history",
         days = 365,
     ),
     ALL_HISTORY(
         persistedValue = "all",
         title = "All history",
-        description = "Downloads every message available in Messages in iCloud",
+        description = "Mirrors everything in Messages in iCloud",
         days = null,
     ),
     ;
 
     companion object {
+        /** The default when nothing is persisted: mirror the server. */
+        val DEFAULT: HistorySyncWindow get() = ALL_HISTORY
+
         fun fromPersistedValue(value: String?): HistorySyncWindow =
-            entries.firstOrNull { it.persistedValue == value } ?: ALL_HISTORY
+            entries.firstOrNull { it.persistedValue == value } ?: DEFAULT
     }
+
+    /** True when this window is narrower than the server-mirroring default. */
+    val limitsHistory: Boolean get() = days != null
 
     internal fun cutoffAppleNanoseconds(nowMillis: Long): Long? {
         val windowDays = days ?: return null

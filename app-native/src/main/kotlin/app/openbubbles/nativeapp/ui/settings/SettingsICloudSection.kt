@@ -565,7 +565,7 @@ internal fun rememberICloudSection(
             if (showHistorySyncLimitDialog) {
                 AlertDialog(
                     onDismissRequest = { showHistorySyncLimitDialog = false },
-                    title = { Text("History download limit") },
+                    title = { Text("History kept on this phone") },
                     text = {
                         Column(
                             modifier = Modifier
@@ -574,8 +574,10 @@ internal fun rememberICloudSection(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text(
-                                "The selected time window limits new message-history downloads. " +
-                                    "Chat records still sync so new messages route correctly.",
+                                "By default OpenGarden mirrors everything in Messages in iCloud. " +
+                                    "A shorter window doesn't speed up downloads — every record is " +
+                                    "still checked — it only limits what's kept on this phone. " +
+                                    "Chat records always sync so new messages route correctly.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -39,10 +39,17 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.HistorySyncWindow
 
 /**
- * Step 5 — how much history to bring down, and the warning that comes with
- * it. Choosing here rather than in Settings matters: the first backfill is
- * the single heaviest thing the app ever does, and the amount the user picks
- * is what decides how long the device runs hot with the app locked.
+ * Step 5 — bring history over, and the warning that comes with it.
+ *
+ * The default mirrors everything in Messages in iCloud; photos and files
+ * stay in iCloud until opened, so "all" costs storage for message text, not
+ * media. Narrowing the window is an explicit opt-in tucked behind a
+ * "limit" toggle rather than a primary choice: CloudKit zone sync has no
+ * server-side date filter, so a narrower window does not make the download
+ * faster — it only trims what is kept on the phone — and presenting it as
+ * a headline choice misled users into picking a short window to "save
+ * time". The toggle is pre-expanded when a narrower window is already
+ * persisted so the current choice is never hidden.
  *
  * When iCloud data was not unlocked ([canDownload] false) there is nothing
  * to download yet, so the step degrades to a plain finish.
@@ -58,6 +65,9 @@ internal fun HistoryStep(
     modifier: Modifier = Modifier,
 ) {
     var selected by remember { mutableStateOf(initialWindow) }
+    // Surface the limiter only on request — or when a narrower window is
+    // already persisted, so the user's existing choice is never hidden.
+    var showLimits by remember { mutableStateOf(initialWindow.limitsHistory) }
 
     Column(modifier = modifier.fillMaxSize()) {
         OnboardingTopBar(onBack = onBack, activeSegment = 4)
@@ -76,8 +86,9 @@ internal fun HistoryStep(
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (canDownload) {
-                    "Choose how far back to download. More history takes longer " +
-                        "and uses more storage; you can always download more later."
+                    "OpenGarden brings over everything in Messages in iCloud, so your " +
+                        "conversations match your other devices. Photos and files stay " +
+                        "in iCloud and download only when you open them."
                 } else {
                     "New messages will arrive right away. To bring your past " +
                         "conversations over, unlock your iCloud data from " +
@@ -89,13 +100,38 @@ internal fun HistoryStep(
             Spacer(Modifier.height(20.dp))
 
             if (canDownload) {
-                HistorySyncWindow.entries.forEach { option ->
-                    HistoryOption(
-                        option = option,
-                        selected = selected == option,
-                        onSelect = { selected = option },
+                // Explicit opt-in. Limiting does not speed up the download (every
+                // record is still checked); it only trims what is kept locally.
+                TextButton(
+                    onClick = {
+                        showLimits = !showLimits
+                        // Collapsing the limiter restores the server-mirroring
+                        // default so a hidden narrower window cannot linger.
+                        if (!showLimits) selected = HistorySyncWindow.DEFAULT
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (showLimits) "Keep all history" else "Limit what's kept on this phone",
                     )
-                    Spacer(Modifier.height(8.dp))
+                }
+                if (showLimits) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Limiting doesn't make the download faster — every " +
+                            "record is still checked — it only keeps less on this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    HistorySyncWindow.entries.forEach { option ->
+                        HistoryOption(
+                            option = option,
+                            selected = selected == option,
+                            onSelect = { selected = option },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 ExpectationRow(

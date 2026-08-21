@@ -1,12 +1,26 @@
 package app.openbubbles.nativeapp.data
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import uniffi.rust_lib_bluebubbles.UCloudMessage
 
 class HistorySyncLimitsTest {
     private val nowMillis = 1_800_000_000_000L
+
+    @Test
+    fun `default window mirrors the server unless the user narrows it`() {
+        // Nothing persisted, or an unrecognised value, must resolve to the
+        // server-mirroring default — a narrower window is an explicit opt-in.
+        assertEquals(HistorySyncWindow.ALL_HISTORY, HistorySyncWindow.DEFAULT)
+        assertEquals(HistorySyncWindow.ALL_HISTORY, HistorySyncWindow.fromPersistedValue(null))
+        assertEquals(HistorySyncWindow.ALL_HISTORY, HistorySyncWindow.fromPersistedValue("bogus"))
+        assertEquals(HistorySyncWindow.LAST_YEAR, HistorySyncWindow.fromPersistedValue("1_year"))
+        assertFalse(HistorySyncWindow.ALL_HISTORY.limitsHistory)
+        assertTrue(HistorySyncWindow.LAST_30_DAYS.limitsHistory)
+        assertTrue(HistorySyncWindow.LAST_YEAR.limitsHistory)
+    }
 
     @Test
     fun `all history accepts messages regardless of age`() {
