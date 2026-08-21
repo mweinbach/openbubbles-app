@@ -116,9 +116,7 @@ fun VoiceMemoBubble(
     shape: RoundedCornerShape = RoundedCornerShape(18.dp),
 ) {
     // Disk presence beats the persisted flag, matching the image/video path.
-    val file = remember(attachment.guid, attachment.downloaded) {
-        attachmentFile(attachment.guid)
-    }
+    val file = rememberAttachmentFile(attachment, attachmentFile)
     if (file != null) {
         val palette = voiceMemoPalette(fromMe, smsChat)
         Surface(
