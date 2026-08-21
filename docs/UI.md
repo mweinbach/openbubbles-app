@@ -99,7 +99,7 @@ Onboarding (`native_setup.onboarding_complete`) is a full-screen gate *before* `
 | Chat list | `ui/chatlist/ChatListScreen.kt`, `ChatListViewModel.kt` | VM + `ChatListRepository`; long-press selects many chats for archive/delete; single selection's action sheet adds pin/mute and the per-chat "Send from" override |
 | Search | `ui/search/SearchScreen.kt`, `SearchViewModel.kt` | VM + `SearchRepository`; chats/people/messages/links sections, match highlighting |
 | Archived chats | same list screen, `ChatListKind.Archive` | Opened from Settings; unarchive or delete |
-| Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt` | VM + send/action/attachment/typing ports |
+| Conversation | `ui/chat/ChatScreen.kt`, `ChatViewModel.kt`, `MessageBubble.kt`, `AttachmentBubbles.kt`, `ChatScrollPolicy.kt`, `NewMessagesPill.kt` | VM + send/action/attachment/typing ports; arrival/bottom-follow reducer for the "New messages" pill |
 | New chat | `ui/chatcreator/NewChatScreen.kt` | local + `CoreGraph.findOrCreateChat` |
 | Chat info | `ui/chatinfo/ChatInfoScreen.kt`, `ContactSheet.kt` | hoisted `AppGraph.chatInfo*`; 1:1 shows the contact card, group participants open a contact sheet |
 | Settings | `ui/settings/SettingsScreen.kt`, `SettingsRows.kt` | fat composable; use `SettingsGroup` / `SettingsToggleItem` |
@@ -151,6 +151,10 @@ case; a group-specific change needs a direct-chat counterexample.
   coordinate system; it must not silently swap message ownership.
 - A visual relationship that carries meaning needs sufficient contrast. Interactive labels retain
   48.dp minimum targets even when their visible text/icon is compact.
+- In the reversed transcript, decide "the reader is following the newest message" from the position at
+  the last settled scroll, never from the geometry measured after a snapshot lands: inserting a row at
+  the visual bottom keeps its predecessor anchored and shifts every laid-out index by one.
+  `ChatScrollPolicy.kt` owns that decision, the bottom threshold, and arrival classification.
 - Do not fix a golden by increasing renderer tolerance until the measured drift is proven sparse,
   host-specific, and below a deliberate threshold. Product-level differences must continue to fail.
 
