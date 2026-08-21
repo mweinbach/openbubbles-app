@@ -42,4 +42,33 @@ class HistoryDownloadLockScreenTest {
             )
         }
     }
+
+    @Test
+    fun zeroCountLegsDoNotReadAsStalled() {
+        // A deletion / already-synced leg advances the cursor without adding
+        // rows; showing "0 so far" reads as frozen, so the count is dropped.
+        assertEquals(
+            "Downloading messages…",
+            historyDownloadStatusLine(SyncProgress(SyncPhase.MESSAGES, messagesDone = 0u)),
+        )
+        assertEquals(
+            "Downloading conversations…",
+            historyDownloadStatusLine(SyncProgress(SyncPhase.CHATS, chatsDone = 0u)),
+        )
+        assertEquals(
+            "Downloading photos and files…",
+            historyDownloadStatusLine(SyncProgress(SyncPhase.ATTACHMENTS, attachmentsDone = 0u)),
+        )
+    }
+
+    @Test
+    fun autoRetryBackoffGrowsAndCaps() {
+        assertEquals(2_000L, historyRetryBackoffMs(0))
+        assertEquals(4_000L, historyRetryBackoffMs(1))
+        assertEquals(8_000L, historyRetryBackoffMs(2))
+        assertEquals(16_000L, historyRetryBackoffMs(3))
+        // Capped at 30s and clamped so a large attempt never overflows.
+        assertEquals(30_000L, historyRetryBackoffMs(4))
+        assertEquals(30_000L, historyRetryBackoffMs(99))
+    }
 }

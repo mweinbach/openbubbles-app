@@ -38,6 +38,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -126,6 +127,18 @@ fun OnboardingScreen(
     }
     val loginHandle = remember(confDir) {
         confDir.takeIf { it.isNotBlank() }?.let { RustLoginHandle(path = it) }
+    }
+
+    // The login session owns its own APS connection built from the same push
+    // token as the live push service. APNs allows one active connection per
+    // token, so a lingering login session and the service evict each other in
+    // a tight reconnect loop. The session is closed at sign-in (below) once
+    // the service takes over; this closes it on any other exit (back-out,
+    // abandon, process teardown) so it is never orphaned still-connected.
+    // LoginViewModel is activity-scoped, so its own onCleared does not fire on
+    // these composition changes.
+    DisposableEffect(loginHandle) {
+        onDispose { loginHandle?.close() }
     }
 
     // Provisioning gate, preloaded so the connect step opens without a wait.
@@ -230,6 +243,11 @@ fun OnboardingScreen(
                         onSignedIn = {
                             if (!signedIn) {
                                 signedIn = true
+                                // Hand the single per-token APNs slot to the
+                                // live push service: close the login session's
+                                // connection before onSignedIn() boots the
+                                // service, so the two never fight over it.
+                                loginHandle?.close()
                                 onSignedIn()
                             }
                             step = OnboardingStep.Keychain
