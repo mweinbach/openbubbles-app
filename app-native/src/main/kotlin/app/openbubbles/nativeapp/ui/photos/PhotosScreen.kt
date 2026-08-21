@@ -864,6 +864,7 @@ private fun PhotoPage(
     onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
+    val context = LocalContext.current
     val originalFile = original?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
     val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
