@@ -20,6 +20,7 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.net.toUri
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.data.CoreGraph
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.NotifPrefs
 import app.openbubbles.nativeapp.data.resolveNotificationSenderLabel
 import uniffi.rust_lib_bluebubbles.UMessage
@@ -94,6 +95,9 @@ object Notifications {
     ) {
         if (isConversationVisible(chatId)) return
         if (CoreGraph.isChatBlocked(chatId)) return
+        // Single choke point for message alerts, so the locked first-run
+        // iCloud backfill silences the SMS receivers too.
+        if (InitialHistoryDownload.isPending(context)) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (!nm.areNotificationsEnabled()) return
         val relatedChatIds = CoreGraph.relatedDirectChatIds(chatId)

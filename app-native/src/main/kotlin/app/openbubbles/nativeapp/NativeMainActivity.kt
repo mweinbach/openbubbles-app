@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.DeviceContacts
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.data.applySuccessfulSnapshot
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.nativeapp.ui.OpenBubblesApp
@@ -146,6 +147,10 @@ class NativeMainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         AppearancePrefs.init(this)
+        // Seeded before the first composition so a launch that resumes an
+        // armed history download opens straight into the lock instead of
+        // flashing a half-populated chat list.
+        InitialHistoryDownload.restore(this)
 
         // Launch action (notification deep link, share, compose, route).
         // Always read the extras: process death is exactly the case where

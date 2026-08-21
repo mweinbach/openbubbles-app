@@ -36,6 +36,9 @@ internal enum class IncomingNotificationDisposition {
     BLOCKED,
     NOTIFICATIONS_DISABLED,
     ALREADY_ACTIVE,
+
+    /** The one-time locked iCloud history download is still running. */
+    INITIAL_HISTORY_DOWNLOAD,
 }
 
 /**
@@ -53,6 +56,7 @@ internal data class IncomingNotificationFacts(
     val blocked: Boolean,
     val notificationsEnabled: Boolean,
     val activeMatchingNotification: Boolean,
+    val initialHistoryDownloadActive: Boolean = false,
 )
 
 internal data class IncomingNotificationRuntimeState(
@@ -67,6 +71,10 @@ internal fun incomingNotificationDisposition(
     !facts.persisted -> IncomingNotificationDisposition.NOT_PERSISTED
     facts.source == IncomingNotificationSource.LIVE && !facts.newlyIngested ->
         IncomingNotificationDisposition.NOT_NEW_LIVE_DELIVERY
+    // The locked backfill withholds every alert; the completion notification
+    // is the single thing the user hears about until it releases.
+    facts.initialHistoryDownloadActive ->
+        IncomingNotificationDisposition.INITIAL_HISTORY_DOWNLOAD
     !facts.unread -> IncomingNotificationDisposition.READ
     facts.conversationVisible -> IncomingNotificationDisposition.VISIBLE
     facts.muted -> IncomingNotificationDisposition.MUTED
