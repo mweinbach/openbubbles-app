@@ -99,6 +99,21 @@ class MessageRepoReactionsTest {
         assertEquals(listOf(1L), item.reactions.map { it.targetPart })
     }
 
+    @Test
+    fun `replacing a reaction moves it to active timestamp order`() {
+        val alex = handle("alex@icloud.com")
+        val mark = handle("mark@icloud.com")
+        target("target-order", "updated reactions")
+        reaction("alex-like", "target-order", "like", sender = alex, timestamp = 200L)
+        reaction("mark-love", "target-order", "love", sender = mark, timestamp = 300L)
+        reaction("alex-laugh", "target-order", "laugh", sender = alex, timestamp = 400L)
+
+        val item = repo.messages(chat.id).single { it.guid == "target-order" }
+
+        assertEquals(listOf("love", "laugh"), item.reactions.map { it.type })
+        assertEquals(listOf("mark@icloud.com", "alex@icloud.com"), item.reactions.map { it.senderAddress })
+    }
+
     private fun handle(address: String): Handle = Handle().apply {
         this.address = address
         service = "iMessage"

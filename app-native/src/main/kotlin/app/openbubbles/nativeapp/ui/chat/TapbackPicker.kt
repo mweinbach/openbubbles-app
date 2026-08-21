@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -190,7 +191,7 @@ internal fun TapbackPickerOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .padding(horizontal = 16.dp)
+                .fillMaxWidth()
                 .pointerInput(Unit) { detectTapGestures { } }
                 .graphicsLayer {
                     alpha = enter.value
@@ -199,12 +200,16 @@ internal fun TapbackPickerOverlay(
                 },
         ) {
             if (groups.isNotEmpty()) {
-                ReactionSummaryCard(groups = groups)
+                ReactionSummaryCard(
+                    groups = groups,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
             TapbackPickerBar(
                 selectedEmoji = selected,
                 onReact = onReact,
                 onCustomReaction = onCustomReaction,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -301,11 +306,11 @@ private fun TapbackPickerBar(
         modifier = modifier.widthIn(max = PickerMaxWidth),
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 6.dp)
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
                 .semantics { isTraversalGroup = true },
         ) {
             ActionTapbacks.forEachIndexed { index, emoji ->

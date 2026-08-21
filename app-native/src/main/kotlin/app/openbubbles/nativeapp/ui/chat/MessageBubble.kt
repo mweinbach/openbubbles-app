@@ -371,7 +371,6 @@ fun MessageBubble(
     val openActions = onLongPressPart
     val doubleTapActions = onDoubleTapPart?.takeUnless { smsChat }
     val avatarGutter = showAvatarGutter && !message.isFromMe
-    val reactionSummary = bubbleReactionSummary(message)
     // Pop the tapback only when it lands while the row is on screen; rows that
     // scroll in already reacted render it settled.
     val reactionPopsIn = remember(message.id) { message.reactionEmoji == null }
@@ -511,7 +510,8 @@ fun MessageBubble(
                     onDoubleClick = doubleTapActions?.let { callback -> { callback(textPart) } },
                 )
             }
-            attachments.forEachIndexed { index, attachment ->
+            attachments.forEach { attachment ->
+                val reactionSummary = bubbleReactionSummary(message, attachment.partIndex)
                 Box {
                     AttachmentContent(
                         attachment = attachment,
@@ -528,7 +528,7 @@ fun MessageBubble(
                             { callback(attachment.partIndex) }
                         },
                     )
-                    reactionSummary?.takeIf { index == attachments.lastIndex }?.let { summary ->
+                    reactionSummary?.let { summary ->
                         ReactionChip(
                             summary = summary,
                             isFromMe = message.isFromMe,
@@ -544,6 +544,7 @@ fun MessageBubble(
                 UploadProgressRow(done = progress.first, total = progress.second)
             }
             if (embedRichLink) {
+                val reactionSummary = bubbleReactionSummary(message, textPart)
                 Box {
                     CombinedTextAndLinkBubble(
                         text = displayText,
@@ -558,21 +559,20 @@ fun MessageBubble(
                             { callback(textPart) }
                         },
                     )
-                    if (attachments.isEmpty()) {
-                        reactionSummary?.let { summary ->
-                            ReactionChip(
-                                summary = summary,
-                                isFromMe = message.isFromMe,
-                                popIn = reactionPopsIn,
-                                modifier = Modifier.align(
-                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
-                                ),
-                            )
-                        }
+                    reactionSummary?.let { summary ->
+                        ReactionChip(
+                            summary = summary,
+                            isFromMe = message.isFromMe,
+                            popIn = reactionPopsIn,
+                            modifier = Modifier.align(
+                                if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                            ),
+                        )
                     }
                 }
             } else {
                 richLink?.let { preview ->
+                    val reactionSummary = bubbleReactionSummary(message, textPart)
                     Box {
                         RichLinkCard(
                             preview = preview,
@@ -583,7 +583,7 @@ fun MessageBubble(
                                 { callback(textPart) }
                             },
                         )
-                        if (attachments.isEmpty() && !showTextBubble) {
+                        if (!showTextBubble) {
                             reactionSummary?.let { summary ->
                                 ReactionChip(
                                     summary = summary,
@@ -598,6 +598,7 @@ fun MessageBubble(
                     }
                 }
                 if (showTextBubble) {
+                    val reactionSummary = bubbleReactionSummary(message, textPart)
                     Box {
                         if (invisibleInk) {
                             InvisibleInkBubble(
@@ -635,17 +636,15 @@ fun MessageBubble(
                                 }
                             }
                         }
-                        if (attachments.isEmpty()) {
-                            reactionSummary?.let { summary ->
-                                ReactionChip(
-                                    summary = summary,
-                                    isFromMe = message.isFromMe,
-                                    popIn = reactionPopsIn,
-                                    modifier = Modifier.align(
-                                        if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
-                                    ),
-                                )
-                            }
+                        reactionSummary?.let { summary ->
+                            ReactionChip(
+                                summary = summary,
+                                isFromMe = message.isFromMe,
+                                popIn = reactionPopsIn,
+                                modifier = Modifier.align(
+                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                                ),
+                            )
                         }
                     }
                 }

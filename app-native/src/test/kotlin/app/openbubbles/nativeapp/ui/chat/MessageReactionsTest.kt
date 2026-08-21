@@ -116,12 +116,34 @@ class MessageReactionsTest {
     }
 
     @Test
+    fun `bubble summary includes only reactions for the rendered part`() {
+        val item = message(
+            reactions = listOf(
+                reaction("❤️", "alex@icloud.com", targetPart = 0L),
+                reaction("😂", "mark@icloud.com", targetPart = 1L),
+            ),
+        )
+
+        assertEquals(listOf("❤️"), bubbleReactionSummary(item, 0L)?.emojis)
+        assertEquals(listOf("😂"), bubbleReactionSummary(item, 1L)?.emojis)
+        assertNull(bubbleReactionSummary(item, 2L))
+    }
+
+    @Test
     fun `messages without reactions have no summary`() {
         assertNull(bubbleReactionSummary(message()))
     }
 
-    private fun reaction(emoji: String, address: String) =
-        MessageReactionUi(emoji = emoji, senderAddress = address, isFromMe = false)
+    private fun reaction(
+        emoji: String,
+        address: String,
+        targetPart: Long = 0L,
+    ) = MessageReactionUi(
+        emoji = emoji,
+        senderAddress = address,
+        isFromMe = false,
+        targetPart = targetPart,
+    )
 
     private fun mine(emoji: String) =
         MessageReactionUi(emoji = emoji, senderAddress = null, isFromMe = true)

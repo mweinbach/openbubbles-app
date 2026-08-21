@@ -650,7 +650,8 @@ class MessageRepo(
                 bySenderAndPart[key] = reaction
             }
         }
-        return bySenderAndPart.values + stickers
+        return (bySenderAndPart.values + stickers)
+            .sortedBy { it.dateCreated?.time ?: Long.MIN_VALUE }
     }
 
     private fun stickerPlacements(reaction: Message): List<StickerPlacement> {

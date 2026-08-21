@@ -49,13 +49,19 @@ internal data class BubbleReactionSummary(
 /** Distinct emoji shown on the pill before it collapses into a "+N" tail. */
 internal const val BubbleReactionEmojiLimit = 3
 
-internal fun bubbleReactionSummary(message: MessageItem): BubbleReactionSummary? {
-    if (message.reactions.isEmpty()) {
+internal fun bubbleReactionSummary(
+    message: MessageItem,
+    targetPart: Long? = null,
+): BubbleReactionSummary? {
+    val reactions = targetPart?.let { reactionsForPart(message.reactions, it) } ?: message.reactions
+    if (reactions.isEmpty()) {
+        if (targetPart != null && message.reactions.isNotEmpty()) return null
+        if (targetPart != null && targetPart != defaultMessageActionPart(message)) return null
         val fallback = message.reactionEmoji ?: return null
         return BubbleReactionSummary(listOf(fallback), "Reaction $fallback")
     }
     val counts = LinkedHashMap<String, Int>()
-    message.reactions.forEach { reaction ->
+    reactions.forEach { reaction ->
         counts[reaction.emoji] = (counts[reaction.emoji] ?: 0) + 1
     }
     return BubbleReactionSummary(
