@@ -6,14 +6,22 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
-import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.DraftTooLargeException
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
+import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingVideoDecision
+import app.openbubbles.nativeapp.data.OutgoingVideoMetadata
+import app.openbubbles.nativeapp.data.VideoCompressionPlan
 import app.openbubbles.nativeapp.data.copyWithByteLimit
+import app.openbubbles.nativeapp.data.inspectOutgoingVideo
+import app.openbubbles.nativeapp.data.outgoingVideoDecision
 import app.openbubbles.nativeapp.data.promoteOwnedSibling
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import app.openbubbles.nativeapp.data.resolveContentLength
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Best-effort MIME → UTI map for outgoing attachments. Anything unrecognized
@@ -53,62 +61,140 @@ fun utiForMime(mime: String?): String = when (mime?.lowercase()) {
     }
 }
 
-/**
- * Copies a picked content [uri] into the app cache and resolves the display
- * name, MIME type and size — producing an [OutgoingAttachment] ready for the
- * send path. Returns null when the stream cannot be opened.
- */
-suspend fun prepareOutgoingAttachment(context: Context, uri: Uri): OutgoingAttachment? =
-    withContext(Dispatchers.IO) {
-        runCatching {
-            val resolver = context.contentResolver
-            val mime = resolver.getType(uri) ?: "application/octet-stream"
+/** One oversized video waiting for the explicit compress-and-confirm flow. */
+data class VideoCompressionRequest(
+    /** Untouched source; only a derived cache/outgoing copy is ever staged. */
+    val source: Uri,
+    val displayName: String,
+    val metadata: OutgoingVideoMetadata,
+    val plan: VideoCompressionPlan,
+    /** App-owned draft (camera capture) removed once the flow settles. */
+    val ownedSource: File? = null,
+)
 
-            var name: String? = null
-            var size: Long? = null
-            runCatching {
-                resolver.query(
-                    uri,
-                    arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
-                    null, null, null,
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIdx >= 0 && !cursor.isNull(nameIdx)) name = cursor.getString(nameIdx)
-                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
-                        if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) size = cursor.getLong(sizeIdx)
-                    }
+/** Structured result of preparing one picked source for the draft. */
+sealed interface PreparedOutgoingItem {
+    data class Ready(val attachment: OutgoingAttachment) : PreparedOutgoingItem
+    data class NeedsVideoCompression(val request: VideoCompressionRequest) : PreparedOutgoingItem
+    data class Failed(val message: String) : PreparedOutgoingItem
+}
+
+private val maxDraftMegabytes = MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)
+
+/**
+ * Prepares a picked content [uri] for the draft. Sources within the local
+ * draft policy are copied into the app cache exactly as before. A video over
+ * the policy is inspected and routed to the explicit compression review
+ * instead of failing with a generic error; the original is never copied or
+ * modified. Non-video sources over the policy fail with a sized explanation.
+ */
+suspend fun prepareOutgoingItem(context: Context, uri: Uri): PreparedOutgoingItem =
+    withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val mime = runCatching { resolver.getType(uri) }.getOrNull() ?: "application/octet-stream"
+
+        var name: String? = null
+        var size: Long? = null
+        runCatching {
+            resolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null, null, null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIdx >= 0 && !cursor.isNull(nameIdx)) name = cursor.getString(nameIdx)
+                    val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) size = cursor.getLong(sizeIdx)
                 }
             }
-            val displayName = name ?: uri.lastPathSegment ?: "attachment"
-            if (size != null && size > MAX_OUTGOING_DRAFT_BYTES) {
-                error("Attachment is larger than ${MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)} MB")
-            }
+        }
+        val displayName = name ?: uri.lastPathSegment ?: "attachment"
+        val isVideo = mime.lowercase().startsWith("video/")
+        val resolvedSize = size ?: resolveContentLength(context, uri)
 
-            val dir = File(context.cacheDir, "outgoing").apply { mkdirs() }
-            val target = File(dir, "${UUID.randomUUID()}-${displayName.replace(Regex("[<>:\"/\\\\|?*]"), "_")}")
-            val partial = File(dir, ".${target.name}.part")
-            try {
-                resolver.openInputStream(uri)?.use { input ->
-                    copyWithByteLimit(input, partial, MAX_OUTGOING_DRAFT_BYTES)
-                } ?: return@runCatching null
-                promoteOwnedSibling(partial, target)
-            } catch (failure: Throwable) {
-                partial.delete()
-                target.delete()
-                throw failure
+        if (resolvedSize != null && resolvedSize > MAX_OUTGOING_DRAFT_BYTES) {
+            return@withContext if (isVideo) {
+                oversizedVideoItem(context, uri, displayName, resolvedSize)
+            } else {
+                PreparedOutgoingItem.Failed("Attachment is larger than $maxDraftMegabytes MB")
             }
+        }
 
-            val realSize = target.length()
+        val dir = File(context.cacheDir, "outgoing").apply { mkdirs() }
+        val target = File(dir, "${UUID.randomUUID()}-${displayName.replace(Regex("[<>:\"/\\\\|?*]"), "_")}")
+        val partial = File(dir, ".${target.name}.part")
+        try {
+            resolver.openInputStream(uri)?.use { input ->
+                copyWithByteLimit(input, partial, MAX_OUTGOING_DRAFT_BYTES)
+            } ?: return@withContext PreparedOutgoingItem.Failed("Could not read attachment")
+            promoteOwnedSibling(partial, target)
+        } catch (cancellation: CancellationException) {
+            partial.delete()
+            target.delete()
+            throw cancellation
+        } catch (tooLarge: DraftTooLargeException) {
+            partial.delete()
+            target.delete()
+            // The provider hid the size; the bounded copy proved it is over.
+            return@withContext if (isVideo) {
+                oversizedVideoItem(context, uri, displayName, sizeBytes = null)
+            } else {
+                PreparedOutgoingItem.Failed("Attachment is larger than $maxDraftMegabytes MB")
+            }
+        } catch (_: Throwable) {
+            partial.delete()
+            target.delete()
+            return@withContext PreparedOutgoingItem.Failed("Could not read attachment")
+        }
+
+        PreparedOutgoingItem.Ready(
             OutgoingAttachment(
                 file = target,
                 mime = mime,
                 uti = utiForMime(mime),
                 name = displayName,
-                sizeBytes = realSize,
-            )
-        }.getOrNull()
+                sizeBytes = target.length(),
+            ),
+        )
     }
+
+/** Routes a proven-oversized video through the compression policy. */
+private fun oversizedVideoItem(
+    context: Context,
+    uri: Uri,
+    displayName: String,
+    sizeBytes: Long?,
+): PreparedOutgoingItem {
+    val metadata = inspectOutgoingVideo(context, uri, sizeBytes)
+    return when (val decision = outgoingVideoDecision(metadata)) {
+        is OutgoingVideoDecision.OfferCompression -> PreparedOutgoingItem.NeedsVideoCompression(
+            VideoCompressionRequest(
+                source = uri,
+                displayName = displayName,
+                metadata = metadata,
+                plan = decision.plan,
+            ),
+        )
+        OutgoingVideoDecision.RejectUnreadable -> PreparedOutgoingItem.Failed(
+            "Video is larger than $maxDraftMegabytes MB and could not be read for compression",
+        )
+        // Unreachable: this helper is only called for proven-oversized sizes.
+        OutgoingVideoDecision.SendOriginal -> PreparedOutgoingItem.Failed(
+            "Could not read attachment",
+        )
+    }
+}
+
+/**
+ * Copies a picked content [uri] into the app cache and resolves the display
+ * name, MIME type and size — producing an [OutgoingAttachment] ready for the
+ * send path. Returns null when the stream cannot be opened or the source is
+ * outside the local draft policy (legacy single-result path; the chat
+ * composer uses [prepareOutgoingItem] to surface the compression flow).
+ */
+suspend fun prepareOutgoingAttachment(context: Context, uri: Uri): OutgoingAttachment? =
+    (prepareOutgoingItem(context, uri) as? PreparedOutgoingItem.Ready)?.attachment
 
 /** One-shot prep for a picked uri, recomposed when the uri changes. */
 @Composable

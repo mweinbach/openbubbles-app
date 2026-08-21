@@ -241,6 +241,12 @@ dependencies {
     implementation libs.okhttp
     implementation libs.androidx.activity.compose
 
+    // Oversized outgoing video compression (1080p/HEVC, HDR kept) before
+    // enqueue. Media3 Transformer uses platform codecs only — no native libs.
+    implementation libs.androidx.media3.transformer
+    implementation libs.androidx.media3.effect
+    implementation libs.androidx.media3.common
+
     // QR pairing scanner (provisioning): CameraX + official ML Kit Analyzer
     implementation libs.androidx.camera.camera2
     implementation libs.androidx.camera.lifecycle

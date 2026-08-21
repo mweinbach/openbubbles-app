@@ -101,6 +101,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -140,8 +141,15 @@ import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingVideoDecision
+import app.openbubbles.nativeapp.data.VideoCompressionResult
+import app.openbubbles.nativeapp.data.compressOutgoingVideo
 import app.openbubbles.nativeapp.data.deleteOwnedOutgoingDraft
+import app.openbubbles.nativeapp.data.derivedVideoDisplayName
+import app.openbubbles.nativeapp.data.inspectOutgoingVideo
+import app.openbubbles.nativeapp.data.outgoingVideoDecision
 import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.ContactDisplay
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
@@ -150,6 +158,7 @@ import app.openbubbles.nativeapp.ui.chat.composer.CaptureReview
 import app.openbubbles.nativeapp.ui.chat.composer.ComposerTextField
 import app.openbubbles.nativeapp.ui.chat.composer.MentionCandidate
 import app.openbubbles.nativeapp.ui.chat.composer.SubjectField
+import app.openbubbles.nativeapp.ui.chat.composer.VideoCompressionReview
 import app.openbubbles.nativeapp.ui.chat.composer.currentLocationMessage
 import app.openbubbles.nativeapp.ui.common.rememberChatBackground
 import app.openbubbles.nativeapp.facetime.startOutgoingFaceTime
@@ -179,6 +188,7 @@ import java.time.ZoneId
 import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -509,15 +519,21 @@ fun ChatScreen(
         onOutgoingSendEventConsumed(event.messageId)
     }
 
+    // Oversized videos wait here for the explicit compress-and-confirm flow;
+    // nothing in this queue has been staged or copied yet.
+    val videoReviewQueue = remember { mutableStateListOf<VideoCompressionRequest>() }
+
     fun stageAttachments(uris: List<Uri>) {
         if (uris.isEmpty()) return
         scope.launch {
-            val prepared = uris.mapNotNull { prepareOutgoingAttachment(context, it) }
-            if (prepared.isEmpty()) {
-                snackbarHostState.showSnackbar("Could not read attachment")
-                return@launch
-            }
-            onStageAttachments(prepared)
+            val prepared = uris.map { prepareOutgoingItem(context, it) }
+            val ready = prepared.filterIsInstance<PreparedOutgoingItem.Ready>().map { it.attachment }
+            if (ready.isNotEmpty()) onStageAttachments(ready)
+            prepared.filterIsInstance<PreparedOutgoingItem.NeedsVideoCompression>()
+                .forEach { videoReviewQueue.add(it.request) }
+            prepared.filterIsInstance<PreparedOutgoingItem.Failed>()
+                .firstOrNull()
+                ?.let { snackbarHostState.showSnackbar(it.message) }
         }
     }
 
@@ -1251,17 +1267,47 @@ fun ChatScreen(
                 requestCapture(captureVideo)
             },
             onUse = {
-                onStageAttachments(
-                    listOf(
-                        OutgoingAttachment(
-                            file = file,
-                            mime = if (captureVideo) "video/mp4" else "image/jpeg",
-                            uti = if (captureVideo) "public.mpeg-4-movie" else "public.jpeg",
-                            name = file.name,
-                            sizeBytes = file.length(),
+                val sizeBytes = file.length()
+                if (captureVideo && sizeBytes > MAX_OUTGOING_DRAFT_BYTES) {
+                    // The capture is over the local draft policy; route it
+                    // through the same explicit compression review as picked
+                    // videos instead of failing later at send time.
+                    scope.launch {
+                        val metadata = withContext(Dispatchers.IO) {
+                            inspectOutgoingVideo(context, Uri.fromFile(file), sizeBytes)
+                        }
+                        when (val decision = outgoingVideoDecision(metadata)) {
+                            is OutgoingVideoDecision.OfferCompression -> videoReviewQueue.add(
+                                VideoCompressionRequest(
+                                    source = Uri.fromFile(file),
+                                    displayName = file.name,
+                                    metadata = metadata,
+                                    plan = decision.plan,
+                                    ownedSource = file,
+                                ),
+                            )
+                            else -> {
+                                deleteOwnedOutgoingDraft(file, context.cacheDir)
+                                snackbarHostState.showSnackbar(
+                                    "Video is larger than ${MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)} MB " +
+                                        "and could not be read for compression",
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    onStageAttachments(
+                        listOf(
+                            OutgoingAttachment(
+                                file = file,
+                                mime = if (captureVideo) "video/mp4" else "image/jpeg",
+                                uti = if (captureVideo) "public.mpeg-4-movie" else "public.jpeg",
+                                name = file.name,
+                                sizeBytes = sizeBytes,
+                            ),
                         ),
-                    ),
-                )
+                    )
+                }
                 reviewCapture = null
                 captureFile = null
             },
@@ -1269,6 +1315,54 @@ fun ChatScreen(
                 deleteOwnedOutgoingDraft(file, context.cacheDir)
                 reviewCapture = null
                 captureFile = null
+            },
+        )
+    }
+    videoReviewQueue.firstOrNull()?.let { request ->
+        var compressionJob by remember(request) { mutableStateOf<Job?>(null) }
+        var compressionProgress by remember(request) { mutableStateOf<Float?>(null) }
+        fun settleRequest() {
+            request.ownedSource?.let { deleteOwnedOutgoingDraft(it, context.cacheDir) }
+            videoReviewQueue.remove(request)
+        }
+        VideoCompressionReview(
+            request = request,
+            inProgress = compressionJob != null,
+            progress = compressionProgress,
+            onConfirm = confirm@{
+                if (compressionJob != null) return@confirm
+                compressionJob = scope.launch {
+                    val result = compressOutgoingVideo(
+                        context = context,
+                        source = request.source,
+                        plan = request.plan,
+                        displayName = request.displayName,
+                    ) { fraction -> compressionProgress = fraction }
+                    when (result) {
+                        is VideoCompressionResult.Success -> onStageAttachments(
+                            listOf(
+                                OutgoingAttachment(
+                                    file = result.file,
+                                    mime = "video/mp4",
+                                    uti = "public.mpeg-4-movie",
+                                    name = derivedVideoDisplayName(request.displayName),
+                                    sizeBytes = result.sizeBytes,
+                                ),
+                            ),
+                        )
+                        is VideoCompressionResult.Failure ->
+                            snackbarHostState.showSnackbar(result.message)
+                    }
+                    compressionJob = null
+                    compressionProgress = null
+                    settleRequest()
+                }
+            },
+            onCancel = {
+                compressionJob?.cancel()
+                compressionJob = null
+                compressionProgress = null
+                settleRequest()
             },
         )
     }
