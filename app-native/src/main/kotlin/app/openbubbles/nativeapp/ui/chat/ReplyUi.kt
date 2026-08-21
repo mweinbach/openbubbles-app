@@ -240,7 +240,7 @@ internal fun ReplyThreadPane(
         // Keep the marker effect key stable until a suspending pin completes.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
-            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+            fallbackGuids = outcome.reconciledFallbackGuids,
         )
     }
     LaunchedEffect(atBottomNow, anchor.isScrollInProgress, newestIndex) {

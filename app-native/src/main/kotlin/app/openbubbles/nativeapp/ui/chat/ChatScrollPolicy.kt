@@ -68,32 +68,28 @@ internal data class ArrivalState(
  */
 internal data class LiveArrivalMarkerState(
     val unmatchedGuids: Set<String> = emptySet(),
-    val chronologicalFallback: Boolean = false,
+    /** Markers beyond [LiveMarkerRetention], reconciled chronologically by count. */
+    val overflowCount: Int = 0,
 ) {
     /** Exact markers stay usable while overflow reconciliation is active. */
     val reducerGuids: Set<String> get() = unmatchedGuids
+    val chronologicalFallback: Boolean get() = overflowCount > 0
 
     fun added(guid: String): LiveArrivalMarkerState {
-        if (chronologicalFallback || guid in unmatchedGuids) return this
+        if (guid in unmatchedGuids) return this
         if (unmatchedGuids.size >= LiveMarkerRetention) {
-            return copy(chronologicalFallback = true)
+            return copy(overflowCount = overflowCount + 1)
         }
         return copy(unmatchedGuids = LinkedHashSet(unmatchedGuids).apply { add(guid) })
     }
 
     fun consumed(
         guids: Set<String>,
-        fallbackReconciled: Boolean = false,
-    ): LiveArrivalMarkerState =
-        if (chronologicalFallback) {
-            // Do not leave fallback merely because its marker state triggered
-            // a reduction before ObjectBox delivered the corresponding rows.
-            if (fallbackReconciled) LiveArrivalMarkerState() else this
-        } else if (guids.isEmpty()) {
-            this
-        } else {
-            copy(unmatchedGuids = unmatchedGuids - guids)
-        }
+        fallbackGuids: Set<String> = emptySet(),
+    ): LiveArrivalMarkerState = copy(
+        unmatchedGuids = unmatchedGuids - guids,
+        overflowCount = (overflowCount - fallbackGuids.size).coerceAtLeast(0),
+    )
 }
 
 /** Every protocol chat represented by a contact-grouped conversation. */
@@ -119,6 +115,8 @@ internal data class ArrivalOutcome(
     val pinToNewest: Boolean,
     /** Intake markers whose independently persisted rows were present in this snapshot. */
     val matchedLiveGuids: Set<String> = emptySet(),
+    /** Chronologically reconciled rows whose exact marker overflowed the bounded set. */
+    val reconciledFallbackGuids: Set<String> = emptySet(),
 )
 
 /** Newer-than-baseline test; ids break ties inside the same millisecond. */
@@ -182,6 +180,7 @@ internal fun reduceArrivals(
         )
     }
 
+    val fallbackGuids = LinkedHashSet<String>()
     val arrivals = messages.filter {
         !it.isFromMe &&
             if (liveArrivalGuids != null) {
@@ -192,7 +191,9 @@ internal fun reduceArrivals(
                     (chronologicalFallback &&
                         it.guid !in state.knownGuids &&
                         !historySyncActive &&
-                        isNewerThanBaseline(it, state))
+                        isNewerThanBaseline(it, state)).also { fallback ->
+                            if (fallback && it.guid !in liveArrivalGuids) fallbackGuids += it.guid
+                        }
             } else {
                 it.guid !in state.knownGuids &&
                     !historySyncActive && isNewerThanBaseline(it, state)
@@ -228,6 +229,7 @@ internal fun reduceArrivals(
         arrivals = arrivals.size,
         pinToNewest = followingBottom && arrivals.isNotEmpty(),
         matchedLiveGuids = matchedLiveGuids,
+        reconciledFallbackGuids = fallbackGuids,
     )
 }
 

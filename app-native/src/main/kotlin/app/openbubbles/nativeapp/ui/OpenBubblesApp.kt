@@ -799,6 +799,7 @@ fun OpenBubblesApp(
 
                 entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
                     val chatId = key.chatId
+                    val routeMemberChatIds = remember(chatId) { AppGraph.relatedDirectChatIds(chatId) }
                     val conversationContext = LocalContext.current
                     DisposableEffect(chatId) {
                         Notifications.onConversationVisible(conversationContext, chatId)
@@ -838,6 +839,7 @@ fun OpenBubblesApp(
                     ChatScreen(
                         uiState = state,
                         routeChatId = chatId,
+                        routeMemberChatIds = routeMemberChatIds,
                         historySyncActive = historySyncActive,
                         onInputChange = viewModel::onInputChange,
                         onSubjectChange = viewModel::onSubjectChange,

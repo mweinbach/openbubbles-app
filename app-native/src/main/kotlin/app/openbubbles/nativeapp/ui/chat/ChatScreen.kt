@@ -376,6 +376,8 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     /** Stable navigation identity, available before the chat model loads. */
     routeChatId: Long? = uiState.chat?.id,
+    /** Synchronous repository membership, available before the chat-list flow emits. */
+    routeMemberChatIds: List<Long> = listOfNotNull(routeChatId),
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -724,12 +726,14 @@ fun ChatScreen(
     }
     val observedLiveArrivalChatIds = remember(
         routeChatId,
+        routeMemberChatIds,
         uiState.chat?.id,
         uiState.chat?.memberChatIds,
     ) {
         liveArrivalChatIds(
             chatId = routeChatId ?: uiState.chat?.id,
             memberChatIds = buildList {
+                addAll(routeMemberChatIds)
                 uiState.chat?.id?.let(::add)
                 addAll(uiState.chat?.memberChatIds.orEmpty())
             },
@@ -817,7 +821,7 @@ fun ChatScreen(
         // finishes, otherwise recomposition cancels the move midway through.
         liveArrivalMarkers = liveArrivalMarkers.consumed(
             outcome.matchedLiveGuids,
-            fallbackReconciled = outcome.matchedLiveGuids.isNotEmpty() || outcome.arrivals > 0,
+            fallbackGuids = outcome.reconciledFallbackGuids,
         )
     }
 

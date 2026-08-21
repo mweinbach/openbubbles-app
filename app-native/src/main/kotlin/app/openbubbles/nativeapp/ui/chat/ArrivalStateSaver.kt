@@ -35,13 +35,13 @@ internal val LiveArrivalMarkerStateSaver = Saver<LiveArrivalMarkerState, Bundle>
                 "unmatched",
                 ArrayList(state.unmatchedGuids.toList().takeLast(LiveMarkerRetention)),
             )
-            putBoolean("fallback", state.chronologicalFallback)
+            putInt("overflowCount", state.overflowCount)
         }
     },
     restore = { saved ->
         LiveArrivalMarkerState(
             unmatchedGuids = saved.getStringArrayList("unmatched").orEmpty().toSet(),
-            chronologicalFallback = saved.getBoolean("fallback"),
+            overflowCount = saved.getInt("overflowCount"),
         )
     },
 )
