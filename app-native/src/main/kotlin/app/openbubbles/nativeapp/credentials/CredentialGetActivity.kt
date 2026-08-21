@@ -8,6 +8,7 @@ import androidx.annotation.RequiresApi
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PasswordCredential
 import androidx.credentials.PublicKeyCredential
+import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
 import java.io.ByteArrayOutputStream
@@ -47,7 +48,7 @@ class CredentialGetActivity : FragmentActivity() {
             client.bind { service: APNService ->
                 service.pushState?.let {
                     handleService(it)
-                } ?: finishAndRemoveTask()
+                } ?: failWith("iCloud Keychain is not connected")
             }
         }
 
@@ -86,7 +87,10 @@ class CredentialGetActivity : FragmentActivity() {
                         CredentialService.TYPE_PASSWORD -> {
                             val saved = passwords.firstOrNull { it.credId == credId }
                             if (saved == null) {
-                                finish()
+                                // The picker entry came from the durable catalog;
+                                // the record can be gone (deleted on another
+                                // device) by the time the user chooses it.
+                                failWith("That password is no longer in iCloud Keychain")
                                 return
                             }
 
@@ -102,7 +106,7 @@ class CredentialGetActivity : FragmentActivity() {
                         CredentialService.TYPE_PASSKEY -> {
                             val saved = passkeys.firstOrNull { it.credId == credId }
                             if (saved == null || requestJson == null) {
-                                finish()
+                                failWith("That passkey is no longer in iCloud Keychain")
                                 return
                             }
 
@@ -215,6 +219,18 @@ class CredentialGetActivity : FragmentActivity() {
                 }
             }
         })
+    }
+
+    /**
+     * Reports a real failure to the calling app. Finishing without a result
+     * looks like the user dismissed the picker, which hides a missing record or
+     * an unreachable keychain behind a silent cancel.
+     */
+    private fun failWith(message: String) {
+        val result = Intent()
+        PendingIntentHandler.setGetCredentialException(result, GetCredentialUnknownException(message))
+        setResult(RESULT_OK, result)
+        finish()
     }
 
     override fun onDestroy() {

@@ -6,19 +6,28 @@ import android.content.Intent
 import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.*
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.annotation.RequiresApi
 
 import app.openbubbles.nativeapp.credentials.AutofillStructure.AutofillType
-import java.time.YearMonth
 import java.util.regex.Pattern
 import app.openbubbles.nativeapp.R
+import app.openbubbles.core.passwords.VaultCredentialRequest
+import app.openbubbles.core.passwords.VaultItemKind
+import app.openbubbles.core.passwords.VaultLookupPlan
+import app.openbubbles.core.passwords.planVaultLookup
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.APNClient
 import app.openbubbles.nativeapp.data.APNService
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogStore
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.InsertKeychainCallback
-import uniffi.rust_lib_bluebubbles.RetrieveKeysCallback
-import uniffi.rust_lib_bluebubbles.SavedPasskey
 import uniffi.rust_lib_bluebubbles.SavedPassword
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -27,13 +36,19 @@ import java.util.concurrent.atomic.AtomicInteger
 class OBAutofillService : AutofillService() {
 
     companion object {
+        private const val TAG = "OBAutofillService"
+        private val PASSWORD_KIND = setOf(VaultItemKind.Password)
+
         var pendingClaifyIntent: PendingIntent? = null
     }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val creditCards = listOf<AutofillDatasets.CreditCard>()
 
     override fun onDestroy() {
         super.onDestroy()
+        scope.cancel()
         pendingClaifyIntent?.cancel()
         pendingClaifyIntent = null
     }
@@ -128,18 +143,45 @@ class OBAutofillService : AutofillService() {
     ) {
         val currentContext = request.fillContexts.last().structure
         val structure = AutofillStructure(this, currentContext)
-        if (structure.webDomain == null || !structure.hasEmails()) {
+        val domain = structure.webDomain
+        if (domain == null || !structure.hasEmails()) {
             callback.onSuccess(null)
             return
         }
-        val client = APNClient(this)
-        client.bind { service: APNService ->
-            service.pushState!!.getSiteConfig(structure.webDomain!!, object : RetrieveKeysCallback {
-                override fun keys(passwords: List<SavedPassword>, passkeys: List<SavedPasskey>) {
-                    handleFillRequest(request, cancellationSignal, callback, passwords, structure)
-                    client.destroy()
+        val context = applicationContext
+        scope.launch {
+            try {
+                val catalog = VaultCatalogStore.of(context)
+                val snapshot = catalog.credentialsForSite(domain, PASSWORD_KIND)
+                val passwordRequest = VaultCredentialRequest(
+                    site = domain,
+                    wantsPasswords = true,
+                    wantsPasskeys = false,
+                )
+                // The catalog answers whether this domain has anything at all
+                // without waiting on Rust. Autofill still needs the actual
+                // secret to build a dataset, so a match means "ask the backend",
+                // and a warm miss means "answer now with nothing".
+                val plan = planVaultLookup(snapshot, passwordRequest, PushStateHolder.state != null)
+                if (plan is VaultLookupPlan.NoCredentials) {
+                    callback.onSuccess(null)
+                    return@launch
                 }
-            })
+                val state = awaitPushState(context)
+                if (state == null) {
+                    // Signed out, locked, or a cold process the system started
+                    // for this request. Answer with nothing rather than crash.
+                    Log.i(TAG, "autofill skipped: Apple services are not connected")
+                    callback.onSuccess(null)
+                    return@launch
+                }
+                val config = state.awaitSiteConfig(domain)
+                VaultCatalogSync.refresh(context, state)
+                handleFillRequest(request, cancellationSignal, callback, config.passwords, structure)
+            } catch (failure: Throwable) {
+                Log.w(TAG, "autofill fill request failed (${failure.javaClass.simpleName})")
+                callback.onSuccess(null)
+            }
         }
     }
 
@@ -187,6 +229,10 @@ class OBAutofillService : AutofillService() {
                 pushState.keychainPasswordInsert(save.domain, save.username, save.password, object : InsertKeychainCallback {
                     override fun done(error: String?) {
                         client.destroy()
+                        // A saved credential the catalog does not know about is
+                        // invisible to the next fill request until the next
+                        // listing, so re-read the vault on success.
+                        if (error == null) VaultCatalogSync.refresh(applicationContext, pushState)
                         finishOne(error)
                     }
                 }, null)

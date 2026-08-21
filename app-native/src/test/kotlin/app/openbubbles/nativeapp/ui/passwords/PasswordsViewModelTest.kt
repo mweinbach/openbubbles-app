@@ -1,9 +1,14 @@
 package app.openbubbles.nativeapp.ui.passwords
 
+import app.openbubbles.core.passwords.InMemoryVaultCatalog
+import app.openbubbles.core.passwords.VaultGroupRecord
+import app.openbubbles.core.passwords.VaultItemKind
+import app.openbubbles.core.passwords.VaultItemRecord
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -11,6 +16,22 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+
+/** A vault listing that has not answered yet, standing in for a booting backend. */
+private class GatedPasswordsPort(
+    private val delegate: FakePasswordsPort,
+    private val listing: CompletableDeferred<Unit>,
+) : PasswordsPort by delegate {
+    override suspend fun listItems(category: VaultCategory): List<VaultItemUi> {
+        listing.await()
+        return delegate.listItems(category)
+    }
+
+    override suspend fun listGroups(): List<VaultGroupUi> {
+        listing.await()
+        return delegate.listGroups()
+    }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordsViewModelTest {
@@ -121,6 +142,83 @@ class PasswordsViewModelTest {
         assertEquals(false, second.uiState.value.loading)
         assertEquals(listOf(item), second.uiState.value.items)
         assertEquals(false, second.uiState.value.categoryLoading)
+    }
+
+    @Test
+    fun `a cold process paints from the durable catalog before the port answers`() = runTest(dispatcher) {
+        val catalog = InMemoryVaultCatalog()
+        catalog.replaceItems(
+            VaultItemKind.Password,
+            listOf(
+                VaultItemRecord(
+                    id = "1",
+                    kind = VaultItemKind.Password,
+                    site = "example.com",
+                    title = "example.com",
+                    username = "alice",
+                ),
+            ),
+            syncedAtMs = 1_000,
+        )
+        catalog.replaceGroups(
+            listOf(VaultGroupRecord("family", "Family", owner = true, memberCount = 2)),
+            emptyList(),
+            syncedAtMs = 1_000,
+        )
+
+        // A fresh process: nothing in memory, everything on disk, and a vault
+        // listing that has not answered yet (Rust still booting).
+        val listing = CompletableDeferred<Unit>()
+        val port = GatedPasswordsPort(FakePasswordsPort(items = emptyList()), listing)
+        val model = PasswordsViewModel(port, VaultCacheStore(catalog))
+        advanceUntilIdle()
+
+        assertEquals(listOf("example.com"), model.uiState.value.items.map { it.title })
+        assertEquals(listOf("Family"), model.uiState.value.groups.map { it.name })
+        assertEquals(false, model.uiState.value.loading)
+        assertEquals(false, model.uiState.value.categoryLoading)
+
+        // The live listing stays authoritative once it lands.
+        listing.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(emptyList(), model.uiState.value.items)
+    }
+
+    @Test
+    fun `leaving the keychain clique clears the durable catalog too`() = runTest(dispatcher) {
+        val catalog = InMemoryVaultCatalog()
+        catalog.replaceItems(
+            VaultItemKind.Password,
+            listOf(
+                VaultItemRecord(
+                    id = "1",
+                    kind = VaultItemKind.Password,
+                    site = "example.com",
+                    title = "example.com",
+                    username = "alice",
+                ),
+            ),
+            syncedAtMs = 1_000,
+        )
+
+        val port = FakePasswordsPort(inClique = false)
+        PasswordsViewModel(port, VaultCacheStore(catalog))
+        advanceUntilIdle()
+
+        assertEquals(true, catalog.load().cold)
+        assertEquals(emptyList(), catalog.load().items)
+    }
+
+    @Test
+    fun `a completed load asks the credential-provider catalog to re-read the vault`() = runTest(dispatcher) {
+        var refreshes = 0
+        val port = FakePasswordsPort()
+        PasswordsViewModel(port, VaultCacheStore(requestCatalogRefresh = { refreshes += 1 }))
+        advanceUntilIdle()
+
+        // Two eager rounds (cold, then post-sync); the provider's catalog must
+        // not be left behind whatever the screen just read.
+        assertEquals(2, refreshes)
     }
 
     @Test

@@ -112,7 +112,14 @@ object CredentialWebAuthnUtils {
                 val cacheIsFresh = cacheFile.exists() &&
                     (System.currentTimeMillis() - cacheFile.lastModified()) <= CACHE_TTL_MS
                 if (!cacheIsFresh) {
-                    downloadPrivilegedAllowlist(cacheFile)
+                    try {
+                        downloadPrivilegedAllowlist(cacheFile)
+                    } catch (refreshFailure: Throwable) {
+                        // A stale allowlist still names the same privileged
+                        // browsers. Failing the refresh offline must not fail
+                        // every credential request; only a missing list does.
+                        if (cacheFile.length() <= 0L) throw refreshFailure
+                    }
                 }
                 null
             } catch (t: Throwable) {

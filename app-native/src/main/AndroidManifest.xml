@@ -343,6 +343,13 @@
             tools:targetApi="34" />
 
         <activity
+            android:name="app.openbubbles.nativeapp.credentials.CredentialUnlockActivity"
+            android:label="OpenGarden"
+            android:taskAffinity=".CredentialUnlock"
+            android:theme="@style/Theme.Material3.DayNight.Dialog.Alert"
+            tools:targetApi="34" />
+
+        <activity
             android:name="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
             android:label="OpenGarden"
             android:taskAffinity=".CredentialSettings"

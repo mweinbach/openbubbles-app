@@ -14,6 +14,7 @@ import androidx.fragment.app.FragmentActivity
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.APNClient
 import app.openbubbles.nativeapp.data.APNService
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import com.upokecenter.cbor.CBORObject
 import org.json.JSONArray
 import uniffi.rust_lib_bluebubbles.InsertKeychainCallback
@@ -190,6 +191,7 @@ class CredentialCreateActivity : FragmentActivity() {
                             }
 
                             updateLastUsed()
+                            VaultCatalogSync.refresh(applicationContext, service)
 
                             // Set the CreateCredentialResponse as the result of the Activity
                             PendingIntentHandler.setCreateCredentialResponse(
@@ -217,6 +219,7 @@ class CredentialCreateActivity : FragmentActivity() {
                         }
 
                         updateLastUsed()
+                        VaultCatalogSync.refresh(applicationContext, service)
 
                         PendingIntentHandler.setCreateCredentialResponse(
                             result,
