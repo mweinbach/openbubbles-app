@@ -6,6 +6,7 @@ import app.openbubbles.core.attachment.AttachmentDownloader
 import app.openbubbles.core.attachment.AttachmentManager
 import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.core.attachment.TransferState
 import app.openbubbles.core.backup.BackupManager
 import app.openbubbles.core.backup.StoreGate
 import app.openbubbles.core.contacts.ContactSync
@@ -52,7 +53,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -257,7 +260,13 @@ object CoreGraph {
         if (store != null) CoreFaceTimeCaller else FakeFaceTimeCaller
     }
     val attachments: AttachmentProvider by lazy {
-        store?.let { st -> CoreAttachmentProvider(st, { attachmentFiles }) } ?: FakeAttachmentProvider
+        store?.let { st ->
+            CoreAttachmentProvider(
+                store = st,
+                fileManager = { attachmentFiles },
+                manager = { attachmentManager },
+            )
+        } ?: FakeAttachmentProvider
     }
     /**
      * Read-only chat id lookup by guid (notification deep links resolve the
@@ -1712,6 +1721,7 @@ internal fun applyUploadProgress(
 private class CoreAttachmentProvider(
     private val store: BoxStore,
     private val fileManager: () -> AttachmentFileManager?,
+    private val manager: () -> AttachmentManager? = { null },
 ) : AttachmentProvider {
 
     private fun attachmentByGuid(guid: String): Attachment? = runCatching {
@@ -1720,6 +1730,48 @@ private class CoreAttachmentProvider(
             .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
     }.getOrNull()
+
+    override fun canDownload(guid: String): Boolean {
+        if (manager() == null) return false
+        val metadata = attachmentByGuid(guid)?.metadata ?: return false
+        return metadata.containsKey("rustpush") || metadata.containsKey("cloud")
+    }
+
+    override fun download(guid: String): Flow<TransferState> = flow {
+        val transferManager = manager()
+        val attachment = attachmentByGuid(guid)
+        when {
+            transferManager == null || attachment == null ->
+                emit(TransferState.Failed("Attachment is unavailable"))
+            !canDownload(guid) ->
+                emit(TransferState.Failed("This attachment has no downloadable payload"))
+            else -> {
+                val box = store.boxFor(Attachment::class.java)
+                val siblings = attachment.message.target?.dbAttachments.orEmpty()
+                    .ifEmpty { listOf(attachment) }
+                val pair = livePhotoTransferGuids(attachment, siblings).mapNotNull { pairGuid ->
+                    if (pairGuid == attachment.guid) attachment else box.query()
+                        .equal(Attachment_.guid, pairGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                        .build().use { it.findFirst() }
+                }
+                for (component in pair) {
+                    var componentFailure: String? = null
+                    transferManager.download(component).collect { state ->
+                        when (state) {
+                            is TransferState.Progress -> emit(state)
+                            is TransferState.Failed -> componentFailure = state.error
+                            TransferState.Done -> Unit
+                        }
+                    }
+                    componentFailure?.let { error ->
+                        emit(TransferState.Failed(error))
+                        return@flow
+                    }
+                }
+                emit(TransferState.Done)
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     override fun byGuid(guid: String): AttachmentMeta? {
         val attachment = attachmentByGuid(guid) ?: return null

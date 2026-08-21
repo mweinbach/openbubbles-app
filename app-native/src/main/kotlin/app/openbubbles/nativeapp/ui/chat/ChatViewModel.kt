@@ -1,7 +1,12 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import android.content.Context
+import android.net.Uri
+import android.os.Bundle
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -19,6 +24,8 @@ import app.openbubbles.nativeapp.data.MessageActions
 import app.openbubbles.nativeapp.data.MessageListRepository
 import app.openbubbles.nativeapp.data.MessageReactionUi
 import app.openbubbles.nativeapp.data.OutgoingAttachment
+import app.openbubbles.nativeapp.data.OutgoingVideoDecision
+import app.openbubbles.nativeapp.data.OutgoingVideoMetadata
 import app.openbubbles.nativeapp.data.OutgoingMention
 import app.openbubbles.nativeapp.data.ReadReceiptSender
 import app.openbubbles.nativeapp.data.Sender
@@ -29,6 +36,12 @@ import app.openbubbles.nativeapp.data.StickerTransform
 import app.openbubbles.nativeapp.data.TRANSCRIPT_OPEN_LIMIT
 import app.openbubbles.nativeapp.data.TypingRepository
 import app.openbubbles.nativeapp.data.deleteOwnedOutgoingDraft
+import app.openbubbles.nativeapp.data.VideoCompressionPlan
+import app.openbubbles.nativeapp.data.VideoCompressionResult
+import app.openbubbles.nativeapp.data.compressOutgoingVideo
+import app.openbubbles.nativeapp.data.derivedVideoDisplayName
+import app.openbubbles.nativeapp.data.inspectOutgoingVideo
+import app.openbubbles.nativeapp.data.outgoingVideoDecision
 import app.openbubbles.nativeapp.sms.SmsBridge
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoWarmCache
 import kotlinx.coroutines.CancellationException
@@ -86,9 +99,16 @@ data class ChatUiState(
     val outgoingSendEvent: OutgoingSendEvent? = null,
     /** Temporary sticker payloads keyed by their optimistic attachment guid. */
     val optimisticStickerFiles: Map<String, File> = emptyMap(),
+    val videoCompression: VideoCompressionUiState? = null,
 ) {
     val initialLoading: Boolean get() = chat == null && messages.isEmpty()
 }
+
+data class VideoCompressionUiState(
+    val request: VideoCompressionRequest,
+    val inProgress: Boolean,
+    val progress: Float?,
+)
 
 data class ReplyTarget(
     val message: MessageItem,
@@ -155,6 +175,66 @@ object PendingSendEffect {
 
 private const val INITIAL_LIMIT = TRANSCRIPT_OPEN_LIMIT
 private const val PAGE_SIZE = 20
+private const val VIDEO_COMPRESSION_QUEUE_KEY = "video_compression_queue"
+
+private fun persistVideoCompressionQueue(
+    handle: SavedStateHandle,
+    requests: List<VideoCompressionRequest>,
+) {
+    handle[VIDEO_COMPRESSION_QUEUE_KEY] = ArrayList(requests.map(VideoCompressionRequest::toBundle))
+}
+
+private fun restoreVideoCompressionQueue(handle: SavedStateHandle): List<VideoCompressionRequest> =
+    handle.get<ArrayList<Bundle>>(VIDEO_COMPRESSION_QUEUE_KEY).orEmpty().mapNotNull(Bundle::toVideoCompressionRequest)
+
+private fun VideoCompressionRequest.toBundle() = Bundle().apply {
+    putString("source", source.toString())
+    putString("displayName", displayName)
+    metadata.sizeBytes?.let { putLong("sizeBytes", it) }
+    metadata.durationMs?.let { putLong("durationMs", it) }
+    metadata.width?.let { putInt("width", it) }
+    metadata.height?.let { putInt("height", it) }
+    putInt("rotationDegrees", metadata.rotationDegrees)
+    putString("videoMime", metadata.videoMime)
+    putBoolean("isHdr", metadata.isHdr)
+    metadata.frameRate?.let { putFloat("frameRate", it) }
+    plan.targetHeight?.let { putInt("targetHeight", it) }
+    putInt("targetVideoBitrate", plan.targetVideoBitrate)
+    putBoolean("keepHdr", plan.keepHdr)
+    putBoolean("alreadyHevc", plan.alreadyHevc)
+    plan.trimDurationMs?.let { putLong("trimDurationMs", it) }
+    plan.estimatedOutputBytes?.let { putLong("estimatedOutputBytes", it) }
+    putString("ownedSource", ownedSource?.absolutePath)
+}
+
+private fun Bundle.toVideoCompressionRequest(): VideoCompressionRequest? = runCatching {
+    VideoCompressionRequest(
+        source = Uri.parse(requireNotNull(getString("source"))),
+        displayName = requireNotNull(getString("displayName")),
+        metadata = OutgoingVideoMetadata(
+            sizeBytes = optionalLong("sizeBytes"),
+            durationMs = optionalLong("durationMs"),
+            width = optionalInt("width"),
+            height = optionalInt("height"),
+            rotationDegrees = getInt("rotationDegrees"),
+            videoMime = getString("videoMime"),
+            isHdr = getBoolean("isHdr"),
+            frameRate = if (containsKey("frameRate")) getFloat("frameRate") else null,
+        ),
+        plan = VideoCompressionPlan(
+            targetHeight = optionalInt("targetHeight"),
+            targetVideoBitrate = getInt("targetVideoBitrate"),
+            keepHdr = getBoolean("keepHdr"),
+            alreadyHevc = getBoolean("alreadyHevc"),
+            trimDurationMs = optionalLong("trimDurationMs"),
+            estimatedOutputBytes = optionalLong("estimatedOutputBytes"),
+        ),
+        ownedSource = getString("ownedSource")?.let(::File),
+    )
+}.getOrNull()
+
+private fun Bundle.optionalLong(key: String): Long? = if (containsKey(key)) getLong(key) else null
+private fun Bundle.optionalInt(key: String): Int? = if (containsKey(key)) getInt(key) else null
 
 /**
  * Legacy/cloud rows may not carry reconstructed attributed-body runs yet.
@@ -192,6 +272,7 @@ class ChatViewModel(
     },
     private val participantLookupDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val outgoingCacheRoot: File? = AppContext.current?.cacheDir,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     init {
@@ -214,6 +295,10 @@ class ChatViewModel(
     private val textSendInProgress = MutableStateFlow(false)
     private val attachmentSendInProgress = MutableStateFlow(false)
     private val outgoingSendEvent = MutableStateFlow<OutgoingSendEvent?>(null)
+    private val videoCompressionQueue = MutableStateFlow(restoreVideoCompressionQueue(savedStateHandle))
+    private val videoCompressionProgress = MutableStateFlow<Float?>(null)
+    private val videoCompressionInProgress = MutableStateFlow(false)
+    private var videoCompressionJob: Job? = null
     private val optimisticMessageOverlays =
         MutableStateFlow<Map<String, OptimisticMessageOverlay>>(emptyMap())
     private var endReached = false
@@ -229,6 +314,13 @@ class ChatViewModel(
     private var readBaselineInitialized = false
 
     private val screenEffect = MutableStateFlow<ScreenEffectTrigger?>(null)
+    private val videoCompressionState = combine(
+        videoCompressionQueue,
+        videoCompressionProgress,
+        videoCompressionInProgress,
+    ) { queue, progress, inProgress ->
+        queue.firstOrNull()?.let { VideoCompressionUiState(it, inProgress, progress) }
+    }
 
     private val cachedMessages = messageRepository.cached(chatId)
 
@@ -381,6 +473,8 @@ class ChatViewModel(
             state.copy(attachmentSendInProgress = sending)
         }.combine(outgoingSendEvent) { state, event ->
             state.copy(outgoingSendEvent = event)
+        }.combine(videoCompressionState) { state, compression ->
+            state.copy(videoCompression = compression)
         }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
@@ -540,6 +634,104 @@ class ChatViewModel(
         if (editingMessage.value != null) cancelComposerAction()
         composerRevision++
         pendingAttachments.value = pendingAttachments.value + attachments
+    }
+
+    /** Prepares picker/file-provider URIs in the ViewModel so recreation cannot cancel the work. */
+    fun prepareAttachments(context: Context, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val appContext = context.applicationContext
+        viewModelScope.launch {
+            val prepared = uris.map { prepareOutgoingItem(appContext, it) }
+            stageAttachments(prepared.filterIsInstance<PreparedOutgoingItem.Ready>().map { it.attachment })
+            enqueueVideoCompression(
+                prepared.filterIsInstance<PreparedOutgoingItem.NeedsVideoCompression>().map { it.request },
+            )
+            prepared.filterIsInstance<PreparedOutgoingItem.Failed>().firstOrNull()?.let {
+                actionError.value = it.message
+            }
+        }
+    }
+
+    /** Routes an app-owned oversized camera capture into the same persistent review queue. */
+    fun prepareCapturedVideo(context: Context, file: File) {
+        val appContext = context.applicationContext
+        viewModelScope.launch {
+            val metadata = withContext(Dispatchers.IO) {
+                inspectOutgoingVideo(appContext, Uri.fromFile(file), file.length())
+            }
+            when (val decision = outgoingVideoDecision(metadata)) {
+                is OutgoingVideoDecision.OfferCompression -> enqueueVideoCompression(
+                    listOf(
+                        VideoCompressionRequest(
+                            source = Uri.fromFile(file),
+                            displayName = file.name,
+                            metadata = metadata,
+                            plan = decision.plan,
+                            ownedSource = file,
+                        ),
+                    ),
+                )
+                else -> {
+                    deleteDraft(file)
+                    actionError.value = "Video is too large and could not be read for compression"
+                }
+            }
+        }
+    }
+
+    fun confirmVideoCompression(context: Context) {
+        if (videoCompressionJob != null) return
+        val request = videoCompressionQueue.value.firstOrNull() ?: return
+        val appContext = context.applicationContext
+        videoCompressionJob = viewModelScope.launch {
+            videoCompressionInProgress.value = true
+            try {
+                when (val result = compressOutgoingVideo(
+                    context = appContext,
+                    source = request.source,
+                    plan = request.plan,
+                    displayName = request.displayName,
+                ) { fraction -> videoCompressionProgress.value = fraction }) {
+                    is VideoCompressionResult.Success -> stageAttachment(
+                        OutgoingAttachment(
+                            file = result.file,
+                            mime = "video/mp4",
+                            uti = "public.mpeg-4-movie",
+                            name = derivedVideoDisplayName(request.displayName),
+                            sizeBytes = result.sizeBytes,
+                        ),
+                    )
+                    is VideoCompressionResult.Failure -> actionError.value = result.message
+                }
+            } finally {
+                settleVideoCompression(request)
+            }
+        }
+    }
+
+    fun cancelVideoCompression() {
+        val request = videoCompressionQueue.value.firstOrNull() ?: return
+        val job = videoCompressionJob
+        if (job != null) {
+            job.cancel()
+        } else {
+            settleVideoCompression(request)
+        }
+    }
+
+    private fun enqueueVideoCompression(requests: List<VideoCompressionRequest>) {
+        if (requests.isEmpty()) return
+        videoCompressionQueue.value = videoCompressionQueue.value + requests
+        persistVideoCompressionQueue(savedStateHandle, videoCompressionQueue.value)
+    }
+
+    private fun settleVideoCompression(request: VideoCompressionRequest) {
+        request.ownedSource?.let(::deleteDraft)
+        videoCompressionQueue.value = videoCompressionQueue.value - request
+        persistVideoCompressionQueue(savedStateHandle, videoCompressionQueue.value)
+        videoCompressionProgress.value = null
+        videoCompressionInProgress.value = false
+        videoCompressionJob = null
     }
 
     /** Removes one staged draft attachment (the thumbnail's remove action). */
@@ -986,6 +1178,12 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        videoCompressionJob?.cancel()
+        videoCompressionQueue.value.mapNotNull(VideoCompressionRequest::ownedSource)
+            .distinctBy(File::getAbsolutePath)
+            .forEach(::deleteDraft)
+        videoCompressionQueue.value = emptyList()
+        persistVideoCompressionQueue(savedStateHandle, emptyList())
         pendingAttachments.value.forEach { deleteDraft(it.file) }
         pendingAttachments.value = emptyList()
         optimisticMessageOverlays.value.values
@@ -1035,6 +1233,7 @@ class ChatViewModel(
                     smsSender = smsSender,
                     smsAttachmentSender = smsAttachmentSender,
                     initialInput = initialInput,
+                    savedStateHandle = createSavedStateHandle(),
                 )
             }
         }

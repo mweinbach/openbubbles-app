@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data
 
 import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.attachment.TransferState
 import app.openbubbles.core.model.InteractivePayload
 import java.io.File
 import kotlinx.coroutines.flow.Flow
@@ -508,12 +509,24 @@ interface TypingRepository {
 
 /**
  * Lookups for the attachment viewer: metadata by guid plus the locally
- * stored file (null while the transfer has not been downloaded).
+ * stored file (null while the transfer has not been downloaded), and the
+ * viewer's explicit download seam over the deduplicated transfer port.
  */
 interface AttachmentProvider {
     fun byGuid(guid: String): AttachmentMeta?
     fun localFile(guid: String): File?
     fun observe(guid: String): Flow<AttachmentMeta?> = flowOf(byGuid(guid))
+
+    /** True only when a remote transfer can actually be attempted for [guid]. */
+    fun canDownload(guid: String): Boolean = false
+
+    /**
+     * Requests (or joins the in-flight, guid-deduplicated) download and emits
+     * transfer state until terminal. Cancelling collection does not abort the
+     * underlying transfer; a re-subscriber observes the same terminal state.
+     */
+    fun download(guid: String): Flow<TransferState> =
+        flowOf(TransferState.Failed("Download is not available"))
 }
 
 /**
