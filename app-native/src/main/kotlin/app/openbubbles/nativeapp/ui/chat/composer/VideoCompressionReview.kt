@@ -34,6 +34,10 @@ fun VideoCompressionReview(
     val maxMegabytes = MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)
     val reduction = if (plan.targetHeight != null) "to 1080p HEVC" else "with HEVC at a lower bitrate"
     val hdrNote = if (plan.keepHdr) ", keeping HDR" else ""
+    val trimNote = plan.trimDurationMs?.let { trimMs ->
+        " Even compressed it won't fit in $maxMegabytes MB, " +
+            "so it will also be trimmed to the first ${formatDuration(trimMs)}."
+    }.orEmpty()
     AlertDialog(
         // Outside taps must not silently abort a long transcode; the Cancel
         // button remains the explicit way out while work is running.
@@ -47,7 +51,7 @@ fun VideoCompressionReview(
                 }
                 Text(
                     "Videos larger than $maxMegabytes MB can't be attached. " +
-                        "OpenBubbles can compress this video $reduction$hdrNote. " +
+                        "OpenBubbles can compress this video $reduction$hdrNote.$trimNote " +
                         "The original video stays untouched.",
                 )
                 plan.estimatedOutputBytes?.let { estimate ->

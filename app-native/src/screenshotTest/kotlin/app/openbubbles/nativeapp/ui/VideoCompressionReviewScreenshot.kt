@@ -70,3 +70,31 @@ fun VideoCompressionProgressDarkScreenshot() {
         )
     }
 }
+
+/** A 10-minute 4K HDR clip: compression alone cannot fit, so the plan trims. */
+private val oversizedLong4kHdr = oversized4kHdr.copy(
+    sizeBytes = 2_147_483_648L,
+    durationMs = 600_000,
+)
+
+private val trimmedRequest = VideoCompressionRequest(
+    source = Uri.EMPTY,
+    displayName = "school_play_4k.mp4",
+    metadata = oversizedLong4kHdr,
+    plan = videoCompressionPlan(oversizedLong4kHdr),
+)
+
+@PreviewTest
+@Preview(name = "video-compression-trim", device = Devices.PHONE, showBackground = true)
+@Composable
+fun VideoCompressionTrimScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        VideoCompressionReview(
+            request = trimmedRequest,
+            inProgress = false,
+            progress = null,
+            onConfirm = {},
+            onCancel = {},
+        )
+    }
+}

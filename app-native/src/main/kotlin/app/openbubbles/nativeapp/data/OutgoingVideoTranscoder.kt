@@ -142,7 +142,21 @@ private suspend fun runTransformer(
         .build()
 
     val videoEffects = listOfNotNull(plan.targetHeight?.let { Presentation.createForHeight(it) })
-    val editedItem = EditedMediaItem.Builder(MediaItem.fromUri(source))
+    val mediaItem = MediaItem.Builder()
+        .setUri(source)
+        .apply {
+            // User-confirmed iOS-style trim: keep the longest prefix whose
+            // re-encoded estimate fits the draft ceiling.
+            plan.trimDurationMs?.let { trimMs ->
+                setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setEndPositionMs(trimMs)
+                        .build(),
+                )
+            }
+        }
+        .build()
+    val editedItem = EditedMediaItem.Builder(mediaItem)
         .setEffects(Effects(emptyList(), videoEffects))
         .build()
 

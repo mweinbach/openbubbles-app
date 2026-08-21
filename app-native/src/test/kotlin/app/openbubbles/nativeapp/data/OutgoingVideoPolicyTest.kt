@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.data
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.Test
@@ -147,6 +148,45 @@ class OutgoingVideoPolicyTest {
             planOf(metadata(frameRate = 30f)).targetVideoBitrate,
             planOf(metadata(frameRate = null)).targetVideoBitrate,
         )
+    }
+
+    // ---- iOS-style fit trim --------------------------------------------------
+
+    @Test
+    fun `short oversized clips compress without trimming`() {
+        assertNull(planOf(metadata(durationMs = 15_000)).trimDurationMs)
+    }
+
+    @Test
+    fun `long clips trim to the prefix whose estimate fits the ceiling`() {
+        // 1080p30 SDR budget: (4_354_560 + 128_000) / 8 * 1.05 = 588_336 B/s.
+        // 95% of the 100 MiB ceiling / 588_336 B/s = 169.316 s.
+        val plan = planOf(metadata(durationMs = 600_000))
+        assertEquals(169_316L, plan.trimDurationMs)
+        val estimate = assertNotNull(plan.estimatedOutputBytes)
+        assertTrue(estimate <= MAX_OUTGOING_DRAFT_BYTES)
+    }
+
+    @Test
+    fun `trimmed estimate reflects the trimmed duration, not the source`() {
+        // 588_336 B/s * 169.316 s — just under the 95% trim budget.
+        val plan = planOf(metadata(durationMs = 600_000))
+        assertEquals(99_614_698L, plan.estimatedOutputBytes)
+    }
+
+    @Test
+    fun `trim never meets or exceeds the source duration`() {
+        // Just over the fit boundary: still trims, and strictly shorter.
+        val plan = planOf(metadata(durationMs = 180_000))
+        val trim = assertNotNull(plan.trimDurationMs)
+        assertTrue(trim < 180_000)
+    }
+
+    @Test
+    fun `unknown duration cannot plan a trim`() {
+        val plan = planOf(metadata(durationMs = null))
+        assertNull(plan.trimDurationMs)
+        assertNull(plan.estimatedOutputBytes)
     }
 
     // ---- estimate + codec detection ----------------------------------------

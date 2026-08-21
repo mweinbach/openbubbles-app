@@ -42,6 +42,14 @@ internal const val VIDEO_COMPRESSION_ESTIMATED_AUDIO_BITRATE = 128_000
 internal const val VIDEO_COMPRESSION_MUX_OVERHEAD = 1.05
 
 /**
+ * When even the 1080p re-encode cannot fit the ceiling, the clip is trimmed
+ * (iOS-style) to the duration that fits. The trim budget targets slightly
+ * under the ceiling so encoder rate-control variance cannot push the actual
+ * output back over the revalidation limit.
+ */
+internal const val VIDEO_COMPRESSION_TRIM_HEADROOM = 0.95
+
+/**
  * Metadata read from a selected or captured video before enqueue.
  *
  * [sizeBytes] is null only when the exact byte size could not be resolved
@@ -72,6 +80,12 @@ data class VideoCompressionPlan(
     val keepHdr: Boolean,
     /** Source video track is already HEVC (re-encoded anyway to shrink it). */
     val alreadyHevc: Boolean,
+    /**
+     * Keep only the first this-many milliseconds (iOS-style trim), because
+     * even the 1080p re-encode of the full clip cannot fit the byte ceiling.
+     * Null means the whole clip fits and nothing is trimmed.
+     */
+    val trimDurationMs: Long? = null,
     /** Estimated output byte size, or null when duration is unknown. */
     val estimatedOutputBytes: Long?,
 )
@@ -101,14 +115,17 @@ fun outgoingVideoDecision(
     val width = metadata.width ?: return OutgoingVideoDecision.RejectUnreadable
     val height = metadata.height ?: return OutgoingVideoDecision.RejectUnreadable
     if (width <= 0 || height <= 0) return OutgoingVideoDecision.RejectUnreadable
-    return OutgoingVideoDecision.OfferCompression(videoCompressionPlan(metadata))
+    return OutgoingVideoDecision.OfferCompression(videoCompressionPlan(metadata, maxBytes))
 }
 
 /**
  * Computes the 1080p/HEVC transcode parameters for an oversized video.
  * Requires readable, positive dimensions (checked by [outgoingVideoDecision]).
  */
-internal fun videoCompressionPlan(metadata: OutgoingVideoMetadata): VideoCompressionPlan {
+internal fun videoCompressionPlan(
+    metadata: OutgoingVideoMetadata,
+    maxBytes: Long = MAX_OUTGOING_DRAFT_BYTES,
+): VideoCompressionPlan {
     val width = requireNotNull(metadata.width)
     val height = requireNotNull(metadata.height)
     val rotated = metadata.rotationDegrees % 180 != 0
@@ -133,10 +150,22 @@ internal fun videoCompressionPlan(metadata: OutgoingVideoMetadata): VideoCompres
         .coerceIn(MIN_VIDEO_COMPRESSION_BITRATE.toDouble(), MAX_VIDEO_COMPRESSION_BITRATE.toDouble())
         .roundToInt()
 
-    val estimatedBytes = metadata.durationMs?.takeIf { it > 0 }?.let { durationMs ->
-        val payloadBits = (bitrate + VIDEO_COMPRESSION_ESTIMATED_AUDIO_BITRATE).toDouble() *
-            durationMs / 1000.0
-        (payloadBits / 8.0 * VIDEO_COMPRESSION_MUX_OVERHEAD).roundToLong()
+    val estimatedBytesPerSecond = (bitrate + VIDEO_COMPRESSION_ESTIMATED_AUDIO_BITRATE).toDouble() /
+        8.0 * VIDEO_COMPRESSION_MUX_OVERHEAD
+    val durationMs = metadata.durationMs?.takeIf { it > 0 }
+
+    // iOS-style length trim: when even the full-length 1080p re-encode
+    // cannot fit the ceiling, keep the longest prefix whose estimate does.
+    val trimDurationMs = durationMs
+        ?.takeIf { estimatedBytesPerSecond * it / 1000.0 > maxBytes }
+        ?.let { fullDurationMs ->
+            (maxBytes * VIDEO_COMPRESSION_TRIM_HEADROOM / estimatedBytesPerSecond * 1000.0)
+                .toLong()
+                .coerceAtLeast(1_000L)
+                .takeIf { it < fullDurationMs }
+        }
+    val estimatedBytes = (trimDurationMs ?: durationMs)?.let { effectiveDurationMs ->
+        (estimatedBytesPerSecond * effectiveDurationMs / 1000.0).roundToLong()
     }
 
     return VideoCompressionPlan(
@@ -144,6 +173,7 @@ internal fun videoCompressionPlan(metadata: OutgoingVideoMetadata): VideoCompres
         targetVideoBitrate = bitrate,
         keepHdr = metadata.isHdr,
         alreadyHevc = HEVC_MIME.equals(metadata.videoMime, ignoreCase = true),
+        trimDurationMs = trimDurationMs,
         estimatedOutputBytes = estimatedBytes,
     )
 }
