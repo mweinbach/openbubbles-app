@@ -12,6 +12,7 @@ import io.objectbox.query.QueryBuilder
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -170,6 +171,8 @@ class SmsPushBuilderTest {
         assertNotNull(row)
         assertEquals("on-device hello", row.text)
         assertEquals(false, row.isFromMe)
+        assertEquals(inst.id, liveArrivalGuid(push, newlyIngested = true))
+        assertNull(liveArrivalGuid(push, newlyIngested = false))
     }
 
     @Test
@@ -180,14 +183,16 @@ class SmsPushBuilderTest {
             timestampMs = 1_735_689_600_001L,
             myPhoneHandles = listOf(mePhone),
         )
-        ingest(push)
-        ingest(push)
+        val first = kotlinx.coroutines.runBlocking { ingestor.ingestWithResult(push, myHandles) }
+        val replay = kotlinx.coroutines.runBlocking { ingestor.ingestWithResult(push, myHandles) }
 
         val inst = (push as UPushMessage.IMessage).inst
         store.boxFor(Message::class.java)
             .query()
             .equal(Message_.guid, inst.id, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { assertEquals(1L, it.count()) }
+        assertEquals(inst.id, liveArrivalGuid(push, first.isNewIncomingMessage))
+        assertNull(liveArrivalGuid(push, replay.isNewIncomingMessage))
     }
 
     @Test

@@ -205,6 +205,62 @@ class ChatScrollPolicyTest {
     }
 
     @Test
+    fun `marker arriving after the database row classifies it exactly once`() {
+        val row = message(11, start + 1_000)
+        val base = reduceArrivals(ArrivalState(), listOf(message(10, start)), false).state
+        val persisted = reduceArrivals(
+            base,
+            listOf(message(10, start), row),
+            followingBottom = false,
+            liveArrivalGuids = emptySet(),
+        )
+        assertEquals(0, persisted.arrivals)
+
+        val marked = reduceArrivals(
+            persisted.state,
+            listOf(message(10, start), row),
+            followingBottom = false,
+            liveArrivalGuids = setOf(row.guid),
+        )
+        assertEquals(1, marked.arrivals)
+
+        val repeated = reduceArrivals(
+            marked.state,
+            listOf(message(10, start), row),
+            followingBottom = false,
+            liveArrivalGuids = setOf(row.guid),
+        )
+        assertEquals(0, repeated.arrivals)
+    }
+
+    @Test
+    fun `consumed live marker does not replay after its row leaves and reenters the window`() {
+        val row = message(11, start + 1_000)
+        val base = reduceArrivals(ArrivalState(), listOf(message(10, start)), false).state
+        val consumed = reduceArrivals(
+            base,
+            listOf(message(10, start), row),
+            followingBottom = false,
+            liveArrivalGuids = setOf(row.guid),
+        ).state
+        val trimmed = reduceArrivals(
+            consumed,
+            listOf(message(10, start)),
+            followingBottom = false,
+            liveArrivalGuids = setOf(row.guid),
+        ).state
+        val restored = reduceArrivals(
+            trimmed,
+            listOf(message(10, start), row),
+            followingBottom = false,
+            liveArrivalGuids = setOf(row.guid),
+        )
+
+        assertEquals(0, restored.arrivals)
+        assertEquals(setOf(row.guid), restored.state.consumedLiveGuids)
+    }
+
+    @Test
     fun `pill announcement count remains stable through exit`() {
         assertEquals(3, retainedPillAnnouncementCount(previous = 0, visible = true, count = 3))
         assertEquals(3, retainedPillAnnouncementCount(previous = 3, visible = false, count = 0))

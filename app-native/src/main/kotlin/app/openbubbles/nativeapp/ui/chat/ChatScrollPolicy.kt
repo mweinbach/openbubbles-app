@@ -19,6 +19,23 @@ internal const val FollowBottomThresholdDp = 96
 /** Presentation cap for the pending count ("99+" above this). */
 internal const val PendingCountDisplayCap = 99
 
+/** Live GUIDs retained after classification so a bounded page cannot replay them. */
+private const val ConsumedLiveGuidRetention = 256
+
+private fun retainedConsumedLiveGuids(
+    previous: Set<String>,
+    newlyConsumed: Iterable<String>,
+): Set<String> = LinkedHashSet<String>().apply {
+    addAll(previous)
+    addAll(newlyConsumed)
+    while (size > ConsumedLiveGuidRetention) {
+        iterator().run {
+            next()
+            remove()
+        }
+    }
+}
+
 /**
  * Baseline plus pending arrivals for one viewport (the main transcript or one
  * focused reply thread). Immutable so the reducer stays testable.
@@ -33,6 +50,8 @@ internal data class ArrivalState(
     val newestSeenId: Long = Long.MIN_VALUE,
     /** Distinct incoming GUIDs that arrived while the reader was away. */
     val pendingGuids: Set<String> = emptySet(),
+    /** Recently classified live GUIDs, including rows no longer in the loaded window. */
+    val consumedLiveGuids: Set<String> = emptySet(),
 ) {
     val pendingCount: Int get() = pendingGuids.size
 
@@ -81,8 +100,13 @@ internal fun reduceArrivals(
 ): ArrivalOutcome {
     if (messages.isEmpty()) {
         // A chat with nothing loaded has no baseline to defend; the next
-        // non-empty snapshot re-establishes one silently.
-        return ArrivalOutcome(ArrivalState(), arrivals = 0, pinToNewest = false)
+        // non-empty snapshot re-establishes one silently. Keep the consumed
+        // live markers so a temporary empty page cannot make one replay.
+        return ArrivalOutcome(
+            ArrivalState(consumedLiveGuids = state.consumedLiveGuids),
+            arrivals = 0,
+            pinToNewest = false,
+        )
     }
     val guids = messages.mapTo(LinkedHashSet()) { it.guid }
     val newest = messages.last()
@@ -93,6 +117,10 @@ internal fun reduceArrivals(
                 knownGuids = guids,
                 newestSeenDate = newest.date,
                 newestSeenId = newest.id,
+                consumedLiveGuids = retainedConsumedLiveGuids(
+                    state.consumedLiveGuids,
+                    guids.filter { it in liveArrivalGuids.orEmpty() },
+                ),
             ),
             arrivals = 0,
             pinToNewest = false,
@@ -100,12 +128,15 @@ internal fun reduceArrivals(
     }
 
     val arrivals = messages.filter {
-        it.guid !in state.knownGuids &&
-            !it.isFromMe &&
+        !it.isFromMe &&
             if (liveArrivalGuids != null) {
-                it.guid in liveArrivalGuids
+                // Persistence and the process-local marker are delivered by
+                // independent flows. A row that was already baselined must
+                // still be recognized when its marker arrives later.
+                it.guid in liveArrivalGuids && it.guid !in state.consumedLiveGuids
             } else {
-                !historySyncActive && isNewerThanBaseline(it, state)
+                it.guid !in state.knownGuids &&
+                    !historySyncActive && isNewerThanBaseline(it, state)
             }
     }
     val pending = if (followingBottom) {
@@ -119,11 +150,13 @@ internal fun reduceArrivals(
         }
     }
     val advanceBaseline = isNewerThanBaseline(newest, state)
+    val consumed = retainedConsumedLiveGuids(state.consumedLiveGuids, arrivals.map { it.guid })
     val advanced = state.copy(
         knownGuids = guids,
         newestSeenDate = if (advanceBaseline) newest.date else state.newestSeenDate,
         newestSeenId = if (advanceBaseline) newest.id else state.newestSeenId,
         pendingGuids = pending,
+        consumedLiveGuids = consumed,
     )
     return ArrivalOutcome(
         state = advanced,
