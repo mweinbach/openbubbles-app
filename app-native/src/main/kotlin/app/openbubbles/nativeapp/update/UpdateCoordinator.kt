@@ -317,7 +317,29 @@ object UpdateCoordinator {
         return if (summary.isBlank()) "Tap to update" else "Tap to update — $summary"
     }
 
+    /** Broadcast action: snooze the ready-push and dismiss it ([UpdateRemindLaterReceiver]). */
+    private fun remindLaterAction(context: Context): NotificationCompat.Action {
+        val snooze = PendingIntent.getBroadcast(
+            context,
+            2,
+            Intent(context, UpdateRemindLaterReceiver::class.java)
+                .setPackage(context.packageName)
+                .setAction(UpdateRemindLaterReceiver.ACTION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Action.Builder(0, "Remind Me Later", snooze)
+            .setShowsUserInterface(false)
+            .build()
+    }
+
     private fun postUpdateReadyNotification(context: Context, manifest: UpdateManifest) {
+        // "Remind Me Later" silences this push for a while; the update stays
+        // installable from Settings and a newer release notifies immediately.
+        if (System.currentTimeMillis() <
+            UpdateSettings.reminderSnoozedUntilMs(context, manifest.versionCode)
+        ) {
+            return
+        }
         ensureChannel(context)
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
@@ -332,6 +354,8 @@ object UpdateCoordinator {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // Below the force floor the reminder cannot be put off.
+        val mandatory = installedVersionCode(context) < manifest.minVersionCode
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_stat_icon)
             .setContentTitle("OpenGarden ${manifest.versionName} ready to install")
@@ -342,6 +366,10 @@ object UpdateCoordinator {
                 ),
             )
             .setContentIntent(install)
+            .addAction(NotificationCompat.Action.Builder(0, "Update", install).build())
+            .apply {
+                if (!mandatory) addAction(remindLaterAction(context))
+            }
             .setAutoCancel(true)
             .setOngoing(false)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -374,7 +402,7 @@ object UpdateCoordinator {
         }
     }
 
-    private fun cancelNotification(context: Context) {
+    internal fun cancelNotification(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
 

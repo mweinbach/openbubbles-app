@@ -16,6 +16,8 @@ object UpdateSettings {
     private const val KEY_PENDING_CODE = "pending_version_code"
     private const val KEY_PENDING_NAME = "pending_version_name"
     private const val KEY_PENDING_NOTES = "pending_version_notes"
+    private const val KEY_SNOOZED_CODE = "reminder_snoozed_code"
+    private const val KEY_SNOOZED_UNTIL = "reminder_snoozed_until_ms"
 
     fun lastCheckMs(context: Context): Long =
         prefs(context).getLong(KEY_LAST_CHECK, 0L)
@@ -43,6 +45,28 @@ object UpdateSettings {
 
     fun clearDeferred(context: Context) {
         prefs(context).edit { remove(KEY_DEFERRED) }
+    }
+
+    // ------------------------------------------------------------------
+    // "Remind me later" snooze on the ready-notification push
+    // ------------------------------------------------------------------
+
+    /**
+     * Until-ms the given version's ready-push is snoozed through; 0 when no
+     * snooze is active. Keyed to the versionCode so a newer release notifies
+     * immediately instead of inheriting an older snooze.
+     */
+    fun reminderSnoozedUntilMs(context: Context, versionCode: Long): Long =
+        prefs(context).let {
+            if (it.getLong(KEY_SNOOZED_CODE, 0L) != versionCode) 0L
+            else it.getLong(KEY_SNOOZED_UNTIL, 0L)
+        }
+
+    fun snoozeReminder(context: Context, versionCode: Long, untilMs: Long) {
+        prefs(context).edit {
+            putLong(KEY_SNOOZED_CODE, versionCode)
+            putLong(KEY_SNOOZED_UNTIL, untilMs)
+        }
     }
 
     // ------------------------------------------------------------------

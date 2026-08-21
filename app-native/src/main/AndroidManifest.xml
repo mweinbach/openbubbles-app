@@ -195,6 +195,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- "Remind Me Later" on the "Update ready" notification: snooze the
+             push. Only our own notification holds a PendingIntent targeting
+             this action. -->
+        <receiver
+            android:name="app.openbubbles.nativeapp.update.UpdateRemindLaterReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="app.openbubbles.nativeapp.action.UPDATE_REMIND_LATER" />
+            </intent-filter>
+        </receiver>
+
         <!-- "Update ready" notification target: commits the verified APK while
              visible so the PackageInstaller confirmation may launch. noHistory
              tears it down as soon as anything covers it. -->
