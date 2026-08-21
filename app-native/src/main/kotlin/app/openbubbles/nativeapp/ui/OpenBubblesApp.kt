@@ -808,6 +808,7 @@ fun OpenBubblesApp(
                     }
                     ChatScreen(
                         uiState = state,
+                        routeChatId = chatId,
                         historySyncActive = historySyncActive,
                         onInputChange = viewModel::onInputChange,
                         onSubjectChange = viewModel::onSubjectChange,

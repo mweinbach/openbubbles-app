@@ -103,6 +103,10 @@ internal fun liveArrivalChatIds(chatId: Long?, memberChatIds: List<Long>): Set<L
         addAll(memberChatIds)
     }
 
+/** Route identity stays stable while the asynchronously loaded chat model catches up. */
+internal fun conversationArrivalStateKey(routeChatId: Long?, loadedChatId: Long?): Long? =
+    routeChatId ?: loadedChatId
+
 /** What the caller should do after folding one snapshot into [ArrivalState]. */
 internal data class ArrivalOutcome(
     val state: ArrivalState,

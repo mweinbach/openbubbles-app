@@ -374,6 +374,8 @@ fun ChatScreen(
     onLoadOlder: () -> Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Stable navigation identity, available before the chat model loads. */
+    routeChatId: Long? = uiState.chat?.id,
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -707,14 +709,15 @@ fun ChatScreen(
     // not the position measured after the snapshot landed: a row inserted at the
     // bottom of a reversed list keeps its predecessor anchored, which moves every
     // laid-out index by one and would read as "the reader left the bottom".
-    var followingBottom by remember(uiState.chat?.id) { mutableStateOf(true) }
+    val arrivalStateKey = conversationArrivalStateKey(routeChatId, uiState.chat?.id)
+    var followingBottom by remember(arrivalStateKey) { mutableStateOf(true) }
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (!scrolling) followingBottom = atBottomNow
         }
     }
     var liveArrivalMarkers by rememberSaveable(
-        uiState.chat?.id,
+        arrivalStateKey,
         stateSaver = LiveArrivalMarkerStateSaver,
     ) {
         mutableStateOf(LiveArrivalMarkerState())
@@ -736,7 +739,7 @@ fun ChatScreen(
     // Reset per conversation: a new chat establishes its own baseline and can
     // never inherit the previous transcript's pending count.
     var arrivals by rememberSaveable(
-        uiState.chat?.id,
+        arrivalStateKey,
         stateSaver = ArrivalStateSaver,
     ) { mutableStateOf(ArrivalState()) }
 
@@ -783,7 +786,7 @@ fun ChatScreen(
 
     LaunchedEffect(
         uiState.messages,
-        uiState.chat?.id,
+        arrivalStateKey,
         historySyncActive,
         liveArrivalSnapshot,
         liveArrivalFallback,

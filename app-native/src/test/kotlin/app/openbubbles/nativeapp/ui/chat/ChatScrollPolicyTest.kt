@@ -559,6 +559,13 @@ class ChatScrollPolicyTest {
         )
     }
 
+    @Test
+    fun `route chat id remains the arrival state key while the model loads`() {
+        assertEquals(7L, conversationArrivalStateKey(routeChatId = 7L, loadedChatId = null))
+        assertEquals(7L, conversationArrivalStateKey(routeChatId = 7L, loadedChatId = 9L))
+        assertEquals(9L, conversationArrivalStateKey(routeChatId = null, loadedChatId = 9L))
+    }
+
     private fun message(
         id: Long,
         date: Long,
