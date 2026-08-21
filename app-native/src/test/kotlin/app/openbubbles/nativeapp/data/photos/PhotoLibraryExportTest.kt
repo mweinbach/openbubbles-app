@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 class PhotoLibraryExportTest {
 
     @Test
-    fun `image export lands in the pictures album with its iCloud name`() {
+    fun `image export lands in the DCIM album with its iCloud name`() {
         val plan = PhotoLibraryExport.plan(
             cachedFileName = "abc123.heic",
             filename = "IMG_4821.HEIC",
@@ -18,13 +18,13 @@ class PhotoLibraryExportTest {
 
         assertEquals("IMG_4821.HEIC", plan?.displayName)
         assertEquals("image/heic", plan?.mimeType)
-        assertEquals("Pictures/iCloud Photos", plan?.relativePath)
+        assertEquals("DCIM/iCloud", plan?.relativePath)
         assertEquals(false, plan?.video)
         assertEquals(1_700_000_000_000, plan?.dateTakenMillis)
     }
 
     @Test
-    fun `video export lands in the movies album`() {
+    fun `video export shares the one DCIM album and is flagged as video`() {
         val plan = PhotoLibraryExport.plan(
             cachedFileName = "def456.mov",
             filename = "IMG_0007.MOV",
@@ -33,7 +33,7 @@ class PhotoLibraryExportTest {
         )
 
         assertEquals("video/quicktime", plan?.mimeType)
-        assertEquals("Movies/iCloud Photos", plan?.relativePath)
+        assertEquals("DCIM/iCloud", plan?.relativePath)
         assertEquals(true, plan?.video)
         assertNull(plan?.dateTakenMillis)
     }

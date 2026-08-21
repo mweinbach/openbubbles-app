@@ -294,20 +294,29 @@ and an identical original exported by native macOS Photos. This is not general t
 
 ### Implemented gallery export slice (host-verified only)
 
-Downloaded iCloud originals can leave the app as ordinary Android media, so a photo can be sent or
-shared from the phone with any app. This is a one-way copy out; it adds no Apple call.
+Downloading a full-quality asset is what puts it on the phone: the promoted original is mirrored
+into the `DCIM/iCloud` album, so an iCloud photo can be picked, sent, or shared by any Android app.
+This is a one-way copy out; it adds no Apple call.
 
 - `data/photos/PhotoLibraryExport.kt` is pure: given the promoted cache file, the iCloud filename,
   the media kind, and the capture time it produces the gallery display name, MIME type, and album
   path, or refuses. The cache file's extension decides the format, a name that disagrees with the
   media kind is refused rather than misfiled, and path separators and control characters are
-  stripped so a record name cannot escape the album. `PhotoLibraryExportTest` is the oracle.
+  stripped so a record name cannot escape the album. Images and videos share one `DCIM/iCloud`
+  bucket because that is where gallery apps expect camera-grade media. `PhotoLibraryExportTest` is
+  the oracle.
 - `ui/photos/PhotoGalleryExport.kt` copies those bytes verbatim through the shared scoped-storage
-  writer into `Pictures/iCloud Photos` (videos into `Movies/iCloud Photos`) with the capture time as
-  `DATE_TAKEN`, and shares the cached original directly through the existing FileProvider grant so
-  sending does not require saving first.
-- Save and Share appear in the full-screen viewer only once that asset's original has been
-  downloaded and validated. Neither action touches `PhotosPort`, so neither can write to iCloud.
+  writer with the capture time as `DATE_TAKEN`. A same-name, same-size entry already in the album is
+  reported as `AlreadySaved` instead of inserted, so re-opening a photo does not accumulate copies.
+  On API 26-28 a missing legacy storage grant returns `PermissionRequired` rather than failing
+  silently; the viewer's save action then requests it.
+- `PhotosViewModel` mirrors on the transition a download makes to `Succeeded`, through the fakeable
+  `PhotoGalleryPort`, and records the per-asset outcome in UI state. A restored, already-validated
+  cache file does not download or mirror again. `PhotosViewModelTest` proves one mirror per
+  download and that the export never touches the Apple write path.
+- The viewer also shares the cached original directly through the existing FileProvider grant, so
+  sending does not depend on the gallery copy, and keeps an explicit save action for a download that
+  predates this slice or whose mirror failed.
 - The export is deliberately not a two-way link. Nothing observes the Android gallery, an exported
   copy carries no iCloud identity, and re-uploading it would still require the explicit picker or
   folder staging plus a separate upload tap. Editing or deleting the gallery copy does not change

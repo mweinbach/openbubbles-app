@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Favorite
@@ -89,7 +90,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -128,10 +128,7 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private const val PhotosReadyTag = "benchmark_photos_ready"
 private const val PhotosScrollableTag = "benchmark_photos_scrollable"
@@ -150,6 +147,7 @@ fun PhotosScreen(
     onSelect: (PhotoSummary) -> Unit,
     onCloseSelected: () -> Unit,
     onRetryOriginal: (PhotoSummary) -> Unit,
+    onSaveToGallery: (PhotoSummary) -> Unit,
     onChooseUploads: () -> Unit,
     onAddFolder: () -> Unit,
     onScanFolder: (PhotoFolderSource) -> Unit,
@@ -324,6 +322,7 @@ fun PhotosScreen(
             onPageSettled = onSelect,
             onBack = onCloseSelected,
             onRetryOriginal = onRetryOriginal,
+            onSaveToGallery = onSaveToGallery,
         )
     }
 
@@ -776,6 +775,7 @@ private fun PhotoViewer(
     onPageSettled: (PhotoSummary) -> Unit,
     onBack: () -> Unit,
     onRetryOriginal: (PhotoSummary) -> Unit,
+    onSaveToGallery: (PhotoSummary) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val pagerState = rememberPagerState(
@@ -785,7 +785,6 @@ private fun PhotoViewer(
     var showInfo by remember { mutableStateOf(false) }
     var chromeVisible by remember { mutableStateOf(true) }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var pendingLegacySave by remember { mutableStateOf<(() -> Unit)?>(null) }
     val legacyMediaPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -816,6 +815,7 @@ private fun PhotoViewer(
         ?.localPath
         ?.let(::File)
         ?.takeIf { it.isFile && it.length() > 0 }
+    val galleryOutcome = current?.let { uiState.galleryExports[it.id] }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
@@ -857,7 +857,8 @@ private fun PhotoViewer(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${pagerState.settledPage + 1} of ${assets.size}",
+                        text = galleryStatus(galleryOutcome)
+                            ?: "${pagerState.settledPage + 1} of ${assets.size}",
                         color = Color.White.copy(alpha = 0.75f),
                         style = MaterialTheme.typography.labelMedium,
                     )
@@ -865,26 +866,7 @@ private fun PhotoViewer(
                 if (currentOriginal != null) {
                     IconButton(
                         onClick = {
-                            val save = {
-                                scope.launch {
-                                    val outcome = withContext(Dispatchers.IO) {
-                                        savePhotoToGallery(context, current, currentOriginal)
-                                    }
-                                    Toast.makeText(
-                                        context,
-                                        when (outcome) {
-                                            PhotoGalleryExportOutcome.Saved ->
-                                                "Saved to ${PhotoLibraryExport.ALBUM}"
-                                            PhotoGalleryExportOutcome.Unsupported ->
-                                                "This format cannot be saved to the gallery"
-                                            PhotoGalleryExportOutcome.Failed ->
-                                                "Unable to save this photo"
-                                        },
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                                Unit
-                            }
+                            val save = { onSaveToGallery(current) }
                             val granted = ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
@@ -898,8 +880,14 @@ private fun PhotoViewer(
                         },
                     ) {
                         Icon(
-                            Icons.Filled.SaveAlt,
-                            contentDescription = "Save to gallery",
+                            if (galleryOutcome == PhotoGalleryExportOutcome.Saved ||
+                                galleryOutcome == PhotoGalleryExportOutcome.AlreadySaved
+                            ) {
+                                Icons.Filled.CheckCircle
+                            } else {
+                                Icons.Filled.SaveAlt
+                            },
+                            contentDescription = "Save to ${PhotoLibraryExport.ALBUM_PATH}",
                             tint = Color.White,
                         )
                     }
@@ -1082,6 +1070,17 @@ private fun PhotoPage(
     }
 }
 
+/** Viewer subtitle for the one-way `DCIM/iCloud` mirror, or null while idle. */
+private fun galleryStatus(outcome: PhotoGalleryExportOutcome?): String? = when (outcome) {
+    PhotoGalleryExportOutcome.Saved,
+    PhotoGalleryExportOutcome.AlreadySaved,
+    -> "In ${PhotoLibraryExport.ALBUM_PATH}"
+    PhotoGalleryExportOutcome.PermissionRequired -> "Tap save to allow gallery access"
+    PhotoGalleryExportOutcome.Unsupported -> "Not supported by the gallery"
+    PhotoGalleryExportOutcome.Failed -> "Could not add to the gallery"
+    null -> null
+}
+
 private const val DoubleTapZoom = 2.5f
 private const val MaxPageZoom = 6f
 
@@ -1165,6 +1164,7 @@ private fun PhotosPreview() {
             onSelect = {},
             onCloseSelected = {},
             onRetryOriginal = {},
+            onSaveToGallery = {},
             onChooseUploads = {},
             onAddFolder = {},
             onScanFolder = {},

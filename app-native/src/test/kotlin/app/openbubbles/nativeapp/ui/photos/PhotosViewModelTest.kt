@@ -15,6 +15,7 @@ import app.openbubbles.core.photos.PhotosBrowser
 import app.openbubbles.core.photos.PhotosCatalog
 import app.openbubbles.core.photos.PhotosPage
 import app.openbubbles.core.photos.PhotosPort
+import app.openbubbles.core.photos.PhotoUploadReceipt
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
 import app.openbubbles.nativeapp.data.photos.PhotosWorkRegistry
 import java.io.File
@@ -229,10 +230,51 @@ class PhotosViewModelTest {
             }
         }
 
+    @Test
+    fun `a completed original download mirrors into the gallery exactly once`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-gallery").toFile()
+            try {
+                val asset = photo("one")
+                val catalog = FakeCatalog(CachedPhotos(listOf(asset)))
+                val port = CompletingDownloadPort(listOf(asset))
+                val gallery = FakeGallery()
+                val model = model(port, catalog, root, gallery)
+                advanceUntilIdle()
+
+                model.select(asset)
+                advanceUntilIdle()
+
+                assertEquals(
+                    PhotoTransferState.Succeeded,
+                    model.uiState.value.originalTransfers[asset.id]?.state,
+                )
+                assertEquals(listOf(asset.id), gallery.exported)
+                assertEquals(
+                    PhotoGalleryExportOutcome.Saved,
+                    model.uiState.value.galleryExports[asset.id],
+                )
+                // The gallery copy is local only: it must never reach the
+                // Apple write path.
+                assertEquals(0, port.uploads)
+
+                model.closeSelected()
+                runCurrent()
+                model.select(asset)
+                advanceUntilIdle()
+
+                assertEquals(listOf(asset.id), gallery.exported)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
     private fun model(
         port: PhotosPort,
         catalog: PhotosCatalog,
         root: File,
+        gallery: PhotoGalleryPort = FakeGallery(),
     ): PhotosViewModel {
         PhotosWorkRegistry.activate()
         return PhotosViewModel(
@@ -247,6 +289,7 @@ class PhotosViewModelTest {
                 ioDispatcher = dispatcher,
             ),
             folders = FakeFolders,
+            gallery = gallery,
             prepareUpload = { error("Uploads are outside this test") },
         )
     }
@@ -285,6 +328,72 @@ class PhotosViewModelTest {
         createdAtMs = 1,
         updatedAtMs = 1,
     )
+
+    /** Downloads that immediately produce a valid, promotable JPEG. */
+    private class CompletingDownloadPort(
+        private val assets: List<PhotoSummary>,
+    ) : PhotosPort {
+        var uploads = 0
+            private set
+
+        override suspend fun access(): PhotosAccess =
+            PhotosAccess(PhotosAvailability.Ready, "Personal library metadata available")
+
+        override suspend fun page(cursor: String?, limit: Int): PhotosPage =
+            PhotosPage(assets, nextCursor = null)
+
+        override suspend fun downloadPreview(
+            asset: PhotoSummary,
+            destPath: String,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> = writeJpeg(destPath, 10, onProgress)
+
+        override suspend fun downloadOriginal(
+            asset: PhotoSummary,
+            destPath: String,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> = writeJpeg(destPath, 100, onProgress)
+
+        override suspend fun uploadJpeg(
+            originalPath: String,
+            previewPath: String,
+            filename: String,
+            capturedAtMs: Long?,
+            orientation: Int,
+        ): Result<PhotoUploadReceipt> {
+            uploads += 1
+            return Result.failure(IllegalStateException("Uploads are outside this test"))
+        }
+
+        private fun writeJpeg(
+            destPath: String,
+            size: Int,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> {
+            val bytes = ByteArray(size).also {
+                it[0] = 0xff.toByte()
+                it[1] = 0xd8.toByte()
+                it[2] = 0xff.toByte()
+            }
+            File(destPath).writeBytes(bytes)
+            onProgress(size.toLong(), size.toLong())
+            return Result.success(Unit)
+        }
+    }
+
+    private class FakeGallery(
+        private val outcome: PhotoGalleryExportOutcome = PhotoGalleryExportOutcome.Saved,
+    ) : PhotoGalleryPort {
+        val exported = mutableListOf<String>()
+
+        override suspend fun export(
+            asset: PhotoSummary,
+            original: File,
+        ): PhotoGalleryExportOutcome {
+            exported += asset.id
+            return outcome
+        }
+    }
 
     private object FakeFolders : PhotosFolderPort {
         override suspend fun sources(): List<PhotoFolderSource> = emptyList()

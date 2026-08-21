@@ -25,8 +25,13 @@ data class PhotoGalleryExportPlan(
  */
 object PhotoLibraryExport {
 
-    /** Album name shown in Google Photos and other gallery apps. */
-    const val ALBUM: String = "iCloud Photos"
+    /**
+     * Album shown in Google Photos and other gallery apps. `DCIM` is where
+     * gallery apps expect camera-grade media, so photos and videos share one
+     * `DCIM/iCloud` bucket rather than splitting across Pictures and Movies.
+     */
+    const val ALBUM: String = "iCloud"
+    const val ALBUM_PATH: String = "DCIM/$ALBUM"
 
     /**
      * Plans the gallery copy of a promoted original.
@@ -57,7 +62,7 @@ object PhotoLibraryExport {
         return PhotoGalleryExportPlan(
             displayName = name,
             mimeType = mime,
-            relativePath = if (isVideo) "Movies/$ALBUM" else "Pictures/$ALBUM",
+            relativePath = ALBUM_PATH,
             video = isVideo,
             dateTakenMillis = capturedAtMs?.takeIf { it > 0 },
         )
