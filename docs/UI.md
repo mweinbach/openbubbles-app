@@ -114,6 +114,58 @@ Effects: `ui/effects/SendEffects.kt`, `EffectPicker.kt`.
 
 Screenshot fixtures: `app-native/src/screenshotTest/.../ScreenshotPreviews.kt` (fixed timestamps).
 
+## Visual change evidence
+
+A screenshot report is a regression comparison, not a complete product oracle. Before editing from
+a screenshot or tester annotation, record the current Compose destination, window/pane state,
+layout direction, message/account state, theme, renderer host, and the exact visual relationship the
+change must preserve. Confirm the reference still describes current `HEAD`; old screenshots and
+patches often predate intervening layout fixes.
+
+For directional or stateful conversation UI, build the smallest applicable matrix before changing
+geometry or goldens:
+
+| Dimension | Cases to consider |
+|---|---|
+| Ownership/direction | mine → mine, theirs → theirs, mine → theirs, theirs → mine |
+| Conversation | 1:1, group with sender/avatar chrome, SMS/MMS where applicable |
+| Content | short/long text, image/media, unavailable/deleted original, reaction/status rows |
+| Layout | LTR, RTL, compact phone, landscape/compact height, list-detail/expanded pane |
+| Appearance | light, dark, dynamic color, large text/font scaling, display scaling |
+| Interaction | default, pressed/focused/selected, TalkBack/keyboard, reduced motion |
+
+Do not add every cross-product as a golden. Choose fixtures that make every changed branch visible,
+then cover pure branching/geometry/accessibility policy with focused unit tests. At minimum, a
+direction-sensitive reply change needs both opposite directions and every newly supported same-side
+case; a group-specific change needs a direct-chat counterexample.
+
+### Geometry and layout rules
+
+- Derive connectors, overlays, and shared-element anchors from the measured bounds of the elements
+  they join. Do not duplicate bubble positions with independent fixed rails or assumed row heights.
+- Keep coordinate systems explicit. Convert root/window bounds into the drawing canvas once and
+  test the pure transformation separately.
+- Insets must account for stroke width and rounded bubble corners so caps are neither clipped nor
+  hidden beneath a `Surface`.
+- Same-side and opposite-side relationships are different geometry contracts. RTL mirrors the
+  coordinate system; it must not silently swap message ownership.
+- A visual relationship that carries meaning needs sufficient contrast. Interactive labels retain
+  48.dp minimum targets even when their visible text/icon is compact.
+- Do not fix a golden by increasing renderer tolerance until the measured drift is proven sparse,
+  host-specific, and below a deliberate threshold. Product-level differences must continue to fail.
+
+### Evidence ladder for UI
+
+1. Pure tests prove direction selection, coordinates, semantics, and reduced-motion policy.
+2. Focused screenshots prove selected light/dark fixtures on the current renderer.
+3. Human inspection proves the intended hierarchy rather than merely pixel similarity.
+4. Device/emulator evidence proves gestures, IME, TalkBack, font/display scaling, fold posture,
+   predictive back, and platform rendering.
+
+Run `:app-native:updateDebugScreenshotTest` only for fixtures intentionally changed by the task.
+Inspect every updated image, then run `:app-native:validateDebugScreenshotTest`. Never sweep
+unrelated goldens into a visual commit. Report screenshot and device evidence separately.
+
 ## Recipes
 
 **New destination.** Add `Routes` + `@Serializable NavKey` + `toRoute`/`routeToKey` + `entry<Key>`

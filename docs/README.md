@@ -11,6 +11,7 @@ Current (Kotlin + Rust):
 - [VERIFY.md](VERIFY.md) — Gradle/cargo vs device evidence
 - [RELEASES.md](RELEASES.md) — versioning, signing, Update Ledger, release evidence
 - [agents/issue-tracker.md](agents/issue-tracker.md) — issue intake, deduplication, durable specs
+- [agents/domain.md](agents/domain.md) — documentation routing and stable project vocabulary
 
 Release checklist: [../tools/CUTOVER.md](../tools/CUTOVER.md).
 Agent entry: [../AGENTS.md](../AGENTS.md).

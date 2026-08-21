@@ -21,6 +21,12 @@ Re-record goldens with
 `./gradlew :app-native:updateDebugScreenshotTest --console=plain`. Preview clocks
 stay **fixed**.
 
+For a visual change, first run the pure tests that select layout/direction/semantics, then update only
+the owned fixtures, inspect the rendered images, and run screenshot validation. Use the applicable
+matrix in [UI.md](UI.md#visual-change-evidence): both message directions, same-side cases, direct vs
+group behavior, text vs media, light/dark, LTR/RTL, adaptive panes, large text, accessibility, and
+reduced motion are separate branches even when one screenshot looks correct.
+
 Do not invent `cargo test --manifest-path rust/Cargo.toml` as a gate — `rust/` has no unit tests.
 
 ## Before done
@@ -47,7 +53,9 @@ fixtures.
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
 - Optional screenshots — visual review of list, chat, and onboarding chrome. They are not a
-  routine correctness gate and do not cover settings, login, Find My, or effects.
+  routine correctness gate and do not cover settings, login, Find My, or effects. They also do not
+  prove touch/gesture arbitration, IME behavior, TalkBack order, platform authentication, predictive
+  back, fold posture, or physical-device rendering.
 
 ## Device and release
 

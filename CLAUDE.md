@@ -1,19 +1,8 @@
 # OpenBubbles
 
-Kotlin + Rust client. Follow [AGENTS.md](AGENTS.md).
+The canonical repository instructions are [AGENTS.md](AGENTS.md). Read and follow that file rather
+than maintaining a second set of architecture, build, issue-tracker, skill, or verification rules
+here. Detailed current documentation is routed from [docs/README.md](docs/README.md).
 
-Android builds `rust/` directly with Cargo + the pinned NDK via
-`app-native/cargo-android.gradle`. Do not add Dart, Flutter, or Cargokit to Gradle or CI.
-
-Flutter documents under `legacy/flutter/docs/` and historical `.claude/rules` files are not the
-implementation architecture.
-
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked in GitHub Issues (mweinbach/openbubbles-app) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Domain docs
-
-Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+`.claude/CLAUDE.md` intentionally points to `AGENTS.md`, so Codex and Claude project discovery share
+the same source of truth.

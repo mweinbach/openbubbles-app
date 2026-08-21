@@ -35,6 +35,36 @@ current version or to release without bumping gradle.
 production keystore for a GitHub release. It is a legacy/emergency path after
 the 3.4.7 cutoff; the automated Action is the canonical Ledger publisher.
 
+## Immutable release evidence and moving `main`
+
+The release source is the exact pushed commit selected by the workflow, not whatever `main` points
+to when verification finishes. Concurrent work may legitimately advance `main` during the native
+build or after publication.
+
+Before dispatch or version-bump push, record:
+
+- source commit and recursive submodule SHAs;
+- version name/code and changelog section;
+- workflow name/event and, once created, run ID plus head SHA;
+- expected channel and whether this version also receives a GitHub bridge release.
+
+After publication, verify one immutable evidence unit:
+
+1. the workflow succeeded on the recorded head SHA;
+2. the Update Ledger record names the intended project/channel/version/build and source commit;
+3. the published object filename, byte count, and SHA-256 match the downloaded APK;
+4. APK package, version name/code, supported ABIs, and signing certificate are correct;
+5. the public JSON/appcast points at that same object and metadata;
+6. for 3.4.7-or-earlier bridge releases, the GitHub tag resolves to the intended commit and its
+   assets match the Ledger evidence;
+7. device installation/update acceptance is reported separately and never inferred from CI.
+
+If `origin/main` advances, do not retry or invalidate a correct release merely because
+`origin/main != <release commit>`. Verify that the new branch head did not move the immutable tag or
+replace the Ledger release, then report current-main CI as a separate fact. If the tag, artifact, or
+feed does not match the recorded source, stop publication/remediation and treat it as a release
+integrity failure.
+
 ## Update Ledger credentials
 
 The repository secret `UPDATE_LEDGER_API_KEY` is the write-only project key.
