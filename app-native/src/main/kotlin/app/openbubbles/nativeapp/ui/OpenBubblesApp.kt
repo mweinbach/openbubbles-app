@@ -149,6 +149,7 @@ import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -888,6 +889,16 @@ fun OpenBubblesApp(
 
                 entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
                     val chatId = key.chatId
+                    val routeMemberChatIds by produceState<List<Long>?>(null, chatId) {
+                        val chats = AppGraph.chats.chats().first()
+                        value = chats
+                            .firstOrNull { it.id == chatId || chatId in it.memberChatIds }
+                            ?.memberChatIds
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: withContext(Dispatchers.IO) {
+                                AppGraph.relatedDirectChatIds(chatId)
+                            }
+                    }
                     val conversationContext = LocalContext.current
                     DisposableEffect(chatId) {
                         Notifications.onConversationVisible(conversationContext, chatId)
@@ -926,6 +937,9 @@ fun OpenBubblesApp(
                     }
                     ChatScreen(
                         uiState = state,
+                        routeChatId = chatId,
+                        routeMemberChatIds = routeMemberChatIds,
+                        historySyncActive = historySyncActive,
                         onInputChange = viewModel::onInputChange,
                         onSubjectChange = viewModel::onSubjectChange,
                         onInsertMention = viewModel::insertMention,
