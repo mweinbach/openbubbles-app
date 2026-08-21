@@ -436,14 +436,6 @@ fun MessageBubble(
                                         },
                                     )
                                 }
-                                if (doubleTapActions != null) {
-                                    add(
-                                        CustomAccessibilityAction(AddReactionLabel) {
-                                            doubleTapActions.invoke(defaultReplyPart)
-                                            true
-                                        },
-                                    )
-                                }
                                 if (openActions != null) {
                                     add(
                                         CustomAccessibilityAction(MessageActionsLabel) {
@@ -508,6 +500,9 @@ fun MessageBubble(
                 InteractiveBalloon(
                     payload = payload,
                     onLongPress = openActions?.let { callback -> { callback(textPart) } },
+                    modifier = Modifier.reactionAccessibilityAction(
+                        doubleTapActions?.let { callback -> { callback(textPart) } },
+                    ),
                     onDoubleClick = doubleTapActions?.let { callback -> { callback(textPart) } },
                 )
             }
@@ -528,6 +523,9 @@ fun MessageBubble(
                         onDoubleTap = doubleTapActions?.let { callback ->
                             { callback(attachment.partIndex) }
                         },
+                        modifier = Modifier.reactionAccessibilityAction(
+                            doubleTapActions?.let { callback -> { callback(attachment.partIndex) } },
+                        ),
                     )
                     reactionSummary?.let { summary ->
                         ReactionChip(
@@ -553,6 +551,9 @@ fun MessageBubble(
                         shape = shape,
                         isFromMe = message.isFromMe,
                         smsChat = smsChat,
+                        modifier = Modifier.reactionAccessibilityAction(
+                            doubleTapActions?.let { callback -> { callback(textPart) } },
+                        ),
                         onLongPress = openActions?.let { callback ->
                             { callback(textPart) }
                         },
@@ -577,6 +578,9 @@ fun MessageBubble(
                     Box {
                         RichLinkCard(
                             preview = preview,
+                            modifier = Modifier.reactionAccessibilityAction(
+                                doubleTapActions?.let { callback -> { callback(textPart) } },
+                            ),
                             onLongPress = openActions?.let { callback ->
                                 { callback(textPart) }
                             },
@@ -607,6 +611,9 @@ fun MessageBubble(
                                 text = displayText,
                                 shape = shape,
                                 smsChat = smsChat,
+                                modifier = Modifier.reactionAccessibilityAction(
+                                    doubleTapActions?.let { callback -> { callback(textPart) } },
+                                ),
                                 onLongPress = openActions?.let { callback ->
                                     { callback(textPart) }
                                 },
@@ -620,14 +627,18 @@ fun MessageBubble(
                                 shape = shape,
                                 color = bubbleColor,
                                 contentColor = bubbleContent,
-                                modifier = Modifier.messagePartGestures(
-                                    onOpenActions = openActions?.let { callback ->
-                                        { callback(textPart) }
-                                    },
-                                    onDoubleTapActions = doubleTapActions?.let { callback ->
-                                        { callback(textPart) }
-                                    },
-                                ),
+                                modifier = Modifier
+                                    .reactionAccessibilityAction(
+                                        doubleTapActions?.let { callback -> { callback(textPart) } },
+                                    )
+                                    .messagePartGestures(
+                                        onOpenActions = openActions?.let { callback ->
+                                            { callback(textPart) }
+                                        },
+                                        onDoubleTapActions = doubleTapActions?.let { callback ->
+                                            { callback(textPart) }
+                                        },
+                                    ),
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                     MessageSubject(message.subject)

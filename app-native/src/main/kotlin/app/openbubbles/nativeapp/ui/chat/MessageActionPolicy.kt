@@ -4,6 +4,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageReactionUi
@@ -186,6 +189,21 @@ internal fun tapbackContentDescription(emoji: String): String = when (emoji) {
     TapbackQuestion -> "Question"
     else -> "Reaction $emoji"
 }
+
+/** Adds the part-specific TalkBack action to the same surface that owns its gesture. */
+internal fun Modifier.reactionAccessibilityAction(onAddReaction: (() -> Unit)?): Modifier =
+    if (onAddReaction == null) {
+        this
+    } else {
+        semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(AddReactionLabel) {
+                    onAddReaction()
+                    true
+                },
+            )
+        }
+    }
 
 @OptIn(ExperimentalFoundationApi::class)
 internal fun Modifier.messagePartGestures(

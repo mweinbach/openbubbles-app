@@ -1362,8 +1362,12 @@ fun ChatScreen(
     }
 
     selectedAction?.let { selection ->
-        key(selection.message.guid, selection.part) {
-        val message = selection.message
+        val message = messagesByGuid[selection.message.guid]
+        val eligible = message?.let(::canOpenMessageActions) == true
+        LaunchedEffect(selection.message.guid, eligible) {
+            if (!eligible) selectedAction = null
+        }
+        if (message != null && eligible) key(message.guid, selection.part) {
         MessageActionSheet(
             message = message,
             selectedPart = selection.part,
@@ -1386,7 +1390,7 @@ fun ChatScreen(
             },
             onSticker = {
                 selectedAction = null
-                stickerTarget = selection
+                stickerTarget = SelectedMessageAction(message, selection.part)
                 pickSticker.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
