@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -90,6 +91,7 @@ import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.ContactDisplayWarmCache
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MapPrefs
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.SurfaceSwitcherPrefs
@@ -113,6 +115,7 @@ import app.openbubbles.nativeapp.ui.chatlist.sendFromChoices
 import app.openbubbles.nativeapp.ui.findmy.FindMyScreen
 import app.openbubbles.nativeapp.ui.findmy.FindMyViewModel
 import app.openbubbles.nativeapp.ui.login.LoginScreen
+import app.openbubbles.nativeapp.ui.map.MapTileStore
 import app.openbubbles.nativeapp.ui.navigation.SurfaceStackEntry
 import app.openbubbles.nativeapp.ui.navigation.SurfaceSwitchPlan
 import app.openbubbles.nativeapp.ui.navigation.TopLevelSurface
@@ -1267,11 +1270,34 @@ fun OpenBubblesApp(
                 entry<FindMyKey>(metadata = overlayMetadata) {
                     val viewModel: FindMyViewModel = viewModel(factory = FindMyViewModel.factory())
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val mapContext = LocalContext.current
+                    val mapPrefs = remember(mapContext) { MapPrefs(mapContext) }
+                    var imageryEnabled by remember(mapPrefs) {
+                        mutableStateOf(mapPrefs.imageryEnabled)
+                    }
+                    val tileStore = remember(mapContext) {
+                        MapTileStore.create(mapContext, BuildConfig.VERSION_NAME)
+                    }
+                    // Live tracking is a foreground behaviour: it starts when the
+                    // screen is actually resumed and stops the moment it is not,
+                    // so nothing keeps polling Apple behind another destination.
+                    LifecycleResumeEffect(viewModel) {
+                        viewModel.setVisible(true)
+                        onPauseOrDispose { viewModel.setVisible(false) }
+                    }
                     FindMyScreen(
                         uiState = state,
                         onRefresh = viewModel::refresh,
                         onBack = { popBack() },
                         showBackButton = true,
+                        onSelectTarget = viewModel::select,
+                        onSetLiveUpdates = viewModel::setLiveUpdates,
+                        tiles = tileStore,
+                        imageryEnabled = imageryEnabled,
+                        onSetImageryEnabled = { enabled ->
+                            mapPrefs.imageryEnabled = enabled
+                            imageryEnabled = enabled
+                        },
                         surfaceSwitcher = surfaceSwitcher,
                     )
                 }

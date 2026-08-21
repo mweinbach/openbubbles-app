@@ -52,6 +52,11 @@ fixtures.
   contacts, CloudKit, backup).
 - `:app-native` — ViewModels with fakes, send-routing helpers, SMS push shape, notification
   preview text, poll-vs-sticky **pure functions**. Not live APNs or a running service.
+- Map and Find My tracking — `MapGeometryTest` covers projection round-trips, antimeridian wrap,
+  tile coverage at fractional zoom, pan clamping, pinch anchoring, bounding-box fit, and the scale
+  bar; `FindMyTrackingTest` covers target ordering, session tracks, staleness, and every row string;
+  `FindMyViewModelTest` covers foreground-only live tracking and pause. None of these prove real tile
+  fetching, imagery rendering, or Apple location refresh on hardware.
 - Surface-switcher policy — `TopLevelSurfaceTest` covers the order model, the persisted form and its
   corrupt-value fallback, and the stack edit a switch performs from every reachable stack shape;
   `SurfaceSwipePolicyTest` covers the swipe thresholds, direction, edge exclusion, and disabled
