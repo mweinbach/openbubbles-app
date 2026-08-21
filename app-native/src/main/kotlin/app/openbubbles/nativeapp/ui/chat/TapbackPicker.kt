@@ -203,8 +203,7 @@ internal fun TapbackPickerOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .widthIn(max = PickerMaxWidth)
-                .pointerInput(Unit) { detectTapGestures { } }
+                .fillMaxWidth()
                 .graphicsLayer {
                     alpha = enter.value
                     scaleX = scale.value
@@ -238,7 +237,9 @@ private fun ReactionSummaryCard(
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         tonalElevation = 2.dp,
         shadowElevation = 8.dp,
-        modifier = modifier.widthIn(max = PickerMaxWidth),
+        modifier = modifier
+            .widthIn(max = PickerMaxWidth)
+            .pointerInput(Unit) { detectTapGestures { } },
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -315,7 +316,9 @@ private fun TapbackPickerBar(
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         tonalElevation = 2.dp,
         shadowElevation = 8.dp,
-        modifier = modifier.widthIn(max = PickerMaxWidth),
+        modifier = modifier
+            .widthIn(max = PickerMaxWidth)
+            .pointerInput(Unit) { detectTapGestures { } },
     ) {
         Row(
             horizontalArrangement = Arrangement.SpaceEvenly,
