@@ -74,6 +74,21 @@ class VaultItemDetailViewModel(
         }
     }
 
+    /**
+     * Reports a failure that happened outside this view model — in practice a
+     * cancelled or unavailable authentication prompt. Without this the reveal
+     * and delete buttons simply did nothing when authentication failed.
+     */
+    fun reportError(message: String?) {
+        mutableState.update {
+            it.copy(busy = false, error = message ?: "Authentication was not completed")
+        }
+    }
+
+    fun clearError() {
+        mutableState.update { it.copy(error = null) }
+    }
+
     /** Attach a TOTP generator to this password's account. */
     fun addTotp(setup: String) {
         val item = mutableState.value.item

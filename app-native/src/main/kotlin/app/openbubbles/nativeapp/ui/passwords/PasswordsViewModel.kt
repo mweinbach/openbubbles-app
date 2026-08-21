@@ -179,16 +179,63 @@ data class PasswordsUiState(
     val categoryLoading: Boolean get() = category !in loadedCategories
 }
 
+/**
+ * The items one category shows, matching [query], in the order they are listed.
+ *
+ * Rust returns whatever order the CKKS zone yielded, which is stable but
+ * arbitrary: a vault of two hundred logins was effectively unsorted. Sorting by
+ * title (then username) here makes the list scannable and makes the A–Z headers
+ * in [vaultSections] mean something.
+ */
 internal fun filterVaultItems(
     items: List<VaultItemUi>,
     category: VaultCategory,
     query: String,
 ): List<VaultItemUi> {
     val needle = query.trim().lowercase()
-    return items.filter { item ->
-        item.category == category &&
-            (needle.isEmpty() || item.title.lowercase().contains(needle) || item.username.orEmpty().lowercase().contains(needle))
+    return items.asSequence()
+        .filter { item ->
+            item.category == category &&
+                (
+                    needle.isEmpty() ||
+                        item.title.lowercase().contains(needle) ||
+                        item.username.orEmpty().lowercase().contains(needle)
+                    )
+        }
+        .sortedWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER, VaultItemUi::title)
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.username.orEmpty() },
+        )
+        .toList()
+}
+
+/** One alphabetical run of vault items. */
+data class VaultSection(val letter: String, val items: List<VaultItemUi>)
+
+/**
+ * Alphabetical sections for a category.
+ *
+ * Anything that does not start with a letter groups under "#", which is where a
+ * person looks for `1password.com` or an IP address. Below [minimumForSections]
+ * items the list is short enough to read at once and gets a single unlabelled
+ * run instead of headers that outnumber the rows.
+ */
+internal fun vaultSections(
+    items: List<VaultItemUi>,
+    minimumForSections: Int = 12,
+): List<VaultSection> {
+    if (items.isEmpty()) return emptyList()
+    if (items.size < minimumForSections) return listOf(VaultSection(letter = "", items = items))
+    val sections = LinkedHashMap<String, MutableList<VaultItemUi>>()
+    items.forEach { item ->
+        sections.getOrPut(sectionLetter(item.title)) { mutableListOf() } += item
     }
+    return sections.map { (letter, group) -> VaultSection(letter, group) }
+}
+
+private fun sectionLetter(title: String): String {
+    val first = title.trim().firstOrNull() ?: return "#"
+    return if (first.isLetter()) first.uppercaseChar().toString() else "#"
 }
 
 interface PasswordsPort {
@@ -564,7 +611,11 @@ class PasswordsViewModel(
                 loadedCategories = cachedItems.keys +
                     if (cachedGroups != null) setOf(VaultCategory.Groups) else emptySet(),
                 categoryCounts = cachedItems.mapValues { it.value.size } +
-                    (cachedGroups?.let { mapOf(VaultCategory.Groups to it.size) } ?: emptyMap()),
+                    (
+                        cachedGroups?.let {
+                            mapOf(VaultCategory.Groups to it.size + (cache.invites?.size ?: 0))
+                        } ?: emptyMap()
+                        ),
                 groups = cachedGroups ?: emptyList(),
                 invites = cache.invites ?: emptyList(),
                 groupsLoaded = cachedGroups != null,
@@ -618,7 +669,10 @@ class PasswordsViewModel(
                 invites = invites,
                 groupsLoaded = true,
                 loadedCategories = state.loadedCategories + VaultCategory.Groups,
-                categoryCounts = state.categoryCounts + (VaultCategory.Groups to groups.size),
+                // A pending invitation is a row inside Groups, so the category
+                // count has to include it or the badge undercounts what is there.
+                categoryCounts = state.categoryCounts +
+                    (VaultCategory.Groups to groups.size + invites.size),
             )
         }
         true

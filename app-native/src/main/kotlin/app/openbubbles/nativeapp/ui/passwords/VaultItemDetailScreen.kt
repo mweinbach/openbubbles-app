@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,10 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -257,7 +262,7 @@ fun VaultItemDetailScreen(
         )
     }
     if (showTotpSetup) {
-        TotpSetupDialog(
+        TotpSetupSheet(
             item = item,
             setup = totpInput,
             busy = uiState.busy,
@@ -276,8 +281,13 @@ fun VaultItemDetailScreen(
     }
 }
 
+/**
+ * Verification-code setup. A sheet, not a dialog: it is a scan plus a long key to
+ * paste, and a dialog gave the field two cramped lines above the keyboard.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TotpSetupDialog(
+private fun TotpSetupSheet(
     item: VaultItemUi,
     setup: String,
     busy: Boolean,
@@ -286,34 +296,49 @@ private fun TotpSetupDialog(
     onDismiss: () -> Unit,
     onSubmit: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Set up verification code") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Add a code for ${item.title} • ${item.username.orEmpty()}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                TextButton(onClick = onScan, enabled = !busy) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Scan QR code")
-                }
-                OutlinedTextField(
-                    value = setup,
-                    onValueChange = onSetupChange,
-                    label = { Text("Setup key or otpauth URI") },
-                    supportingText = { Text("Paste the Base32 setup key if scanning is unavailable.") },
-                    minLines = 2,
-                )
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Set up verification code", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = listOfNotNull(item.title, item.username?.takeIf { it.isNotBlank() })
+                    .joinToString(" • "),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(onClick = onScan, enabled = !busy) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Scan QR code")
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onSubmit, enabled = !busy && setup.isNotBlank()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            OutlinedTextField(
+                value = setup,
+                onValueChange = onSetupChange,
+                label = { Text("Setup key or otpauth URI") },
+                supportingText = { Text("Paste the Base32 setup key if scanning is unavailable.") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                Button(
+                    onClick = onSubmit,
+                    enabled = !busy && setup.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Save") }
+            }
+        }
+    }
 }
 
 /** The label/value card mirroring the iOS Passwords single detail card. */

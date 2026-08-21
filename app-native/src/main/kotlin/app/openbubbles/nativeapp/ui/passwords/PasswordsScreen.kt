@@ -2,12 +2,12 @@ package app.openbubbles.nativeapp.ui.passwords
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Key
@@ -34,10 +37,15 @@ import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +53,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -67,6 +77,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
@@ -95,6 +106,8 @@ fun PasswordsScreen(
     onAcceptInvite: (String) -> Unit,
     onDeclineInvite: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** Clears a failure the user has read; the cached vault stays usable. */
+    onDismissError: () -> Unit = {},
     /**
      * Peer-surface switcher pinned under the app bar. It only routes: revealing
      * or copying a secret still goes through this surface's own authentication.
@@ -171,7 +184,7 @@ fun PasswordsScreen(
         )
     }
     if (showCreatePassword) {
-        CreatePasswordDialog(
+        CreatePasswordSheet(
             groups = uiState.groups,
             busy = uiState.busy,
             onDismiss = { showCreatePassword = false },
@@ -182,7 +195,7 @@ fun PasswordsScreen(
         )
     }
     if (showCreateGroup) {
-        TextEntryDialog(
+        TextEntrySheet(
             title = "Create password group",
             label = "Group name",
             busy = uiState.busy,
@@ -194,10 +207,12 @@ fun PasswordsScreen(
         )
     }
     uiState.error?.let { error ->
+        // Dismissible: a failure here is worth reading, not worth trapping the
+        // user on a screen whose cached vault is still perfectly usable.
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = onDismissError,
             confirmButton = { TextButton(onClick = onRefresh) { Text("Retry") } },
-            dismissButton = { TextButton(onClick = onBack) { Text("Close") } },
+            dismissButton = { TextButton(onClick = onDismissError) { Text("Dismiss") } },
             title = { Text("iCloud Passwords") },
             text = { Text(error) },
         )
@@ -227,7 +242,6 @@ private fun CliqueRequired(error: String?, onOpenICloudSettings: () -> Unit, mod
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VaultContent(
     uiState: PasswordsUiState,
@@ -267,21 +281,33 @@ private fun VaultContent(
                             else -> 2
                         }
                         val gap = 12.dp
-                        val cardWidth = (maxWidth - gap * (columnCount - 1)) / columnCount
-                        FlowRow(
-                            maxItemsInEachRow = columnCount,
-                            horizontalArrangement = Arrangement.spacedBy(gap),
-                            verticalArrangement = Arrangement.spacedBy(gap),
-                        ) {
-                            VaultCategory.entries.forEach { category ->
-                                VaultCategoryCard(
-                                    category = category,
-                                    count = uiState.categoryCounts[category],
-                                    selected = category == uiState.category,
-                                    loading = category == uiState.category && uiState.categoryLoading,
-                                    onClick = { onCategory(category) },
-                                    modifier = Modifier.width(cardWidth),
-                                )
+                        // Explicit rows of weighted cards rather than a flow of
+                        // fixed widths: computing the width from the constraint
+                        // rounded a hair over it, and every row wrapped to one
+                        // card with half the screen left empty.
+                        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                            VaultCategory.entries.chunked(columnCount).forEach { row ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(gap),
+                                ) {
+                                    row.forEach { category ->
+                                        VaultCategoryCard(
+                                            category = category,
+                                            count = uiState.categoryCounts[category],
+                                            selected = category == uiState.category,
+                                            loading = category == uiState.category &&
+                                                uiState.categoryLoading,
+                                            onClick = { onCategory(category) },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    // A short final row keeps its cards the same
+                                    // size as the rows above instead of stretching.
+                                    repeat(columnCount - row.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
                     }
@@ -295,7 +321,14 @@ private fun VaultContent(
                         onValueChange = onQuery,
                         placeholder = { Text("Search ${uiState.category.title}") },
                         leadingIcon = {
-                            Icon(Icons.Filled.Search, contentDescription = null)
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        },
+                        trailingIcon = {
+                            if (uiState.query.isNotEmpty()) {
+                                IconButton(onClick = { onQuery("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                                }
+                            }
                         },
                         singleLine = true,
                         shape = MaterialTheme.shapes.extraLarge,
@@ -321,28 +354,36 @@ private fun VaultContent(
                     }
                     filtered.isEmpty() -> item(key = "empty") {
                         SettingsInfoItem(
-                            title = "Nothing saved",
+                            title = if (uiState.query.isBlank()) "Nothing saved" else "No matches",
                             supporting = if (uiState.query.isBlank()) {
                                 "No ${uiState.category.title.lowercase()} are available."
                             } else {
-                                "No matching items are available."
+                                "Nothing in ${uiState.category.title.lowercase()} matches " +
+                                    "“${uiState.query.trim()}”."
                             },
                             index = 0,
                             count = 1,
                             icon = uiState.category.icon,
                         )
                     }
-                    else -> itemsIndexed(
-                        items = filtered,
-                        key = { _, item -> "${item.category}:${item.id}" },
-                    ) { index, item ->
-                        VaultRow(
-                            title = item.title,
-                            supporting = item.username,
-                            onClick = { onSelect(item) },
-                            index = index,
-                            count = filtered.size,
-                        )
+                    else -> vaultSections(filtered).forEach { section ->
+                        if (section.letter.isNotEmpty()) {
+                            item(key = "letter-${uiState.category}-${section.letter}") {
+                                VaultListLabel(section.letter, topPadding = 16.dp)
+                            }
+                        }
+                        itemsIndexed(
+                            items = section.items,
+                            key = { _, item -> "${item.category}:${item.id}" },
+                        ) { index, item ->
+                            VaultRow(
+                                title = item.title,
+                                supporting = item.username,
+                                onClick = { onSelect(item) },
+                                index = index,
+                                count = section.items.size,
+                            )
+                        }
                     }
                 }
             } else {
@@ -624,8 +665,17 @@ private fun InviteActionsDialog(
     )
 }
 
+/**
+ * New-password form.
+ *
+ * A sheet rather than a dialog: this is data entry with four fields and a
+ * keyboard, which a dialog cramps. The group choice is a real menu instead of a
+ * button that cycled through groups one tap at a time, and the suggestion button
+ * fills a generated password so the manager does the work it exists for.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreatePasswordDialog(
+private fun CreatePasswordSheet(
     groups: List<VaultGroupUi>,
     busy: Boolean,
     onDismiss: () -> Unit,
@@ -634,47 +684,119 @@ private fun CreatePasswordDialog(
     var site by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var reveal by remember { mutableStateOf(false) }
     var groupId by remember { mutableStateOf<String?>(null) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New password") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(site, { site = it }, label = { Text("Website") }, singleLine = true)
-                OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true)
-                OutlinedTextField(
-                    password,
-                    { password = it },
-                    label = { Text("Password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                if (groups.isNotEmpty()) {
-                    Text("Group", style = MaterialTheme.typography.labelLarge)
-                    TextButton(
-                        onClick = {
-                            val index = groups.indexOfFirst { it.id == groupId }
-                            groupId = groups.getOrNull(index + 1)?.id
-                        },
-                        enabled = !busy,
-                    ) {
+    var groupMenu by remember { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("New password", style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(
+                value = site,
+                onValueChange = { site = it },
+                label = { Text("Website") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = if (reveal) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { reveal = !reveal }) {
+                        Icon(
+                            imageVector = if (reveal) {
+                                Icons.Filled.VisibilityOff
+                            } else {
+                                Icons.Filled.Visibility
+                            },
+                            contentDescription = if (reveal) "Hide password" else "Show password",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        password = VaultPasswordGenerator.generate()
+                        reveal = true
+                    },
+                ) {
+                    Icon(Icons.Filled.Autorenew, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Suggest strong password")
+                }
+            }
+            if (groups.isNotEmpty()) {
+                Box {
+                    OutlinedButton(onClick = { groupMenu = true }, enabled = !busy) {
+                        Icon(Icons.Filled.Badge, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(groups.firstOrNull { it.id == groupId }?.name ?: "Personal")
+                    }
+                    DropdownMenu(expanded = groupMenu, onDismissRequest = { groupMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Personal") },
+                            onClick = {
+                                groupId = null
+                                groupMenu = false
+                            },
+                        )
+                        groups.forEach { group ->
+                            DropdownMenuItem(
+                                text = { Text(group.name) },
+                                onClick = {
+                                    groupId = group.id
+                                    groupMenu = false
+                                },
+                            )
+                        }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(site, username, password, groupId) },
-                enabled = !busy && site.isNotBlank() && username.isNotBlank() && password.isNotEmpty(),
-            ) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                Button(
+                    onClick = { onCreate(site, username, password, groupId) },
+                    enabled = !busy && site.isNotBlank() && username.isNotBlank() && password.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Create") }
+            }
+        }
+    }
 }
 
+/**
+ * One-field form used for creating a group, renaming it, and inviting a member.
+ * A sheet for the same reason as the password form: it is typing, not a decision.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TextEntryDialog(
+internal fun TextEntrySheet(
     title: String,
     label: String,
     busy: Boolean,
@@ -684,15 +806,37 @@ internal fun TextEntryDialog(
     confirmLabel: String = "Create",
 ) {
     var value by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { OutlinedTextField(value, { value = it }, label = { Text(label) }, singleLine = true) },
-        confirmButton = {
-            TextButton(onClick = { onSubmit(value) }, enabled = !busy && value.isNotBlank()) { Text(confirmLabel) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                label = { Text(label) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                Button(
+                    onClick = { onSubmit(value) },
+                    enabled = !busy && value.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text(confirmLabel) }
+            }
+        }
+    }
 }
 
 private val VaultCategory.title: String get() = when (this) {

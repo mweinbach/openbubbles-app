@@ -227,7 +227,7 @@ fun VaultGroupDetailScreen(
     }
 
     if (showRename) {
-        TextEntryDialog(
+        TextEntrySheet(
             title = "Rename group",
             label = "Group name",
             busy = uiState.busy,
@@ -241,7 +241,7 @@ fun VaultGroupDetailScreen(
         )
     }
     if (showInvite) {
-        TextEntryDialog(
+        TextEntrySheet(
             title = "Invite to ${uiState.name}",
             label = "Email or phone number",
             busy = uiState.busy,
