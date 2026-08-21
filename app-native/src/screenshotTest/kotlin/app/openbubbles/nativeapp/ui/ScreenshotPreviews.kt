@@ -401,7 +401,7 @@ fun ChatScreenScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -457,7 +457,7 @@ fun ChatScreenRichLinkScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -499,7 +499,7 @@ fun ChatScreenGroupScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -561,7 +561,7 @@ fun ChatScreenAttachmentsScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -620,7 +620,7 @@ fun ChatScreenReplyScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -670,7 +670,7 @@ fun ChatScreenReverseReplyScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -723,7 +723,7 @@ fun ChatScreenSameSideReplyScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -766,7 +766,7 @@ fun ChatScreenTapbackScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -849,7 +849,7 @@ fun ChatScreenThreadScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
@@ -928,7 +928,7 @@ fun ChatScreenVoiceMemoScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
             attachmentFile = { guid ->
                 if (guid == "voice-loaded") java.io.File("/nonexistent/voice.m4a") else null
@@ -962,7 +962,7 @@ fun ChatScreenSmsScreenshot() {
             ),
             onInputChange = {},
             onSend = {},
-            onLoadOlder = {},
+            onLoadOlder = { false },
             onBack = {},
         )
     }
