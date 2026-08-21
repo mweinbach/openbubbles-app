@@ -1246,6 +1246,20 @@ class CloudSyncManagerTest {
     }
 
     @Test
+    fun `empty deletion queues issue no remote calls`() {
+        port.chatPages += chatPage()
+        port.messagePages += messagePage()
+
+        val summary = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(summary.error)
+        assertTrue(port.calls.none { it.startsWith("delete-") }, "unexpected calls: ${port.calls}")
+        assertTrue(port.deletedChats.isEmpty())
+        assertTrue(port.deletedMessages.isEmpty())
+        assertTrue(port.deletedAttachments.isEmpty())
+    }
+
+    @Test
     fun `gates on availability and clique membership`() {
         port.state = USyncState.NEEDS_LOGIN
         val needsLogin = runSync()
