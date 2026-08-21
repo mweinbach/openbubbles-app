@@ -26,9 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.merge
 
 /**
  * ObjectBox-backed repository for the chat list.
@@ -232,16 +230,15 @@ class ChatRepo(
      * being committed instead of queueing one full chat projection per write.
      */
     fun observeChats(): Flow<List<ChatListItem>> =
-        merge(
-            flowOf(Unit),
-            // Contact imports/relinks do not mutate Chat rows. Include their
-            // invalidations so an open chat list replaces raw addresses with
-            // names immediately instead of waiting for the next message.
-            invalidations.changesFor(
-                StoreEntityChange.CHAT,
-                StoreEntityChange.CONTACT,
-                StoreEntityChange.HANDLE,
-            ),
+        // The initial projection rides the subscription-readiness signal so no
+        // commit can land between the first query and an installed observer.
+        // Contact imports/relinks do not mutate Chat rows. Include their
+        // invalidations so an open chat list replaces raw addresses with
+        // names immediately instead of waiting for the next message.
+        invalidations.changesForWithInitial(
+            StoreEntityChange.CHAT,
+            StoreEntityChange.CONTACT,
+            StoreEntityChange.HANDLE,
         )
             .conflate()
             .map { chats() }

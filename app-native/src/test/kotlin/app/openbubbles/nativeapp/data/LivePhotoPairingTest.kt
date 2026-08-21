@@ -36,6 +36,42 @@ class LivePhotoPairingTest {
         assertTrue(visibleAttachmentMetas(listOf(still, motion)).single().livePhotoMotionDownloaded)
     }
 
+    /**
+     * The bubble keys its disk lookup on these stamps, and the still and the
+     * motion payload land independently, so each has to carry its own.
+     */
+    @Test
+    fun `payload stamps follow the still and its motion sibling`() {
+        val still = Attachment().apply {
+            id = 11L
+            guid = "message_0"
+            mimeType = "image/heic"
+            transferName = "IMG_0001.HEIC"
+            metadata = mutableMapOf("livePhotoMotionGuid" to "message_0_iris")
+        }
+        val motion = Attachment().apply {
+            id = 12L
+            guid = "message_0_iris"
+            mimeType = "video/quicktime"
+            transferName = "IMG_0001.MOV"
+            metadata = mutableMapOf("livePhotoMotion" to true)
+        }
+
+        val visible = visibleAttachmentMetas(
+            listOf(still, motion),
+            payloadStamps = mapOf(11L to "still:120:5", 12L to "motion:900:6"),
+        ).single()
+
+        assertEquals("still:120:5", visible.payloadStamp)
+        assertEquals("motion:900:6", visible.livePhotoMotionPayloadStamp)
+
+        val stillOnly = visibleAttachmentMetas(
+            listOf(still, motion),
+            payloadStamps = mapOf(11L to "still:120:5"),
+        ).single()
+        assertNull(stillOnly.livePhotoMotionPayloadStamp)
+    }
+
     @Test
     fun `heic and mov siblings pair without iris metadata`() {
         val still = Attachment().apply {
