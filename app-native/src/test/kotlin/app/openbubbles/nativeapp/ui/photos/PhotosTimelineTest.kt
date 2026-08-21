@@ -105,6 +105,13 @@ class VisiblePhotosTest {
         assertEquals(listOf("fave"), visiblePhotos(assets, PhotoFilter.Favorites).map { it.id })
         assertEquals(listOf("video"), visiblePhotos(assets, PhotoFilter.Videos).map { it.id })
     }
+
+    @Test
+    fun `only the unfiltered timeline auto-pages`() {
+        assertTrue(shouldAutoPagePhotos(PhotoFilter.All))
+        assertFalse(shouldAutoPagePhotos(PhotoFilter.Favorites))
+        assertFalse(shouldAutoPagePhotos(PhotoFilter.Videos))
+    }
 }
 
 class PhotoTimelineTest {

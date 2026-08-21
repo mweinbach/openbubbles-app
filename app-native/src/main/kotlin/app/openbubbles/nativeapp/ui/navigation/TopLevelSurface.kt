@@ -103,11 +103,14 @@ object TopLevelSurfaceOrderCodec {
         val parts = raw?.split('|') ?: return TopLevelSurfaceOrder.Default
         if (parts.size != 3) return TopLevelSurfaceOrder.Default
         if (parts[0].toIntOrNull() != VERSION) return TopLevelSurfaceOrder.Default
-        val surfaces = parts[1].split(',').mapNotNull(TopLevelSurface::fromId)
+        val surfaces = parts[1].split(',').map { id ->
+            TopLevelSurface.fromId(id) ?: return TopLevelSurfaceOrder.Default
+        }
         if (surfaces.isEmpty()) return TopLevelSurfaceOrder.Default
+        val defaultSurface = TopLevelSurface.fromId(parts[2]) ?: return TopLevelSurfaceOrder.Default
         return TopLevelSurfaceOrder.of(
             surfaces = surfaces,
-            defaultSurface = TopLevelSurface.fromId(parts[2]) ?: surfaces.first(),
+            defaultSurface = defaultSurface,
         )
     }
 }
@@ -168,6 +171,7 @@ object TopLevelSurfaceSwitch {
 
     fun plan(entries: List<SurfaceStackEntry>, target: TopLevelSurface): SurfaceSwitchPlan {
         if (entries.isEmpty()) return SurfaceSwitchPlan.Replace(keepCount = 0, push = target)
+        if (entries.last() == SurfaceStackEntry.Root(target)) return SurfaceSwitchPlan.None
         val rootSurface = (entries.first() as? SurfaceStackEntry.Root)?.surface
         if (target == rootSurface) {
             return if (entries.size == 1) {
@@ -176,11 +180,6 @@ object TopLevelSurfaceSwitch {
                 SurfaceSwitchPlan.Replace(keepCount = 1, push = null)
             }
         }
-        val alreadySettled = entries.size == 2 && entries[1] == SurfaceStackEntry.Root(target)
-        return if (alreadySettled) {
-            SurfaceSwitchPlan.None
-        } else {
-            SurfaceSwitchPlan.Replace(keepCount = 1, push = target)
-        }
+        return SurfaceSwitchPlan.Replace(keepCount = 1, push = target)
     }
 }

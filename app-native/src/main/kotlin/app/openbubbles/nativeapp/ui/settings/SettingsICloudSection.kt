@@ -1,7 +1,5 @@
 package app.openbubbles.nativeapp.ui.settings
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,14 +45,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -62,30 +57,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.openbubbles.nativeapp.data.CircleProximityAdvertiser
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.HistorySyncPreferences
 import app.openbubbles.nativeapp.data.HistorySyncWindow
 import app.openbubbles.nativeapp.data.ICloudContactSync
 import app.openbubbles.nativeapp.data.ICloudContactSyncStatus
+import app.openbubbles.nativeapp.data.ICloudKeychainEnrollment
 import app.openbubbles.nativeapp.data.PushStateHolder
-import app.openbubbles.nativeapp.data.unlockICloudKeychain
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.UViableBottle
-import java.security.SecureRandom
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-
-private const val NATIVE_SETUP_PREFS = "native_setup"
-private const val KEY_KEYCHAIN_RECOVERY_CODE = "keychain_recovery_code"
 
 /**
  * One derived mode for the Messages-in-iCloud group. The status row's look
@@ -176,7 +163,6 @@ internal fun rememberICloudSection(
 
     var showCliqueSetupMethods by remember { mutableStateOf(false) }
     var showCliqueJoin by remember { mutableStateOf(false) }
-    var showNearbyJoin by remember { mutableStateOf(false) }
     var loadingBottles by remember { mutableStateOf(false) }
     var joiningClique by remember { mutableStateOf(false) }
     var bottles by remember { mutableStateOf<List<UViableBottle>>(emptyList()) }
@@ -184,87 +170,8 @@ internal fun rememberICloudSection(
     var deviceMenuExpanded by remember { mutableStateOf(false) }
     var trustedDevicePasscode by remember { mutableStateOf("") }
     var joinError by remember { mutableStateOf<String?>(null) }
-    var startingNearbyJoin by remember { mutableStateOf(false) }
-    var completingNearbyJoin by remember { mutableStateOf(false) }
-    var nearbySessionId by remember { mutableStateOf<String?>(null) }
-    var nearbyApprovalCode by remember { mutableStateOf("") }
-    var nearbyError by remember { mutableStateOf<String?>(null) }
-    var nearbyStartRequest by remember { mutableIntStateOf(0) }
     var newRecoveryCode by remember { mutableStateOf<String?>(null) }
-    var joinedWithNearbyApproval by remember { mutableStateOf(false) }
     var revealSavedRecoveryCode by remember { mutableStateOf(false) }
-    val proximityAdvertiser = remember(context) { CircleProximityAdvertiser(context) }
-    val latestPushState by rememberUpdatedState(pushState)
-    val latestNearbySessionId by rememberUpdatedState(nearbySessionId)
-    val latestNearbyVisible by rememberUpdatedState(showNearbyJoin)
-
-    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { grants ->
-        if (grants.values.all { it }) {
-            startingNearbyJoin = true
-            nearbyStartRequest += 1
-        } else {
-            startingNearbyJoin = false
-            nearbyError = "Nearby-device approval needs Bluetooth permission. Allow it and try again."
-        }
-    }
-
-    LaunchedEffect(nearbyStartRequest) {
-        if (nearbyStartRequest == 0) return@LaunchedEffect
-        val live = pushState
-        if (live == null) {
-            startingNearbyJoin = false
-            nearbyError = "Apple services are not connected"
-            return@LaunchedEffect
-        }
-        nearbyError = null
-        val sessionResult = withContext(Dispatchers.IO) {
-            runCatching {
-                runCatching { live.cancelCliquePairing() }
-                live.startCliquePairing()
-            }
-        }
-        val sessionId = sessionResult.getOrElse { error ->
-            startingNearbyJoin = false
-            nearbyError = error.message ?: "Unable to start nearby-device approval"
-            return@LaunchedEffect
-        }
-        nearbySessionId = sessionId
-        val advertiseResult = proximityAdvertiser.start(sessionId) { error ->
-            scope.launch {
-                if (nearbySessionId == sessionId) {
-                    nearbySessionId = null
-                    startingNearbyJoin = false
-                    nearbyError = error
-                    withContext(Dispatchers.IO) { runCatching { live.cancelCliquePairing() } }
-                }
-            }
-        }
-        val advertiseError = advertiseResult.exceptionOrNull()
-        if (advertiseError != null) {
-            proximityAdvertiser.stop()
-            nearbySessionId = null
-            withContext(Dispatchers.IO) { runCatching { live.cancelCliquePairing() } }
-            nearbyError = advertiseError.message ?: "Unable to advertise the nearby approval request"
-        }
-        startingNearbyJoin = false
-    }
-
-    DisposableEffect(proximityAdvertiser) {
-        onDispose {
-            proximityAdvertiser.stop()
-            if (latestNearbyVisible || latestNearbySessionId != null) {
-                latestPushState?.let { live ->
-                    CoroutineScope(Dispatchers.IO).launch {
-                        runCatching { live.cancelCliquePairing() }
-                        delay(1_000)
-                        runCatching { live.cancelCliquePairing() }
-                    }
-                }
-            }
-        }
-    }
 
     fun syncAllHistory() {
         CloudSyncWiring.startHistorySync(
@@ -283,13 +190,6 @@ internal fun rememberICloudSection(
         }
     }
 
-    fun openCliqueJoin() {
-        if (pushState == null) return
-        showCliqueSetupMethods = true
-        joinError = null
-        nearbyError = null
-    }
-
     fun openBottleRecovery() {
         val live = pushState ?: return
         showCliqueSetupMethods = false
@@ -302,13 +202,13 @@ internal fun rememberICloudSection(
         trustedDevicePasscode = ""
         joinError = null
         scope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { live.getViableBottles() } }
+            val result = ICloudKeychainEnrollment.viableBottles(live)
             loadingBottles = false
             result.onSuccess { found ->
                 bottles = found
                 selectedBottle = found.singleOrNull()
                 if (found.isEmpty()) {
-                    joinError = "No current recovery record was found. Nothing was reset; use nearby-device approval instead."
+                    joinError = ICloudKeychainEnrollment.noViableBottlesMessage()
                 }
             }.onFailure {
                 joinError = escrowRecoveryFailure(it.message)
@@ -316,71 +216,13 @@ internal fun rememberICloudSection(
         }
     }
 
-    fun requestNearbyPairing() {
-        if (startingNearbyJoin || completingNearbyJoin) return
-        showCliqueSetupMethods = false
-        showNearbyJoin = true
-        nearbyApprovalCode = ""
-        nearbyError = null
-        val missingPermissions = proximityAdvertiser.missingPermissions()
-        if (missingPermissions.isEmpty()) {
-            startingNearbyJoin = true
-            nearbyStartRequest += 1
+    fun openCliqueJoin() {
+        if (pushState == null) return
+        joinError = null
+        if (ICloudKeychainEnrollment.NEARBY_APPROVAL_ENABLED) {
+            showCliqueSetupMethods = true
         } else {
-            bluetoothPermissionLauncher.launch(missingPermissions.toTypedArray())
-        }
-    }
-
-    fun cancelNearbyPairing() {
-        if (startingNearbyJoin || completingNearbyJoin) return
-        val live = pushState
-        val hadSession = nearbySessionId != null
-        proximityAdvertiser.stop()
-        nearbySessionId = null
-        nearbyApprovalCode = ""
-        nearbyError = null
-        showNearbyJoin = false
-        if (hadSession && live != null) {
-            scope.launch {
-                withContext(Dispatchers.IO) { runCatching { live.cancelCliquePairing() } }
-            }
-        }
-    }
-
-    fun completeNearbyPairing() {
-        val live = pushState ?: return
-        if (nearbySessionId == null || nearbyApprovalCode.length != 6 || completingNearbyJoin) return
-        completingNearbyJoin = true
-        nearbyError = null
-        scope.launch {
-            if (!unlockICloudKeychain(context)) {
-                completingNearbyJoin = false
-                nearbyError = "iCloud Keychain unlock was cancelled or unavailable"
-                return@launch
-            }
-            val recoveryCode = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    live.completeCliquePairing(nearbyApprovalCode, recoveryCode)
-                    check(live.isInClique()) { "Apple did not confirm iCloud Keychain membership" }
-                }
-            }
-            completingNearbyJoin = false
-            proximityAdvertiser.stop()
-            nearbySessionId = null
-            result.onSuccess {
-                context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                    .edit { putString(KEY_KEYCHAIN_RECOVERY_CODE, recoveryCode) }
-                nearbyApprovalCode = ""
-                showNearbyJoin = false
-                joinedWithNearbyApproval = true
-                newRecoveryCode = recoveryCode
-                onCliqueJoined()
-                syncAllHistory()
-            }.onFailure {
-                nearbyApprovalCode = ""
-                nearbyError = it.message ?: "Unable to join iCloud Keychain from the nearby device"
-            }
+            openBottleRecovery()
         }
     }
 
@@ -391,29 +233,16 @@ internal fun rememberICloudSection(
         joiningClique = true
         joinError = null
         scope.launch {
-            if (!unlockICloudKeychain(context)) {
-                joiningClique = false
-                joinError = "iCloud Keychain unlock was cancelled or unavailable"
-                return@launch
-            }
-            val recoveryCode = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    live.joinCliqueWithBottle(
-                        bottle.escrowData,
-                        trustedDevicePasscode,
-                        recoveryCode,
-                    )
-                    check(live.isInClique()) { "Apple did not confirm iCloud Keychain membership" }
-                }
-            }
+            val result = ICloudKeychainEnrollment.joinWithBottle(
+                context = context,
+                state = live,
+                bottle = bottle,
+                passcode = trustedDevicePasscode,
+            )
             joiningClique = false
-            result.onSuccess {
-                context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                    .edit { putString(KEY_KEYCHAIN_RECOVERY_CODE, recoveryCode) }
+            result.onSuccess { recoveryCode ->
                 trustedDevicePasscode = ""
                 showCliqueJoin = false
-                joinedWithNearbyApproval = false
                 newRecoveryCode = recoveryCode
                 onCliqueJoined()
                 syncAllHistory()
@@ -514,12 +343,12 @@ internal fun rememberICloudSection(
                             ICloudSyncMode.NotJoined -> add { index, count ->
                                 SettingsActionItem(
                                     title = "Set up iCloud Passwords",
-                                    supporting = "Approve nearby or recover with a trusted device passcode",
+                                    supporting = "Recover with a trusted Apple device's passcode",
                                     onClick = ::openCliqueJoin,
                                     index = index,
                                     count = count,
-                                    enabled = !loadingBottles && !joiningClique && !startingNearbyJoin && !completingNearbyJoin,
-                                    busy = loadingBottles || joiningClique || startingNearbyJoin || completingNearbyJoin,
+                                    enabled = !loadingBottles && !joiningClique,
+                                    busy = loadingBottles || joiningClique,
                                     icon = Icons.Filled.Key,
                                 )
                             }
@@ -555,8 +384,7 @@ internal fun rememberICloudSection(
                     title = if (showTitles) "iCloud services" else null,
                 ) {
                     val savedRecoveryCode = if (inClique == true) {
-                        context.getSharedPreferences(NATIVE_SETUP_PREFS, android.content.Context.MODE_PRIVATE)
-                            .getString(KEY_KEYCHAIN_RECOVERY_CODE, null)
+                        ICloudKeychainEnrollment.savedRecoveryCode(context)
                     } else {
                         null
                     }
@@ -785,23 +613,8 @@ internal fun rememberICloudSection(
 
             if (showCliqueSetupMethods) {
                 ICloudPasswordsSetupMethodDialog(
-                    onNearbyApproval = ::requestNearbyPairing,
                     onDevicePasscode = ::openBottleRecovery,
                     onDismiss = { showCliqueSetupMethods = false },
-                )
-            }
-
-            if (showNearbyJoin) {
-                NearbyICloudApprovalDialog(
-                    starting = startingNearbyJoin,
-                    completing = completingNearbyJoin,
-                    sessionActive = nearbySessionId != null,
-                    approvalCode = nearbyApprovalCode,
-                    error = nearbyError,
-                    onApprovalCodeChange = { nearbyApprovalCode = it },
-                    onStart = ::requestNearbyPairing,
-                    onComplete = ::completeNearbyPairing,
-                    onDismiss = ::cancelNearbyPairing,
                 )
             }
 
@@ -821,7 +634,7 @@ internal fun rememberICloudSection(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 "Choose a current trusted Apple device and enter its passcode. " +
-                                    "If no usable recovery record appears, go back and use nearby-device approval.",
+                                    "Nothing on your Apple account is reset.",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             if (loadingBottles) {
@@ -961,12 +774,7 @@ internal fun rememberICloudSection(
                     text = {
                         Text(
                             "This device generated and saved a local iCloud Keychain recovery code: $code. " +
-                                if (joinedWithNearbyApproval) {
-                                    "A nearby trusted Apple device approved this device. " +
-                                        "OpenGarden saved its local recovery code for future recovery. "
-                                } else {
-                                    "The join used your trusted Apple device's existing escrow record. "
-                                } +
+                                "The join used your trusted Apple device's existing escrow record. " +
                                 "History sync is now running.",
                         )
                     },

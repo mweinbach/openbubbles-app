@@ -18,7 +18,7 @@ class MapPrefs(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var imageryEnabled: Boolean
-        get() = prefs.getBoolean(KEY_IMAGERY_ENABLED, true)
+        get() = prefs.getBoolean(KEY_IMAGERY_ENABLED, false)
         set(value) {
             prefs.edit { putBoolean(KEY_IMAGERY_ENABLED, value) }
         }

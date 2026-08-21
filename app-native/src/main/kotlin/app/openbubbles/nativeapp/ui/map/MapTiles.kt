@@ -5,14 +5,21 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import app.openbubbles.nativeapp.data.MapTileDownloadFence
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.coroutines.resume
 
 /**
  * Where map imagery comes from.
@@ -59,11 +66,15 @@ class MapTileStore(
     private val client: OkHttpClient,
     private val userAgent: String,
     val source: MapTileSource = MapTileSource.OpenStreetMap,
+    private val nowNanos: () -> Long = System::nanoTime,
 ) {
-    private val memory = LruCache<TileId, ImageBitmap>(MEMORY_TILES)
+    private val memory = object : LruCache<TileId, ImageBitmap>(MEMORY_BYTES) {
+        override fun sizeOf(key: TileId, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * 4L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
 
-    /** Tiles that returned an error; retried only when the store is cleared. */
-    private val failed = HashSet<TileId>()
+    /** Retry deadlines for transient failures; a brief outage must not poison a tile forever. */
+    private val failedUntilNanos = ConcurrentHashMap<TileId, Long>()
 
     // Serving a screen of tiles must not open twenty sockets at once.
     private val network = Semaphore(4)
@@ -77,32 +88,52 @@ class MapTileStore(
      */
     suspend fun load(tile: TileId): ImageBitmap? {
         memory[tile]?.let { return it }
-        if (tile in failed) return null
+        failedUntilNanos[tile]?.let { retryAt ->
+            if (nowNanos() < retryAt) return null
+            failedUntilNanos.remove(tile, retryAt)
+        }
         if (tile.zoom > source.maxZoom) return null
         return withContext(Dispatchers.IO) {
             val file = fileFor(tile)
             decode(file)?.let { return@withContext it.also { image -> memory.put(tile, image) } }
-            val bytes = network.withPermit { download(tile) } ?: run {
-                failed += tile
-                return@withContext null
+            if (file.exists()) runCatching { file.delete() }
+            network.withPermit {
+                val call = client.newCall(requestFor(tile))
+                val lease = MapTileDownloadFence.begin(call::cancel)
+                try {
+                    val bytes = download(call) ?: run {
+                        failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
+                        return@withPermit null
+                    }
+                    if (!MapTileDownloadFence.isCurrent(lease)) return@withPermit null
+                    runCatching {
+                        file.parentFile?.mkdirs()
+                        val part = File(file.parentFile, file.name + ".part")
+                        part.writeBytes(bytes)
+                        // Publish atomically: a half-written tile must never be decoded
+                        // on the next pan.
+                        if (!part.renameTo(file)) part.delete()
+                    }
+                    pruneIfNeeded()
+                    val decoded = decode(file) ?: decodeBytes(bytes)
+                    if (decoded == null) {
+                        runCatching { file.delete() }
+                        failedUntilNanos[tile] = nowNanos() + FAILURE_RETRY_NANOS
+                    } else if (MapTileDownloadFence.isCurrent(lease)) {
+                        failedUntilNanos.remove(tile)
+                        memory.put(tile, decoded)
+                    }
+                    decoded.takeIf { MapTileDownloadFence.isCurrent(lease) }
+                } finally {
+                    MapTileDownloadFence.complete(lease)
+                }
             }
-            runCatching {
-                file.parentFile?.mkdirs()
-                val part = File(file.parentFile, file.name + ".part")
-                part.writeBytes(bytes)
-                // Publish atomically: a half-written tile must never be decoded
-                // on the next pan.
-                if (!part.renameTo(file)) part.delete()
-            }
-            pruneIfNeeded()
-            decode(file)?.also { memory.put(tile, it) }
-                ?: decodeBytes(bytes)?.also { memory.put(tile, it) }
         }
     }
 
     fun clear() {
         memory.evictAll()
-        failed.clear()
+        failedUntilNanos.clear()
         runCatching { cacheRoot.deleteRecursively() }
     }
 
@@ -110,31 +141,67 @@ class MapTileStore(
         File(cacheRoot, "${tile.zoom}/${tile.x}_${tile.y}.png")
 
     private fun decode(file: File): ImageBitmap? {
-        if (!file.isFile || file.length() <= 0L) return null
+        if (!file.isFile || file.length() !in 1L..MAX_ENCODED_BYTES.toLong()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (!validBounds(bounds)) return null
         return runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }
             .getOrNull()
     }
 
-    private fun decodeBytes(bytes: ByteArray): ImageBitmap? =
-        runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+    private fun decodeBytes(bytes: ByteArray): ImageBitmap? {
+        if (bytes.isEmpty() || bytes.size > MAX_ENCODED_BYTES) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (!validBounds(bounds)) return null
+        return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
             .getOrNull()
+    }
 
-    private fun download(tile: TileId): ByteArray? {
-        val request = Request.Builder()
+    private fun validBounds(options: BitmapFactory.Options): Boolean =
+        options.outWidth in 1..MAX_IMAGE_DIMENSION &&
+            options.outHeight in 1..MAX_IMAGE_DIMENSION &&
+            options.outWidth.toLong() * options.outHeight <= MAX_IMAGE_PIXELS
+
+    private fun requestFor(tile: TileId): Request = Request.Builder()
             .url(source.url(tile))
             // Tile servers require a real identifying agent and reject generic
             // library defaults.
             .header("User-Agent", userAgent)
             .header("Accept", "image/png,image/*")
             .build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                response.body?.bytes()
-            }
-        } catch (error: IOException) {
-            null
+
+    private suspend fun download(call: Call): ByteArray? =
+        suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            val result = execute(call)
+            if (continuation.isActive) continuation.resume(result)
         }
+
+    private fun execute(call: Call): ByteArray? = try {
+        call.execute().use { response ->
+            if (!response.isSuccessful) return null
+            val body = response.body ?: return null
+            val contentLength = body.contentLength()
+            if (contentLength > MAX_ENCODED_BYTES.toLong()) return null
+            body.byteStream().use(::readBounded)
+        }
+    } catch (error: IOException) {
+        null
+    }
+
+    private fun readBounded(input: InputStream): ByteArray? {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > MAX_ENCODED_BYTES) return null
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     /**
@@ -150,8 +217,12 @@ class MapTileStore(
     }
 
     companion object {
-        private const val MEMORY_TILES = 160
+        private const val MEMORY_BYTES = 24 * 1024 * 1024
         private const val DISK_TILES = 1_200
+        private const val MAX_ENCODED_BYTES = 1024 * 1024
+        private const val MAX_IMAGE_DIMENSION = 1024
+        private const val MAX_IMAGE_PIXELS = 1024L * 1024L
+        private const val FAILURE_RETRY_NANOS = 30L * 1_000_000_000L
 
         fun create(
             context: Context,

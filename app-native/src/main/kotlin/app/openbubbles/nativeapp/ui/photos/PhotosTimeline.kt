@@ -38,6 +38,9 @@ enum class PhotoFilter(val label: String) {
     Videos("Videos"),
 }
 
+/** Sparse filtered views require an explicit page request instead of draining the catalog. */
+internal fun shouldAutoPagePhotos(filter: PhotoFilter): Boolean = filter == PhotoFilter.All
+
 /** One dated run of assets with its header text. */
 data class PhotoSection(
     val key: String,

@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.photos
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -80,6 +81,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -91,6 +93,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -99,6 +102,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.openbubbles.core.photos.PhotoMediaKind
+import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.photos.PhotoSummary
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferState
@@ -107,6 +111,7 @@ import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosSnapshot
 import app.openbubbles.nativeapp.data.photos.PhotoFolderSource
 import app.openbubbles.nativeapp.ui.attachmentviewer.AttachmentVideoPlayer
+import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
@@ -139,7 +144,7 @@ fun PhotosScreen(
     onUploadAll: () -> Unit,
     modifier: Modifier = Modifier,
     /** Clock injected so previews and screenshots render fixed section titles. */
-    nowMillis: Long = System.currentTimeMillis(),
+    nowMillis: Long? = null,
     /**
      * Peer-surface switcher pinned under the app bar. Opening this surface
      * through it stays metadata-first: the switcher only routes, it never asks
@@ -152,14 +157,17 @@ fun PhotosScreen(
     var filter by rememberSaveable { mutableStateOf(PhotoFilter.All) }
     var showFilterMenu by remember { mutableStateOf(false) }
     val snapshot = uiState.snapshot
+    // The default must remain stable while transfer progress recomposes the
+    // screen; section labels need at most a fresh value when the screen opens.
+    val timelineNowMillis = remember(nowMillis) { nowMillis ?: System.currentTimeMillis() }
     // The timeline is the screen's model of the library: filtered, newest first,
     // grouped by when each photo was taken rather than when iCloud indexed it.
-    val timeline = remember(snapshot?.assets, grouping, filter, nowMillis) {
+    val timeline = remember(snapshot?.assets, grouping, filter, timelineNowMillis) {
         photoTimeline(
             assets = snapshot?.assets.orEmpty(),
             grouping = grouping,
             filter = filter,
-            nowMillis = nowMillis,
+            nowMillis = timelineNowMillis,
         )
     }
     val visible = remember(timeline) { timeline.flatMap(PhotoSection::assets) }
@@ -344,8 +352,8 @@ private fun PhotosGrid(
     }
     // Paging follows the viewport instead of an index guess, so a re-flow to a
     // denser grid cannot skip the fetch or fire it twice.
-    LaunchedEffect(gridState, snapshot.nextCursor) {
-        if (snapshot.nextCursor == null) return@LaunchedEffect
+    LaunchedEffect(gridState, snapshot.nextCursor, filter) {
+        if (snapshot.nextCursor == null || !shouldAutoPagePhotos(filter)) return@LaunchedEffect
         snapshotFlow {
             val info = gridState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -406,6 +414,17 @@ private fun PhotosGrid(
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+        } else if (snapshot.nextCursor != null && !shouldAutoPagePhotos(filter)) {
+            item(key = "filtered-load-more", span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FilledTonalButton(onClick = onLoadMore) {
+                        Text("Load more photos")
+                    }
                 }
             }
         }
@@ -810,6 +829,7 @@ private fun PhotoViewer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -844,6 +864,7 @@ private fun PhotoPage(
     onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
+    val context = LocalContext.current
     val originalFile = original?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
     val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
@@ -898,7 +919,16 @@ private fun PhotoPage(
                 }
             }
             PhotoMediaKind.Video -> if (originalFile != null) {
-                AttachmentVideoPlayer(file = originalFile, onPlaybackError = {})
+                AttachmentVideoPlayer(
+                    file = originalFile,
+                    controlsVisible = true,
+                    onOpenExternally = {
+                        val mime = AttachmentMedia.suggestedMime(null, null, asset.filename)
+                        if (!openAttachmentExternally(context, originalFile, mime)) {
+                            Toast.makeText(context, "No app can open this video", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
             } else {
                 val poster = rememberVideoPoster(previewFile, maxDimensionPx = 1080)
                 poster?.let {
@@ -960,17 +990,23 @@ private const val MaxPageZoom = 6f
  * down. At fit scale a horizontal drag therefore still belongs to the pager, so
  * zooming a photo and swiping to the next one never fight.
  */
+@Composable
 private fun Modifier.zoomablePage(
     assetId: String,
     scale: Float,
     onScale: (Float) -> Unit,
     offset: Offset,
     onOffset: (Offset) -> Unit,
-): Modifier = this.pointerInput(assetId, scale) {
+): Modifier {
+    val latestScale by rememberUpdatedState(scale)
+    val latestOffset by rememberUpdatedState(offset)
+    val latestOnScale by rememberUpdatedState(onScale)
+    val latestOnOffset by rememberUpdatedState(onOffset)
+    return this.pointerInput(assetId) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
-        var currentScale = scale
-        var currentOffset = offset
+        var currentScale = latestScale
+        var currentOffset = latestOffset
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.count { it.pressed }
@@ -982,21 +1018,22 @@ private fun Modifier.zoomablePage(
                     } else {
                         Offset.Zero
                     }
-                    onScale(currentScale)
-                    onOffset(currentOffset)
+                    latestOnScale(currentScale)
+                    latestOnOffset(currentOffset)
                     event.changes.forEach { it.consume() }
                 }
                 currentScale > 1f -> {
                     val pan = event.calculatePan()
                     if (pan != Offset.Zero) {
                         currentOffset += pan
-                        onOffset(currentOffset)
+                        latestOnOffset(currentOffset)
                         event.changes.forEach { it.consume() }
                     }
                 }
             }
         } while (event.changes.any { it.pressed })
     }
+}
 }
 
 private fun PhotoTransfer.progressFraction(): Float =

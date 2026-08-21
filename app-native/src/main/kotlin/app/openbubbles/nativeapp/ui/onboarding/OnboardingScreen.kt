@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -52,6 +53,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import app.openbubbles.nativeapp.data.AppContext
+import app.openbubbles.nativeapp.data.HistorySyncPreferences
+import app.openbubbles.nativeapp.data.HistorySyncWindow
+import app.openbubbles.nativeapp.data.InitialHistoryDownload
 import app.openbubbles.nativeapp.ui.login.LoginScreen
 import app.openbubbles.nativeapp.ui.login.ProvisionScreen
 import app.openbubbles.nativeapp.ui.login.RustLoginHandle
@@ -67,8 +71,11 @@ import app.openbubbles.nativeapp.ui.theme.slowSpatialSpec
 /** Horizontal screen padding shared by every onboarding step. */
 internal val OnboardingPadding = 24.dp
 
-/** The linear first-run flow: welcome → tour → permissions → connect. */
-internal enum class OnboardingStep { Welcome, Tour, Permissions, Connect }
+/**
+ * The linear first-run flow: welcome → tour → permissions → connect →
+ * iCloud unlock → history download choice.
+ */
+internal enum class OnboardingStep { Welcome, Tour, Permissions, Connect, Keychain, History }
 
 /** The step shown before this one; [OnboardingStep.Welcome] has none. */
 internal fun OnboardingStep.previousStep(): OnboardingStep = when (this) {
@@ -76,28 +83,47 @@ internal fun OnboardingStep.previousStep(): OnboardingStep = when (this) {
     OnboardingStep.Tour -> OnboardingStep.Welcome
     OnboardingStep.Permissions -> OnboardingStep.Tour
     OnboardingStep.Connect -> OnboardingStep.Permissions
+    // Sign-in already happened by the time these render; going back to it
+    // would re-run an Apple activation, so they only step forward.
+    OnboardingStep.Keychain -> OnboardingStep.Keychain
+    OnboardingStep.History -> OnboardingStep.Keychain
 }
+
+/** Steps the user can still walk backwards out of. */
+internal fun OnboardingStep.canGoBack(): Boolean = previousStep() != this
+
+internal fun initialOnboardingStep(resumeAfterSignIn: Boolean): OnboardingStep =
+    if (resumeAfterSignIn) OnboardingStep.Keychain else OnboardingStep.Welcome
 
 /**
  * First-run onboarding: welcome → feature tour → permission priming →
- * provisioning → Apple ID sign-in → done. Shown full-screen over the app
- * until the push state is installed.
+ * provisioning → Apple ID sign-in → iCloud Keychain unlock → history
+ * download choice. Shown full-screen over the app until it completes.
  *
- * @param onFinished invoked once sign-in succeeded; the host starts the push
- *   service, shows the battery-exemption dialog, and reveals the chat list.
- * @param onLaunchSignIn reserved for the host; intentionally unused here.
+ * @param onSignedIn invoked the moment Apple sign-in succeeds, before the
+ *   remaining steps run: the host starts the push service so the keychain and
+ *   history steps have a live connection to work with, and latches this
+ *   screen so the arriving push state does not tear it down.
+ * @param onFinished invoked when the last step is done. Its argument reports
+ *   whether the history choice already committed completion atomically.
  */
 @Composable
 fun OnboardingScreen(
-    onFinished: () -> Unit,
-    onLaunchSignIn: () -> Unit,
+    onSignedIn: () -> Unit,
+    onFinished: (completionPersisted: Boolean) -> Unit,
+    resumeAfterSignIn: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var step by remember { mutableStateOf(OnboardingStep.Welcome) }
-    var finished by remember { mutableStateOf(false) }
+    var step by rememberSaveable { mutableStateOf(initialOnboardingStep(resumeAfterSignIn)) }
+    var signedIn by rememberSaveable { mutableStateOf(resumeAfterSignIn) }
+    var keychainUnlocked by rememberSaveable { mutableStateOf(false) }
+    var finished by rememberSaveable { mutableStateOf(false) }
 
     val appContext = AppContext.current
     val confDir = remember(appContext) { appContext?.filesDir?.absolutePath.orEmpty() }
+    val historySyncPreferences = remember(appContext) {
+        appContext?.let(::HistorySyncPreferences)
+    }
     val loginHandle = remember(confDir) {
         confDir.takeIf { it.isNotBlank() }?.let { RustLoginHandle(path = it) }
     }
@@ -109,9 +135,15 @@ fun OnboardingScreen(
     }
 
     val goBack: () -> Unit = { step = step.previousStep() }
+    val finish: (Boolean) -> Unit = { completionPersisted ->
+        if (!finished) {
+            finished = true
+            onFinished(completionPersisted)
+        }
+    }
     var backProgress by remember { mutableFloatStateOf(0f) }
     var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
-    PredictiveBackHandler(enabled = step != OnboardingStep.Welcome) { events ->
+    PredictiveBackHandler(enabled = step.canGoBack()) { events ->
         try {
             events.collect { event ->
                 backProgress = event.progress
@@ -196,13 +228,40 @@ fun OnboardingScreen(
                         onProvisioned = { provisioned = true },
                         onBack = goBack,
                         onSignedIn = {
-                            if (!finished) {
-                                finished = true
-                                onFinished()
+                            if (!signedIn) {
+                                signedIn = true
+                                onSignedIn()
                             }
+                            step = OnboardingStep.Keychain
                         },
                         modifier = Modifier.fillMaxSize(),
                         onRedoSetup = { provisioned = false },
+                    )
+                    OnboardingStep.Keychain -> KeychainStep(
+                        onContinue = { joined ->
+                            keychainUnlocked = joined
+                            step = OnboardingStep.History
+                        },
+                        onBack = goBack,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    OnboardingStep.History -> HistoryStep(
+                        canDownload = keychainUnlocked,
+                        initialWindow = historySyncPreferences?.window
+                            ?: HistorySyncWindow.ALL_HISTORY,
+                        onWindowChosen = { window ->
+                            historySyncPreferences?.window = window
+                        },
+                        onStartDownload = {
+                            val completionPersisted = appContext?.let {
+                                InitialHistoryDownload.armAndCompleteOnboarding(it)
+                                true
+                            } ?: false
+                            finish(completionPersisted)
+                        },
+                        onSkip = { finish(false) },
+                        onBack = goBack,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -303,6 +362,7 @@ internal fun OnboardingTopBar(
     onBack: () -> Unit,
     activeSegment: Int,
     modifier: Modifier = Modifier,
+    showBack: Boolean = true,
 ) {
     Row(
         modifier = modifier
@@ -310,8 +370,12 @@ internal fun OnboardingTopBar(
             .heightIn(min = 52.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        if (showBack) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        } else {
+            Spacer(Modifier.width(OnboardingPadding))
         }
         Spacer(Modifier.weight(1f))
         StepSegments(active = activeSegment)
@@ -319,7 +383,9 @@ internal fun OnboardingTopBar(
     }
 }
 
-/** Three-segment progress row covering tour / permissions / connect. */
+/** Progress row covering tour / permissions / connect / unlock / history. */
+private const val ONBOARDING_SEGMENTS = 5
+
 @Composable
 private fun StepSegments(active: Int, modifier: Modifier = Modifier) {
     Row(
@@ -327,7 +393,7 @@ private fun StepSegments(active: Int, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        repeat(3) { index ->
+        repeat(ONBOARDING_SEGMENTS) { index ->
             val isActive = index == active
             val width by animateDpAsState(
                 targetValue = if (isActive) 22.dp else 10.dp,

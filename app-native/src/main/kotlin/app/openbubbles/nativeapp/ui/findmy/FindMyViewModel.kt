@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 
 /** How often live tracking re-asks Apple while the screen is in front of the user. */
 const val FM_LIVE_INTERVAL_MS: Long = 30_000L
@@ -77,7 +79,7 @@ class FindMyViewModel(
     init {
         // Cached read first (works offline from the last persisted data),
         // then one best-effort refresh.
-        load { refresh() }
+        load { refreshNow() }
     }
 
     /** Re-reads the cached lists without touching the network. */
@@ -107,15 +109,20 @@ class FindMyViewModel(
 
     /** Refreshes all three sections in parallel and records every new fix. */
     fun refresh() {
+        viewModelScope.launch { refreshNow() }
+    }
+
+    private suspend fun refreshNow() {
         if (_uiState.value.refreshing) return
         _uiState.update { it.copy(refreshing = true) }
-        viewModelScope.launch {
+        try {
             val (devices, friends, items) = coroutineScope {
                 val devices = async { captureResult { port.refreshDevices() } }
                 val friends = async { captureResult { port.refreshFriends() } }
                 val items = async { captureResult { port.refreshItems() } }
                 Triple(devices.await(), friends.await(), items.await())
             }
+            coroutineContext.ensureActive()
             _uiState.update { state ->
                 // Keep the previous list when a section failed (offline).
                 val nextDevices = devices.getOrDefault(state.devices)
@@ -139,6 +146,10 @@ class FindMyViewModel(
                     ),
                 )
             }
+        } finally {
+            _uiState.update { state ->
+                if (state.refreshing) state.copy(refreshing = false) else state
+            }
         }
     }
 
@@ -150,7 +161,7 @@ class FindMyViewModel(
         liveJob = viewModelScope.launch {
             while (true) {
                 delay(liveIntervalMs)
-                refresh()
+                refreshNow()
             }
         }
     }
@@ -168,7 +179,7 @@ class FindMyViewModel(
         return next
     }
 
-    private fun load(then: () -> Unit) {
+    private fun load(then: suspend () -> Unit) {
         viewModelScope.launch {
             if (!port.isAvailable()) {
                 _uiState.update { FindMyUiState(loading = false, unavailable = true) }

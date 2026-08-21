@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,8 +26,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -37,6 +40,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -65,7 +73,7 @@ data class MapMarker(
 )
 
 /** Marker touch target; also the anchor size the projection centres on. */
-private val MarkerSize = 44.dp
+private val MarkerSize = 48.dp
 
 /** How far off screen a marker may be before it stops being composed. */
 private const val MarkerCullSlopPx = 120f
@@ -99,9 +107,11 @@ fun OpenMap(
         val loaded = remember(tiles) { mutableStateMapOf<TileId, ImageBitmap>() }
         val markerHalfPx = with(density) { MarkerSize.toPx() / 2f }
 
-        if (tiles != null) {
-            val ids = placed.map { it.id }
-            LaunchedEffect(tiles, ids) {
+        val ids = placed.map { it.id }
+        LaunchedEffect(tiles, ids) {
+            val visibleIds = ids.toHashSet()
+            loaded.keys.toList().filterNot(visibleIds::contains).forEach(loaded::remove)
+            if (tiles != null) {
                 // Sequential on purpose: the store bounds its own network
                 // concurrency, and a pan that scrolls a tile away cancels it.
                 ids.forEach { id ->
@@ -122,13 +132,15 @@ fun OpenMap(
         val imageryScrim = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f)
         val trailWidthPx = with(density) { 3.dp.toPx() }
         val accuracyStrokePx = with(density) { 1.5.dp.toPx() }
+        val currentCamera by rememberUpdatedState(camera)
+        val currentOnCameraChange by rememberUpdatedState(onCameraChange)
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(camera, widthPx, heightPx) {
+                .pointerInput(widthPx, heightPx) {
                     detectTransformGestures { centroid, pan, zoom, _ ->
-                        var next = camera.panBy(pan.x, pan.y, heightPx)
+                        var next = currentCamera.panBy(pan.x, pan.y, heightPx)
                         if (zoom != 1f) {
                             next = next.zoomBy(
                                 factor = zoom,
@@ -137,7 +149,7 @@ fun OpenMap(
                                 viewport = MapViewport(next, widthPx, heightPx),
                             )
                         }
-                        onCameraChange(next)
+                        currentOnCameraChange(next)
                     }
                 }
                 .pointerInput(Unit) {
@@ -168,16 +180,18 @@ fun OpenMap(
 
             markers.forEach { marker ->
                 if (marker.trail.size >= 2) {
-                    val path = Path()
-                    marker.trail.forEachIndexed { index, point ->
-                        val x = viewport.projectX(point.longitude)
-                        val y = viewport.projectY(point.latitude)
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    viewport.projectTrailSegments(marker.trail).forEach { segment ->
+                        val path = Path()
+                        segment.forEachIndexed { index, point ->
+                            if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                        }
+                        drawPath(path = path, color = trailColor, style = Stroke(width = trailWidthPx))
                     }
-                    drawPath(path = path, color = trailColor, style = Stroke(width = trailWidthPx))
                 }
                 val radiusMeters = marker.accuracyMeters?.takeIf { it > 0 } ?: return@forEach
-                val radiusPx = (radiusMeters / viewport.metersPerPixel()).toFloat()
+                val radiusPx = (
+                    radiusMeters / WebMercator.metersPerPixel(marker.point.latitude, camera.zoom)
+                ).toFloat()
                 // Below a few pixels the circle says nothing the pin does not.
                 if (radiusPx < 4f) return@forEach
                 val center = Offset(
@@ -221,11 +235,14 @@ fun OpenMap(
             attribution = tiles?.source?.attribution,
             metersPerPixel = viewport.metersPerPixel(),
             maxWidthPx = widthPx * 0.35f,
-            modifier = Modifier.align(Alignment.BottomStart),
+            modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding(),
         )
 
         Column(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // A pinch is not reachable with a keyboard, a switch, or one hand,
@@ -271,7 +288,13 @@ private fun MapMarkerPin(
                 MaterialTheme.colorScheme.outlineVariant
             },
         ),
-        modifier = modifier.size(MarkerSize),
+        modifier = modifier
+            .size(MarkerSize)
+            .semantics(mergeDescendants = true) {
+                contentDescription = marker.label
+                role = Role.Button
+                selected = marker.selected
+            },
     ) {
         Box(contentAlignment = Alignment.Center) { marker.content(marker.selected) }
     }

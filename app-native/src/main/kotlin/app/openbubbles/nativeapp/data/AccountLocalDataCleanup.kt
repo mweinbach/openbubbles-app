@@ -3,9 +3,11 @@ package app.openbubbles.nativeapp.data
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import kotlinx.coroutines.CompletableDeferred
 
 internal const val ICLOUD_CONTACT_AVATAR_ROOT = "icloud_contact_avatars"
 internal const val ICLOUD_PHOTOS_CACHE_ROOT = "icloud_photos"
+internal const val MAP_TILE_CACHE_ROOT = "map_tiles"
 
 private val APPLE_ACCOUNT_CACHE_ROOTS = setOf(
     ICLOUD_CONTACT_AVATAR_ROOT,
@@ -18,6 +20,48 @@ internal data class OwnedRootCleanup(
 )
 
 /**
+ * Account-generation fence for location-derived map tile publications.
+ *
+ * Sign-out advances the generation, cancels every in-flight HTTP call, and
+ * joins the complete download/write lease before deleting the owned cache.
+ */
+internal object MapTileDownloadFence {
+    internal class Lease internal constructor(
+        val id: Long,
+        val generation: Long,
+        val cancel: () -> Unit,
+        val completed: CompletableDeferred<Unit> = CompletableDeferred(),
+    )
+
+    private val lock = Any()
+    private var generation = 0L
+    private var nextId = 0L
+    private val active = LinkedHashMap<Long, Lease>()
+
+    fun begin(cancel: () -> Unit): Lease = synchronized(lock) {
+        Lease(++nextId, generation, cancel).also { active[it.id] = it }
+    }
+
+    fun isCurrent(lease: Lease): Boolean = synchronized(lock) {
+        lease.generation == generation && active[lease.id] === lease
+    }
+
+    fun complete(lease: Lease) {
+        synchronized(lock) { active.remove(lease.id, lease) }
+        lease.completed.complete(Unit)
+    }
+
+    suspend fun cancelAndJoin() {
+        val pending = synchronized(lock) {
+            generation += 1
+            active.values.toList()
+        }
+        pending.forEach { lease -> runCatching(lease.cancel) }
+        pending.forEach { lease -> lease.completed.await() }
+    }
+}
+
+/**
  * Deletes one whitelisted, app-owned child tree without following symlinks.
  * Nothing derived from a database row or content-provider path reaches this
  * boundary, so malformed persisted paths cannot widen sign-out cleanup.
@@ -27,6 +71,20 @@ internal fun clearOwnedAppleAccountRoot(filesDir: File, rootName: String): Owned
     val root = File(filesDir, rootName)
     val expectedRoot = File(filesDir.canonicalFile, rootName).absoluteFile
     require(root.absoluteFile.parentFile == filesDir.absoluteFile) { "Cache root escaped filesDir" }
+
+    val deleted = deleteOwnedTree(root, expectedRoot)
+    val rootExists = Files.exists(root.toPath(), LinkOption.NOFOLLOW_LINKS)
+    val complete = !rootExists || (
+        !Files.isSymbolicLink(root.toPath()) && root.listFiles()?.isEmpty() == true
+    )
+    return OwnedRootCleanup(deletedEntries = deleted, complete = complete)
+}
+
+/** Deletes the allowlisted location-derived raster cache during Apple account teardown. */
+internal fun clearOwnedMapTileRoot(cacheDir: File): OwnedRootCleanup {
+    val root = File(cacheDir, MAP_TILE_CACHE_ROOT)
+    val expectedRoot = File(cacheDir.canonicalFile, MAP_TILE_CACHE_ROOT).absoluteFile
+    require(root.absoluteFile.parentFile == cacheDir.absoluteFile) { "Map cache root escaped cacheDir" }
 
     val deleted = deleteOwnedTree(root, expectedRoot)
     val rootExists = Files.exists(root.toPath(), LinkOption.NOFOLLOW_LINKS)

@@ -121,35 +121,46 @@ fun TopLevelSurfaceSwitcher(
                     var dragY = 0f
                     // Horizontal slop first: a vertical drag that starts on the
                     // strip stays with the scrolling content underneath.
-                    val slopChange = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
-                        dragX += over
+                    val slopChange = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ ->
+                        // The over-slop value omits every move before horizontal
+                        // slop. Measure from down so earlier vertical travel is
+                        // retained for direction arbitration.
+                        dragX = change.position.x - down.position.x
+                        dragY = change.position.y - down.position.y
                         change.consume()
                     } ?: return@awaitEachGesture
                     dragging = true
-                    horizontalDrag(slopChange.id) { change ->
-                        val moved = change.positionChange()
-                        dragX += moved.x
-                        dragY += moved.y
-                        dragFollow = (dragX * DragFollowFraction)
-                            .coerceIn(-followMaxPx, followMaxPx)
-                        change.consume()
-                    }
-                    val step = SurfaceSwipePolicy.resolve(
-                        dragX = dragX,
-                        dragY = dragY,
-                        startX = down.position.x,
-                        widthPx = size.width.toFloat(),
-                        thresholdPx = thresholdPx,
-                        edgeExclusionPx = edgeExclusionPx,
-                        enabled = true,
-                        rtl = rtl,
-                    )
-                    val released = dragFollow
-                    dragging = false
-                    dragFollow = 0f
-                    scope.launch {
-                        settle.snapTo(released)
-                        settle.animateTo(0f, settleSpec)
+                    var released = 0f
+                    var step: SurfaceStep? = null
+                    try {
+                        val completed = horizontalDrag(slopChange.id) { change ->
+                            val moved = change.positionChange()
+                            dragX += moved.x
+                            dragY += moved.y
+                            dragFollow = (dragX * DragFollowFraction)
+                                .coerceIn(-followMaxPx, followMaxPx)
+                            change.consume()
+                        }
+                        step = if (completed) SurfaceSwipePolicy.resolve(
+                            dragX = dragX,
+                            dragY = dragY,
+                            startX = down.position.x,
+                            widthPx = size.width.toFloat(),
+                            thresholdPx = thresholdPx,
+                            edgeExclusionPx = edgeExclusionPx,
+                            enabled = true,
+                            rtl = rtl,
+                        ) else null
+                        released = dragFollow
+                    } finally {
+                        // Pointer-input keys can change while a modal opens.
+                        // Cancellation must leave no remembered drag offset.
+                        dragging = false
+                        dragFollow = 0f
+                        scope.launch {
+                            settle.snapTo(released)
+                            settle.animateTo(0f, settleSpec)
+                        }
                     }
                     // Resolved once, on release: a drag that wandered back under
                     // the threshold, or crossed it diagonally, changes nothing,
