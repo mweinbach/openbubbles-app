@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -506,49 +508,65 @@ fun MessageBubble(
                     onDoubleClick = doubleTapActions?.let { callback -> { callback(textPart) } },
                 )
             }
-            attachments.forEachIndexed { attachmentIndex, attachment ->
-                val reactionSummary = bubbleReactionSummary(message, attachment.partIndex)
-                Box(
-                    modifier = Modifier.padding(
-                        top = if (attachmentIndex > 0 && reactionSummary != null) {
-                            ReactionChipRise - 3.dp
-                        } else {
-                            0.dp
-                        },
-                    ),
-                ) {
-                    AttachmentContent(
-                        attachment = attachment,
-                        attachmentFile = attachmentFile,
-                        onOpenAttachment = onOpenAttachment,
-                        onDownloadAttachment = onDownloadAttachment,
-                        shape = attachmentShape,
-                        fromMe = message.isFromMe,
-                        smsChat = smsChat,
-                        onLongPress = openActions?.let { callback ->
-                            { callback(attachment.partIndex) }
-                        },
-                        onDoubleTap = doubleTapActions?.let { callback ->
-                            { callback(attachment.partIndex) }
-                        },
-                        modifier = Modifier.reactionAccessibilityAction(
-                            doubleTapActions?.let { callback -> { callback(attachment.partIndex) } },
+            val renderAttachments: @Composable () -> Unit = {
+                attachments.forEachIndexed { attachmentIndex, attachment ->
+                    val reactionSummary = bubbleReactionSummary(message, attachment.partIndex)
+                    Box(
+                        modifier = Modifier.padding(
+                            top = if (attachmentIndex > 0 && reactionSummary != null) {
+                                ReactionChipRise - 3.dp
+                            } else {
+                                0.dp
+                            },
                         ),
-                    )
-                    reactionSummary?.let { summary ->
-                        ReactionChip(
-                            summary = summary,
-                            isFromMe = message.isFromMe,
-                            popIn = reactionPopsIn,
-                            modifier = Modifier.align(
-                                if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                    ) {
+                        AttachmentContent(
+                            attachment = attachment,
+                            attachmentFile = attachmentFile,
+                            onOpenAttachment = onOpenAttachment,
+                            onDownloadAttachment = onDownloadAttachment,
+                            shape = attachmentShape,
+                            fromMe = message.isFromMe,
+                            smsChat = smsChat,
+                            onLongPress = openActions?.let { callback ->
+                                { callback(attachment.partIndex) }
+                            },
+                            onDoubleTap = doubleTapActions?.let { callback ->
+                                { callback(attachment.partIndex) }
+                            },
+                            modifier = Modifier.reactionAccessibilityAction(
+                                doubleTapActions?.let { callback -> { callback(attachment.partIndex) } },
                             ),
                         )
+                        reactionSummary?.let { summary ->
+                            ReactionChip(
+                                summary = summary,
+                                isFromMe = message.isFromMe,
+                                popIn = reactionPopsIn,
+                                modifier = Modifier.align(
+                                    if (message.isFromMe) Alignment.TopEnd else Alignment.TopStart,
+                                ),
+                            )
+                        }
                     }
                 }
             }
-            message.uploadProgress?.let { progress ->
-                UploadProgressRow(done = progress.first, total = progress.second)
+            // Portrait photos are height-capped, so they are narrower than the
+            // bubble column. Size the upload bar to that photo, not the column.
+            val uploadProgress = message.uploadProgress
+            if (attachments.isNotEmpty() && uploadProgress != null) {
+                MatchLastChildWidthColumn(
+                    horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
+                    spacing = 3.dp,
+                ) {
+                    renderAttachments()
+                    UploadProgressRow(done = uploadProgress.first, total = uploadProgress.second)
+                }
+            } else {
+                renderAttachments()
+                uploadProgress?.let { progress ->
+                    UploadProgressRow(done = progress.first, total = progress.second)
+                }
             }
             if (embedRichLink) {
                 val reactionSummary = bubbleReactionSummary(message, textPart)
@@ -1179,31 +1197,94 @@ private fun ReactionChip(
     }
 }
 
+/**
+ * Width of an upload bar stacked under attachments: the widest sibling, so a
+ * height-capped portrait photo is not flanked by a longer track. Empty heads
+ * fall back to the incoming max so a progress-only row still fills.
+ */
+internal fun lastChildMatchWidthPx(headWidthsPx: IntArray, maxWidthPx: Int): Int {
+    if (headWidthsPx.isEmpty()) return maxWidthPx
+    var widest = 0
+    for (width in headWidthsPx) {
+        if (width > widest) widest = width
+    }
+    return widest.coerceIn(0, maxWidthPx)
+}
+
+/**
+ * Column that sizes its last child to the widest sibling. Intrinsic
+ * measurement would report an image's max-width cap (260dp), not the
+ * narrower size a tall photo actually lays out at after the height cap.
+ */
+@Composable
+private fun MatchLastChildWidthColumn(
+    modifier: Modifier = Modifier,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    spacing: Dp = 0.dp,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val spacingPx = spacing.roundToPx()
+        val placeables = if (measurables.size > 1) {
+            val heads = measurables.dropLast(1).map { it.measure(constraints) }
+            val matchedWidth = lastChildMatchWidthPx(
+                headWidthsPx = IntArray(heads.size) { index -> heads[index].width },
+                maxWidthPx = constraints.maxWidth,
+            )
+            val last = measurables.last().measure(
+                Constraints(
+                    minWidth = matchedWidth,
+                    maxWidth = matchedWidth,
+                    minHeight = 0,
+                    maxHeight = constraints.maxHeight,
+                ),
+            )
+            heads + last
+        } else {
+            measurables.map { it.measure(constraints) }
+        }
+        val width = placeables.maxOfOrNull { it.width } ?: 0
+        val height = if (placeables.isEmpty()) {
+            0
+        } else {
+            placeables.sumOf { it.height } + spacingPx * (placeables.size - 1)
+        }
+        layout(width, height) {
+            var y = 0
+            placeables.forEach { placeable ->
+                val x = horizontalAlignment.align(placeable.width, width, layoutDirection)
+                placeable.place(x, y)
+                y += placeable.height + spacingPx
+            }
+        }
+    }
+}
+
 /** Slim upload progress row shown under an outgoing attachment in flight. */
 @Composable
 fun UploadProgressRow(done: Long, total: Long, modifier: Modifier = Modifier) {
     val fraction = if (total > 0) (done.toFloat() / total.toFloat()).coerceIn(0f, 1f) else null
-    Row(
+    Column(
         modifier = modifier
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(vertical = 2.dp)
             .fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         // Unknown total must not fake a determinate 10% — run indeterminate.
         if (fraction == null) {
             LinearProgressIndicator(
-                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                strokeCap = StrokeCap.Round,
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .height(4.dp),
             )
         } else {
             LinearProgressIndicator(
                 progress = { fraction },
-                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                strokeCap = StrokeCap.Round,
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .height(4.dp),
             )
         }
@@ -1215,6 +1296,8 @@ fun UploadProgressRow(done: Long, total: Long, modifier: Modifier = Modifier) {
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1451,6 +1534,16 @@ private fun MessageAttachmentPreview() {
                     ),
                 ),
                 showStatus = false,
+            )
+            MessageBubble(
+                message = previewMessage("", isFromMe = true, status = MessageStatus.SENDING).copy(
+                    attachmentMeta = AttachmentMeta(
+                        guid = "p3", mime = "image/jpeg", name = "trail.jpg",
+                        sizeBytes = 2_411_520L, isImage = true, downloaded = true,
+                    ),
+                    uploadProgress = 1_200_000L to 2_411_520L,
+                ),
+                showStatus = true,
             )
         }
     }
