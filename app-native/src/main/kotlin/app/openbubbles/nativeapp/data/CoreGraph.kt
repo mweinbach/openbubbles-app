@@ -20,6 +20,8 @@ import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.repo.releaseStoreInvalidationObservers
 import app.openbubbles.core.send.buildSendConversation
 import app.openbubbles.core.send.selectSendingHandle
+import app.openbubbles.nativeapp.data.passwords.VaultAccountCleanup
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import app.openbubbles.nativeapp.data.photos.PhotosAccountCleanup
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.db.Attachment
@@ -413,6 +415,12 @@ object CoreGraph {
      */
     suspend fun signOut(context: android.content.Context): Result<Unit> {
         Log.i("CoreGraph", "Apple account sign-out requested")
+        // Invalidate and join every vault writer while the Rust state is still
+        // usable. Teardown can suspend, so waiting until local cleanup would
+        // leave a window where the previous account could be republished.
+        val vaultWriters = withContext(Dispatchers.IO) {
+            runCatching { VaultCatalogSync.beginAccountCleanup() }
+        }
         val teardown = withContext(Dispatchers.IO) {
             runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }
         }
@@ -436,10 +444,12 @@ object CoreGraph {
                         "Could not clear account-derived map tiles"
                     }
                 },
+                { VaultAccountCleanup.clear(context).getOrThrow() },
             )
         }
         Log.i("CoreGraph", "Apple account sign-out finished")
         return runAccountCleanupSteps(
+            { vaultWriters.getOrThrow() },
             { teardown.getOrThrow() },
             { localCleanup.getOrThrow() },
         )
@@ -461,14 +471,23 @@ object CoreGraph {
         }.onFailure { error ->
             Log.e("CoreGraph", "push service stop failed during iCloud repair (${error.javaClass.simpleName})")
         }
-        return withContext(Dispatchers.IO) {
+        // The repair deletes the keychain state the catalog mirrors, so a stale
+        // catalog would keep offering credentials the vault no longer holds.
+        val vaultCleanup = runCatching { VaultAccountCleanup.clear(context).getOrThrow() }.onFailure { error ->
+            Log.e("CoreGraph", "vault catalog clear failed during iCloud repair (${error.javaClass.simpleName})")
+        }
+        val serviceRepair = withContext(Dispatchers.IO) {
             runCatching {
                 // Let the service's teardown finish so a final trust sync
                 // cannot re-materialize the files being deleted.
                 kotlinx.coroutines.delay(1_500)
                 uniffi.rust_lib_bluebubbles.repairIcloudServices(context.filesDir.absolutePath)
             }.map { }
-        }.onSuccess {
+        }
+        return runAccountCleanupSteps(
+            { vaultCleanup.getOrThrow() },
+            { serviceRepair.getOrThrow() },
+        ).onSuccess {
             // The login screen consumes this and auto-runs the sessioned
             // re-auth instead of asking for a password (see RepairFlow).
             RepairFlow.requestSessionRepair()
@@ -817,7 +836,13 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         updateRegistration(registration)
-        AppContext.current?.let { CloudSyncWiring.onStateInstalled(it, state) }
+        AppContext.current?.let {
+            CloudSyncWiring.onStateInstalled(it, state)
+            // Warm the vault catalog now: the credential provider and Autofill
+            // service are started by the system with no chance to wait for a
+            // keychain sync, so a cold catalog shows an empty picker.
+            VaultCatalogSync.refresh(it, state)
+        }
     }
 
     fun updateRegistration(registration: URegisterState) {
