@@ -66,7 +66,7 @@ fun NewMessagesJumpPill(
     // AnimatedVisibility retains content during exit. Keep the last visible
     // count so TalkBack does not announce a new zero-count label while fading.
     val label = jumpPillLabel(
-        announcedCount,
+        displayedPillAnnouncementCount(announcedCount, visible, count),
         if (thread) JumpPillScope.Thread else JumpPillScope.Conversation,
     )
     AnimatedVisibility(
@@ -113,6 +113,10 @@ fun NewMessagesJumpPill(
 }
 
 internal fun retainedPillAnnouncementCount(previous: Int, visible: Boolean, count: Int): Int =
+    if (visible && count > 0) count else previous
+
+/** Current positive count on entry; retained count only while exit content remains composed. */
+internal fun displayedPillAnnouncementCount(previous: Int, visible: Boolean, count: Int): Int =
     if (visible && count > 0) count else previous
 
 @LightDarkPreviews

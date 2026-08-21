@@ -1,6 +1,5 @@
 package app.openbubbles.nativeapp.data
 
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -12,11 +11,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 object LiveMessageArrivals {
     private val mutableEvents = MutableSharedFlow<String>(
         extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val events = mutableEvents.asSharedFlow()
 
-    fun publish(messageGuid: String) {
-        mutableEvents.tryEmit(messageGuid)
-    }
+    // Intake is already suspendable. Backpressure after the short burst
+    // buffer preserves every marker for an attached transcript collector;
+    // with no collector, no replay intentionally lets a later screen baseline.
+    suspend fun publish(messageGuid: String) = mutableEvents.emit(messageGuid)
 }

@@ -105,6 +105,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
@@ -736,7 +737,10 @@ fun ChatScreen(
 
     // Reset per conversation: a new chat establishes its own baseline and can
     // never inherit the previous transcript's pending count.
-    var arrivals by remember(uiState.chat?.id) { mutableStateOf(ArrivalState()) }
+    var arrivals by rememberSaveable(
+        uiState.chat?.id,
+        stateSaver = ArrivalStateSaver,
+    ) { mutableStateOf(ArrivalState()) }
 
     suspend fun jumpToNewest() {
         val target = newestIndex

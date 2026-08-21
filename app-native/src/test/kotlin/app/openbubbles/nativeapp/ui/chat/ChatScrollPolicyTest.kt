@@ -264,6 +264,8 @@ class ChatScrollPolicyTest {
     fun `pill announcement count remains stable through exit`() {
         assertEquals(3, retainedPillAnnouncementCount(previous = 0, visible = true, count = 3))
         assertEquals(3, retainedPillAnnouncementCount(previous = 3, visible = false, count = 0))
+        assertEquals(1, displayedPillAnnouncementCount(previous = 3, visible = true, count = 1))
+        assertEquals(3, displayedPillAnnouncementCount(previous = 3, visible = false, count = 0))
     }
 
     @Test

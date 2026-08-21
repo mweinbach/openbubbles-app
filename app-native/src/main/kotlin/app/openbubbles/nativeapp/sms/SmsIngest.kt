@@ -51,7 +51,9 @@ internal object SmsIngest {
             }
         }
 
-        liveArrivalGuid(push, result.isNewIncomingMessage)?.let(LiveMessageArrivals::publish)
+        liveArrivalGuid(push, result.isNewIncomingMessage)?.let { guid ->
+            LiveMessageArrivals.publish(guid)
+        }
         notifyIncoming(context, push, chat, notificationText)
         return chat.id
     }
