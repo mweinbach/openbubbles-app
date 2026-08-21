@@ -311,6 +311,12 @@ object UpdateCoordinator {
         }
     }
 
+    /** Collapsed line: "Tap to update — <first changelog line>", markup-free. */
+    private fun updateReadyContentText(notes: String): String {
+        val summary = changelogSummary(notes)
+        return if (summary.isBlank()) "Tap to update" else "Tap to update — $summary"
+    }
+
     private fun postUpdateReadyNotification(context: Context, manifest: UpdateManifest) {
         ensureChannel(context)
         val nm = NotificationManagerCompat.from(context)
@@ -329,10 +335,10 @@ object UpdateCoordinator {
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_stat_icon)
             .setContentTitle("OpenGarden ${manifest.versionName} ready to install")
-            .setContentText("Tap to update${manifest.notes.take(80).let { if (it.isBlank()) "" else " — $it" }}")
+            .setContentText(updateReadyContentText(manifest.notes))
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    manifest.notes.take(1000).ifBlank { "Tap to install the update." },
+                    changelogNotificationText(manifest.notes).ifBlank { "Tap to install the update." },
                 ),
             )
             .setContentIntent(install)

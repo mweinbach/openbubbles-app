@@ -31,9 +31,12 @@ import androidx.compose.ui.unit.dp
  */
 
 internal sealed interface NoteBlock {
-    data class Heading(val level: Int, val text: AnnotatedString) : NoteBlock
-    data class Bullet(val level: Int, val text: AnnotatedString) : NoteBlock
-    data class Paragraph(val text: AnnotatedString) : NoteBlock
+    /** Inline-rendered body; every block kind carries one. */
+    val text: AnnotatedString
+
+    data class Heading(val level: Int, override val text: AnnotatedString) : NoteBlock
+    data class Bullet(val level: Int, override val text: AnnotatedString) : NoteBlock
+    data class Paragraph(override val text: AnnotatedString) : NoteBlock
 }
 
 /** Inline span styles the parser applies; themed by the composable caller. */
