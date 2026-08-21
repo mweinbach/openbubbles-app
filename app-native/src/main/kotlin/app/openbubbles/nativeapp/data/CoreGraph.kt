@@ -19,6 +19,8 @@ import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.core.repo.releaseStoreInvalidationObservers
 import app.openbubbles.core.send.buildSendConversation
 import app.openbubbles.core.send.selectSendingHandle
+import app.openbubbles.nativeapp.data.passwords.VaultAccountCleanup
+import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import app.openbubbles.nativeapp.data.photos.PhotosAccountCleanup
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.db.Attachment
@@ -412,6 +414,7 @@ object CoreGraph {
             runAccountCleanupSteps(
                 { ICloudContactSync.clearAccountState(context).getOrThrow() },
                 { PhotosAccountCleanup.clear(context).getOrThrow() },
+                { VaultAccountCleanup.clear(context).getOrThrow() },
             )
         }
         Log.i("CoreGraph", "Apple account sign-out finished")
@@ -436,6 +439,11 @@ object CoreGraph {
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
         }.onFailure { error ->
             Log.e("CoreGraph", "push service stop failed during iCloud repair (${error.javaClass.simpleName})")
+        }
+        // The repair deletes the keychain state the catalog mirrors, so a stale
+        // catalog would keep offering credentials the vault no longer holds.
+        runCatching { VaultAccountCleanup.clear(context).getOrThrow() }.onFailure { error ->
+            Log.e("CoreGraph", "vault catalog clear failed during iCloud repair (${error.javaClass.simpleName})")
         }
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -793,7 +801,13 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         updateRegistration(registration)
-        AppContext.current?.let { CloudSyncWiring.onStateInstalled(it, state) }
+        AppContext.current?.let {
+            CloudSyncWiring.onStateInstalled(it, state)
+            // Warm the vault catalog now: the credential provider and Autofill
+            // service are started by the system with no chance to wait for a
+            // keychain sync, so a cold catalog shows an empty picker.
+            VaultCatalogSync.refresh(it, state)
+        }
     }
 
     fun updateRegistration(registration: URegisterState) {
