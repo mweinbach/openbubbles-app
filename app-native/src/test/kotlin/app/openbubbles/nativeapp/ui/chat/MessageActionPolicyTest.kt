@@ -1,0 +1,197 @@
+package app.openbubbles.nativeapp.ui.chat
+
+import app.openbubbles.core.model.InteractivePayload
+import app.openbubbles.nativeapp.data.AttachmentMeta
+import app.openbubbles.nativeapp.data.MessageItem
+import app.openbubbles.nativeapp.data.MessageStatus
+import app.openbubbles.nativeapp.data.RichLinkPreview
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class MessageActionPolicyTest {
+
+    @Test
+    fun `ordinary incoming and outgoing messages can open actions`() {
+        assertTrue(canOpenMessageActions(message(fromMe = false)))
+        assertTrue(canOpenMessageActions(message(fromMe = true, status = MessageStatus.DELIVERED)))
+        assertTrue(canOpenMessageActions(message(status = MessageStatus.FAILED)))
+    }
+
+    @Test
+    fun `group events unsent and sending cannot open actions`() {
+        assertFalse(canOpenMessageActions(message(isGroupEvent = true)))
+        assertFalse(canOpenMessageActions(message(unsent = true)))
+        assertFalse(canOpenMessageActions(message(status = MessageStatus.SENDING)))
+    }
+
+    @Test
+    fun `double tap is an iMessage shortcut only`() {
+        assertTrue(canDoubleTapMessageActions(message(), smsChat = false))
+        assertFalse(canDoubleTapMessageActions(message(), smsChat = true))
+        assertFalse(canDoubleTapMessageActions(message(status = MessageStatus.SENDING), smsChat = false))
+        assertFalse(canDoubleTapMessageActions(message(unsent = true), smsChat = false))
+        assertFalse(canDoubleTapMessageActions(message(isGroupEvent = true), smsChat = false))
+    }
+
+    @Test
+    fun `plain text uses the text part`() {
+        val incoming = message(text = "hello", locators = mapOf(0L to "0:0:5"))
+        assertEquals(0L, defaultMessageActionPart(incoming))
+        assertEquals(0L, messageTextPart(incoming))
+        assertTrue(messageShowsTextBubble(incoming))
+    }
+
+    @Test
+    fun `attachment-only messages use the last attachment part`() {
+        val photo = attachment(guid = "p1", partIndex = 2)
+        val message = message(text = "").copy(attachmentMetas = listOf(photo), attachmentMeta = photo)
+        assertEquals(2L, defaultMessageActionPart(message))
+        assertFalse(messageShowsTextBubble(message))
+    }
+
+    @Test
+    fun `text plus attachment keeps the text part for the default mapping`() {
+        val photo = attachment(guid = "p1", partIndex = 1)
+        val message = message(
+            text = "found the trailhead",
+            locators = mapOf(0L to "0:0:18", 1L to "1:0:0"),
+        ).copy(attachmentMetas = listOf(photo), attachmentMeta = photo)
+        assertEquals(0L, defaultMessageActionPart(message))
+        assertEquals(0L, messageTextPart(message))
+    }
+
+    @Test
+    fun `rich-link-only messages still target the text part`() {
+        val preview = richLink()
+        val message = message(
+            text = "https://www.nps.gov/yose/index.htm",
+        ).copy(richLink = preview)
+        assertEquals(0L, defaultMessageActionPart(message))
+        assertFalse(messageShowsTextBubble(message))
+    }
+
+    @Test
+    fun `interactive balloons keep the text part`() {
+        val message = message(text = "Poll").copy(
+            interactivePayload = InteractivePayload.Unsupported(
+                bundleId = "com.apple.polls",
+                appName = "Polls",
+                caption = "Saturday?",
+                url = null,
+            ),
+        )
+        assertEquals(0L, defaultMessageActionPart(message))
+        assertFalse(messageShowsTextBubble(message))
+    }
+
+    @Test
+    fun `standard tapbacks have spoken labels`() {
+        assertEquals(
+            listOf("Love", "Like", "Dislike", "Laugh", "Emphasize", "Question"),
+            ActionTapbacks.map(::tapbackContentDescription),
+        )
+    }
+}
+
+class MessageBubbleInteractionTest {
+
+    @Test
+    fun `double tapping an eligible text bubble opens actions once`() {
+        val events = mutableListOf<String>()
+        val bound = bindMessagePartInteraction(
+            onOpenActions = { events += "actions:msg-1:0" },
+            enableDoubleTapActions = true,
+        )
+
+        bound.onDoubleClick!!.invoke()
+
+        assertEquals(listOf("actions:msg-1:0"), events)
+        assertNull(bound.onClick)
+    }
+
+    @Test
+    fun `single tap still opens an attachment or link`() {
+        val events = mutableListOf<String>()
+        val bound = bindMessagePartInteraction(
+            onClick = { events += "open:att-1" },
+            onOpenActions = { events += "actions:msg-1:2" },
+            enableDoubleTapActions = true,
+        )
+
+        bound.onClick!!.invoke()
+
+        assertEquals(listOf("open:att-1"), events)
+    }
+
+    @Test
+    fun `long press still opens actions without a second callback`() {
+        val events = mutableListOf<String>()
+        val bound = bindMessagePartInteraction(
+            onClick = { events += "open" },
+            onOpenActions = { events += "actions" },
+            enableDoubleTapActions = true,
+        )
+
+        bound.onLongClick!!.invoke()
+
+        assertEquals(listOf("actions"), events)
+        assertEquals(1, messageActionInvocationCount(listOf(MessageSurfaceOutcome.OpenActions)))
+    }
+
+    @Test
+    fun `sms does not bind a double-tap reaction shortcut`() {
+        val message = message()
+        val bound = bindMessagePartInteraction(
+            onClick = {},
+            onOpenActions = {},
+            enableDoubleTapActions = canDoubleTapMessageActions(message, smsChat = true),
+        )
+
+        assertNull(bound.onDoubleClick)
+        assertTrue(bound.onLongClick != null)
+    }
+}
+
+private fun message(
+    text: String = "hello",
+    fromMe: Boolean = false,
+    status: MessageStatus = MessageStatus.DELIVERED,
+    unsent: Boolean = false,
+    isGroupEvent: Boolean = false,
+    locators: Map<Long, String> = emptyMap(),
+) = MessageItem(
+    id = 1L,
+    text = text,
+    isFromMe = fromMe,
+    date = 1L,
+    status = status,
+    isGroupEvent = isGroupEvent,
+    reactionEmoji = null,
+    unsent = unsent,
+    guid = "msg-1",
+    replyPartLocators = locators,
+)
+
+private fun attachment(guid: String, partIndex: Long) = AttachmentMeta(
+    guid = guid,
+    mime = "image/jpeg",
+    name = "trail.jpg",
+    sizeBytes = 12L,
+    isImage = true,
+    downloaded = true,
+    partIndex = partIndex,
+)
+
+private fun richLink() = RichLinkPreview(
+    url = "https://www.nps.gov/yose/index.htm",
+    displayHost = "nps.gov",
+    title = "Yosemite National Park",
+    summary = "Plan the route.",
+    imageBytes = null,
+    imageMime = null,
+    iconBytes = null,
+    iconMime = null,
+)

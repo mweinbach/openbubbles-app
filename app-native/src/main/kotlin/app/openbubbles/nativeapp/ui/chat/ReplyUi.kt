@@ -194,10 +194,10 @@ internal fun ReplyThreadPane(
                         senderDisplayName = message.senderAddress?.let { senderNames[it] },
                         replyQuote = null,
                         onDownloadSticker = onDownloadSticker,
-                        onLongPressPart = if (message.status == MessageStatus.SENDING) {
-                            null
-                        } else {
+                        onLongPressPart = if (canOpenMessageActions(message)) {
                             onLongPressPart?.let { callback -> { part -> callback(message, part) } }
+                        } else {
+                            null
                         },
                         onSwipeReply = if (canSwipeReply(message)) {
                             { part -> onReply(message, part) }

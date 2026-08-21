@@ -1,14 +1,15 @@
 package app.openbubbles.nativeapp.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.MessageItem
@@ -18,8 +19,11 @@ import app.openbubbles.nativeapp.data.RichLinkPreview
 import app.openbubbles.nativeapp.data.SharedContentPreview
 import app.openbubbles.nativeapp.ui.chat.ChatScreen
 import app.openbubbles.nativeapp.ui.chat.ChatUiState
+import app.openbubbles.nativeapp.ui.chat.MessageActionTapbacks
+import app.openbubbles.nativeapp.ui.chat.MessageBubble
 import app.openbubbles.nativeapp.ui.chat.ReplyTarget
 import app.openbubbles.nativeapp.ui.chat.ReplyThreadState
+import com.android.tools.screenshot.PreviewTest
 import app.openbubbles.nativeapp.ui.chatinfo.ChatInfoScreen
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetails
 import app.openbubbles.nativeapp.ui.chatinfo.ContactDetailsCard
@@ -766,6 +770,42 @@ fun ChatScreenTapbackScreenshot() {
             onLoadOlder = {},
             onBack = {},
         )
+    }
+}
+
+/**
+ * Open reaction/action header plus settled incoming/outgoing tapbacks.
+ * The sheet itself is a modal; this pins the connected Tapback row the
+ * double-tap shortcut opens.
+ */
+@PreviewTest
+@Preview(name = "chat-action-surface", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-action-surface-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun MessageActionSurfaceScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        Surface {
+            Column(modifier = Modifier.padding(12.dp)) {
+                MessageActionTapbacks(
+                    selectedEmoji = "\u2764\uFE0F",
+                    onReact = { _, _ -> },
+                )
+                MessageBubble(
+                    message = message(1, "we got the permit!!", fromMe = false)
+                        .copy(reactionEmoji = "\u2764\uFE0F"),
+                    showStatus = false,
+                )
+                MessageBubble(
+                    message = message(
+                        2,
+                        "picking up the rental at nine",
+                        fromMe = true,
+                        status = MessageStatus.DELIVERED,
+                    ).copy(reactionEmoji = "\uD83D\uDC4D"),
+                    showStatus = true,
+                )
+            }
+        }
     }
 }
 

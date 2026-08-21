@@ -28,12 +28,20 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
@@ -46,7 +54,6 @@ import java.io.File
 import java.text.DateFormat
 import java.time.ZonedDateTime
 
-private val ActionTapbacks = listOf("❤️", "👍", "👎", "😂", "‼️", "❓")
 private val ActionReactionSuggestions = listOf("🔥", "🎉", "🥰", "😮", "💯")
 
 @Composable
@@ -93,18 +100,10 @@ internal fun MessageActionSheet(
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp)) {
             if (!isSms) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                    ) {
-                        ActionTapbacks.forEachIndexed { index, emoji ->
-                            FilledTonalIconButton(
-                                onClick = { onReact(index, null) },
-                                shapes = IconButtonDefaults.shapes(),
-                                modifier = Modifier.weight(1f),
-                            ) { Text(emoji, style = MaterialTheme.typography.titleMedium) }
-                        }
-                    }
+                    MessageActionTapbacks(
+                        selectedEmoji = message.reactionEmoji,
+                        onReact = onReact,
+                    )
                 }
                 item { ActionRow("Custom reaction") { showCustomReaction = true } }
             }
@@ -156,7 +155,15 @@ internal fun MessageActionSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         ActionReactionSuggestions.forEach { emoji ->
-                            FilledTonalIconButton(onClick = { customReaction = emoji }) { Text(emoji) }
+                            FilledTonalIconButton(
+                                onClick = { customReaction = emoji },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clearAndSetSemantics {
+                                        contentDescription = "Reaction $emoji"
+                                        role = Role.Button
+                                    },
+                            ) { Text(emoji) }
                         }
                     }
                     TextField(
@@ -189,6 +196,39 @@ internal fun MessageActionSheet(
             },
             onDismiss = { showReminder = false },
         )
+    }
+}
+
+@Composable
+internal fun MessageActionTapbacks(
+    selectedEmoji: String?,
+    onReact: (Int, String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics { isTraversalGroup = true },
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        ActionTapbacks.forEachIndexed { index, emoji ->
+            val selected = selectedEmoji == emoji
+            FilledTonalIconButton(
+                onClick = { onReact(index, null) },
+                shapes = IconButtonDefaults.shapes(),
+                modifier = Modifier
+                    .weight(1f)
+                    .minimumInteractiveComponentSize()
+                    .clearAndSetSemantics {
+                        contentDescription = tapbackContentDescription(emoji)
+                        role = Role.Button
+                        if (selected) stateDescription = "Selected"
+                    },
+            ) {
+                Text(emoji, style = MaterialTheme.typography.titleMedium)
+            }
+        }
     }
 }
 

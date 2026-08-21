@@ -107,6 +107,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -916,7 +917,7 @@ fun ChatScreen(
                         onDownloadAttachment = onDownloadAttachment,
                         onReply = onReplyFromThread,
                         onLongPressPart = { message, part ->
-                            if (message.status != MessageStatus.SENDING) {
+                            if (canOpenMessageActions(message)) {
                                 selectedAction = SelectedMessageAction(message, part)
                             }
                         },
@@ -1025,10 +1026,10 @@ fun ChatScreen(
                                             ),
                                         )
                                     },
-                                    onLongPressPart = if (entry.message.status == MessageStatus.SENDING) {
-                                        null
-                                    } else {
+                                    onLongPressPart = if (canOpenMessageActions(entry.message)) {
                                         { part -> selectedAction = SelectedMessageAction(entry.message, part) }
+                                    } else {
+                                        null
                                     },
                                     onSwipeReply = if (canSwipeReply(entry.message)) {
                                         { part -> onReply(entry.message, part) }
@@ -1108,6 +1109,7 @@ fun ChatScreen(
     }
 
     selectedAction?.let { selection ->
+        key(selection.message.guid, selection.part) {
         val message = selection.message
         MessageActionSheet(
             message = message,
@@ -1201,6 +1203,7 @@ fun ChatScreen(
             },
             onDismiss = { selectedAction = null },
         )
+        }
     }
 
     val placementTarget = stickerTarget
