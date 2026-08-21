@@ -116,6 +116,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -269,7 +270,7 @@ sealed interface ConversationEntry {
 private fun MessageItem.authorKey(): Pair<Boolean, String?> = isFromMe to senderAddress
 
 /** True when this message renders as a bubble (rows like group events break runs). */
-private fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
+internal fun MessageItem.rendersAsBubble(): Boolean = !isGroupEvent && !unsent
 
 /** A quiet gap this long (or a day change) starts a new timestamped cluster. */
 private const val TimeSeparatorGapMillis = 60 * 60 * 1000L
@@ -419,6 +420,19 @@ fun ChatScreen(
     val messagesByGuid = remember(uiState.messages) { uiState.messages.associateBy { it.guid } }
     val replyCounts = remember(uiState.messages) { replyCountsByRoot(uiState.messages) }
     val repliesWithContext = remember(entries) { repliesWithInlineContext(entries) }
+    val replyClusters = remember(entries) { inlineReplyClusters(entries) }
+    val clusterMemberIds = remember(replyClusters) {
+        replyClusters.asSequence()
+            .filter { it.drawsRail() }
+            .flatMap { it.trackedMessageIds() }
+            .toSet()
+    }
+    val clusterBounds = remember { mutableStateMapOf<Long, Rect>() }
+    val messagesById = remember(uiState.messages) { uiState.messages.associateBy { it.id } }
+    LaunchedEffect(clusterMemberIds) {
+        val stale = clusterBounds.keys - clusterMemberIds
+        stale.forEach { clusterBounds.remove(it) }
+    }
     val resolvedAttachmentFile = remember(uiState.optimisticStickerFiles, attachmentFile) {
         { guid: String -> uiState.optimisticStickerFiles[guid] ?: attachmentFile(guid) }
     }
@@ -936,7 +950,16 @@ fun ChatScreen(
                     )
                     uiState.messages.isEmpty() && !isTyping ->
                         ChatEmptyState(Modifier.fillMaxSize())
-                    else -> LazyColumn(
+                    else -> Box(Modifier.fillMaxSize()) {
+                        if (clusterMemberIds.isNotEmpty()) {
+                            ReplyClusterRailOverlay(
+                                clusters = replyClusters,
+                                boundsById = clusterBounds,
+                                messagesById = messagesById,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    LazyColumn(
                         state = listState,
                         reverseLayout = true,
                         modifier = Modifier.fillMaxSize(),
@@ -1035,6 +1058,17 @@ fun ChatScreen(
                                     } else {
                                         null
                                     },
+                                    onBubbleBoundsInRoot = if (entry.message.id in clusterMemberIds) {
+                                        { bounds ->
+                                            if (bounds == null) {
+                                                clusterBounds.remove(entry.message.id)
+                                            } else {
+                                                clusterBounds[entry.message.id] = bounds
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
                                         .animateItem(
                                             fadeInSpec = itemSpecs.fadeIn,
@@ -1071,6 +1105,7 @@ fun ChatScreen(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

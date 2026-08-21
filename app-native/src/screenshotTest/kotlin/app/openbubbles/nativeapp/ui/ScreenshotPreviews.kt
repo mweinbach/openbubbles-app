@@ -674,6 +674,64 @@ fun ChatScreenReverseReplyScreenshot() {
 }
 
 /**
+ * Adjacent multi-reply cluster. The original stays in the transcript with
+ * its reply-count label; the two children drop their quotes and share one
+ * rail that originates on the parent and ends on the last reply.
+ */
+@PreviewTest
+@Preview(name = "chat-reply-cluster", device = Devices.PHONE, showBackground = true)
+@Preview(name = "chat-reply-cluster-dark", device = Devices.PHONE, showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ChatScreenReplyClusterScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        val original = message(
+            1,
+            "the reservation is at 7:30, don't be late",
+            fromMe = true,
+            status = MessageStatus.DELIVERED,
+        ).copy(guid = "cluster-root")
+        val first = message(
+            2,
+            "I'll be there, just leaving now",
+            fromMe = false,
+        ).copy(
+            guid = "cluster-one",
+            replyToGuid = "cluster-root",
+            senderAddress = "emily@icloud.com",
+            reactionEmoji = "\u2764\uFE0F",
+        )
+        val second = message(
+            3,
+            "ok",
+            fromMe = false,
+        ).copy(
+            guid = "cluster-two",
+            replyToGuid = "cluster-root",
+            senderAddress = "emily@icloud.com",
+        )
+        ChatScreen(
+            uiState = ChatUiState(
+                chat = ChatListItem(
+                    id = 2,
+                    title = "Emily",
+                    snippet = null,
+                    date = FIXED_NOW,
+                    unread = 0,
+                    pinned = false,
+                    avatarColor = 0xFF006C4C,
+                    isSms = false,
+                ),
+                messages = listOf(original, first, second),
+            ),
+            onInputChange = {},
+            onSend = {},
+            onLoadOlder = {},
+            onBack = {},
+        )
+    }
+}
+
+/**
  * Same-side inline reply. Both bubbles are start-aligned, so the connector
  * collapses to a straight vertical stroke down the shared margin — the common
  * case in a real thread, and the one the opposite-side fixtures cannot pin.

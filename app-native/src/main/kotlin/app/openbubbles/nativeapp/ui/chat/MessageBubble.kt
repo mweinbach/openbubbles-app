@@ -38,6 +38,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,7 @@ import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.delay
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Outer bubble radius (tail-free modern iMessage look). */
@@ -347,6 +349,12 @@ fun MessageBubble(
     onSwipeReply: ((Long) -> Unit)? = null,
     /** True when this conversation is carrier SMS — outgoing bubbles go green. */
     smsChat: Boolean = false,
+    /**
+     * Reports the bubble stack's root bounds so a transcript-level reply
+     * rail can join this row to its cluster. `null` is sent when the row
+     * leaves composition.
+     */
+    onBubbleBoundsInRoot: ((Rect?) -> Unit)? = null,
 ) {
     when {
         message.isGroupEvent -> {
@@ -412,6 +420,9 @@ fun MessageBubble(
         val maxBubbleWidth = bubbleMaxWidth(maxWidth - gutterWidth)
         var contentSize by remember(message.id) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         val replyConnectorBounds = remember(message.id) { ReplyConnectorBounds() }
+        DisposableEffect(message.id) {
+            onDispose { onBubbleBoundsInRoot?.invoke(null) }
+        }
         Box(modifier = Modifier.fillMaxWidth()) {
         if (replyQuote != null) {
             ReplyConnectorOverlay(
@@ -484,9 +495,13 @@ fun MessageBubble(
             Column(
                 horizontalAlignment = if (message.isFromMe) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
-                modifier = if (replyQuote != null) {
-                    Modifier.onGloballyPositioned {
-                        replyConnectorBounds.replyInRoot = it.boundsInRoot()
+                modifier = if (replyQuote != null || onBubbleBoundsInRoot != null) {
+                    Modifier.onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInRoot()
+                        if (replyQuote != null) {
+                            replyConnectorBounds.replyInRoot = bounds
+                        }
+                        onBubbleBoundsInRoot?.invoke(bounds)
                     }
                 } else {
                     Modifier
@@ -971,6 +986,216 @@ internal fun replyConnectorPath(
         legEnd.x, curveEndY,
     )
     lineTo(legEnd.x, legEnd.y)
+}
+
+internal data class ReplyClusterMember(
+    val bounds: Rect,
+    val fromMe: Boolean,
+)
+
+/**
+ * Transcript-level rail for an inline reply run. [armStart] is on the
+ * original (or a short hook above the first reply), [corner] is the turn
+ * onto the spine, and [spineEnd] sits on the last reply so a two-reply
+ * cluster is one stroke, not a marker that dies at the first child.
+ */
+internal data class ReplyClusterRailGeometry(
+    val armStart: Offset,
+    val corner: Offset,
+    val spineEnd: Offset,
+)
+
+/**
+ * Places a cluster rail from measured bubble bounds.
+ *
+ * Opposite-side, attached-to-root: originate on the original's inner edge
+ * and drop along the first reply's outer inset, the way Apple spans a
+ * right-hand parent to a left-hand run.
+ *
+ * Same-side, attached-to-root: reuse the quote-marker hook in the gap
+ * under the original, then keep the vertical run going to the last reply.
+ *
+ * Detached runs (quoted first reply plus siblings): a vertical continuation
+ * only — the first reply already draws its own marker.
+ */
+internal fun replyClusterRailGeometry(
+    root: Rect?,
+    rootFromMe: Boolean,
+    replies: List<ReplyClusterMember>,
+    attachedToRoot: Boolean,
+    isLtr: Boolean,
+    edgeInset: Float,
+    armLength: Float,
+    cornerLength: Float,
+    clearance: Float,
+    tipDrop: Float,
+): ReplyClusterRailGeometry? {
+    if (replies.isEmpty()) return null
+    val first = replies.first()
+    val last = replies.last()
+    val sitsOnRight = first.fromMe == isLtr
+    val inward = if (sitsOnRight) -1f else 1f
+    val inset = minOf(edgeInset, first.bounds.width / 2f)
+    val spineX = if (sitsOnRight) first.bounds.right - inset else first.bounds.left + inset
+    val lastInset = minOf(edgeInset, last.bounds.height / 2f)
+    val spineEndY = last.bounds.top + lastInset
+
+    if (!attachedToRoot) {
+        val startY = first.bounds.top - clearance
+        if (spineEndY <= startY) return null
+        return ReplyClusterRailGeometry(
+            armStart = Offset(spineX, startY),
+            corner = Offset(spineX, startY),
+            spineEnd = Offset(spineX, spineEndY),
+        )
+    }
+
+    if (root != null) {
+        val rootOnRight = rootFromMe == isLtr
+        if (rootOnRight != sitsOnRight) {
+            val armStartX = if (rootOnRight) root.left - clearance else root.right + clearance
+            val armStartY = root.top + minOf(edgeInset, root.height / 2f)
+            if (spineEndY <= armStartY) return null
+            return ReplyClusterRailGeometry(
+                armStart = Offset(armStartX, armStartY),
+                corner = Offset(spineX, armStartY),
+                spineEnd = Offset(spineX, spineEndY),
+            )
+        }
+
+        val armStartX = spineX + inward * armLength
+        val hookBottomY = first.bounds.top - clearance
+        val overlapsRoot = minOf(spineX, armStartX) <= root.right &&
+            maxOf(spineX, armStartX) >= root.left
+        val floorY = if (overlapsRoot) root.bottom + clearance else Float.NEGATIVE_INFINITY
+        val hookTopY = maxOf(hookBottomY - cornerLength, floorY).coerceAtMost(hookBottomY)
+        val endY = maxOf(hookBottomY, spineEndY)
+        if (endY <= hookTopY) return null
+        return ReplyClusterRailGeometry(
+            armStart = Offset(armStartX, (hookTopY + tipDrop).coerceAtMost(hookBottomY)),
+            corner = Offset(spineX, hookTopY),
+            spineEnd = Offset(spineX, endY),
+        )
+    }
+
+    val startY = first.bounds.top - clearance
+    if (spineEndY <= startY) return null
+    return ReplyClusterRailGeometry(
+        armStart = Offset(spineX, startY),
+        corner = Offset(spineX, startY),
+        spineEnd = Offset(spineX, spineEndY),
+    )
+}
+
+/**
+ * Tight corner plus a straight spine. Unlike [replyConnectorPath], the cubic
+ * is capped to [cornerSpan] so a 200dp run stays an elbow with a long
+ * plumb, not one giant swoop from the parent to the last reply.
+ */
+internal fun replyClusterRailPath(
+    geometry: ReplyClusterRailGeometry,
+    flatTail: Float,
+    cornerSpan: Float,
+): Path = Path().apply {
+    val (armStart, corner, spineEnd) = geometry
+    val reach = corner.x - armStart.x
+    if (abs(reach) < 0.5f) {
+        moveTo(corner.x, armStart.y)
+        lineTo(spineEnd.x, spineEnd.y)
+        return@apply
+    }
+
+    val dirX = if (reach >= 0f) 1f else -1f
+    val horizontal = abs(reach)
+    val vertical = (spineEnd.y - armStart.y).coerceAtLeast(0f)
+    val tail = minOf(flatTail, horizontal / 2f)
+    val turn = minOf(cornerSpan, horizontal - tail, vertical)
+    val curveStartX = corner.x - dirX * turn
+    val curveEndY = armStart.y + turn
+
+    moveTo(armStart.x, armStart.y)
+    if (abs(curveStartX - armStart.x) > 0.5f) {
+        lineTo(curveStartX, armStart.y)
+    }
+    if (turn > 0.5f) {
+        cubicTo(
+            curveStartX + (corner.x - curveStartX) * ReplyConnectorArmEase, armStart.y,
+            corner.x, curveEndY - (curveEndY - armStart.y) * ReplyConnectorLegEase,
+            corner.x, curveEndY,
+        )
+    }
+    if (spineEnd.y > curveEndY + 0.5f) {
+        lineTo(spineEnd.x, spineEnd.y)
+    }
+}
+
+@Composable
+internal fun ReplyClusterRailOverlay(
+    clusters: List<InlineReplyCluster>,
+    boundsById: Map<Long, Rect>,
+    messagesById: Map<Long, MessageItem>,
+    modifier: Modifier = Modifier,
+) {
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val connectorColor = MaterialTheme.colorScheme.outline
+    var canvasInRoot by remember { mutableStateOf<Rect?>(null) }
+    // Read the snapshot map here so a bound change recomposes this overlay;
+    // the Canvas draw lambda alone would not subscribe.
+    val measured = boundsById.toMap()
+
+    Canvas(
+        modifier = modifier.onGloballyPositioned { canvasInRoot = it.boundsInRoot() },
+    ) {
+        val canvasBounds = canvasInRoot ?: return@Canvas
+        val rootToCanvas = Offset(-canvasBounds.left, -canvasBounds.top)
+        val edgeInset = ReplyConnectorEdgeInset.toPx()
+        val armLength = ReplyConnectorArmLength.toPx()
+        val cornerLength = ReplyConnectorLegLength.toPx()
+        val clearance = ReplyConnectorClearance.toPx()
+        val tipDrop = ReplyConnectorTipDrop.toPx()
+        val flatTail = ReplyConnectorFlatTail.toPx()
+        val stroke = Stroke(width = ReplyConnectorStrokeWidth.toPx(), cap = StrokeCap.Round)
+
+        for (cluster in clusters) {
+            if (!cluster.drawsRail()) continue
+            val replies = cluster.replyMessageIds.mapNotNull { id ->
+                val bounds = measured[id] ?: return@mapNotNull null
+                val message = messagesById[id] ?: return@mapNotNull null
+                ReplyClusterMember(bounds.translate(rootToCanvas), message.isFromMe)
+            }.sortedBy { it.bounds.top }
+            if (replies.isEmpty()) continue
+
+            val rootBounds = cluster.rootMessageId
+                ?.let { measured[it] }
+                ?.translate(rootToCanvas)
+            val rootFromMe = cluster.rootMessageId
+                ?.let { messagesById[it]?.isFromMe }
+                ?: false
+
+            val geometry = replyClusterRailGeometry(
+                root = rootBounds,
+                rootFromMe = rootFromMe,
+                replies = replies,
+                attachedToRoot = cluster.attachedToRoot,
+                isLtr = isLtr,
+                edgeInset = edgeInset,
+                armLength = armLength,
+                cornerLength = cornerLength,
+                clearance = clearance,
+                tipDrop = tipDrop,
+            ) ?: continue
+
+            drawPath(
+                path = replyClusterRailPath(
+                    geometry = geometry,
+                    flatTail = flatTail,
+                    cornerSpan = cornerLength,
+                ),
+                color = connectorColor,
+                style = stroke,
+            )
+        }
+    }
 }
 
 @Composable
