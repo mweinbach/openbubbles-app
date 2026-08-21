@@ -367,6 +367,22 @@ class ChatScrollPolicyTest {
         assertFalse(outcome.pinToNewest)
     }
 
+    @Test
+    fun `deferred membership markers retain their chat identity and bounded order`() {
+        var deferred = DeferredLiveArrivalState()
+        deferred = deferred.added(7L, "first")
+        deferred = deferred.added(8L, "second")
+        deferred = deferred.added(7L, "first")
+
+        assertEquals(
+            listOf(
+                DeferredLiveArrival(7L, "first"),
+                DeferredLiveArrival(8L, "second"),
+            ),
+            deferred.arrivals,
+        )
+    }
+
     // ---- Reverse-layout geometry ---------------------------------------------
 
     @Test

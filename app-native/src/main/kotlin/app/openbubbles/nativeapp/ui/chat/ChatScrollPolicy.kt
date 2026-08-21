@@ -119,6 +119,21 @@ internal data class ArrivalOutcome(
     val reconciledFallbackGuids: Set<String> = emptySet(),
 )
 
+internal data class DeferredLiveArrival(
+    val chatId: Long,
+    val messageGuid: String,
+)
+
+internal data class DeferredLiveArrivalState(
+    val arrivals: List<DeferredLiveArrival> = emptyList(),
+) {
+    fun added(chatId: Long, messageGuid: String): DeferredLiveArrivalState {
+        val marker = DeferredLiveArrival(chatId, messageGuid)
+        if (marker in arrivals) return this
+        return copy(arrivals = (arrivals + marker).takeLast(LiveMarkerRetention))
+    }
+}
+
 /** Newer-than-baseline test; ids break ties inside the same millisecond. */
 private fun isNewerThanBaseline(message: MessageItem, state: ArrivalState): Boolean =
     message.date > state.newestSeenDate ||

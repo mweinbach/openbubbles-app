@@ -263,11 +263,10 @@ internal fun ReplyThreadPane(
         LazyColumn(
             state = listState,
             reverseLayout = true,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = 8.dp,
-                bottom = if (arrivals.pendingCount > 0) 68.dp else 8.dp,
-            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = if (arrivals.pendingCount > 0) 68.dp else 0.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (thread.messages.isEmpty()) {

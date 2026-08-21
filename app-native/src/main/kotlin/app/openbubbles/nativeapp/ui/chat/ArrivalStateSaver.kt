@@ -46,4 +46,22 @@ internal val LiveArrivalMarkerStateSaver = Saver<LiveArrivalMarkerState, Bundle>
     },
 )
 
+internal val DeferredLiveArrivalStateSaver = Saver<DeferredLiveArrivalState, Bundle>(
+    save = { state ->
+        Bundle().apply {
+            putLongArray("chatIds", state.arrivals.map { it.chatId }.toLongArray())
+            putStringArrayList("guids", ArrayList(state.arrivals.map { it.messageGuid }))
+        }
+    },
+    restore = { saved ->
+        val chatIds = saved.getLongArray("chatIds") ?: longArrayOf()
+        val guids = saved.getStringArrayList("guids").orEmpty()
+        DeferredLiveArrivalState(
+            arrivals = chatIds.indices.mapNotNull { index ->
+                guids.getOrNull(index)?.let { guid -> DeferredLiveArrival(chatIds[index], guid) }
+            },
+        )
+    },
+)
+
 private const val SavedGuidLimit = 512
