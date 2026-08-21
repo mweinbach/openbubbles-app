@@ -863,15 +863,17 @@ private val ReplyConnectorStrokeWidth = 2.dp
  * reply rather than spanning the gap to the quote.
  */
 private val ReplyConnectorEdgeInset = 14.dp
-private val ReplyConnectorArmLength = 14.dp
+private val ReplyConnectorArmLength = 32.dp
 private val ReplyConnectorLegLength = 18.dp
 
 /**
- * Large enough to consume nearly the whole arm and most of the leg, so the
- * turn reads as one continuous sweep rather than a right angle with its
- * corner filed off.
+ * How far each tangent handle reaches along its own axis, as a fraction of the
+ * marker's span. Past a circle's 0.552 the stroke holds each tangent longer and
+ * turns through the middle more gradually, which is the continuous-curvature
+ * look Apple uses rather than a constant-radius arc.
  */
-private val ReplyConnectorCornerRadius = 12.dp
+private const val ReplyConnectorArmEase = 0.72f
+private const val ReplyConnectorLegEase = 0.72f
 
 /** Daylight between the marker and the bubbles it sits between. */
 private val ReplyConnectorClearance = 5.dp
@@ -891,7 +893,6 @@ internal data class ReplyConnectorGeometry(
     val armStart: Offset,
     val corner: Offset,
     val legEnd: Offset,
-    val cornerRadius: Float,
 )
 
 /**
@@ -911,7 +912,6 @@ internal fun replyConnectorGeometry(
     edgeInset: Float,
     armLength: Float,
     legLength: Float,
-    cornerRadius: Float,
     clearance: Float,
 ): ReplyConnectorGeometry {
     val sitsOnRight = replyFromMe == isLtr
@@ -926,45 +926,30 @@ internal fun replyConnectorGeometry(
     val floorY = if (overlapsQuote) quote.bottom + clearance else Float.NEGATIVE_INFINITY
     val legTopY = maxOf(legBottomY - legLength, floorY).coerceAtMost(legBottomY)
 
-    val radius = minOf(
-        cornerRadius,
-        kotlin.math.abs(armStartX - legX),
-        legBottomY - legTopY,
-    ).coerceAtLeast(0f)
-
     return ReplyConnectorGeometry(
         armStart = Offset(armStartX, legTopY),
         corner = Offset(legX, legTopY),
         legEnd = Offset(legX, legBottomY),
-        cornerRadius = radius,
     )
 }
 
 /**
- * The turn is a cubic approximation of a circular quarter-arc rather than a
- * quadratic through the corner. A quadratic bulges to about 0.354r of the
- * corner against a circle's 0.414r, which is what made the bend read sharp.
+ * One cubic across the whole marker — no straight arm, no constant-radius
+ * corner, no straight leg. It leaves [ReplyConnectorGeometry.armStart]
+ * horizontally and arrives at [ReplyConnectorGeometry.legEnd] vertically, so
+ * the curvature builds through the turn instead of switching on at a tangent
+ * point.
  */
-private const val CircularArcControl = 0.5522848f
-
 internal fun replyConnectorPath(geometry: ReplyConnectorGeometry): Path = Path().apply {
-    val (armStart, corner, legEnd, radius) = geometry
+    val (armStart, corner, legEnd) = geometry
+    val reach = corner.x - armStart.x
+    val drop = legEnd.y - armStart.y
     moveTo(armStart.x, armStart.y)
-    if (radius <= 0f) {
-        lineTo(corner.x, corner.y)
-        lineTo(legEnd.x, legEnd.y)
-        return@apply
-    }
-    val step = if (armStart.x >= corner.x) radius else -radius
-    val arcStartX = corner.x + step
-    val arcEndY = corner.y + radius
-    lineTo(arcStartX, corner.y)
     cubicTo(
-        arcStartX - step * CircularArcControl, corner.y,
-        corner.x, arcEndY - radius * CircularArcControl,
-        corner.x, arcEndY,
+        armStart.x + reach * ReplyConnectorArmEase, armStart.y,
+        legEnd.x, legEnd.y - drop * ReplyConnectorLegEase,
+        legEnd.x, legEnd.y,
     )
-    lineTo(legEnd.x, legEnd.y)
 }
 
 @Composable
@@ -997,7 +982,6 @@ private fun ReplyConnectorOverlay(
                     edgeInset = ReplyConnectorEdgeInset.toPx(),
                     armLength = ReplyConnectorArmLength.toPx(),
                     legLength = ReplyConnectorLegLength.toPx(),
-                    cornerRadius = ReplyConnectorCornerRadius.toPx(),
                     clearance = ReplyConnectorClearance.toPx(),
                 ),
             ),

@@ -175,7 +175,6 @@ class ReplyUiTest {
         // The leg stops just short of the bubble instead of touching it.
         assertEquals(reply.top - 3f, geometry.legEnd.y)
         assertEquals(43f, geometry.corner.y)
-        assertEquals(8f, geometry.cornerRadius)
     }
 
     @Test
@@ -213,8 +212,6 @@ class ReplyUiTest {
         )
 
         assertEquals(quote.bottom + 3f, geometry.corner.y)
-        // The shortened leg pulls the corner radius down with it.
-        assertEquals(4f, geometry.cornerRadius)
     }
 
     @Test
@@ -253,7 +250,6 @@ class ReplyUiTest {
         edgeInset = 14f,
         armLength = 12f,
         legLength = 14f,
-        cornerRadius = 8f,
         clearance = 3f,
     )
 
