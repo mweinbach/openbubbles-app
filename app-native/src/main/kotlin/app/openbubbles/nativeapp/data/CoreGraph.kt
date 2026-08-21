@@ -2479,10 +2479,16 @@ internal fun returnedAttachmentPlan(
     val persistedAttachmentGuids = normal?.let {
         MessageMapper.mapParts(it.parts, messageGuid, isOutgoing = true).second.map { item -> item.guid }
     }.orEmpty()
+    var stagedAttachmentIndex = 0
+    val persistedStagedGuids = normal?.parts.orEmpty().mapNotNull { indexed ->
+        val attachment = indexed.part as? UPart.Attachment ?: return@mapNotNull null
+        val stagedGuid = stagedGuids.getOrNull(stagedAttachmentIndex++)
+        if (attachment.mime == "application/smil") null else stagedGuid
+    }
     return ReturnedAttachmentPlan(
         rawAttachmentCount = rawAttachmentCount,
         persistedAttachmentGuids = persistedAttachmentGuids,
-        promotions = stagedGuids.zip(persistedAttachmentGuids),
+        promotions = persistedStagedGuids.zip(persistedAttachmentGuids),
         complete = rawAttachmentCount == stagedGuids.size,
     )
 }

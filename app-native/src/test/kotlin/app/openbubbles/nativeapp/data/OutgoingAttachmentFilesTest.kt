@@ -333,6 +333,46 @@ class OutgoingAttachmentFilesTest {
     }
 
     @Test
+    fun `SMIL filtering preserves the staged identity of later attachments`() {
+        val plan = returnedAttachmentPlan(
+            normal = normalWith(
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 0uL,
+                        uti = "public.smil",
+                        mime = "application/smil",
+                        name = "presentation.smil",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+                UIndexedPart(
+                    UPart.Attachment(
+                        part = 1uL,
+                        uti = "public.jpeg",
+                        mime = "image/jpeg",
+                        name = "photo.jpg",
+                        iris = false,
+                        xml = "",
+                    ),
+                    null,
+                    null,
+                ),
+            ),
+            messageGuid = "real-message",
+            stagedGuids = listOf("temp-message_att0", "temp-message_att1"),
+        )
+
+        assertTrue(plan.complete)
+        assertEquals(
+            listOf("temp-message_att1" to "real-message_0"),
+            plan.promotions,
+        )
+    }
+
+    @Test
     fun `iMessage attachment send binding stays compact and suspending`() {
         val method = NativePushState::class.java.methods.single { it.name == "sendAttachments" }
 
