@@ -63,9 +63,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddReaction
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
@@ -1825,9 +1825,6 @@ private fun StickerPlacementSheet(
 
 @Composable
 private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
-    // The app bar has a fixed compact height. At larger accessibility text sizes,
-    // keep the contact name intact instead of squeezing or clipping two lines.
-    val showServiceLabel = LocalDensity.current.fontScale < 1.4f
     Row(
         modifier = modifier.heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1840,28 +1837,13 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
                 size = 40.dp,
                 avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
-            Column(modifier = Modifier.weight(1f, fill = false)) {
-                Text(
-                    text = chat.title,
-                    style = MaterialTheme.typography.titleMediumEmphasized,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (showServiceLabel) {
-                    Text(
-                        text = when {
-                            chat.isGroup && chat.isSms -> "Group text message"
-                            chat.isGroup -> "Group iMessage"
-                            chat.isSms -> "Text message"
-                            else -> "iMessage"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            Text(
+                text = chat.title,
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             if (chat.notifsSilenced) {
                 Icon(
                     imageVector = Icons.Filled.Bedtime,
@@ -2129,8 +2111,9 @@ private fun MessageInputBarPreview() {
  * Expressive composer: a tonal capsule holding the + attach menu and a
  * growing text field (up to three lines, then it scrolls; the IME action
  * stays a plain newline), plus a circular send action outside the capsule
- * that springs in scale when the draft gains content and morphs its corners
- * while pressed. The + menu stages photos/videos or any file on the draft
+ * with an icon that springs in scale when the draft gains content and a
+ * container that morphs its corners while pressed. The + menu stages
+ * photos/videos or any file on the draft
  * (a removable thumbnail strip above the field rides the next send) and
  * starts an in-place voice recording; while a take is live the capsule
  * swaps to a timer with live level bars and the send circle stops-and-sends
@@ -2217,21 +2200,9 @@ private fun MessageInputBar(
         animationSpec = fastSpatialSpec(),
         label = "sendCorner",
     )
-    val composerDividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
-
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .drawBehind {
-                val strokeWidth = 1.dp.toPx()
-                drawLine(
-                    color = composerDividerColor,
-                    start = Offset(0f, strokeWidth / 2f),
-                    end = Offset(size.width, strokeWidth / 2f),
-                    strokeWidth = strokeWidth,
-                )
-            }
             .navigationBarsPadding()
             .imePadding(),
     ) {
@@ -2371,7 +2342,7 @@ private fun MessageInputBar(
                         )
                     } else {
                         Row(
-                            modifier = Modifier.padding(6.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             verticalAlignment = Alignment.Bottom,
                         ) {
                             AttachMenuButton(
@@ -2395,16 +2366,12 @@ private fun MessageInputBar(
                         }
                     }
                 }
-                // The send circle lives outside the capsule: it springs in
-                // scale when the draft becomes sendable and morphs from
-                // circle to squircle while pressed.
+                // Keep the send circle flush with the single-line capsule;
+                // its icon springs when the draft becomes sendable while the
+                // full 48dp target stays stable.
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
-                        .graphicsLayer {
-                            scaleX = sendScale
-                            scaleY = sendScale
-                        }
+                        .size(48.dp)
                         .clip(RoundedCornerShape(sendCornerPercent.roundToInt()))
                         .background(sendContainer)
                         .semantics {
@@ -2434,10 +2401,15 @@ private fun MessageInputBar(
                         )
                     } else {
                         Icon(
-                            imageVector = Icons.Filled.ArrowUpward,
+                            imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = null,
                             tint = sendContent,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer {
+                                    scaleX = sendScale
+                                    scaleY = sendScale
+                                },
                         )
                     }
                 }
