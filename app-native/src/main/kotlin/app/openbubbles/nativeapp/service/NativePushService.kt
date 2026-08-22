@@ -26,15 +26,20 @@ import app.openbubbles.nativeapp.data.TranscriptBackgroundStore
 import app.openbubbles.nativeapp.facetime.FaceTimeNotifications
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerializationException
 import uniffi.rust_lib_bluebubbles.MsgReceiver
 import uniffi.rust_lib_bluebubbles.NativePushState
 import uniffi.rust_lib_bluebubbles.UMessage
@@ -66,18 +71,28 @@ class NativePushService : Service(), MsgReceiver {
     @Volatile
     private var pollMode = false
 
+    @Volatile
+    private var onDemandMode = false
+
     private var bootStarted = false
 
     /** Invalidates late callbacks when a post-login reload supersedes restore. */
     private val initGeneration = AtomicInteger(0)
+    /** Lease identity survives reconnect generations but never survives a mode transition. */
+    private val onDemandLeaseGeneration = AtomicInteger(0)
 
     /** Journal consumption belongs to the service lifecycle, never a global polling loop. */
     private val journalMutex = Mutex()
     /** Keeps recovery semantics even when persisting Rust's retry counter fails. Guarded by [journalMutex]. */
     private val journalFailures = mutableSetOf<ULong>()
+    /** Infrastructure failures remain durable; process-local attempts only shape retry backoff. */
+    private val journalRetryAttempts = mutableMapOf<ULong, Int>()
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    private var pollJob: Job? = null
+    private var pollRequestId: Long? = null
+    private var onDemandIdleJob: Job? = null
 
     @Volatile
     private var activeState: NativePushState? = null
@@ -101,13 +116,63 @@ class NativePushService : Service(), MsgReceiver {
         // onCreate runs before Android delivers the start intent. Configure the
         // service mode first, then boot Rust, so a fast nativeReady callback can
         // never mistake a one-shot poll for the persistent APNs loop.
-        if (shouldInitializePush(bootStarted, intent?.action)) {
-            if (isReloadStart(intent?.action)) stopActiveState()
-            pollMode = isPollStart(intent?.action)
-            bootStarted = true
-            bootRust()
+        val action = intent?.action
+        val requestedMode = pushServiceModeFor(action, BatterySaver.isEnabled(this))
+        val currentMode = pushServiceMode(pollMode, onDemandMode)
+        val requestedPollId = intent?.getLongExtra(BatterySaver.EXTRA_POLL_REQUEST_ID, -1L)
+            ?.takeIf { it > 0L }
+
+        // An already-bounded, live session is stronger than a periodic poll;
+        // do not interrupt an active send just because its 15-minute tick ran.
+        if (bootStarted && currentMode == PushServiceMode.ON_DEMAND &&
+            requestedMode == PushServiceMode.POLL
+        ) {
+            BatterySaver.completePoll(requestedPollId, PushStateHolder.state != null)
+            armOnDemandIdleTimeout()
+            return restartModeFor(pollMode, onDemandMode)
         }
-        return restartModeFor(pollMode)
+
+        if (shouldInitializePush(bootStarted, action, currentMode, requestedMode)) {
+            val previousPoll = pollJob
+            val previousState = activeState
+            if (bootStarted) {
+                // Invalidate callbacks before cancelling or replacing either
+                // account state, then fence an active poll before its manager
+                // can clear a newly installed live session.
+                initGeneration.incrementAndGet()
+                reconnectJob?.cancel()
+                onDemandIdleJob?.cancel()
+                onDemandLeaseGeneration.incrementAndGet()
+                previousPoll?.cancel()
+                BatterySaver.completePoll(pollRequestId, false)
+                pollRequestId = null
+                activeState = null
+                if (currentMode != PushServiceMode.POLL) PushStateHolder.clear()
+            }
+
+            pollMode = requestedMode == PushServiceMode.POLL
+            onDemandMode = requestedMode == PushServiceMode.ON_DEMAND
+            pollRequestId = requestedPollId.takeIf { pollMode }
+            bootStarted = true
+
+            if (previousPoll != null && !previousPoll.isCompleted) {
+                val transitionGeneration = initGeneration.get()
+                scope.launch {
+                    previousPoll.join()
+                    previousState?.let(::stopState)
+                    if (transitionGeneration != initGeneration.get()) return@launch
+                    bootRust()
+                    if (onDemandMode) armOnDemandIdleTimeout()
+                }
+            } else {
+                previousState?.let(::stopState)
+                bootRust()
+                if (onDemandMode) armOnDemandIdleTimeout()
+            }
+        } else if (requestedMode == PushServiceMode.ON_DEMAND) {
+            armOnDemandIdleTimeout()
+        }
+        return restartModeFor(pollMode, onDemandMode)
     }
 
     // -- Rust lifecycle -----------------------------------------------------
@@ -298,27 +363,46 @@ class NativePushService : Service(), MsgReceiver {
                     failedInThisProcess = entry.id in journalFailures,
                 )
                 ingestAndNotify(entry.message, handles, entrySource, serviceGeneration, accountGeneration)
-            } catch (error: kotlinx.coroutines.CancellationException) {
+            } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
                 journalFailures += entry.id
+                val localAttempt = (journalRetryAttempts[entry.id] ?: 0)
+                    .let { if (it == Int.MAX_VALUE) it else it + 1 }
+                journalRetryAttempts[entry.id] = localAttempt
                 Log.e(TAG, "journal message failed on attempt ${entry.attempts.toUInt() + 1u} (${diagnosticKind(error)})")
-                runCatching {
-                    runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
-                }.onFailure { persistenceError ->
-                    Log.e(TAG, "failed to persist journal retry (${diagnosticKind(persistenceError)})")
+                if (journalFailureDisposition(error) == JournalFailureDisposition.PERMANENT_PAYLOAD) {
+                    runCatching {
+                        runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
+                    }.onSuccess {
+                        // Rust quarantines the third explicitly malformed
+                        // attempt; do not retain bookkeeping for that old id.
+                        if (entry.attempts.toInt() >= 2) {
+                            journalFailures -= entry.id
+                            journalRetryAttempts -= entry.id
+                        }
+                    }.onFailure { persistenceError ->
+                        if (persistenceError is CancellationException) throw persistenceError
+                        Log.e(TAG, "failed to persist journal retry (${diagnosticKind(persistenceError)})")
+                    }
                 }
-                delay(journalRetryDelayMs(entry.attempts.toInt()))
+                delay(journalRetryDelayMs(maxOf(entry.attempts.toInt(), localAttempt - 1)))
                 continue
             }
             try {
                 if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
                 runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
                 journalFailures -= entry.id
+                journalRetryAttempts -= entry.id
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
+                val localAttempt = (journalRetryAttempts[entry.id] ?: 0)
+                    .let { if (it == Int.MAX_VALUE) it else it + 1 }
+                journalRetryAttempts[entry.id] = localAttempt
                 Log.e(TAG, "failed to persist journal completion (${diagnosticKind(error)})")
-                delay(journalRetryDelayMs(entry.attempts.toInt()))
+                delay(journalRetryDelayMs(maxOf(entry.attempts.toInt(), localAttempt - 1)))
             }
         }
     }
@@ -514,7 +598,6 @@ class NativePushService : Service(), MsgReceiver {
             }
             reconnectJob?.cancel()
             reconnectJob = null
-            reconnectAttempt = 0
             try {
                 PushStateHolder.install(live, handles, registration)
             } catch (error: Throwable) {
@@ -563,6 +646,7 @@ class NativePushService : Service(), MsgReceiver {
             recovery.join()
             if (!acceptsCurrentCallback(generation, accountGeneration)) return@launch
             runCatching { live.startLoop(InitReceiver(generation)) }
+                .onSuccess { reconnectAttempt = 0 }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop (${diagnosticKind(it)})")
                     PushStateHolder.reportError(
@@ -575,6 +659,8 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     private fun stopUnavailableService() {
+        BatterySaver.completePoll(pollRequestId, false)
+        pollRequestId = null
         PushStateHolder.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -586,7 +672,9 @@ class NativePushService : Service(), MsgReceiver {
      * messages, then exit until the next WorkManager tick.
      */
     private fun runPollOnce(live: NativePushState, generation: Int, handles: Set<String>) {
-        scope.launch {
+        val requestId = pollRequestId
+        pollJob = scope.launch {
+            var completed = false
             try {
                 val appCtx = applicationContext
                 app.openbubbles.nativeapp.data.CoreGraph.pollOnce(
@@ -596,13 +684,16 @@ class NativePushService : Service(), MsgReceiver {
                         notifyPollResult(chatId, body, handles)
                     },
                 )
+                completed = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
-                // next WorkManager tick retries
                 Log.e(TAG, "battery-saver poll failed (${diagnosticKind(error)})")
                 PushStateHolder.reportError(
                     "Background message check failed (${diagnosticKind(error)})",
                 )
             } finally {
+                BatterySaver.completePoll(requestId, completed)
                 if (shouldStopAfterPoll(generation, initGeneration.get(), pollMode)) {
                     stopSelf()
                 }
@@ -655,7 +746,13 @@ class NativePushService : Service(), MsgReceiver {
     }
 
     private fun scheduleReconnect(generation: Int, reason: String) {
-        if (pollMode || generation != initGeneration.get()) return
+        if (generation != initGeneration.get()) return
+        if (pollMode) {
+            BatterySaver.completePoll(pollRequestId, false)
+            pollRequestId = null
+            stopSelf()
+            return
+        }
         reconnectJob?.cancel()
         val attempt = reconnectAttempt++
         val delayMs = reconnectDelayMs(attempt)
@@ -665,6 +762,25 @@ class NativePushService : Service(), MsgReceiver {
             if (!pollMode && generation == initGeneration.get()) {
                 updateStatus(CONNECTING_STATUS)
                 bootRust()
+            }
+        }
+    }
+
+    private fun armOnDemandIdleTimeout() {
+        if (!onDemandMode) return
+        onDemandIdleJob?.cancel()
+        val leaseGeneration = onDemandLeaseGeneration.incrementAndGet()
+        onDemandIdleJob = scope.launch {
+            delay(ON_DEMAND_IDLE_TIMEOUT_MS)
+            if (shouldStopAfterOnDemand(
+                    requestedGeneration = leaseGeneration,
+                    currentGeneration = onDemandLeaseGeneration.get(),
+                    mode = pushServiceMode(pollMode, onDemandMode),
+                    batterySaverEnabled = BatterySaver.isEnabled(this@NativePushService),
+                )
+            ) {
+                Log.i(TAG, "battery-saver on-demand Apple push session completed")
+                stopSelf()
             }
         }
     }
@@ -831,7 +947,12 @@ class NativePushService : Service(), MsgReceiver {
 
     override fun onDestroy() {
         initGeneration.incrementAndGet()
+        onDemandLeaseGeneration.incrementAndGet()
         reconnectJob?.cancel()
+        onDemandIdleJob?.cancel()
+        pollJob?.cancel()
+        BatterySaver.completePoll(pollRequestId, false)
+        pollRequestId = null
         stopActiveState()
         PushStateHolder.clear()
         scope.cancel()
@@ -861,10 +982,14 @@ class NativePushService : Service(), MsgReceiver {
         private const val ACCOUNT_REAUTH_REQUIRED_STATUS = "Apple ID sign-in required"
         private const val DISCONNECTED_STATUS = "Apple push disconnected"
         internal const val ACTION_RELOAD = "app.openbubbles.nativeapp.action.RELOAD_PUSH"
+        internal const val ACTION_ON_DEMAND = "app.openbubbles.nativeapp.action.ON_DEMAND_PUSH"
+        internal const val ON_DEMAND_IDLE_TIMEOUT_MS = 90_000L
+        internal const val ON_DEMAND_CONNECT_TIMEOUT_MS = 15_000L
         private const val TAG = "NativePushService"
 
         fun start(context: Context): Boolean {
-            return start(context, action = null)
+            val action = if (BatterySaver.isEnabled(context)) ACTION_ON_DEMAND else null
+            return start(context, action = action)
         }
 
         /** Re-run persisted-state restoration after IDS registration. */
@@ -872,11 +997,35 @@ class NativePushService : Service(), MsgReceiver {
             return start(context, action = ACTION_RELOAD)
         }
 
-        private fun start(context: Context, action: String?): Boolean {
+        /**
+         * Restore a usable session for user work without silently converting
+         * Battery Saver into a persistent, automatically restarted APNs loop.
+         */
+        suspend fun ensureOnDemandSession(
+            context: Context,
+            timeoutMs: Long = ON_DEMAND_CONNECT_TIMEOUT_MS,
+        ): Boolean {
+            val app = context.applicationContext
+            val batterySaver = BatterySaver.isEnabled(app)
+            if (PushStateHolder.state != null && !batterySaver) return true
+            val action = if (batterySaver) ACTION_ON_DEMAND else null
+            if (!start(app, action)) return false
+            if (PushStateHolder.state != null) return true
+            return withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+                PushStateHolder.stateFlow.filterNotNull().first()
+            } != null
+        }
+
+        internal fun startPoll(context: Context, requestId: Long): Boolean =
+            start(context, BatterySaver.ACTION_POLL_ONCE, requestId)
+
+        private fun start(context: Context, action: String?, pollRequestId: Long? = null): Boolean {
             return try {
-                context.startForegroundService(
-                    Intent(context, NativePushService::class.java).setAction(action),
-                )
+                val intent = Intent(context, NativePushService::class.java).setAction(action)
+                if (pollRequestId != null) {
+                    intent.putExtra(BatterySaver.EXTRA_POLL_REQUEST_ID, pollRequestId)
+                }
+                context.startForegroundService(intent)
                 true
             } catch (error: SecurityException) {
                 Log.w("NativePushService", "foreground start denied")
@@ -907,17 +1056,57 @@ internal fun isPollStart(action: String?): Boolean =
 internal fun isReloadStart(action: String?): Boolean =
     action == NativePushService.ACTION_RELOAD
 
-internal fun shouldInitializePush(bootStarted: Boolean, action: String?): Boolean =
-    !bootStarted || isReloadStart(action)
+internal enum class PushServiceMode { PERSISTENT, POLL, ON_DEMAND }
 
-internal fun restartModeFor(pollMode: Boolean): Int =
-    if (pollMode) Service.START_NOT_STICKY else Service.START_STICKY
+internal fun pushServiceMode(pollMode: Boolean, onDemandMode: Boolean): PushServiceMode = when {
+    pollMode -> PushServiceMode.POLL
+    onDemandMode -> PushServiceMode.ON_DEMAND
+    else -> PushServiceMode.PERSISTENT
+}
+
+internal fun pushServiceModeFor(action: String?, batterySaverEnabled: Boolean): PushServiceMode = when {
+    batterySaverEnabled && isPollStart(action) -> PushServiceMode.POLL
+    batterySaverEnabled -> PushServiceMode.ON_DEMAND
+    else -> PushServiceMode.PERSISTENT
+}
+
+internal fun shouldInitializePush(
+    bootStarted: Boolean,
+    action: String?,
+    currentMode: PushServiceMode? = null,
+    requestedMode: PushServiceMode? = null,
+): Boolean = !bootStarted || isReloadStart(action) ||
+    (currentMode != null && requestedMode != null && currentMode != requestedMode)
+
+internal fun restartModeFor(pollMode: Boolean, onDemandMode: Boolean = false): Int =
+    if (pollMode || onDemandMode) Service.START_NOT_STICKY else Service.START_STICKY
 
 internal fun shouldStopAfterPoll(
     pollGeneration: Int,
     currentGeneration: Int,
     pollMode: Boolean,
 ): Boolean = pollMode && pollGeneration == currentGeneration
+
+internal fun shouldStopAfterOnDemand(
+    requestedGeneration: Int,
+    currentGeneration: Int,
+    mode: PushServiceMode,
+    batterySaverEnabled: Boolean,
+): Boolean = batterySaverEnabled && mode == PushServiceMode.ON_DEMAND &&
+    requestedGeneration == currentGeneration
+
+internal enum class JournalFailureDisposition { PERMANENT_PAYLOAD, TRANSIENT }
+
+/** Use only where a decoder proves that these specific incoming bytes are invalid. */
+internal class PermanentJournalPayloadException(cause: Throwable) :
+    IllegalArgumentException("Invalid incoming message payload", cause)
+
+internal fun journalFailureDisposition(error: Throwable): JournalFailureDisposition =
+    if (error is PermanentJournalPayloadException || error is SerializationException) {
+        JournalFailureDisposition.PERMANENT_PAYLOAD
+    } else {
+        JournalFailureDisposition.TRANSIENT
+    }
 
 internal fun acceptsPushCallback(
     callbackServiceGeneration: Int,

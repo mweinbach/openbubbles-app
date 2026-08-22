@@ -84,4 +84,24 @@ class PhotosBackgroundSyncTest {
         assertTrue(PhotosBackgroundSync.BATCH_LIMIT in 1..200)
         assertTrue(PhotosBackgroundSync.MAX_AUTOMATIC_ATTEMPTS in 1..10)
     }
+
+    @Test
+    fun cameraBackupNeverRestoresPersistentPushWhileBatterySaverIsEnabled() {
+        assertEquals(
+            PhotoBackupPushPolicy.BOUNDED_ON_DEMAND,
+            photoBackupPushPolicy(hasLiveState = false, batterySaverEnabled = true),
+        )
+        assertEquals(
+            PhotoBackupPushPolicy.BOUNDED_ON_DEMAND,
+            photoBackupPushPolicy(hasLiveState = true, batterySaverEnabled = true),
+        )
+        assertEquals(
+            PhotoBackupPushPolicy.RESTORE_PERSISTENT,
+            photoBackupPushPolicy(hasLiveState = false, batterySaverEnabled = false),
+        )
+        assertEquals(
+            PhotoBackupPushPolicy.EXISTING,
+            photoBackupPushPolicy(hasLiveState = true, batterySaverEnabled = false),
+        )
+    }
 }

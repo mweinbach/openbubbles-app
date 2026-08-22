@@ -29,6 +29,7 @@ import app.openbubbles.core.photos.PhotosBrowser
 import app.openbubbles.core.photos.UniffiPhotosPort
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.runAccountCleanupSteps
+import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -358,6 +359,17 @@ internal fun shouldAutoUpload(transfer: PhotoTransfer): Boolean =
         else -> false
     }
 
+internal enum class PhotoBackupPushPolicy { EXISTING, BOUNDED_ON_DEMAND, RESTORE_PERSISTENT }
+
+internal fun photoBackupPushPolicy(
+    hasLiveState: Boolean,
+    batterySaverEnabled: Boolean,
+): PhotoBackupPushPolicy = when {
+    batterySaverEnabled -> PhotoBackupPushPolicy.BOUNDED_ON_DEMAND
+    hasLiveState -> PhotoBackupPushPolicy.EXISTING
+    else -> PhotoBackupPushPolicy.RESTORE_PERSISTENT
+}
+
 class PhotosBackgroundSyncWorker(
     context: Context,
     params: WorkerParameters,
@@ -370,13 +382,16 @@ class PhotosBackgroundSyncWorker(
             PhotosBackgroundSync.armFollowUp(context, backlog = false)
             return Result.success()
         }
-        val state = PushStateHolder.state
-        if (state == null) {
-            // Apple services are not connected in this process yet (battery saver
-            // or a cold start). Ask the push service to come up and try again.
-            NativePushService.start(context)
-            return Result.retry()
-        }
+        val policy = photoBackupPushPolicy(
+            hasLiveState = PushStateHolder.state != null,
+            batterySaverEnabled = BatterySaver.isEnabled(context),
+        )
+        val state = when (policy) {
+            PhotoBackupPushPolicy.EXISTING -> PushStateHolder.state
+            PhotoBackupPushPolicy.BOUNDED_ON_DEMAND,
+            PhotoBackupPushPolicy.RESTORE_PERSISTENT,
+            -> if (NativePushService.ensureOnDemandSession(context)) PushStateHolder.state else null
+        } ?: return Result.retry()
         val owner = currentCoroutineContext()[Job] ?: return Result.retry()
         val session = PhotosWorkRegistry.register()
         if (!session.adopt(owner)) {
