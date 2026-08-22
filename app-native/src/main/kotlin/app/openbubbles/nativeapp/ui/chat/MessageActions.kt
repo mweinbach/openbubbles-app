@@ -45,14 +45,27 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.AttachmentMeta
 import app.openbubbles.nativeapp.data.MessageItem
 import app.openbubbles.nativeapp.data.MessageStatus
 import app.openbubbles.nativeapp.service.MessageReminders
-import app.openbubbles.nativeapp.ui.attachmentviewer.shareAttachment
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.text.DateFormat
 import java.time.ZonedDateTime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun MessageActionSheet(
@@ -83,6 +96,9 @@ internal fun MessageActionSheet(
     onDismiss: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    // The sheet disappears before its action runs. The chat lifecycle outlives
+    // that composition, while still cancelling work when the chat is removed.
+    val attachmentActionScope = LocalLifecycleOwner.current.lifecycleScope
     var showCustomReaction by remember(message.guid) { mutableStateOf(false) }
     var showInfo by remember(message.guid) { mutableStateOf(false) }
     var showReminder by remember(message.guid) { mutableStateOf(false) }
@@ -129,11 +145,66 @@ internal fun MessageActionSheet(
             }
             if (downloaded.isNotEmpty()) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    item { ActionRow("Save") { finish { saveAttachments(context, downloaded); onResult("Saved to Downloads") } } }
-                    item { ActionRow("Save original") { finish { saveAttachments(context, downloaded); onResult("Saved original payload") } } }
+                    item {
+                        ActionRow("Save") {
+                            finish {
+                                launchMessageAttachmentIo(
+                                    scope = attachmentActionScope,
+                                    work = { saveAttachments(context, downloaded) },
+                                    onSuccess = { onResult("Saved to Downloads") },
+                                    onFailure = { onResult("Could not save attachment") },
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        ActionRow("Save original") {
+                            finish {
+                                launchMessageAttachmentIo(
+                                    scope = attachmentActionScope,
+                                    work = { saveAttachments(context, downloaded) },
+                                    onSuccess = { onResult("Saved original payload") },
+                                    onFailure = { onResult("Could not save original attachment") },
+                                )
+                            }
+                        }
+                    }
                 }
-                item { ActionRow("Share") { finish { downloaded.forEach { (meta, file) -> shareAttachment(context, file, meta.mime) } } } }
-                item { ActionRow("Copy attachment") { finish { copyAttachment(context, downloaded.first().second, downloaded.first().first.mime); onResult("Attachment copied") } } }
+                item {
+                    ActionRow("Share") {
+                        finish {
+                            launchMessageAttachmentIo(
+                                scope = attachmentActionScope,
+                                work = {
+                                    downloaded.map { (meta, file) ->
+                                        attachmentShareIntent(context, file, meta.mime)
+                                    }
+                                },
+                                onSuccess = { intents ->
+                                    intents.forEach { intent -> context.startActivity(intent) }
+                                },
+                                onFailure = { onResult("Could not share attachment") },
+                            )
+                        }
+                    }
+                }
+                item {
+                    ActionRow("Copy attachment") {
+                        finish {
+                            val (meta, file) = downloaded.first()
+                            launchMessageAttachmentIo(
+                                scope = attachmentActionScope,
+                                work = { attachmentClipData(context, file, meta.mime) },
+                                onSuccess = { clip ->
+                                    context.getSystemService(ClipboardManager::class.java)
+                                        ?.setPrimaryClip(clip)
+                                    onResult("Attachment copied")
+                                },
+                                onFailure = { onResult("Could not copy attachment") },
+                            )
+                        }
+                    }
+                }
             }
             if (attachments.isNotEmpty()) {
                 item { ActionRow("Re-download") { finish { attachments.forEach(onDownloadAttachment) } } }
@@ -344,13 +415,22 @@ private fun copyText(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Message", text))
 }
 
-private fun copyAttachment(context: Context, file: File, mime: String?) {
+private fun attachmentClipData(context: Context, file: File, mime: String?): ClipData {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
-        ClipData.newUri(context.contentResolver, file.name, uri).apply {
-            description.extras = android.os.PersistableBundle().apply { putString("mime", mime) }
-        },
-    )
+    return ClipData.newUri(context.contentResolver, file.name, uri).apply {
+        description.extras = android.os.PersistableBundle().apply { putString("mime", mime) }
+    }
+}
+
+private fun attachmentShareIntent(context: Context, file: File, mime: String?): Intent {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = mime ?: "application/octet-stream"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newUri(context.contentResolver, file.name, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    return Intent.createChooser(send, "Share attachment")
 }
 
 private fun shareText(context: Context, text: String) {
@@ -365,17 +445,93 @@ private fun openBrowser(context: Context, url: String) {
 }
 
 @RequiresApi(Build.VERSION_CODES.Q)
-private fun saveAttachments(context: Context, files: List<Pair<AttachmentMeta, File>>) {
+private suspend fun saveAttachments(context: Context, files: List<Pair<AttachmentMeta, File>>) {
+    val resolver = context.contentResolver
     files.forEach { (meta, file) ->
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, meta.name ?: file.name)
             put(MediaStore.Downloads.MIME_TYPE, meta.mime ?: "application/octet-stream")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
-        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@forEach
-        context.contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
-        values.clear()
-        values.put(MediaStore.Downloads.IS_PENDING, 0)
-        context.contentResolver.update(uri, values, null, null)
+        publishMessageAttachmentExport(
+            reserve = { resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) },
+            write = { uri ->
+                val output = resolver.openOutputStream(uri)
+                    ?: throw IOException("Could not open the attachment export")
+                output.use { destination ->
+                    file.inputStream().use { source ->
+                        copyMessageAttachmentBytes(source, destination)
+                    }
+                }
+            },
+            publish = { uri ->
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null) > 0
+            },
+            rollback = { uri -> resolver.delete(uri, null, null) },
+        )
     }
+}
+
+/** Keep provider and filesystem work off the owner dispatcher and suppress late results. */
+internal fun <Result> launchMessageAttachmentIo(
+    scope: CoroutineScope,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    work: suspend () -> Result,
+    onSuccess: suspend (Result) -> Unit,
+    onFailure: suspend (Throwable) -> Unit,
+): Job = scope.launch {
+    try {
+        val result = withContext(ioDispatcher) { work() }
+        currentCoroutineContext().ensureActive()
+        onSuccess(result)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        currentCoroutineContext().ensureActive()
+        onFailure(failure)
+    }
+}
+
+/** Only abandon our own unpublished provider row; published exports belong to the user. */
+internal suspend fun <Destination : Any> publishMessageAttachmentExport(
+    reserve: () -> Destination?,
+    write: suspend (Destination) -> Unit,
+    publish: (Destination) -> Boolean,
+    rollback: (Destination) -> Unit,
+) {
+    currentCoroutineContext().ensureActive()
+    val destination = reserve() ?: throw IOException("Could not reserve the attachment export")
+    var published = false
+    try {
+        write(destination)
+        currentCoroutineContext().ensureActive()
+        if (!publish(destination)) throw IOException("Could not publish the attachment export")
+        published = true
+    } finally {
+        if (!published) {
+            // This stays inside the IO context and runs synchronously even
+            // when cancellation caused the interrupted copy to unwind.
+            try {
+                rollback(destination)
+            } catch (_: Exception) {
+                // Preserve the original provider, stream, or cancellation failure.
+            }
+        }
+    }
+}
+
+/** A large local attachment must observe chat destruction between stream chunks. */
+internal suspend fun copyMessageAttachmentBytes(input: InputStream, output: OutputStream) {
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        val count = input.read(buffer)
+        if (count < 0) break
+        currentCoroutineContext().ensureActive()
+        output.write(buffer, 0, count)
+    }
+    currentCoroutineContext().ensureActive()
+    output.flush()
 }
