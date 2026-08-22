@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -89,7 +89,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
@@ -102,11 +102,9 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
-import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberPolygonMorph
-import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.settings.SettingsChoiceItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
@@ -587,7 +585,7 @@ private fun ChatSections(
             .testTag(if (listIsScrollable) ChatListScrollableTag else ChatListIdleTag),
         state = listState,
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item(key = "header") {
@@ -614,34 +612,19 @@ private fun ChatSections(
         }
         val rows = if (kind == ChatListKind.Archive) uiState.archived else uiState.chats
         if (rows.isNotEmpty()) {
-            item(key = "conversation-section", contentType = "section-heading") {
-                ConversationSectionHeader(
-                    title = when {
-                        kind == ChatListKind.Archive -> "Archived conversations"
-                        uiState.pinned.isNotEmpty() -> "Recent conversations"
-                        else -> "All conversations"
-                    },
-                    count = rows.size,
-                    modifier = Modifier
-                        .widthIn(max = ListContentMaxWidth)
-                        .fillMaxWidth(),
-                )
-            }
-            itemsIndexed(
+            items(
                 items = rows,
-                key = { _, chat -> "chat-${chat.id}" },
-                contentType = { _, _ -> "conversation" },
-            ) { index, chat ->
+                key = { chat -> "chat-${chat.id}" },
+                contentType = { "conversation" },
+            ) { chat ->
                 ChatListRow(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId || chat.id in checkedIds,
                     checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
-                    shape = segmentedRowShape(index = index, count = rows.size),
                     modifier = Modifier
                         .widthIn(max = ListContentMaxWidth)
-                        .padding(horizontal = 14.dp)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -657,30 +640,6 @@ private fun ChatSections(
 }
 
 @Composable
-private fun ConversationSectionHeader(
-    title: String,
-    count: Int,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmallEmphasized,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = count.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun PinnedChatsGrid(
     chats: List<ChatListItem>,
     onChatClick: (ChatListItem) -> Unit,
@@ -689,59 +648,29 @@ private fun PinnedChatsGrid(
     checkedIds: Set<Long>,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = MaterialTheme.shapes.extraLargeIncreased,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+    BoxWithConstraints(
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp),
     ) {
-        Column(modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PushPin,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = "Pinned",
-                    style = MaterialTheme.typography.titleSmallEmphasized,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = chats.size.toString(),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            BoxWithConstraints(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-                val columns = pinnedChatColumnCount(maxWidth)
-                val avatarSize = if (columns >= 4) 72.dp else 68.dp
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    chats.chunked(columns).forEach { rowChats ->
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            rowChats.forEach { chat ->
-                                key(chat.id) {
-                                    PinnedChatTile(
-                                        chat = chat,
-                                        onClick = onChatClick,
-                                        onLongClick = onChatLongClick,
-                                        selected = chat.id == selectedChatId || chat.id in checkedIds,
-                                        checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
-                                        avatarSize = avatarSize,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                            repeat(columns - rowChats.size) {
-                                Spacer(Modifier.weight(1f))
-                            }
+        val columns = pinnedChatColumnCount(maxWidth)
+        val avatarSize = if (columns >= 4) 72.dp else 68.dp
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            chats.chunked(columns).forEach { rowChats ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    rowChats.forEach { chat ->
+                        key(chat.id) {
+                            PinnedChatTile(
+                                chat = chat,
+                                onClick = onChatClick,
+                                onLongClick = onChatLongClick,
+                                selected = chat.id == selectedChatId || chat.id in checkedIds,
+                                checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
+                                avatarSize = avatarSize,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
+                    }
+                    repeat(columns - rowChats.size) {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -835,7 +764,7 @@ private fun PinnedChatTile(
     }
 }
 
-/** One connected, Messages-style conversation row with restrained expressive feedback. */
+/** One flat, Messages-style conversation row with restrained expressive feedback. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListRow(
@@ -847,8 +776,6 @@ fun ChatListRow(
     selected: Boolean = false,
     /** Null when the list is not in selection mode. */
     checked: Boolean? = null,
-    /** Connected-group corners supplied by the owning conversation section. */
-    shape: Shape? = null,
 ) {
     val unread = chat.unread > 0
     val interactionSource = remember { MutableInteractionSource() }
@@ -862,7 +789,7 @@ fun ChatListRow(
         targetValue = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainer
+            Color.Transparent
         },
         animationSpec = fastEffectsSpec(),
         label = "conversationSelectionColor",
@@ -873,7 +800,7 @@ fun ChatListRow(
         MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
-        shape = if (selected) MaterialTheme.shapes.extraLarge else shape ?: MaterialTheme.shapes.largeIncreased,
+        shape = if (selected) MaterialTheme.shapes.extraLarge else RectangleShape,
         color = containerColor,
         modifier = modifier
             .fillMaxWidth()
