@@ -142,23 +142,23 @@ fun QrScannerSheet(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            scanner.close()
+            runCatching { executor.shutdown() }
+        }
+    }
     DisposableEffect(hasPermission, lifecycleOwner) {
         if (hasPermission) {
             cameraController.setImageAnalysisAnalyzer(
                 executor,
-                qrMlKitAnalyzer(scanner, executor, deliver),
+                qrMlKitAnalyzer(scanner, mainExecutor, deliver),
             )
             cameraAvailable = bindQrCameraToLifecycle(cameraController, lifecycleOwner)
         }
         onDispose {
             cameraController.clearImageAnalysisAnalyzer()
             cameraController.unbind()
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            runCatching { executor.shutdown() }
-            scanner.close()
         }
     }
 
