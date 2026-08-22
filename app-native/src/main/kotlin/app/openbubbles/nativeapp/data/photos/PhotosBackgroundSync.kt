@@ -23,6 +23,7 @@ import androidx.work.WorkerParameters
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferCoordinator
 import app.openbubbles.core.photos.PhotoTransferDirection
+import app.openbubbles.core.photos.PhotoTransferOrigin
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosBrowser
@@ -87,9 +88,9 @@ object PhotosBackgroundSync {
 
     fun requiredPermissions(): Array<String> = photoBackupPermissions(Build.VERSION.SDK_INT).toTypedArray()
 
-    /** Full or user-selected read access to device images. */
+    /** Camera backup needs full-library read access and unredacted capture metadata. */
     fun hasMediaPermission(context: Context): Boolean =
-        photoBackupReadPermissions(Build.VERSION.SDK_INT).any { permission ->
+        hasRequiredPhotoBackupGrants(Build.VERSION.SDK_INT) { permission ->
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         }
 
@@ -112,7 +113,12 @@ object PhotosBackgroundSync {
             return@withContext false
         }
         if (!hasMediaPermission(app)) return@withContext false
-        val watermark = runCatching { currentMaxDcimImageId(app.contentResolver) }.getOrDefault(0L)
+        val watermark = photoBackupBaselineOrNull {
+            currentMaxDcimImageId(app.contentResolver)
+        } ?: run {
+            Log.w(TAG, "camera backup requires a readable DCIM baseline")
+            return@withContext false
+        }
         prefs(app).edit {
             putBoolean(KEY_ENABLED, true)
             putLong(KEY_WATERMARK_ID, watermark)
@@ -198,7 +204,7 @@ object PhotosBackgroundSync {
         }
     }
 
-    internal fun currentMaxDcimImageId(resolver: ContentResolver): Long {
+    internal fun currentMaxDcimImageId(resolver: ContentResolver): Long? {
         val (selection, args) = dcimImageSelection(Build.VERSION.SDK_INT)
         return resolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -206,7 +212,7 @@ object PhotosBackgroundSync {
             selection,
             args,
             "${MediaStore.Images.Media._ID} DESC",
-        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
     }
 
     /** DCIM images newer than [afterId], oldest first, at most [limit]. */
@@ -268,27 +274,34 @@ object PhotosBackgroundSync {
                 }
                 var candidate: PickedPhotoUpload? = null
                 try {
-                    candidate = preparePhotoUploadCandidate(app, image.uri)
-                    coordinator.planUpload(
-                        sourcePath = candidate.file.absolutePath,
-                        previewPath = candidate.previewFile.absolutePath,
-                        filename = candidate.filename,
-                        mimeType = candidate.mimeType,
-                        orientation = candidate.orientation,
-                        capturedAtMs = candidate.capturedAtMs,
-                        timeZone = candidate.timeZone,
+                    stageCameraBackupImage(
+                        mediaId = image.id,
+                        stage = {
+                            val picked = preparePhotoUploadCandidate(app, image.uri)
+                            candidate = picked
+                            coordinator.planUpload(
+                                sourcePath = picked.file.absolutePath,
+                                previewPath = picked.previewFile.absolutePath,
+                                filename = picked.filename,
+                                mimeType = picked.mimeType,
+                                orientation = picked.orientation,
+                                capturedAtMs = picked.capturedAtMs,
+                                timeZone = picked.timeZone,
+                                origin = PhotoTransferOrigin.CameraBackup,
+                            )
+                        },
+                        recordProcessed = { recordProcessed(app, it) },
                     )
                     staged += 1
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
-                    // An undecodable or vanished item must not block everything after it.
-                    Log.w(TAG, "skipping a DCIM item that could not be staged: ${error.javaClass.simpleName}")
+                    Log.w(TAG, "camera photo staging failed; retrying: ${error.javaClass.simpleName}")
+                    throw error
                 } finally {
                     candidate?.file?.delete()
                     candidate?.previewFile?.delete()
                 }
-                recordProcessed(app, image.id)
             }
 
             var uploaded = 0
@@ -324,36 +337,66 @@ internal data class DeviceImage(
     val mimeType: String?,
 )
 
+/** A missing provider cursor is not the same as a successfully observed empty camera roll. */
+internal fun photoBackupBaselineOrNull(readBaseline: () -> Long?): Long? = try {
+    readBaseline()?.takeIf { it >= 0 }
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    null
+}
+
+/** Do not skip a camera photo until its upload intent is durably recorded. */
+internal suspend fun stageCameraBackupImage(
+    mediaId: Long,
+    stage: suspend () -> Unit,
+    recordProcessed: (Long) -> Unit,
+) {
+    stage()
+    recordProcessed(mediaId)
+}
+
 /** Runtime permissions the backup switch asks for on this OS version. */
 internal fun photoBackupPermissions(sdkInt: Int): List<String> = buildList {
     addAll(photoBackupReadPermissions(sdkInt))
+    if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    }
     if (sdkInt >= Build.VERSION_CODES.Q) add(Manifest.permission.ACCESS_MEDIA_LOCATION)
 }
 
-/** Any one of these grants enough read access for a backup pass. */
+/** Selected-photos grants cannot observe future camera captures or establish a complete baseline. */
 internal fun photoBackupReadPermissions(sdkInt: Int): List<String> = when {
-    sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> listOf(
-        Manifest.permission.READ_MEDIA_IMAGES,
-        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
-    )
     sdkInt >= Build.VERSION_CODES.TIRAMISU -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
     else -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 }
 
-/** MediaStore selection for camera-roll images: anything under `DCIM/`. */
+/** Full-library access is mandatory; Android 10+ also needs the unredacted-location grant. */
+internal fun hasRequiredPhotoBackupGrants(
+    sdkInt: Int,
+    isGranted: (String) -> Boolean,
+): Boolean = photoBackupReadPermissions(sdkInt).all(isGranted) &&
+    (sdkInt < Build.VERSION_CODES.Q || isGranted(Manifest.permission.ACCESS_MEDIA_LOCATION))
+
+/** Camera images under DCIM, excluding this app's cloud-origin gallery exports. */
 internal fun dcimImageSelection(sdkInt: Int): Pair<String, Array<String>> =
     if (sdkInt >= Build.VERSION_CODES.Q) {
-        "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND ${MediaStore.Images.Media.MIME_TYPE} LIKE ?" to
-            arrayOf("DCIM/%", "image/%")
+        "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND " +
+            "${MediaStore.Images.Media.RELATIVE_PATH} NOT LIKE ? AND " +
+            "${MediaStore.Images.Media.MIME_TYPE} LIKE ?" to
+            arrayOf("DCIM/%", "${PhotoLibraryExport.ALBUM_PATH}/%", "image/%")
     } else {
         @Suppress("DEPRECATION")
-        "${MediaStore.Images.Media.DATA} LIKE ? AND ${MediaStore.Images.Media.MIME_TYPE} LIKE ?" to
-            arrayOf("%/DCIM/%", "image/%")
+        "${MediaStore.Images.Media.DATA} LIKE ? AND " +
+            "${MediaStore.Images.Media.DATA} NOT LIKE ? AND " +
+            "${MediaStore.Images.Media.MIME_TYPE} LIKE ?" to
+            arrayOf("%/DCIM/%", "%/${PhotoLibraryExport.ALBUM_PATH}/%", "image/%")
     }
 
-/** Queued rows always upload; failed rows retry a bounded number of times. */
+/** Only camera-authorized rows upload automatically; manual picker/folder rows remain untouched. */
 internal fun shouldAutoUpload(transfer: PhotoTransfer): Boolean =
-    transfer.direction == PhotoTransferDirection.Upload && when (transfer.state) {
+    transfer.direction == PhotoTransferDirection.Upload &&
+        transfer.origin == PhotoTransferOrigin.CameraBackup && when (transfer.state) {
         PhotoTransferState.Queued -> true
         PhotoTransferState.Failed -> transfer.attemptCount < PhotosBackgroundSync.MAX_AUTOMATIC_ATTEMPTS
         else -> false

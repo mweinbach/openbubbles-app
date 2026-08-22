@@ -11,6 +11,7 @@ import app.openbubbles.core.photos.PhotoResourceKind
 import app.openbubbles.core.photos.PhotoSummary
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferDirection
+import app.openbubbles.core.photos.PhotoTransferOrigin
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosCatalog
 import kotlinx.coroutines.Dispatchers
@@ -183,6 +184,7 @@ class PhotosSqliteCatalog(context: Context) :
         putNullable("last_error", lastError)
         put("created_at_ms", createdAtMs)
         put("updated_at_ms", updatedAtMs)
+        put("origin", origin.name)
     }
 
     private fun Cursor.photoSummary() = PhotoSummary(
@@ -216,6 +218,7 @@ class PhotosSqliteCatalog(context: Context) :
         lastError = nullableString("last_error"),
         createdAtMs = long("created_at_ms"),
         updatedAtMs = long("updated_at_ms"),
+        origin = enumValue("origin", PhotoTransferOrigin.Manual),
     )
 
     private inline fun <reified T : Enum<T>> Cursor.enumValue(column: String, fallback: T): T =
@@ -247,7 +250,7 @@ class PhotosSqliteCatalog(context: Context) :
 
     companion object {
         const val DATABASE_NAME = "openbubbles-photos.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
 
         private const val ASSETS_TABLE = "photo_assets"
         private const val SYNC_TABLE = "photo_sync_state"
@@ -299,7 +302,8 @@ class PhotosSqliteCatalog(context: Context) :
                 attempt_count INTEGER NOT NULL,
                 last_error TEXT,
                 created_at_ms INTEGER NOT NULL,
-                updated_at_ms INTEGER NOT NULL
+                updated_at_ms INTEGER NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'Manual'
             )
         """
         private const val CREATE_TRANSFER_ASSET_INDEX =
@@ -317,6 +321,9 @@ class PhotosSqliteCatalog(context: Context) :
 
         internal fun migrationStatements(oldVersion: Int, newVersion: Int): List<String> = when {
             oldVersion == newVersion -> emptyList()
+            oldVersion == 1 && newVersion == 2 -> listOf(
+                "ALTER TABLE photo_transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'Manual'",
+            )
             else -> error(
                 "Missing Photos catalog migration from version $oldVersion to $newVersion",
             )
