@@ -18,6 +18,12 @@ Below are the last few OpenGarden App release changelogs
 
 ### Fixes
 
+- iCloud Photos now discovers captures created on other Apple devices using
+  Apple's photo-date index and continues through every available cloud page.
+- Interrupted iCloud Photos thumbnails resume correctly instead of remaining
+  blank or stuck while scrolling through the library.
+- Unexpected CloudKit responses no longer crash iCloud Photos or expose
+  internal Rust engine errors.
 - Conversation headers no longer repeat the iMessage or SMS service below the
   contact name.
 - The message composer no longer adds a distracting full-width background or
