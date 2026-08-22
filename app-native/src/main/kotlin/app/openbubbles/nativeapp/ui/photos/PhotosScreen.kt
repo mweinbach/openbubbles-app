@@ -86,6 +86,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -99,11 +100,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -127,6 +130,7 @@ import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
 import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import app.openbubbles.nativeapp.ui.common.HdrColorModeEffect
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
+import app.openbubbles.nativeapp.ui.common.rememberDecodedImageResult
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
@@ -827,6 +831,10 @@ private fun PhotoViewer(
         initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0)),
         pageCount = { assets.size },
     )
+    var displayedImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    // One owner for the entire viewer prevents neighboring composed pager
+    // pages from repeatedly resetting the same window's HDR color mode.
+    HdrColorModeEffect(displayedImage)
     var showInfo by remember { mutableStateOf(false) }
     var chromeVisible by remember { mutableStateOf(true) }
     val context = LocalContext.current
@@ -873,6 +881,9 @@ private fun PhotoViewer(
                 preview = uiState.previewTransfers[asset.id],
                 original = uiState.originalTransfers[asset.id],
                 playbackEnabled = page == pagerState.settledPage && !pagerState.isScrollInProgress,
+                onDisplayedImage = { image ->
+                    if (page == pagerState.settledPage) displayedImage = image
+                },
                 onToggleChrome = { chromeVisible = !chromeVisible },
                 onRetryOriginal = { onRetryOriginal(asset) },
             )
@@ -995,6 +1006,7 @@ private fun PhotoPage(
     preview: PhotoTransfer?,
     original: PhotoTransfer?,
     playbackEnabled: Boolean,
+    onDisplayedImage: (ImageBitmap?) -> Unit,
     onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
@@ -1003,11 +1015,18 @@ private fun PhotoPage(
         ?.localPath?.let(::File)
     val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
-    val originalImage = if (asset.mediaKind == PhotoMediaKind.Image) {
-        rememberDecodedImage(originalFile, maxDimensionPx = 2048)
+    val windowSize = LocalWindowInfo.current.containerSize
+    // Preserve some zoom detail while bounding unusually large originals to
+    // what this display can use. A 1320x2868 screenshot stays full resolution
+    // on the Pixel's 2364px screen rather than falling back to a 414px preview.
+    val viewerMaxDimensionPx = ((maxOf(windowSize.width, windowSize.height) * 5) / 4)
+        .coerceIn(2048, 4096)
+    val originalResult = if (asset.mediaKind == PhotoMediaKind.Image) {
+        rememberDecodedImageResult(originalFile, maxDimensionPx = viewerMaxDimensionPx)
     } else {
         null
     }
+    val originalImage = originalResult?.image
     val previewImage = if (asset.mediaKind == PhotoMediaKind.Image) {
         rememberDecodedImage(previewFile, maxDimensionPx = 2048)
     } else {
@@ -1052,7 +1071,11 @@ private fun PhotoPage(
         when (asset.mediaKind) {
             PhotoMediaKind.Image -> {
                 val decoded = originalImage ?: previewImage.takeIf { imageState.showPreview }
-                HdrColorModeEffect(decoded?.image.takeIf { playbackEnabled })
+                SideEffect {
+                    if (playbackEnabled && originalResult?.isLoading != true) {
+                        onDisplayedImage(decoded?.image)
+                    }
+                }
                 if (decoded != null) {
                     Image(
                         bitmap = decoded.image,
@@ -1068,6 +1091,9 @@ private fun PhotoPage(
                 }
             }
             PhotoMediaKind.Video -> if (originalFile != null) {
+                SideEffect {
+                    if (playbackEnabled) onDisplayedImage(null)
+                }
                 AttachmentVideoPlayer(
                     file = originalFile,
                     controlsVisible = true,

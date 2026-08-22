@@ -21,7 +21,7 @@ android {
         applicationId "com.openbubbles.messaging"
         minSdk 26
         targetSdk 36
-        versionCode 20002282
+        versionCode 20002283
         versionName "3.5.2"
         manifestPlaceholders.firebaseTelemetryCollectionEnabled = "false"
         manifestPlaceholders.firebaseMessagingAutoInitEnabled = "true"
@@ -250,6 +250,9 @@ dependencies {
     implementation libs.androidx.media3.common
     implementation libs.androidx.media3.exoplayer
     implementation libs.androidx.media3.ui.compose
+    // Independent software HEVC RExt decoder for 10-bit 4:4:4 iPhone HEIC;
+    // Media3 and Android's image decoders share the same unsupported codec.
+    implementation libs.awxkee.avif.coder
 
     // QR pairing scanner (provisioning): CameraX + official ML Kit Analyzer
     implementation libs.androidx.camera.camera2
