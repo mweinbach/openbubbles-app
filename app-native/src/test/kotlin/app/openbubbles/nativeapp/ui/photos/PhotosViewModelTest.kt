@@ -152,6 +152,48 @@ class PhotosViewModelTest {
         }
 
     @Test
+    fun `failed pagination preserves the current library and retries inline`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-paging-retry").toFile()
+            try {
+                val first = photo("first")
+                val second = photo("second")
+                val catalog = FakeCatalog(CachedPhotos())
+                val port = MetadataPagesPort(
+                    PhotosPage(listOf(first), nextCursor = "next-page"),
+                    PhotosPage(listOf(second), nextCursor = null),
+                )
+                val model = model(port, catalog, root)
+                advanceUntilIdle()
+
+                port.nextPageFailure = IllegalStateException("Connection interrupted")
+                model.loadMore()
+                advanceUntilIdle()
+
+                assertEquals(listOf(first.id), model.uiState.value.snapshot?.assets?.map(PhotoSummary::id))
+                assertEquals("next-page", model.uiState.value.snapshot?.nextCursor)
+                assertEquals("Connection interrupted", model.uiState.value.loadMoreError)
+                assertEquals(null, model.uiState.value.error)
+                assertEquals(false, model.uiState.value.loadingMore)
+                assertEquals(listOf(first.id), catalog.loadMetadata().assets.map(PhotoSummary::id))
+
+                model.loadMore()
+                advanceUntilIdle()
+
+                assertEquals(
+                    listOf(first.id, second.id),
+                    model.uiState.value.snapshot?.assets?.map(PhotoSummary::id),
+                )
+                assertEquals(null, model.uiState.value.loadMoreError)
+                assertEquals(null, model.uiState.value.snapshot?.nextCursor)
+                assertEquals(listOf(null, "next-page", "next-page"), port.cursors)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
     fun `missing completed downloads restore as queued instead of blank successes`() =
         runTest(dispatcher) {
             val root = createTempDirectory("photos-view-model-restore").toFile()
@@ -187,7 +229,13 @@ class PhotosViewModelTest {
         try {
             val asset = photo("one")
             val cachedFile = File(root, "cached-preview.jpg").apply {
-                writeBytes(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 1))
+                writeBytes(
+                    ByteArray(checkNotNull(asset.previewSize).toInt()).apply {
+                        this[0] = 0xff.toByte()
+                        this[1] = 0xd8.toByte()
+                        this[2] = 0xff.toByte()
+                    },
+                )
             }
             val catalog = FakeCatalog(
                 metadata = CachedPhotos(listOf(asset)),
@@ -387,7 +435,10 @@ class PhotosViewModelTest {
             advanceUntilIdle()
             assertEquals(false, model.uiState.value.backgroundSyncEnabled)
             assertEquals(listOf(true), backup.requests)
-            assertEquals("Allow photo access to back up new camera photos", model.uiState.value.uploadError)
+            assertEquals(
+                "Allow full photo and location access to back up new camera photos",
+                model.uiState.value.uploadError,
+            )
 
             backup.allowEnable = true
             model.setBackgroundSync(true)
@@ -462,11 +513,16 @@ class PhotosViewModelTest {
     private class MetadataPagesPort(vararg pages: PhotosPage) : PhotosPort {
         private val responses = ArrayDeque(pages.toList())
         val cursors = mutableListOf<String?>()
+        var nextPageFailure: Throwable? = null
 
         override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
 
         override suspend fun page(cursor: String?, limit: Int): PhotosPage {
             cursors += cursor
+            nextPageFailure?.let { failure ->
+                nextPageFailure = null
+                throw failure
+            }
             return responses.removeFirst()
         }
     }

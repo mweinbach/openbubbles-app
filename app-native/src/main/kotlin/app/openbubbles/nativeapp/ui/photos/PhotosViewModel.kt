@@ -50,6 +50,8 @@ data class PhotosUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val loadingMore: Boolean = false,
+    /** A later-page failure belongs to the existing grid, not the blocking first-load dialog. */
+    val loadMoreError: String? = null,
     val snapshot: PhotosSnapshot? = null,
     val previewTransfers: Map<String, PhotoTransfer> = emptyMap(),
     val originalTransfers: Map<String, PhotoTransfer> = emptyMap(),
@@ -238,7 +240,12 @@ internal class PhotosViewModel(
 
     private suspend fun refreshRemote() {
         mutableState.update {
-            it.copy(loading = it.snapshot == null, refreshing = it.snapshot != null, error = null)
+            it.copy(
+                loading = it.snapshot == null,
+                refreshing = it.snapshot != null,
+                loadMoreError = null,
+                error = null,
+            )
         }
         try {
             val snapshot = browser.initial(cachedAssets = mutableState.value.snapshot?.assets.orEmpty())
@@ -271,15 +278,19 @@ internal class PhotosViewModel(
         val snapshot = mutableState.value.snapshot ?: return
         if (snapshot.nextCursor == null || requestJob?.isActive == true) return
         requestJob = launchWork {
-            mutableState.update { it.copy(loadingMore = true, error = null) }
+            mutableState.update { it.copy(loadingMore = true, loadMoreError = null, error = null) }
             try {
                 val next = browser.next(snapshot)
                 catalog.replaceMetadata(next.assets, next.nextCursor)
-                mutableState.update { it.copy(snapshot = next, showingCachedMetadata = false) }
+                mutableState.update {
+                    it.copy(snapshot = next, showingCachedMetadata = false, loadMoreError = null)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update { it.copy(error = error.message ?: "Could not load more photos") }
+                mutableState.update {
+                    it.copy(loadMoreError = error.message ?: "Could not load more photos")
+                }
             } finally {
                 mutableState.update { it.copy(loadingMore = false) }
             }
@@ -570,7 +581,8 @@ internal class PhotosViewModel(
                     backgroundSyncEnabled = result,
                     uploadError = when {
                         failure != null -> failure.message ?: "Could not change camera backup"
-                        enabled && !result -> "Allow photo access to back up new camera photos"
+                        enabled && !result ->
+                            "Allow full photo and location access to back up new camera photos"
                         else -> it.uploadError
                     },
                 )

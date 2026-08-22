@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.photos
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -52,5 +53,20 @@ class PhotoViewerImageStateTest {
 
         assertTrue(state.showPreview)
         assertTrue(state.showTransferStatus)
+    }
+
+    @Test
+    fun `accessible zoom controls step in both directions`() {
+        assertEquals(1.5f, steppedPhotoViewerZoom(1f, zoomIn = true))
+        assertEquals(1f, steppedPhotoViewerZoom(1.5f, zoomIn = false))
+        assertEquals(3f, steppedPhotoViewerZoom(2f, zoomIn = true))
+    }
+
+    @Test
+    fun `accessible zoom controls stay inside viewer bounds`() {
+        assertEquals(1f, steppedPhotoViewerZoom(1f, zoomIn = false))
+        assertEquals(1f, steppedPhotoViewerZoom(1.2f, zoomIn = false))
+        assertEquals(6f, steppedPhotoViewerZoom(5f, zoomIn = true))
+        assertEquals(6f, steppedPhotoViewerZoom(6f, zoomIn = true))
     }
 }

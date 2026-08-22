@@ -99,6 +99,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -135,6 +136,7 @@ import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val PhotosReadyTag = "benchmark_photos_ready"
@@ -392,13 +394,18 @@ private fun PhotosGrid(
     modifier: Modifier = Modifier,
 ) {
     val gridState = rememberLazyGridState()
+    val paginationError = uiState.loadMoreError
     val gridIsScrollable by remember {
         derivedStateOf { gridState.canScrollForward || gridState.canScrollBackward }
     }
     // Paging follows the viewport instead of an index guess, so a re-flow to a
     // denser grid cannot skip the fetch or fire it twice.
-    LaunchedEffect(gridState, snapshot.nextCursor, filter) {
-        if (snapshot.nextCursor == null || !shouldAutoPagePhotos(filter)) return@LaunchedEffect
+    LaunchedEffect(gridState, snapshot.nextCursor, filter, paginationError) {
+        if (
+            snapshot.nextCursor == null ||
+            paginationError != null ||
+            !shouldAutoPagePhotos(filter)
+        ) return@LaunchedEffect
         snapshotFlow {
             val info = gridState.layoutInfo
             photoGridNearEnd(
@@ -463,6 +470,27 @@ private fun PhotosGrid(
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                }
+            }
+        } else if (paginationError != null && snapshot.nextCursor != null) {
+            item(key = "photos-load-more-error", span = { GridItemSpan(maxLineSpan) }) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = paginationError,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = onLoadMore) { Text("Retry") }
+                    }
                 }
             }
         } else if (snapshot.nextCursor != null && !shouldAutoPagePhotos(filter)) {
@@ -884,6 +912,7 @@ private fun PhotoViewer(
                 onDisplayedImage = { image ->
                     if (page == pagerState.settledPage) displayedImage = image
                 },
+                chromeVisible = chromeVisible,
                 onToggleChrome = { chromeVisible = !chromeVisible },
                 onRetryOriginal = { onRetryOriginal(asset) },
             )
@@ -893,6 +922,14 @@ private fun PhotoViewer(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.84f),
+                                Color.Black.copy(alpha = 0.64f),
+                            ),
+                        ),
+                    )
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1007,6 +1044,7 @@ private fun PhotoPage(
     original: PhotoTransfer?,
     playbackEnabled: Boolean,
     onDisplayedImage: (ImageBitmap?) -> Unit,
+    chromeVisible: Boolean,
     onToggleChrome: () -> Unit,
     onRetryOriginal: () -> Unit,
 ) {
@@ -1118,6 +1156,46 @@ private fun PhotoPage(
             }
             PhotoMediaKind.Unknown -> Unit
         }
+        if (chromeVisible && playbackEnabled && asset.mediaKind == PhotoMediaKind.Image) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 16.dp, bottom = 24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = Color.Black.copy(alpha = 0.76f),
+                contentColor = Color.White,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                ) {
+                    IconButton(
+                        onClick = { scale = steppedPhotoViewerZoom(scale, zoomIn = true) },
+                        enabled = scale < MaxPageZoom,
+                    ) {
+                        Icon(Icons.Filled.ZoomIn, contentDescription = "Zoom in")
+                    }
+                    val zoomPercent = (scale * 100f).roundToInt()
+                    Text(
+                        text = "$zoomPercent%",
+                        modifier = Modifier.semantics {
+                            contentDescription = "Zoom $zoomPercent percent"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    IconButton(
+                        onClick = {
+                            scale = steppedPhotoViewerZoom(scale, zoomIn = false)
+                            if (scale <= 1f) offset = Offset.Zero
+                        },
+                        enabled = scale > 1f,
+                    ) {
+                        Icon(Icons.Filled.ZoomOut, contentDescription = "Zoom out")
+                    }
+                }
+            }
+        }
         if (imageState.showTransferStatus) {
             Surface(
                 shape = MaterialTheme.shapes.large,
@@ -1183,6 +1261,14 @@ private fun galleryStatus(outcome: PhotoGalleryExportOutcome?): String? = when (
 
 private const val DoubleTapZoom = 2.5f
 private const val MaxPageZoom = 6f
+private const val ViewerZoomStep = 1.5f
+
+/** Keyboard, switch-access, and TalkBack zoom controls share the gesture zoom bounds. */
+internal fun steppedPhotoViewerZoom(currentScale: Float, zoomIn: Boolean): Float {
+    val bounded = currentScale.takeIf { it.isFinite() }?.coerceIn(1f, MaxPageZoom) ?: 1f
+    val next = if (zoomIn) bounded * ViewerZoomStep else bounded / ViewerZoomStep
+    return next.coerceIn(1f, MaxPageZoom)
+}
 
 /**
  * Pinch-zoom and pan inside a pager.
