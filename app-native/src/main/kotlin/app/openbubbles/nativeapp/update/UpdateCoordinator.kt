@@ -296,7 +296,7 @@ object UpdateCoordinator {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_stat_icon)
-            .setContentTitle("OpenGarden $versionName is available")
+            .setContentTitle("${context.getString(R.string.app_name)} $versionName is available")
             .setContentText("Preparing the verified update from Update Ledger.")
             .setContentIntent(openApp)
             .setAutoCancel(true)
@@ -358,7 +358,7 @@ object UpdateCoordinator {
         val mandatory = installedVersionCode(context) < manifest.minVersionCode
         val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
             .setSmallIcon(R.mipmap.ic_stat_icon)
-            .setContentTitle("OpenGarden ${manifest.versionName} ready to install")
+            .setContentTitle("${context.getString(R.string.app_name)} ${manifest.versionName} ready to install")
             .setContentText(updateReadyContentText(manifest.notes))
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(

@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.R
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
 import app.openbubbles.nativeapp.data.OutgoingVideoMetadata
 import app.openbubbles.nativeapp.ui.chat.VideoCompressionRequest
@@ -30,6 +32,7 @@ fun VideoCompressionReview(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val appName = stringResource(R.string.app_name)
     val plan = request.plan
     val maxMegabytes = MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)
     val reduction = if (plan.targetHeight != null) "to 1080p HEVC" else "with HEVC at a lower bitrate"
@@ -51,7 +54,7 @@ fun VideoCompressionReview(
                 }
                 Text(
                     "Videos larger than $maxMegabytes MB can't be attached. " +
-                        "OpenBubbles can compress this video $reduction$hdrNote.$trimNote " +
+                        "$appName can compress this video $reduction$hdrNote.$trimNote " +
                         "The original video stays untouched.",
                 )
                 plan.estimatedOutputBytes?.let { estimate ->

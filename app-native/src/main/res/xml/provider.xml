@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <credential-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:settingsSubtitle="OpenGarden"
+    android:settingsSubtitle="@string/app_name"
     android:settingsActivity="app.openbubbles.nativeapp.credentials.CredentialSettingsActivity"
     tools:ignore="UnusedAttribute">
     <capabilities>

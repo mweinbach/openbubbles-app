@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">OpenGarden</string>
     <string name="facetime_incoming_call">Incoming FaceTime Call</string>
     <string name="facetime_connecting">Connecting…</string>
     <string name="facetime_decline">Decline</string>
