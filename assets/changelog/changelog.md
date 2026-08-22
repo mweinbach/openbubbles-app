@@ -15,8 +15,8 @@ Below are the last few OpenGarden App release changelogs
 
 - iPhone HDR screenshots and other HEIC originals that a device cannot decode
   now display their existing preview instead of opening to a black screen.
-- Unsupported HEIC codec profiles are detected before playback, avoiding
-  repeated Android decoder failures and unnecessary retry prompts.
+- HEIC compatibility follows the device's actual image decoder, avoiding
+  false unsupported warnings on newer Android devices.
 - HEIC originals can be saved to DCIM/iCloud or shared without incorrectly
   reporting that the gallery does not support them.
 - Protected iCloud Photos downloads accept Apple's shortened CloudKit key
