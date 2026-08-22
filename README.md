@@ -66,6 +66,14 @@ Clone with `--recurse-submodules` (see above), provide `local.properties` with
   :app-native:assembleDebug :app-native:bundleRelease --console=plain
 ```
 
+Find My uses OpenStreetMap by default. To offer the optional Google Maps provider,
+set `MAPS_API_KEY` in ignored `local.properties`, as an environment variable, or
+as a Gradle property. Restrict the key to the Maps SDK for Android, the
+`com.openbubbles.messaging` package, and the applicable signing-certificate
+fingerprints. Google Maps stays disabled until each user explicitly accepts its
+location-sharing disclosure. GitHub release builds read the optional
+`GOOGLE_MAPS_API_KEY` repository secret.
+
 The APK is written to
 `build-native/app-native/outputs/apk/debug/app-native-debug.apk`.
 The release-variant AAB is written to

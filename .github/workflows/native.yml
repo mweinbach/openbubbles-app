@@ -186,6 +186,8 @@ jobs:
       # runs only when artifacts were explicitly requested.
       - name: Android artifacts
         if: github.event_name == 'workflow_dispatch' && inputs.package
+        env:
+          MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: ./gradlew :app-native:assembleDebug :app-native:bundleRelease --console=plain
 
       - name: Save Cargo registry and host builds

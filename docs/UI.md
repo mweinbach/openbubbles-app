@@ -134,7 +134,9 @@ Effects: `ui/effects/SendEffects.kt`, `EffectPicker.kt`.
 
 ## Map
 
-`ui/map/` is the app's own slippy map — no maps SDK, no Play services, no API key.
+`ui/map/` defaults to the app's own slippy map, which needs no Play services or
+API key. An optional Google Maps Compose renderer is available when a Maps SDK
+for Android API key is configured and Google Play services are present.
 
 - `MapGeometry.kt` is pure Web Mercator: projection, viewport hit testing, tile selection, pan/zoom
   about a focus point, bounding-box fit, and the scale bar. Everything visual is decided here so it
@@ -145,6 +147,10 @@ Effects: `ui/effects/SendEffects.kt`, `EffectPicker.kt`.
   bar). A tile request tells the tile server roughly where a tracked thing is, so an explicit
   imagery-off choice is a first-class state: the map
   keeps pins, accuracy circles, tracks, and the scale bar on a plain graticule.
+- Google Maps is off until a per-user disclosure explicitly explains that Google will receive
+  approximate tracked locations. Its map composable is not created before consent, and switching
+  it off immediately returns to OpenStreetMap. Devices without Play services and builds without
+  `MAPS_API_KEY` keep the original renderer without showing the provider switch.
 - `OpenMap` markers are real buttons with labels, and zoom has explicit buttons, so the map never
   depends on a pinch.
 - Find My derives its camera rather than storing one: no manual camera means follow the selected

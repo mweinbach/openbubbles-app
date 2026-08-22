@@ -438,6 +438,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build signed release APK
+        env:
+          MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: ./gradlew :app-native:assembleRelease :app-native:uploadCrashlyticsSymbolFileRelease --console=plain
 
       - name: Save Cargo registry and host builds
