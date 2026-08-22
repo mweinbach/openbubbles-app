@@ -20,6 +20,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import app.openbubbles.db.Handle_
 import io.objectbox.BoxStore
+import io.objectbox.query.Query
 import io.objectbox.query.QueryBuilder
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -48,42 +49,157 @@ class ChatRepo(
     private val handleBox = store.boxFor(Handle::class.java)
     private val contactSync = ContactSync(store)
     private val invalidations = StoreInvalidationCoordinators.forStore(store)
+    // Keep only immutable values across read transactions. Ordinary chat writes
+    // then rebuild the changed row without revisiting every contact/avatar DTO.
+    private val projectionLock = Any()
+    private val cachedProjections = HashMap<Long, CachedChatProjection>()
+    private var cachedContactGeneration = -1L
+    private var cachedMessageGeneration = -1L
+    private var cachedMessageCount = -1L
+    private var cachedSelfAddresses: Set<String>? = null
+    private var cachedContactInfo: Map<Long, HandleDisplayInfo>? = null
+    private var cachedContactIds: Map<Long, Long>? = null
+    private var cachedAddressInfo: Map<String, HandleDisplayInfo>? = null
+    private var projectedChatCount = 0L
+    private var unreadQueryCount = 0L
+
+    internal data class ProjectionDiagnostics(
+        val projectedChats: Long,
+        val unreadQueries: Long,
+    )
+
+    internal fun projectionDiagnostics(): ProjectionDiagnostics = synchronized(projectionLock) {
+        ProjectionDiagnostics(projectedChatCount, unreadQueryCount)
+    }
+
+    private data class CachedChatProjection(
+        val fingerprint: List<Any?>,
+        val item: ChatListItem,
+        val contactInfo: HandleDisplayInfo?,
+    )
 
     /** Chat DTO projection of active chats, ordered for the list UI. */
     fun chats(limit: Int = 0): List<ChatListItem> = store.callInReadTx {
+        synchronized(projectionLock) { projectChats(limit) }
+    }
+
+    private fun projectChats(limit: Int): List<ChatListItem> =
         chatBox.query()
             .isNull(Chat_.dateDeleted)
             .orderDesc(Chat_.isPinned)
             .order(Chat_.pinIndex)
             .orderDesc(Chat_.dbOnlyLatestMessageDate)
             .build().use { query ->
-                val found = query.find()
                 val contactInfo = contactSync.displayInfoByHandleId()
                 val contactIds = contactSync.contactIdsByHandleId()
                 val addressInfo = contactSync.displayInfoByMatchKey()
-                val lookups = batchProjectionLookups(found)
-                val grouped = groupContactChats(found, contactInfo, contactIds, addressInfo, lookups)
-                if (limit > 0) grouped.take(limit) else grouped
+                val self = selfAddresses().toSet()
+                val contactGeneration = invalidations.generationFor(
+                    StoreEntityChange.CONTACT,
+                    StoreEntityChange.HANDLE,
+                )
+                if (contactGeneration != cachedContactGeneration ||
+                    self != cachedSelfAddresses ||
+                    contactInfo !== cachedContactInfo ||
+                    contactIds !== cachedContactIds ||
+                    addressInfo !== cachedAddressInfo
+                ) {
+                    cachedProjections.clear()
+                    cachedContactGeneration = contactGeneration
+                    cachedSelfAddresses = self
+                    cachedContactInfo = contactInfo
+                    cachedContactIds = contactIds
+                    cachedAddressInfo = addressInfo
+                }
+
+                val found = if (limit > 0) limitedActiveChats(query, contactIds, limit) else query.find()
+                if (limit <= 0) {
+                    val activeIds = found.mapTo(HashSet()) { it.id }
+                    cachedProjections.keys.retainAll(activeIds)
+                }
+                val latestIds = found.mapNotNull { chat ->
+                    chat.dbLatestMessage.targetId.takeIf { it != 0L }
+                }.distinct().toLongArray()
+                val latestById = if (latestIds.isEmpty()) {
+                    emptyMap()
+                } else {
+                    messageBox.get(latestIds).associateBy { it.id }
+                }
+                val references = batchProjectionReferences(found, latestById)
+                val fingerprints = found.associate { chat ->
+                    val latest = latestById[chat.dbLatestMessage.targetId]
+                    chat.id to projectionFingerprint(chat, latest, references)
+                }
+                val dirtyChats = found.filter { chat ->
+                    cachedProjections[chat.id]?.fingerprint != fingerprints.getValue(chat.id)
+                }
+                val messageGeneration = invalidations.generationFor(StoreEntityChange.MESSAGE)
+                val messageCount = messageBox.count()
+                val messagesChanged = messageGeneration != cachedMessageGeneration ||
+                    messageCount != cachedMessageCount
+                val unreadChats = if (messagesChanged) found.filter { it.hasUnreadMessage }
+                    else dirtyChats.filter { it.hasUnreadMessage }
+                val lookups = references.copy(
+                    unreadCountByChatId = batchUnreadCounts(unreadChats, references.lastReadDateByGuid),
+                )
+                cachedMessageGeneration = messageGeneration
+                cachedMessageCount = messageCount
+
+                groupContactChats(found, contactInfo, contactIds, addressInfo, lookups, latestById, fingerprints)
             }
+
+    private fun limitedActiveChats(
+        query: Query<Chat>,
+        contactIds: Map<Long, Long>,
+        limit: Int,
+    ): List<Chat> {
+        val selected = arrayListOf<Chat>()
+        val selectedContacts = HashSet<Long>()
+        var selectedGroups = 0
+        var offset = 0L
+        val pageSize = limit.coerceIn(32, 256).toLong()
+        while (true) {
+            val page = query.find(offset, pageSize)
+            if (page.isEmpty()) break
+            for (chat in page) {
+                val contactId = directContactId(chat, contactIds)
+                when {
+                    contactId != null && contactId in selectedContacts -> selected += chat
+                    selectedGroups < limit -> {
+                        selected += chat
+                        selectedGroups += 1
+                        if (contactId != null) selectedContacts += contactId
+                    }
+                }
+                if (selectedGroups == limit && selectedContacts.isEmpty()) return selected
+            }
+            if (page.size.toLong() < pageSize) break
+            offset = Math.addExact(offset, page.size.toLong())
+        }
+        return selected
     }
 
     /**
      * Message rows the list projection needs, fetched once per emission
-     * instead of per chat: last-read dates for unread counting and target
-     * texts for reaction snippets. `observeChats` re-projects on every DB
-     * write, so per-chat guid queries here multiply across the whole table.
+     * instead of per chat: last-read dates for unread counting, target texts
+     * for reaction snippets, and one indexed unread-count batch. Cached DTOs
+     * survive unrelated chat writes while message mutations refresh badges.
      */
-    private class ProjectionLookups(
+    private data class ProjectionLookups(
         val lastReadDateByGuid: Map<String, java.util.Date?>,
         val reactionTargetTextByGuid: Map<String, String?>,
+        val unreadCountByChatId: Map<Long, Int> = emptyMap(),
     )
 
-    private fun batchProjectionLookups(chats: List<Chat>): ProjectionLookups {
+    private fun batchProjectionReferences(
+        chats: List<Chat>,
+        latestById: Map<Long, Message>,
+    ): ProjectionLookups {
         val lastReadGuids = chats
             .filter { it.hasUnreadMessage }
             .mapNotNull { it.lastReadMessageGuid }
         val reactionGuids = chats
-            .mapNotNull { it.dbLatestMessage.target }
+            .mapNotNull { latestById[it.dbLatestMessage.targetId] }
             .filter { it.associatedMessageGuid != null && it.associatedMessageType != null }
             .mapNotNull { it.associatedMessageGuid }
         val wanted = (lastReadGuids + reactionGuids).distinct()
@@ -97,6 +213,91 @@ class ChatRepo(
             reactionTargetTextByGuid = reactionGuids.distinct().associateWith { rows[it]?.text },
         )
     }
+
+    private fun batchUnreadCounts(
+        chats: List<Chat>,
+        lastReadDateByGuid: Map<String, java.util.Date?>,
+    ): Map<Long, Int> {
+        if (chats.isEmpty()) return emptyMap()
+        val lastReadByChatId = chats.associate { chat ->
+            chat.id to chat.lastReadMessageGuid?.let(lastReadDateByGuid::get)
+        }
+        val query = messageBox.query()
+            .`in`(Message_.chatId, chats.map { it.id }.toLongArray())
+            .equal(Message_.isFromMe, false)
+            .isNull(Message_.associatedMessageGuid)
+            .isNull(Message_.dateDeleted)
+        if (lastReadByChatId.values.none { it == null }) {
+            query.greater(Message_.dateCreated, lastReadByChatId.values.filterNotNull().minOrNull()!!)
+        }
+        unreadQueryCount += 1
+        return query.build().use { unread ->
+            if (chats.size == 1) {
+                mapOf(chats.single().id to unread.count().toInt())
+            } else {
+                val counts = chats.associateTo(HashMap()) { it.id to 0 }
+                unread.find().forEach { message ->
+                    val chatId = message.chat.targetId
+                    val lastRead = lastReadByChatId[chatId]
+                    if (lastRead == null || message.dateCreated?.after(lastRead) == true) {
+                        counts[chatId] = (counts[chatId] ?: 0) + 1
+                    }
+                }
+                counts
+            }
+        }
+    }
+
+    private fun projectionFingerprint(
+        chat: Chat,
+        latest: Message?,
+        lookups: ProjectionLookups,
+    ): List<Any?> = listOf(
+        chat.guid,
+        chat.chatIdentifier,
+        chat.isArchived,
+        chat.muteType,
+        chat.muteArgs,
+        ChatMute.shouldMute(chat),
+        chat.isPinned,
+        chat.pinIndex,
+        chat.hasUnreadMessage,
+        chat.lastReadMessageGuid,
+        chat.dbOnlyLatestMessageDate?.time,
+        chat.displayName,
+        chat.customAvatarPath,
+        chat.customAvatarPath?.takeIf(String::isNotBlank)?.let { File(it).isFile },
+        chat.autoSendReadReceipts,
+        chat.autoSendTypingIndicators,
+        chat.dateDeleted?.time,
+        chat.style,
+        chat.lockChatName,
+        chat.lockChatIcon,
+        chat.usingHandle,
+        chat.isRpSms,
+        chat.notifsSilenced,
+        chat.transcriptPosterPath,
+        chat.transcriptBackgroundVersion,
+        chat.customBackgroundPath,
+        chat.senderOverride,
+        chat.handles.map { it.id },
+        latest?.id,
+        latest?.guid,
+        latest?.text,
+        latest?.dateCreated?.time,
+        latest?.isFromMe,
+        latest?.itemType,
+        latest?.groupTitle,
+        latest?.groupActionType,
+        latest?.otherHandle,
+        latest?.associatedMessageGuid,
+        latest?.associatedMessageType,
+        latest?.associatedMessageEmoji,
+        latest?.hasAttachments,
+        latest?.dateDeleted?.time,
+        latest?.handleRelation?.targetId,
+        latest?.associatedMessageGuid?.let(lookups.reactionTargetTextByGuid::get),
+    )
 
     /** Count of recoverably deleted conversations (badge use; no projection). */
     fun recentlyDeletedCount(): Long =
@@ -115,11 +316,10 @@ class ChatRepo(
         val found = chatBox.query()
             .notNull(Chat_.dateDeleted)
             .orderDesc(Chat_.dateDeleted)
-            .build().use { it.find() }
+            .build().use { query -> if (limit > 0) query.find(0, limit.toLong()) else query.find() }
         val contactInfo = contactSync.displayInfoByHandleId()
         val addressInfo = contactSync.displayInfoByMatchKey()
-        val projected = found.map { toItem(it, contactInfo, addressInfo) }
-        if (limit > 0) projected.take(limit) else projected
+        found.map { toItem(it, contactInfo, addressInfo) }
     }
 
     /** Observe recoverable conversations and their contact-backed display data. */
@@ -250,7 +450,7 @@ class ChatRepo(
      * history import. Conflation also drops obsolete refreshes while a page is
      * being committed instead of queueing one full chat projection per write.
      */
-    fun observeChats(): Flow<List<ChatListItem>> =
+    fun observeChats(limit: Int = 0): Flow<List<ChatListItem>> =
         // The initial projection rides the subscription-readiness signal so no
         // commit can land between the first query and an installed observer.
         // Contact imports/relinks do not mutate Chat rows. Include their
@@ -262,7 +462,7 @@ class ChatRepo(
             StoreEntityChange.HANDLE,
         )
             .conflate()
-            .map { chats() }
+            .map { chats(limit) }
             // ChatListItem is a pure projection of DB state, so an identical
             // list is an identical UI frame — drop it instead of recomposing
             // the whole chat list on every unrelated write during a sync.
@@ -531,14 +731,11 @@ class ChatRepo(
 
     private fun unreadCount(chat: Chat, lookups: ProjectionLookups?): Int {
         if (!chat.hasUnreadMessage) return 0
+        if (lookups != null) return lookups.unreadCountByChatId[chat.id] ?: 0
         val lastReadDate = chat.lastReadMessageGuid?.let { guid ->
-            if (lookups != null) {
-                lookups.lastReadDateByGuid[guid]
-            } else {
-                messageBox.query()
-                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }?.dateCreated
-            }
+            messageBox.query()
+                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }?.dateCreated
         }
         val builder = messageBox.query()
             .equal(Message_.chatId, chat.id)
@@ -565,8 +762,9 @@ class ChatRepo(
         contactInfo: Map<Long, HandleDisplayInfo>,
         addressInfo: Map<String, HandleDisplayInfo>,
         lookups: ProjectionLookups? = null,
+        latestMessage: Message? = chat.dbLatestMessage.target,
     ): ChatListItem {
-        val latest = chat.dbLatestMessage.target
+        val latest = latestMessage
         val others = otherHandles(chat)
         val isGroup = isGroupConversation(chat.style, others.size)
         val identity = directIdentity(chat, contactInfo, addressInfo)
@@ -621,17 +819,41 @@ class ChatRepo(
         contactInfo: Map<Long, HandleDisplayInfo>,
         contactIds: Map<Long, Long>,
         addressInfo: Map<String, HandleDisplayInfo>,
-        lookups: ProjectionLookups? = null,
+        lookups: ProjectionLookups,
+        latestById: Map<Long, Message>,
+        fingerprints: Map<Long, List<Any?>>,
     ): List<ChatListItem> {
         val grouped = linkedMapOf<String, MutableList<ContactChatProjection>>()
         chats.forEach { chat ->
-            val identity = directIdentity(chat, contactInfo, addressInfo)
             val contactId = directContactId(chat, contactIds)
             val key = contactId?.let { "contact:$it" } ?: "chat:${chat.id}"
+            val fingerprint = fingerprints.getValue(chat.id)
+            val previous = cachedProjections[chat.id]
+            val cached = if (previous != null && previous.fingerprint == fingerprint) {
+                val unreadCount = lookups.unreadCountByChatId[chat.id]
+                if (unreadCount != null && unreadCount != previous.item.unreadCount) {
+                    previous.copy(item = previous.item.copy(unreadCount = unreadCount))
+                } else {
+                    previous
+                }
+            } else {
+                projectedChatCount += 1
+                CachedChatProjection(
+                    fingerprint = fingerprint,
+                    item = toItem(
+                        chat,
+                        contactInfo,
+                        addressInfo,
+                        lookups,
+                        latestById[chat.dbLatestMessage.targetId],
+                    ),
+                    contactInfo = directIdentity(chat, contactInfo, addressInfo)?.info,
+                )
+            }.also { cachedProjections[chat.id] = it }
             grouped.getOrPut(key) { mutableListOf() } += ContactChatProjection(
                 chat = chat,
-                item = toItem(chat, contactInfo, addressInfo, lookups),
-                contactInfo = identity?.info,
+                item = cached.item,
+                contactInfo = cached.contactInfo,
             )
         }
         return grouped.values.map(::mergeContactChats)
