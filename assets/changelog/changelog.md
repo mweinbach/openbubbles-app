@@ -21,6 +21,8 @@ Below are the last few OpenGarden App release changelogs
   paging.
 - Recently opened full-resolution HDR photos stay cached according to available
   device memory, reducing repeat decoding while browsing back and forth.
+- Refreshing or backing up iCloud Photos keeps the full previously loaded
+  history visible while merging newly added and updated photos.
 - HEIC originals can be saved to DCIM/iCloud or shared without incorrectly
   reporting that the gallery does not support them.
 - Protected iCloud Photos downloads accept Apple's shortened CloudKit key
