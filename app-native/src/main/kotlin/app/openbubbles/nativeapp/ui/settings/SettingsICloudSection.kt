@@ -1,5 +1,7 @@
 package app.openbubbles.nativeapp.ui.settings
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +60,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openbubbles.nativeapp.credentials.CredentialUserAuth
 import app.openbubbles.nativeapp.data.CloudSyncWiring
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.HistorySyncPreferences
@@ -171,7 +176,28 @@ internal fun rememberICloudSection(
     var trustedDevicePasscode by remember { mutableStateOf("") }
     var joinError by remember { mutableStateOf<String?>(null) }
     var newRecoveryCode by remember { mutableStateOf<String?>(null) }
-    var revealSavedRecoveryCode by remember { mutableStateOf(false) }
+    var revealedRecoveryCode by remember { mutableStateOf<String?>(null) }
+    var recoveryRevealError by remember { mutableStateOf<String?>(null) }
+
+    val recoveryCodeVisible = revealedRecoveryCode != null || newRecoveryCode != null
+    DisposableEffect(context, recoveryCodeVisible) {
+        val window = (context as? Activity)?.window
+        val alreadySecure = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
+        val addedSecureFlag = recoveryCodeVisible && window != null && !alreadySecure
+        if (addedSecureFlag) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            if (addedSecureFlag) {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
+    LaunchedEffect(pushState) {
+        revealedRecoveryCode = null
+        recoveryRevealError = null
+    }
 
     fun syncAllHistory() {
         CloudSyncWiring.startHistorySync(
@@ -383,11 +409,8 @@ internal fun rememberICloudSection(
                 SettingsGroup(
                     title = if (showTitles) "iCloud services" else null,
                 ) {
-                    val savedRecoveryCode = if (inClique == true) {
-                        ICloudKeychainEnrollment.savedRecoveryCode(context)
-                    } else {
-                        null
-                    }
+                    val hasSavedRecoveryCode = inClique == true &&
+                        ICloudKeychainEnrollment.hasSavedRecoveryCode(context)
                     val rows = buildList<SettingsRowContent> {
                         add { index, count ->
                             SettingsActionItem(
@@ -477,16 +500,56 @@ internal fun rememberICloudSection(
                                 )
                             }
                         }
-                        if (savedRecoveryCode != null) {
+                        if (hasSavedRecoveryCode) {
                             add { index, count ->
                                 SettingsActionItem(
                                     title = "Device Keychain code",
-                                    supporting = if (revealSavedRecoveryCode) {
-                                        savedRecoveryCode
-                                    } else {
-                                        "Saved on this device — tap to reveal"
+                                    supporting = revealedRecoveryCode
+                                        ?: recoveryRevealError
+                                        ?: "Saved securely on this device — authenticate to reveal",
+                                    onClick = {
+                                        if (revealedRecoveryCode != null) {
+                                            revealedRecoveryCode = null
+                                            recoveryRevealError = null
+                                        } else {
+                                            val activity = context as? FragmentActivity
+                                            if (activity == null) {
+                                                recoveryRevealError =
+                                                    "Authentication is unavailable on this screen"
+                                            } else {
+                                                CredentialUserAuth.authenticate(
+                                                    activity = activity,
+                                                    title = "Reveal iCloud Keychain recovery code",
+                                                    subtitle = "Authenticate to reveal this device's recovery code",
+                                                    onSuccess = {
+                                                        scope.launch(Dispatchers.IO) {
+                                                            val result = runCatching {
+                                                                ICloudKeychainEnrollment.savedRecoveryCode(context)
+                                                            }
+                                                            withContext(Dispatchers.Main) {
+                                                                result.onSuccess { code ->
+                                                                    if (code == null) {
+                                                                        recoveryRevealError =
+                                                                            "This recovery code is no longer available"
+                                                                    } else {
+                                                                        recoveryRevealError = null
+                                                                        revealedRecoveryCode = code
+                                                                    }
+                                                                }.onFailure {
+                                                                    recoveryRevealError =
+                                                                        "The recovery code could not be unlocked"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    onFailure = { error ->
+                                                        recoveryRevealError =
+                                                            error ?: "Recovery-code authentication was cancelled"
+                                                    },
+                                                )
+                                            }
+                                        }
                                     },
-                                    onClick = { revealSavedRecoveryCode = !revealSavedRecoveryCode },
                                     index = index,
                                     count = count,
                                     icon = Icons.Filled.Password,

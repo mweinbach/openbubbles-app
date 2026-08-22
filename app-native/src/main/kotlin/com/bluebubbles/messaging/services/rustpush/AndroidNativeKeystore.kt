@@ -142,17 +142,18 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             }
 
             if (requireUser) {
-                val manager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-                if (manager.isDeviceSecure) {
-                    setUserAuthenticationRequired(true)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        setUserAuthenticationParameters(
-                            0,
-                            KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
-                        )
-                    } else {
-                        setUserAuthenticationValidityDurationSeconds(0)
-                    }
+                val manager = context.getSystemService(KeyguardManager::class.java)
+                check(userAuthenticatedKeyCreationAllowed(requireUser, manager?.isDeviceSecure == true)) {
+                    "A secure device screen lock is required to protect iCloud Keychain"
+                }
+                setUserAuthenticationRequired(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setUserAuthenticationParameters(
+                        0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
+                } else {
+                    setUserAuthenticationValidityDurationSeconds(0)
                 }
             }
             build()
@@ -407,8 +408,10 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
         promptContext: Context,
         callback: (success: Boolean) -> Unit,
     ) {
-        if (!isLocked()) {
-            callback(true)
+        val keyguard = context.getSystemService(KeyguardManager::class.java)
+        if (keyguard?.isDeviceSecure != true) {
+            Log.w("AndroidNativeKeystore", "refusing iCloud Keychain access without a secure screen lock")
+            callback(false)
             return
         }
 
@@ -418,6 +421,18 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
         if (key == null) {
             recoverKeychain()
             unlockKeystore(title, promptContext, callback)
+            return
+        }
+
+        val factory = KeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+        val keyInfo = factory.getKeySpec(key, KeyInfo::class.java)
+        val policy = recoveryMasterAccessPolicy(
+            deviceSecure = true,
+            keyRequiresAuthentication = keyInfo.isUserAuthenticationRequired,
+            keystoreLocked = isLocked(),
+        )
+        if (policy == RecoveryMasterAccessPolicy.ALREADY_AUTHENTICATED) {
+            callback(true)
             return
         }
 
@@ -438,13 +453,28 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             return
         }
 
-        val factory = KeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
-        val keyInfo = factory.getKeySpec(key, KeyInfo::class.java)
-
-        if (!keyInfo.isUserAuthenticationRequired) {
-            savedCipher = cipher
-            finishUnlock()
-            callback(true)
+        if (policy == RecoveryMasterAccessPolicy.ROTATE_UNAUTHENTICATED) {
+            val migrated = runCatching {
+                if (isLocked()) {
+                    // Preserve the existing EC master and all of its encrypted
+                    // backups; recovering while locked would generate a fresh
+                    // master and make those existing backups unrecoverable.
+                    savedCipher = cipher
+                    finishUnlock()
+                }
+                recoverKeychain()
+                lockKeystore()
+            }.onFailure {
+                savedCipher = null
+                Log.w("AndroidNativeKeystore", "could not rotate an unauthenticated recovery master")
+            }.isSuccess
+            if (!migrated) {
+                callback(false)
+                return
+            }
+            // The replacement was created with requireUser=true. Start again
+            // so its authenticated cipher is attached to a fresh system prompt.
+            unlockKeystore(title, promptContext, callback)
             return
         }
 
@@ -607,4 +637,27 @@ class AndroidNativeKeystore(val context: Context) : NativeKeystore {
             throw e
         }
     }
+}
+
+internal enum class RecoveryMasterAccessPolicy {
+    DENY,
+    ROTATE_UNAUTHENTICATED,
+    REQUIRE_AUTHENTICATION,
+    ALREADY_AUTHENTICATED,
+}
+
+internal fun userAuthenticatedKeyCreationAllowed(
+    requiresUserAuthentication: Boolean,
+    deviceSecure: Boolean,
+): Boolean = !requiresUserAuthentication || deviceSecure
+
+internal fun recoveryMasterAccessPolicy(
+    deviceSecure: Boolean,
+    keyRequiresAuthentication: Boolean,
+    keystoreLocked: Boolean,
+): RecoveryMasterAccessPolicy = when {
+    !deviceSecure -> RecoveryMasterAccessPolicy.DENY
+    !keyRequiresAuthentication -> RecoveryMasterAccessPolicy.ROTATE_UNAUTHENTICATED
+    keystoreLocked -> RecoveryMasterAccessPolicy.REQUIRE_AUTHENTICATION
+    else -> RecoveryMasterAccessPolicy.ALREADY_AUTHENTICATED
 }
