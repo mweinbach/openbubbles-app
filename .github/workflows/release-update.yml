@@ -79,10 +79,105 @@ jobs:
             decide true
           fi
 
-  release:
-    name: Build & publish update
+  native_validation:
+    name: Require successful exact-head native CI
     needs: version
     if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.validation.outputs.run_id }}
+      run_attempt: ${{ steps.validation.outputs.run_attempt }}
+    steps:
+      - name: Wait for Native (Kotlin+Rust) on the release commit
+        id: validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          VALIDATION_TIMEOUT_SECONDS: '2400'
+          VALIDATION_POLL_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + VALIDATION_TIMEOUT_SECONDS))
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if ! runs=$(gh api \
+              "repos/$RELEASE_REPOSITORY/actions/workflows/native.yml/runs?head_sha=$RELEASE_SHA&per_page=100"); then
+              echo "Native workflow lookup failed; retrying until the validation deadline" >&2
+              sleep "$VALIDATION_POLL_SECONDS"
+              continue
+            fi
+
+            candidate=$(printf '%s\n' "$runs" | jq -ce --arg sha "$RELEASE_SHA" '
+              [.workflow_runs[]
+                | select(.head_sha == $sha)
+                | select(.event == "push" or .event == "workflow_dispatch")]
+              | sort_by(.run_started_at // .created_at // "", .run_attempt // 1, .id)
+              | last // empty
+            ') || {
+              if ! printf '%s\n' "$runs" | jq -e '.workflow_runs | type == "array"' >/dev/null; then
+                echo "Native workflow lookup returned malformed run data" >&2
+                exit 1
+              fi
+              echo "Native validation for $RELEASE_SHA is not indexed yet"
+              sleep "$VALIDATION_POLL_SECONDS"
+              continue
+            }
+
+            run_id=$(printf '%s\n' "$candidate" | jq -r '.id')
+            listed_attempt=$(printf '%s\n' "$candidate" | jq -r '.run_attempt // 1')
+            if ! current=$(gh api "repos/$RELEASE_REPOSITORY/actions/runs/$run_id"); then
+              echo "Native run $run_id could not be refreshed; retrying" >&2
+              sleep "$VALIDATION_POLL_SECONDS"
+              continue
+            fi
+
+            if ! printf '%s\n' "$current" | jq -e \
+              --arg sha "$RELEASE_SHA" \
+              --argjson id "$run_id" '
+                .id == $id
+                and .head_sha == $sha
+                and (.path | startswith(".github/workflows/native.yml"))
+                and (.event == "push" or .event == "workflow_dispatch")
+              ' >/dev/null; then
+              echo "Native validation run $run_id does not belong to release commit $RELEASE_SHA" >&2
+              exit 1
+            fi
+
+            run_attempt=$(printf '%s\n' "$current" | jq -r '.run_attempt // 1')
+            status=$(printf '%s\n' "$current" | jq -r '.status')
+            conclusion=$(printf '%s\n' "$current" | jq -r '.conclusion // "pending"')
+            if [ "$run_attempt" != "$listed_attempt" ]; then
+              echo "Native run $run_id advanced from attempt $listed_attempt to $run_attempt; refreshing"
+            elif [ "$status" = "completed" ]; then
+              if [ "$conclusion" != "success" ]; then
+                echo "Native validation run $run_id attempt $run_attempt ended with $conclusion" >&2
+                exit 1
+              fi
+              echo "Validated release commit $RELEASE_SHA with Native run $run_id attempt $run_attempt"
+              {
+                echo "run_id=$run_id"
+                echo "run_attempt=$run_attempt"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              echo "Native run $run_id attempt $run_attempt is $status; waiting"
+            fi
+
+            sleep "$VALIDATION_POLL_SECONDS"
+          done
+
+          echo "Timed out waiting for successful Native CI on release commit $RELEASE_SHA" >&2
+          exit 1
+
+  release:
+    name: Build & publish update
+    needs: [version, native_validation]
+    if: needs.version.outputs.release == 'true' && needs.native_validation.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -370,18 +465,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: ${{ github.event.inputs.notes || '' }}
+          PRODUCTION_SIGNER_SHA256: 285c66e5e2c693dbfa53fb86f0cd7b0bb85ead139cf3cdb5f617bed7be402604
         run: |
+          set -euo pipefail
           APK_IN="build-native/app-native/outputs/apk/release/app-native-release.apk"
           [ -f "$APK_IN" ] || { echo "release APK missing at $APK_IN" >&2; exit 1; }
           cp "$APK_IN" "${{ steps.ver.outputs.asset }}"
 
-          # Verify the APK really is production-signed before publishing.
-          # apksigner exits non-zero on a bad signature; the grep proves a
-          # certificate digest was printed (output format varies by
-          # build-tools: "Signer #1 certificate …" / "V2 Signer: certificate …").
+          # A valid debug or replacement signature is still not our production
+          # identity. Require exactly one signer and pin its SHA-256 digest.
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort | tail -1)
           "$BT/apksigner" verify --print-certs "${{ steps.ver.outputs.asset }}" | tee certs.txt
-          grep -q "certificate SHA-256 digest:" certs.txt
+          SIGNER_DIGESTS=$(awk -F 'certificate SHA-256 digest:' '
+            NF > 1 {
+              digest = $NF
+              gsub(/[[:space:]:]/, "", digest)
+              print tolower(digest)
+            }
+          ' certs.txt)
+          SIGNER_COUNT=$(printf '%s\n' "$SIGNER_DIGESTS" | awk 'NF { count++ } END { print count + 0 }')
+          if [ "$SIGNER_COUNT" -ne 1 ] || [ "$SIGNER_DIGESTS" != "$PRODUCTION_SIGNER_SHA256" ]; then
+            echo "APK signing identity mismatch: expected exactly one production signer $PRODUCTION_SIGNER_SHA256" >&2
+            exit 1
+          fi
+          echo "Verified production signing certificate SHA-256: $PRODUCTION_SIGNER_SHA256"
 
           SHA256=$(shasum -a 256 "${{ steps.ver.outputs.asset }}" | awk '{print $1}')
           BYTES=$(wc -c < "${{ steps.ver.outputs.asset }}" | tr -d ' ')
