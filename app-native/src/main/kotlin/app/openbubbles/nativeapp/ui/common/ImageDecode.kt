@@ -2,6 +2,7 @@ package app.openbubbles.nativeapp.ui.common
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.os.Build
@@ -186,7 +187,8 @@ fun rememberChatBackground(
 
 /**
  * Decodes a local still image. [BitmapFactory] handles JPEG/PNG/WebP;
- * [ImageDecoder] is the HEIC/HEIF/AVIF fallback on API 28+.
+ * [ImageDecoder] is the HEIC/HEIF/AVIF fallback on API 28+. When the normal
+ * decode fails, retry with an SDR, software-backed bitmap before giving up.
  */
 internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
     if (file == null || !file.isFile) return null
@@ -196,8 +198,17 @@ internal fun decodeLocalImage(file: File?, maxDimensionPx: Int): DecodedImage? {
 private fun decodeRasterFile(file: File, maxDimensionPx: Int): DecodedImage? {
     if (!file.isFile) return null
     return decodeFileWithBitmapFactory(file, maxDimensionPx)
-        ?: decodeFileWithImageDecoder(file, maxDimensionPx)
+        ?: decodeWithSdrFallback(
+            decodeOriginal = { decodeFileWithImageDecoder(file, maxDimensionPx) },
+            decodeSdr = { decodeFileWithImageDecoder(file, maxDimensionPx, forceSdr = true) },
+        )
 }
+
+/** Preserve the original colors and HDR whenever that decode actually succeeds. */
+internal inline fun <T> decodeWithSdrFallback(
+    decodeOriginal: () -> T?,
+    decodeSdr: () -> T?,
+): T? = decodeOriginal() ?: decodeSdr()
 
 private fun decodeFileWithBitmapFactory(file: File, maxDimensionPx: Int): DecodedImage? =
     runCatching {
@@ -222,11 +233,19 @@ private fun decodeFileWithBitmapFactory(file: File, maxDimensionPx: Int): Decode
         )
     }.getOrNull()
 
-private fun decodeFileWithImageDecoder(file: File, maxDimensionPx: Int): DecodedImage? {
+private fun decodeFileWithImageDecoder(
+    file: File,
+    maxDimensionPx: Int,
+    forceSdr: Boolean = false,
+): DecodedImage? {
     if (Build.VERSION.SDK_INT < 28) return null
     return runCatching {
         val source = ImageDecoder.createSource(file)
         val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            if (forceSdr) {
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
+            }
             val width = info.size.width
             val height = info.size.height
             if (width > 0 && height > 0) {
@@ -242,6 +261,7 @@ private fun decodeFileWithImageDecoder(file: File, maxDimensionPx: Int): Decoded
                 )
             }
         }
+        if (forceSdr && Build.VERSION.SDK_INT >= 34) bitmap.setGainmap(null)
         DecodedImage(
             image = bitmap.asImageBitmap(),
             aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
@@ -275,7 +295,12 @@ internal fun decodeUriImage(
 ): DecodedImage? {
     if (uri.isNullOrBlank()) return null
     return decodeUriImageWithBitmapFactory(context, uri, maxDimensionPx)
-        ?: decodeUriImageWithImageDecoder(context, uri, maxDimensionPx)
+        ?: decodeWithSdrFallback(
+            decodeOriginal = { decodeUriImageWithImageDecoder(context, uri, maxDimensionPx) },
+            decodeSdr = {
+                decodeUriImageWithImageDecoder(context, uri, maxDimensionPx, forceSdr = true)
+            },
+        )
 }
 
 private fun decodeUriImageWithBitmapFactory(
@@ -315,6 +340,7 @@ private fun decodeUriImageWithImageDecoder(
     context: android.content.Context,
     uri: String,
     maxDimensionPx: Int,
+    forceSdr: Boolean = false,
 ): DecodedImage? {
     if (Build.VERSION.SDK_INT < 28) return null
     return runCatching {
@@ -328,6 +354,10 @@ private fun decodeUriImageWithImageDecoder(
             }
         }
         val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            if (forceSdr) {
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
+            }
             val width = info.size.width
             val height = info.size.height
             if (width > 0 && height > 0) {
@@ -340,6 +370,7 @@ private fun decodeUriImageWithImageDecoder(
                 decoder.setTargetSize((width / sample).coerceAtLeast(1), (height / sample).coerceAtLeast(1))
             }
         }
+        if (forceSdr && Build.VERSION.SDK_INT >= 34) bitmap.setGainmap(null)
         DecodedImage(
             image = bitmap.asImageBitmap(),
             aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
