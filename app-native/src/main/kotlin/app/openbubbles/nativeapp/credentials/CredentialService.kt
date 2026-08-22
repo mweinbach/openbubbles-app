@@ -57,8 +57,27 @@ class CredentialService : CredentialProviderService() {
             }
 
             val prefs = getSharedPreferences("credential_usage_stats", Context.MODE_PRIVATE)
+            val requestingPackage = request.callingAppInfo?.packageName.orEmpty()
 
-            val intent = Intent(this, CredentialCreateActivity::class.java)
+            fun createIntent(groupId: String?): Intent =
+                Intent(this, CredentialCreateActivity::class.java)
+                    .setAction(
+                        credentialPendingIntentAction(
+                            requestingPackage,
+                            request.type,
+                            site = "create",
+                            credentialId = groupId ?: "personal",
+                            type = "create",
+                        ),
+                    )
+                    .apply {
+                        if (requestingPackage.isNotEmpty()) {
+                            putExtra(EXTRA_PACKAGE_NAME, requestingPackage)
+                        }
+                        if (groupId != null) putExtra("group_id", groupId)
+                    }
+
+            val intent = createIntent(null)
             val pending = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_MUTABLE
                     or PendingIntent.FLAG_UPDATE_CURRENT)
 
@@ -86,8 +105,7 @@ class CredentialService : CredentialProviderService() {
                 push.getAvailableGroups(object : AvailableGroupsCallback {
                     override fun groups(groups: Map<String, String>) {
                         createEntries.addAll(groups.asSequence().mapIndexed { idx, group ->
-                            val intent = Intent(this@CredentialService, CredentialCreateActivity::class.java)
-                            intent.putExtra("group_id", group.value)
+                            val intent = createIntent(group.value)
                             val pending = PendingIntent.getActivity(this@CredentialService, idx + 1, intent, PendingIntent.FLAG_MUTABLE
                                     or PendingIntent.FLAG_UPDATE_CURRENT)
                             

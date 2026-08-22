@@ -95,11 +95,19 @@ internal object CredentialEntries {
                 is BeginGetPasswordOption -> passwordOption = option
             }
         }
-        if (site.isEmpty()) site = canonicalRpHost(callingOrigin).orEmpty()
+        if (site.isEmpty()) {
+            site = if (callingAppInfo.isOriginPopulated()) {
+                canonicalRpHost(callingOrigin).orEmpty()
+            } else {
+                CredentialCallerTrust.soleVerifiedAppDomain(context, callingAppInfo.packageName)
+                    .orEmpty()
+            }
+        }
         if (site.isEmpty()) return null
-
-        // RP ID check: if origin host is present, it must be equal to or a subdomain of rpId.
-        if (callingAppInfo.isOriginPopulated() && !originMatchesRpId(callingOrigin, site)) return null
+        // Native rpId is caller-controlled. Only a package's OS-verified App
+        // Link can associate it with a vault site; privileged browsers instead
+        // supply an origin already checked against their signed allowlist.
+        if (!CredentialCallerTrust.accepts(context, callingAppInfo, site)) return null
 
         return Query(
             site = site,
@@ -195,6 +203,15 @@ internal object CredentialEntries {
             context,
             UNLOCK_REQUEST_CODE,
             Intent(context, CredentialUnlockActivity::class.java)
+                .setAction(
+                    credentialPendingIntentAction(
+                        query.packageName,
+                        query.callingOrigin,
+                        query.site,
+                        credentialId = "unlock",
+                        type = "unlock",
+                    ),
+                )
                 .putExtra(CredentialService.EXTRA_SITE, query.site),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         ),
@@ -298,6 +315,13 @@ internal object CredentialEntries {
     ): PendingIntent {
         val passkey = record.kind == VaultItemKind.Passkey
         val intent = Intent(context, CredentialGetActivity::class.java).apply {
+            action = credentialPendingIntentAction(
+                query.packageName,
+                query.callingOrigin,
+                record.site,
+                record.id,
+                if (passkey) CredentialService.TYPE_PASSKEY else CredentialService.TYPE_PASSWORD,
+            )
             // The raw Apple site, not the canonical host: the backend still
             // matches it exactly when the selection activity reads the secret.
             putExtra(CredentialService.EXTRA_SITE, record.site)

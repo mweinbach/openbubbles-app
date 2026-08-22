@@ -46,8 +46,11 @@ class CredentialGetActivity : FragmentActivity() {
             return
         }
 
-        val requiresPasskeyAuth =
-            intent.getStringExtra(CredentialService.EXTRA_TYPE) == CredentialService.TYPE_PASSKEY
+        val selection = verifyCredentialSelection(this, intent, request)
+        if (selection == null) {
+            failWith("The credential request could not be verified")
+            return
+        }
 
         val continueFlow = {
             client.bind { service: APNService ->
@@ -57,7 +60,7 @@ class CredentialGetActivity : FragmentActivity() {
             }
         }
 
-        if (requiresPasskeyAuth) {
+        if (selection.type == CredentialService.TYPE_PASSKEY) {
             CredentialUserAuth.authenticateForPasskey(
                 this,
                 onSuccess = continueFlow,
@@ -66,7 +69,13 @@ class CredentialGetActivity : FragmentActivity() {
                 }
             )
         } else {
-            continueFlow()
+            CredentialUserAuth.authenticate(
+                activity = this,
+                title = "Confirm your identity",
+                subtitle = "Authenticate to use your iCloud password",
+                onSuccess = continueFlow,
+                onFailure = { finish() },
+            )
         }
     }
 
@@ -77,18 +86,31 @@ class CredentialGetActivity : FragmentActivity() {
             return
         }
 
-        val site = intent.getStringExtra(CredentialService.EXTRA_SITE) ?: ""
-        val credId = intent.getStringExtra(CredentialService.EXTRA_CRED_ID) ?: ""
-        val type = intent.getStringExtra(CredentialService.EXTRA_TYPE) ?: ""
-        val origin = intent.getStringExtra(CredentialService.EXTRA_ORIGIN) ?: ""
-        val packageName = intent.getStringExtra(CredentialService.EXTRA_PACKAGE_NAME)
-        val requestJson = intent.getStringExtra(CredentialService.EXTRA_REQUEST_JSON)
-        val clientDataHash = intent.getByteArrayExtra(CredentialService.EXTRA_CLIENT_DATA_HASH)
+        // Recheck after authentication as well: a mutable system PendingIntent
+        // must never let an earlier picker entry select another app's request.
+        val selection = verifyCredentialSelection(this, intent, request)
+        if (selection == null) {
+            failWith("The credential request could not be verified")
+            return
+        }
+        val site = selection.site
+        val credId = selection.credentialId
+        val type = selection.type
+        val origin = selection.origin
+        val packageName = selection.packageName
+        val requestJson = selection.requestJson
+        val clientDataHash = selection.clientDataHash
         val accountGeneration = VaultCatalogSync.captureGeneration()
 
         service.getSiteConfig(site, object : RetrieveKeysCallback {
             override fun keys(passwords: List<SavedPassword>, passkeys: List<SavedPasskey>) {
                 try {
+                    if (VaultCatalogSync.captureGeneration() != accountGeneration ||
+                        PushStateHolder.state !== service
+                    ) {
+                        failWith("The credential account changed")
+                        return
+                    }
                     when (type) {
                         CredentialService.TYPE_PASSWORD -> {
                             val saved = passwords.firstOrNull { it.credId == credId }
@@ -102,6 +124,12 @@ class CredentialGetActivity : FragmentActivity() {
                                     accountGeneration,
                                     "That password is no longer in iCloud Keychain",
                                 )
+                                return
+                            }
+                            if (selection.allowedUserIds.isNotEmpty() &&
+                                saved.username !in selection.allowedUserIds
+                            ) {
+                                failWith("The selected password is not allowed for this request")
                                 return
                             }
 
@@ -133,7 +161,9 @@ class CredentialGetActivity : FragmentActivity() {
                             val requestObj = JSONObject(requestJson)
                             val challenge = requestObj.optString("challenge", "")
                             val rpId = requestObj.optString("rpId", site)
-                            if (rpId.isNotEmpty() && !originMatchesRpId(origin, rpId)) {
+                            if (rpId.isNotEmpty() && selection.browserOrigin &&
+                                !originMatchesRpId(origin, rpId)
+                            ) {
                                 finish()
                                 return
                             }
@@ -143,7 +173,7 @@ class CredentialGetActivity : FragmentActivity() {
                                 .put("challenge", challenge)
                                 .put("origin", origin)
                                 .apply {
-                                    if (origin.startsWith("android:apk-key-hash:") && packageName != null) {
+                                    if (origin.startsWith("android:apk-key-hash:")) {
                                         put("androidPackageName", packageName)
                                     }
                                 }

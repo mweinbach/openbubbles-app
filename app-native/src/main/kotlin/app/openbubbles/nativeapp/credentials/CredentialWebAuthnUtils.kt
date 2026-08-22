@@ -80,6 +80,12 @@ internal fun canonicalRpHost(value: String): String? = runCatching {
 }.getOrNull()
 
 internal fun originMatchesRpId(origin: String, rpId: String): Boolean {
+    val parsedOrigin = runCatching { URI(origin) }.getOrNull() ?: return false
+    if (!parsedOrigin.scheme.equals("https", ignoreCase = true) ||
+        parsedOrigin.userInfo != null
+    ) {
+        return false
+    }
     val originHost = canonicalRpHost(origin) ?: return false
     val canonicalRpId = canonicalRpHost(rpId) ?: return false
     return originHost == canonicalRpId || originHost.endsWith(".$canonicalRpId")

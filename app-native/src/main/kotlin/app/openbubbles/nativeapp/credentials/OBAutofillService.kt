@@ -86,12 +86,34 @@ class OBAutofillService : AutofillService() {
 
         if (structure.hasEmails()) {
             for (password in passwords) {
+                val domain = structure.webDomain ?: continue
+                val authentication = PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, CredentialSettingsActivity::class.java)
+                        .setAction(
+                            credentialPendingIntentAction(
+                                structure.packageName,
+                                domain,
+                                domain,
+                                password.credId,
+                                CredentialSettingsActivity.AUTOFILL_REQUEST_TYPE,
+                            ),
+                        )
+                        .putExtra(CredentialSettingsActivity.EXTRA_AUTOFILL_AUTHENTICATION, true)
+                        .putExtra(CredentialService.EXTRA_SITE, domain)
+                        .putExtra(CredentialService.EXTRA_CRED_ID, password.credId)
+                        .putExtra(CredentialService.EXTRA_PACKAGE_NAME, structure.packageName),
+                    // Android appends EXTRA_ASSIST_STRUCTURE when launching the
+                    // authentication activity, so this explicit intent must be mutable.
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                )
                 response.addDataset(AutofillDatasets.LoginInfo(
                     password.username,
-                    password.password,
                     "",
-                    password.otp?.toString()
-                ).fillFields(this, structure, suggestions))
+                    domain,
+                    password.otp?.let { "" },
+                ).fillFields(this, structure, suggestions, authentication.intentSender))
             }
             val saveFields = structure.getEmailSaveFields()
             if (saveFields.isNotEmpty()) {

@@ -3,9 +3,7 @@ package app.openbubbles.nativeapp.credentials
 
 import android.app.assist.AssistStructure
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
-import android.service.autofill.FillResponse
 import android.text.InputType
 import android.view.View
 import android.view.autofill.AutofillId
@@ -15,6 +13,8 @@ import androidx.annotation.RequiresApi
 class AutofillStructure(context: Context, structure: AssistStructure) {
     var lastString = ""
     var webDomain: String? = null
+        private set
+    val packageName: String = structure.activityComponent.packageName
 
     interface Matcher {
         fun matches(text: String): Boolean
@@ -145,28 +145,22 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
         return fields.any { it.second == AutofillType.EMAIL || it.second == AutofillType.PASSWORD || it.second == AutofillType.OTP }
     }
 
-    val packageMapping = mapOf<String, String>()
-
-
     init {
-        val pn = structure.activityComponent.packageName
-        getPackageDomain(context,pn)
-        webDomain = packageMapping[pn]
-
         for (i in 0..<structure.windowNodeCount) {
             val windowNode = structure.getWindowNodeAt(i)
             processNode(windowNode.rootViewNode)
         }
+        // ViewStructure.setWebDomain is public: any app can claim bank.com.
+        // Keep the claimed host only when its system-owned activity package is
+        // a trusted browser or has an OS-verified App Link for that host.
+        val claimedDomain = webDomain
+            ?: CredentialCallerTrust.soleVerifiedAppDomain(context, packageName)
+        webDomain = claimedDomain?.takeIf { domain ->
+            CredentialCallerTrust.acceptsAutofill(context, packageName, domain)
+        }
     }
 
-    fun getPackageDomain(context: Context, packageName: String) {
-//        val ai = context.packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-//        val md = ai.metaData ?: return
-//
-//        val string = md.getString("asset_statements") ?: return
-    }
-
-    fun processNode(node: AssistStructure.ViewNode) {
+    private fun processNode(node: AssistStructure.ViewNode) {
         val currentText = "${node.text ?: ""}${node.hint ?: ""}${node.contentDescription ?: ""}".trim()
         if (node.autofillId != null) {
             // this is a form
@@ -213,7 +207,7 @@ class AutofillStructure(context: Context, structure: AssistStructure) {
         }
 
         if (node.webDomain != null) {
-            webDomain = node.webDomain?.replaceFirst("www.", "")
+            webDomain = canonicalRpHost(node.webDomain.orEmpty())?.removePrefix("www.")
         }
 
 

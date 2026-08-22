@@ -16,6 +16,10 @@ class CredentialOriginTest {
     fun `origin host rejects suffix confusion and unrelated hosts`() {
         assertFalse(originMatchesRpId("https://notexample.com", "example.com"))
         assertFalse(originMatchesRpId("https://example.com.attacker.test", "example.com"))
+        assertFalse(originMatchesRpId("http://example.com", "example.com"))
+        assertFalse(originMatchesRpId("ftp://example.com", "example.com"))
+        assertFalse(originMatchesRpId("https://attacker@example.com", "example.com"))
+        assertFalse(originMatchesRpId("android:apk-key-hash:pretend", "example.com"))
         assertFalse(originMatchesRpId("not a valid origin", "example.com"))
     }
 

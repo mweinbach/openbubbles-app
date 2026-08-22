@@ -44,6 +44,10 @@ class CredentialCreateActivity : FragmentActivity() {
             finishAndRemoveTask()
             return
         }
+        if (verifiedCredentialCreationSite(this, intent, request) == null) {
+            finishAndRemoveTask()
+            return
+        }
 
         val continueFlow = {
             CredentialWebAuthnUtils.ensurePrivilegedAllowlistFresh(this) { error ->
@@ -91,13 +95,17 @@ class CredentialCreateActivity : FragmentActivity() {
             finishAndRemoveTask()
             return
         }
+        val verifiedSite = verifiedCredentialCreationSite(this, intent, request)
+        if (verifiedSite == null) {
+            finishAndRemoveTask()
+            return
+        }
 
         if (request.callingRequest is CreatePublicKeyCredentialRequest) {
             val credentialRequest = request.callingRequest as CreatePublicKeyCredentialRequest
 
             val requestJson = JSONObject(credentialRequest.requestJson)
-            val rpJson = requestJson.optJSONObject("rp") ?: JSONObject()
-            val rpId = rpJson.optString("id", "")
+            val rpId = verifiedSite
             val challenge = requestJson.getString("challenge")
 
             val origin = CredentialService.appInfoToOrigin(this, request.callingAppInfo)
@@ -213,7 +221,7 @@ class CredentialCreateActivity : FragmentActivity() {
             val request = request.callingRequest as CreatePasswordRequest
             val result = Intent()
             service.keychainPasswordInsert(
-                request.origin ?: "",
+                verifiedSite,
                 request.id,
                 request.password,
                 object : InsertKeychainCallback {

@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.os.Build
 import android.service.autofill.Dataset
 import android.service.autofill.InlinePresentation
@@ -268,12 +269,18 @@ class AutofillDatasets {
     ) {
         // Replacement Presentations API is 33+ and minSdk is 26.
         @Suppress("DEPRECATION")
-        fun fillFields(context: Context, structure: AutofillStructure, inline: InlineSuggestionsRequest?): Dataset {
+        fun fillFields(
+            context: Context,
+            structure: AutofillStructure,
+            inline: InlineSuggestionsRequest?,
+            authentication: IntentSender? = null,
+        ): Dataset {
             val usernamePresentation = RemoteViews(context.packageName, R.layout.autofill_dataset)
             usernamePresentation.setTextViewText(R.id.autofill_dataset_title, username)
             usernamePresentation.setTextViewText(R.id.autofill_dataset_subtitle, domain)
 
             val dataset = Dataset.Builder(usernamePresentation)
+            authentication?.let(dataset::setAuthentication)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) {
                 val suggestion = InlineSuggestionUi.newContentBuilder(OBAutofillService.pendingClaifyIntent!!)
@@ -291,12 +298,12 @@ class AutofillDatasets {
             for (field in structure.fields) {
                 when (field.second) {
                     AutofillStructure.AutofillType.EMAIL -> dataset.setValue(field.first.autofillId!!,
-                        AutofillValue.forText(username))
+                        if (authentication == null) AutofillValue.forText(username) else null)
                     AutofillStructure.AutofillType.PASSWORD -> dataset.setValue(field.first.autofillId!!,
-                        AutofillValue.forText(password))
+                        if (authentication == null) AutofillValue.forText(password) else null)
                     AutofillStructure.AutofillType.OTP -> otp?.let {
                         dataset.setValue(field.first.autofillId!!,
-                            AutofillValue.forText(it))
+                            if (authentication == null) AutofillValue.forText(it) else null)
                     }
                     else -> {}
                 }
