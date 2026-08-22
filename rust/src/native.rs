@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, fmt::Debug, fs::{File, OpenOptions}, io::{Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock}, time::{Duration, SystemTime}};
+use std::{collections::{BTreeMap, HashMap}, fmt::Debug, fs::{File, OpenOptions}, io::{Cursor, Read, Seek, Write}, path::PathBuf, sync::{Arc, LazyLock, OnceLock, atomic::{AtomicU64, Ordering}}, time::{Duration, SystemTime}};
 
 use keystore::software::plist_to_bin;
 use log::{debug, error, info, warn};
@@ -95,6 +95,7 @@ pub struct NativePushState {
     state: Arc<SharedPushState>,
     watcher: Mutex<APSWatcher>,
     photos_client: OnceLock<Arc<rustpush::photos::PhotosClient<rustpush::DefaultAnisetteProvider>>>,
+    account_generation: u64,
 }
 
 impl NativePushState {
@@ -133,6 +134,7 @@ pub fn start(dir: String, packager: Arc<dyn KotlinFilePackager>, wifi: Arc<dyn H
 pub fn init_native(dir: String, handle: Option<String>, handler: Arc<dyn MsgReceiver>) {
     info!("rpljslf start");
     let _ = CONFIG_PATH.set(dir.clone());
+    let account_generation = MESSAGE_ACCOUNT_GENERATION.load(Ordering::Acquire);
     RUNTIME.spawn(async move {
         info!("rpljslf initting");
 
@@ -144,12 +146,14 @@ pub fn init_native(dir: String, handle: Option<String>, handler: Arc<dyn MsgRece
                 state: Arc::new(daemondata.state),
                 watcher: Mutex::new(daemondata.watcher),
                 photos_client: OnceLock::new(),
+                account_generation,
             })))
         } else {
             SharedPushState::restore_with_error(dir).await.map(|restored| restored.map(|a| Arc::new(NativePushState {
                 state: Arc::new(a.0),
                 watcher: Mutex::new(a.1),
                 photos_client: OnceLock::new(),
+                account_generation,
             })))
         };
 
@@ -395,6 +399,18 @@ impl MessageLog {
         self.messages.remove(&id);
         Ok(())
     }
+
+    /// Account replacement must reset the open journal descriptor as well as
+    /// the in-memory replay map. Keep the monotonic ID so an old callback can
+    /// never accidentally address a new account's freshly inserted message.
+    fn clear_account(&mut self) -> anyhow::Result<()> {
+        let previous = std::mem::take(&mut self.messages);
+        if let Err(error) = self.compact_journal() {
+            self.messages = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
 }
 
 pub static MESSAGE_LOG: LazyLock<Mutex<MessageLog>> = LazyLock::new(|| {
@@ -414,78 +430,132 @@ pub static MESSAGE_LOG: LazyLock<Mutex<MessageLog>> = LazyLock::new(|| {
 pub static QUEUED_MESSAGES: LazyLock<Mutex<(u64, HashMap<u64, Arc<PushMessage>>)>> =
     LazyLock::new(|| Mutex::new((0, HashMap::new())));
 
+static MESSAGE_ACCOUNT_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn account_generation_is_current(generation: u64) -> bool {
+    MESSAGE_ACCOUNT_GENERATION.load(Ordering::Acquire) == generation
+}
+
+/// Invalidate all old callbacks before atomically replacing the account-bound
+/// journal. The journal mutex serializes cleanup with any in-flight fsync.
+pub(crate) async fn clear_account_messages() -> anyhow::Result<()> {
+    MESSAGE_ACCOUNT_GENERATION.fetch_add(1, Ordering::AcqRel);
+    QUEUED_MESSAGES.lock().await.1.clear();
+    tokio::task::spawn_blocking(|| MESSAGE_LOG.blocking_lock().clear_account())
+        .await
+        .map_err(|error| anyhow::anyhow!("message journal cleanup task failed: {error}"))?
+}
+
 #[uniffi::export]
 impl NativePushState {
 
     pub fn start_loop(self: Arc<NativePushState>, handler: Arc<dyn MsgReceiver>) {
         RUNTIME.spawn(async move {
+            let account_generation = self.account_generation;
             let mut watcher = self.watcher.lock().await;
-            loop {
+            'receive: loop {
+                if !account_generation_is_current(account_generation) {
+                    break;
+                }
                 match std::panic::AssertUnwindSafe(recv_wait(&mut watcher, &self.state)).catch_unwind().await {
                     Ok(yes) => {
-                        match yes {
-                            PollResult::Cont(Some(mut msg)) => {
-                                if let PushMessage::TwoFaAuthEvent(event) = &msg {
-                                    handler.twofa_event(*event);
-                                    continue;
-                                }
-
-                                if let PushMessage::IMessage(message) = &msg {
-                                    loop {
-                                        // The journal write fsyncs; park a blocking-pool
-                                        // thread, not a runtime worker that also drives
-                                        // the APS socket.
-                                        let entry = message.clone();
-                                        let result = tokio::task::spawn_blocking(move || {
-                                            MESSAGE_LOG.blocking_lock().insert(entry)
-                                        }).await.unwrap_or_else(|join| {
-                                            Err(anyhow::anyhow!("journal task panicked: {join}"))
-                                        });
-                                        match result {
-                                            Ok(_) => break,
-                                            Err(_error) => {
-                                                error!("Failed to persist an incoming message journal entry");
-                                                tokio::time::sleep(Duration::from_secs(5)).await;
-                                            },
-                                        }
-                                    }
-                                    msg = PushMessage::ProcessQueue;
-                                }
-                                let mut locked_messages = QUEUED_MESSAGES.lock().await;
-                                let key = locked_messages.0;
-                                locked_messages.1.insert(key, Arc::new(msg));
-                                locked_messages.0 = locked_messages.0.wrapping_add(1);
-                                drop(locked_messages);
-
-                                let handler_ref = handler.clone();
-                                tokio::spawn(async move {
-                                    let mut retry = 0;
-                                    // sheesh, downloads take time...
-                                    tokio::time::sleep(Duration::from_secs(30)).await;
-                                    while QUEUED_MESSAGES.lock().await.1.contains_key(&key) {
-                                        retry += 1;
-                                        if retry > 5 {
-                                            warn!("Excessive retries; dropping an incoming callback pointer");
-                                            QUEUED_MESSAGES.lock().await.1.remove(&key);
-                                            break;
-                                        }
-                                        info!("re-emitting pointer {key}, retry {retry}");
-                                        // we still haven't been handled, attempt to handle again
-                                        let handler_retry = handler_ref.clone();
-                                        tokio::task::spawn_blocking(move || handler_retry.receieved_msg(key, retry));
-                                        tokio::time::sleep(Duration::from_secs(30)).await;
-                                    }
-                                });
-
-                                debug!("emitting pointer {key}");
-                                // The foreign callback crosses into Kotlin over JNA;
-                                // whatever it does must never block the receive loop.
-                                let handler_emit = handler.clone();
-                                tokio::task::spawn_blocking(move || handler_emit.receieved_msg(key, 0));
+                        let (mut msg, deferred_acknowledgment) = match yes {
+                            PollResult::Cont(Some(msg)) => (msg, None),
+                            PollResult::DurableMessage(msg, notification_id) => {
+                                (msg, Some(notification_id))
                             },
                             PollResult::Cont(None) => continue,
-                            PollResult::Stop => break
+                            PollResult::Stop => break,
+                        };
+                        if !account_generation_is_current(account_generation) {
+                            break;
                         }
+                        if let PushMessage::TwoFaAuthEvent(event) = &msg {
+                            handler.twofa_event(*event);
+                            continue;
+                        }
+
+                        if let PushMessage::IMessage(message) = &msg {
+                            loop {
+                                // The journal write fsyncs; park a blocking-pool
+                                // thread, not a runtime worker that also drives
+                                // the APS socket.
+                                let entry = message.clone();
+                                let result = tokio::task::spawn_blocking(move || {
+                                    let mut journal = MESSAGE_LOG.blocking_lock();
+                                    anyhow::ensure!(
+                                        account_generation_is_current(account_generation),
+                                        "incoming message belongs to a previous account",
+                                    );
+                                    journal.insert(entry)
+                                }).await.unwrap_or_else(|join| {
+                                    Err(anyhow::anyhow!("journal task panicked: {join}"))
+                                });
+                                match result {
+                                    Ok(_) => break,
+                                    Err(_error) => {
+                                        if !account_generation_is_current(account_generation) {
+                                            break 'receive;
+                                        }
+                                        error!("Failed to persist an incoming message journal entry");
+                                        tokio::time::sleep(Duration::from_secs(5)).await;
+                                    }
+                                }
+                            }
+                            if let Some(notification_id) = deferred_acknowledgment {
+                                if let Err(_error) = self.state.conn.acknowledge_notification(notification_id).await {
+                                    warn!("Failed to acknowledge a durably persisted incoming message");
+                                }
+                            }
+                            msg = PushMessage::ProcessQueue;
+                        }
+                        if !account_generation_is_current(account_generation) {
+                            break;
+                        }
+                        let mut locked_messages = QUEUED_MESSAGES.lock().await;
+                        if !account_generation_is_current(account_generation) {
+                            break;
+                        }
+                        let key = locked_messages.0;
+                        locked_messages.1.insert(key, Arc::new(msg));
+                        locked_messages.0 = locked_messages.0.wrapping_add(1);
+                        drop(locked_messages);
+
+                        let handler_ref = handler.clone();
+                        tokio::spawn(async move {
+                            let mut retry = 0;
+                            // sheesh, downloads take time...
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            while account_generation_is_current(account_generation)
+                                && QUEUED_MESSAGES.lock().await.1.contains_key(&key)
+                            {
+                                retry += 1;
+                                if retry > 5 {
+                                    warn!("Excessive retries; dropping an incoming callback pointer");
+                                    QUEUED_MESSAGES.lock().await.1.remove(&key);
+                                    break;
+                                }
+                                info!("re-emitting pointer {key}, retry {retry}");
+                                // we still haven't been handled, attempt to handle again
+                                let handler_retry = handler_ref.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    if account_generation_is_current(account_generation) {
+                                        handler_retry.receieved_msg(key, retry);
+                                    }
+                                });
+                                tokio::time::sleep(Duration::from_secs(30)).await;
+                            }
+                        });
+
+                        debug!("emitting pointer {key}");
+                        // The foreign callback crosses into Kotlin over JNA;
+                        // whatever it does must never block the receive loop.
+                        let handler_emit = handler.clone();
+                        tokio::task::spawn_blocking(move || {
+                            if account_generation_is_current(account_generation) {
+                                handler_emit.receieved_msg(key, 0);
+                            }
+                        });
                     },
                     Err(_payload) => {
                         error!("Native receive loop panicked (details suppressed)");
@@ -668,7 +738,9 @@ impl NativePushState {
 
 #[cfg(test)]
 mod journal_tests {
-    use super::should_compact;
+    use super::{MessageLog, should_compact};
+    use rustpush::{Message, MessageInst};
+    use std::fs::OpenOptions;
 
     #[test]
     fn small_journals_never_compact() {
@@ -692,5 +764,50 @@ mod journal_tests {
         assert!(should_compact(300_000, 200_000, true));
         // But not while the file is small anyway.
         assert!(!should_compact(1_000, 0, true));
+    }
+
+    #[test]
+    fn account_cleanup_replaces_open_journal_and_preserves_monotonic_ids() {
+        let directory = tempfile::tempdir().expect("temporary journal directory");
+        let path = directory.path().join("messages.journal");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)
+            .expect("create journal");
+        let mut log = MessageLog::create(path.clone(), file);
+
+        let message = |id: &str| MessageInst {
+            id: id.to_owned(),
+            sender: None,
+            conversation: None,
+            message: Message::Delivered,
+            sent_timestamp: 0,
+            target: None,
+            send_delivered: false,
+            verification_failed: false,
+            certified_context: None,
+        };
+
+        let previous_id = log.insert(message("old-account")).expect("old message");
+        assert!(path.metadata().expect("journal metadata").len() > 0);
+
+        log.clear_account().expect("account journal cleanup");
+        assert!(log.messages.is_empty());
+        assert_eq!(path.metadata().expect("journal metadata").len(), 0);
+        assert!(!path.with_extension("journal.tmp").exists());
+
+        let next_id = log.insert(message("new-account")).expect("new message");
+        assert!(next_id > previous_id);
+
+        let reopened = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("reopen journal");
+        let restored = MessageLog::create(path, reopened);
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(restored.messages[&next_id].msg.id, "new-account");
     }
 }

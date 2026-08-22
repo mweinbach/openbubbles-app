@@ -35,7 +35,7 @@ use std::io::Seek;
 pub use rustpush::IdmsAuthListener;
 pub use broadcast::Receiver;
 
-use crate::{RUNTIME, frb_generated::{SseEncode, StreamSink}, init_logger, native::{HANDLE_WIFI_NETWORKS, MESSAGE_LOG, PACKAGER_LOCK, PackagedFile, QUEUED_MESSAGES}};
+use crate::{RUNTIME, frb_generated::{SseEncode, StreamSink}, init_logger, native::{HANDLE_WIFI_NETWORKS, MESSAGE_LOG, PACKAGER_LOCK, PackagedFile, QUEUED_MESSAGES, clear_account_messages}};
 
 use flutter_rust_bridge::for_generated::{SimpleHandler, SimpleExecutor, NoOpErrorListener, SimpleThreadPool, BaseAsyncRuntime, lazy_static};
 
@@ -544,6 +544,7 @@ pub struct APSWatcher {
     cancel_poll_recv: mpsc::Receiver<()>,
     local_messages: mpsc::Receiver<PushMessage>,
     inq_queue: broadcast::Receiver<APSMessage>,
+    durable_notifications: Option<mpsc::Receiver<APSMessage>>,
 }
 
 
@@ -562,6 +563,7 @@ pub fn import_watcher(queue: broadcast::Receiver<APSMessage>, client: &Arc<IMCli
         cancel_poll_recv: cancel_recv,
         local_messages: recv,
         inq_queue: queue,
+        durable_notifications: client.conn.take_durable_notifications(),
     })
 }
 
@@ -1968,6 +1970,7 @@ pub async fn set_status(status: &Arc<StatusKitClient<DefaultAnisetteProvider>>, 
 pub enum PollResult {
     Stop,
     Cont(Option<PushMessage>),
+    DurableMessage(PushMessage, i32),
 }
 
 // returns false to skip the message because our adsid is wrong
@@ -2148,14 +2151,56 @@ static HANDLER_TOPICS: LazyLock<HandlerTopics> = LazyLock::new(|| HandlerTopics 
     ],
 });
 
+async fn next_aps_message(
+    broadcast_messages: &mut broadcast::Receiver<APSMessage>,
+    durable_notifications: &mut Option<mpsc::Receiver<APSMessage>>,
+) -> Result<(APSMessage, Option<i32>), broadcast::error::RecvError> {
+    loop {
+        select! {
+            message = async {
+                match durable_notifications.as_mut() {
+                    Some(receiver) => receiver.recv().await,
+                    None => std::future::pending().await,
+                }
+            }, if durable_notifications.is_some() => {
+                match message {
+                    Some(message) => {
+                        let acknowledgment = match &message {
+                            APSMessage::Notification { id, .. } => Some(*id),
+                            _ => None,
+                        };
+                        return Ok((message, acknowledgment));
+                    }
+                    None => {
+                        *durable_notifications = None;
+                    }
+                }
+            }
+            message = broadcast_messages.recv() => {
+                let message = message?;
+                if message.requires_durable_ack() && durable_notifications.is_some() {
+                    // The same notification is already retained in the bounded,
+                    // lossless queue. Never ingest its broadcast copy twice.
+                    continue;
+                }
+                let acknowledgment = match &message {
+                    APSMessage::Notification { id, .. } if message.requires_durable_ack() => Some(*id),
+                    _ => None,
+                };
+                return Ok((message, acknowledgment));
+            }
+        }
+    }
+}
+
 pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -> PollResult {
     if watcher.cancel_poll_recv.try_recv().is_ok() {
         return PollResult::Stop;
     }
     select! {
-        msg = watcher.inq_queue.recv() => {
-            let msg = match msg {
-                Ok(msg) => msg,
+        message = next_aps_message(&mut watcher.inq_queue, &mut watcher.durable_notifications) => {
+            let (msg, deferred_acknowledgment) = match message {
+                Ok(message) => message,
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                     warn!("APS receiver lagged; {skipped} messages were dropped");
                     return PollResult::Cont(None);
@@ -2257,8 +2302,21 @@ pub async fn recv_wait(watcher: &mut APSWatcher, state: &Arc<SharedPushState>) -
             }
             let msg = state.client.handle(msg).await;
             let msg = match msg {
-                Ok(Some(msg)) => Some(PushMessage::IMessage(msg)),
-                Ok(None) => None,
+                Ok(Some(msg)) => {
+                    let message = PushMessage::IMessage(msg);
+                    if let Some(notification_id) = deferred_acknowledgment {
+                        return PollResult::DurableMessage(message, notification_id);
+                    }
+                    Some(message)
+                },
+                Ok(None) => {
+                    if let Some(notification_id) = deferred_acknowledgment {
+                        if let Err(_error) = state.conn.acknowledge_notification(notification_id).await {
+                            warn!("Failed to acknowledge a processed non-message IDS notification");
+                        }
+                    }
+                    None
+                },
                 Err(_error) => {
                     // log and ignore for now
                     error!("iMessage payload handling failed");
@@ -3431,6 +3489,11 @@ fn reset_user(path: &str) {
 pub async fn reset_state(cancel: &mpsc::Sender<()>, path: String, config: &JoinedOSConfig, aps: &APSConnection, account: Option<Arc<Mutex<AppleAccount<DefaultAnisetteProvider>>>>, reset_hw: bool, logout: bool) -> anyhow::Result<()> {
     // tell any poll to stop
     let _ = cancel.try_send(());
+    if logout {
+        // Invalidate callbacks and atomically clear both the process-global
+        // journal descriptor and its replay map before a new account can boot.
+        clear_account_messages().await?;
+    }
     let dir = PathBuf::from_str(&path).unwrap();
     update_ids_auth_lifecycle(&path, |state| *state = IDSAuthLifecycle::default());
 
@@ -3529,6 +3592,49 @@ pub async fn convert_token_to_uuid(state: &Arc<IMClient>, handle: String, token:
 pub async fn get_sms_targets(state: &Arc<IMClient>, handle: String, refresh: bool) -> anyhow::Result<Vec<PrivateDeviceInfo>> {
     let targets = state.identity.get_sms_targets(&handle, refresh).await?;
     Ok(targets)
+}
+
+#[cfg(test)]
+mod durable_receive_tests {
+    use super::*;
+
+    fn notification(topic: &str, id: i32) -> APSMessage {
+        APSMessage::Notification {
+            id,
+            topic: sha1(topic.as_bytes()),
+            token: None,
+            payload: Value::Data(Vec::new()),
+            channel: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn durable_notification_is_consumed_once_with_its_acknowledgment_id() {
+        let (broadcast_sender, mut broadcast_receiver) = broadcast::channel(4);
+        let (durable_sender, durable_receiver) = mpsc::channel(4);
+        let mut durable_receiver = Some(durable_receiver);
+        let message = notification("com.apple.madrid", 73);
+
+        durable_sender.send(message.clone()).await.expect("queue durable notification");
+        broadcast_sender.send(message).expect("publish compatibility copy");
+
+        let (received, acknowledgment) = next_aps_message(
+            &mut broadcast_receiver,
+            &mut durable_receiver,
+        ).await.expect("durable message");
+        assert!(matches!(received, APSMessage::Notification { id: 73, .. }));
+        assert_eq!(acknowledgment, Some(73));
+
+        broadcast_sender
+            .send(notification("com.apple.idmsauth", 74))
+            .expect("account notification");
+        let (received, acknowledgment) = next_aps_message(
+            &mut broadcast_receiver,
+            &mut durable_receiver,
+        ).await.expect("account message");
+        assert!(matches!(received, APSMessage::Notification { id: 74, .. }));
+        assert_eq!(acknowledgment, None);
+    }
 }
 
 #[cfg(test)]
