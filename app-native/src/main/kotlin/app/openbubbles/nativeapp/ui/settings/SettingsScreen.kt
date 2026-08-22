@@ -197,7 +197,7 @@ fun SettingsScreen(
     }
     val barColors = TopAppBarDefaults.topAppBarColors(
         containerColor = MaterialTheme.colorScheme.surface,
-        scrolledContainerColor = MaterialTheme.colorScheme.surface,
+        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     )
     val navigationIcon: @Composable () -> Unit = {
         if (showBackButton) {
@@ -221,6 +221,12 @@ fun SettingsScreen(
             } else {
                 MediumFlexibleTopAppBar(
                     title = { Text("Settings") },
+                    subtitle = {
+                        Text(
+                            text = "Your account, preferences, and devices",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                     scrollBehavior = scrollBehavior,
                     colors = barColors,
                     navigationIcon = navigationIcon,
@@ -317,11 +323,20 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .weight(1f, fill = false),
                 ) {
-                    Text(
-                        text = selectedSection.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
-                    )
+                    Column(
+                        modifier = Modifier.padding(start = 4.dp, bottom = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = selectedSection.title,
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
+                        )
+                        Text(
+                            text = selectedSection.supporting,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     SectionColumn(
                         filter = selectedSection,
                         showTitles = false,
