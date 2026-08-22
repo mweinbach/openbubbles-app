@@ -8,6 +8,7 @@ import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.net.toUri
 import java.io.File
 import java.security.MessageDigest
@@ -47,18 +48,50 @@ object ApkInstaller {
      * failure into a clear error before one is opened.
      */
     fun signaturesMatch(context: Context, apk: File): Boolean {
-        val flags = if (Build.VERSION.SDK_INT >= 28) {
-            PackageManager.GET_SIGNING_CERTIFICATES
-        } else {
-            @Suppress("DEPRECATION")
-            PackageManager.GET_SIGNATURES
-        }
+        val flags = signingInfoFlags()
         val installed = runCatching {
             context.packageManager.getPackageInfo(context.packageName, flags)
         }.getOrNull() ?: return false
         val incoming = context.packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
             ?: return false
-        return signingDigests(installed) == signingDigests(incoming)
+        val installedDigests = signingDigests(installed)
+        return installedDigests.isNotEmpty() && installedDigests == signingDigests(incoming)
+    }
+
+    /** Authenticate package identity, declared build, upgrade direction, and signer. */
+    fun verifyUpdate(context: Context, apk: File, manifest: UpdateManifest) {
+        val flags = signingInfoFlags()
+        val installed = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, flags)
+        }.getOrElse { throw SecurityException("could not inspect installed app identity", it) }
+        val incoming = runCatching {
+            context.packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
+        }.getOrElse { throw SecurityException("downloaded APK could not be inspected", it) }
+            ?: throw SecurityException("downloaded APK is not a valid Android package")
+        val result = verifyUpdateArchiveIdentity(
+            installedPackageName = context.packageName,
+            installedVersionCode = PackageInfoCompat.getLongVersionCode(installed),
+            installedSignerDigests = signingDigests(installed),
+            advertisedVersionCode = manifest.versionCode,
+            archivePackageName = incoming.packageName,
+            archiveVersionCode = PackageInfoCompat.getLongVersionCode(incoming),
+            archiveSignerDigests = signingDigests(incoming),
+        )
+        if (result != UpdateArchiveVerification.VERIFIED) {
+            throw SecurityException(
+                when (result) {
+                    UpdateArchiveVerification.PACKAGE_MISMATCH ->
+                        "downloaded APK package does not match installed app"
+                    UpdateArchiveVerification.VERSION_MISMATCH ->
+                        "downloaded APK version does not match advertised build"
+                    UpdateArchiveVerification.NOT_AN_UPGRADE ->
+                        "downloaded APK is not newer than installed app"
+                    UpdateArchiveVerification.SIGNER_MISMATCH ->
+                        "downloaded APK signing certificate does not match installed app"
+                    UpdateArchiveVerification.VERIFIED -> error("unreachable verified APK failure")
+                },
+            )
+        }
     }
 
     /**
@@ -72,9 +105,7 @@ object ApkInstaller {
         require(canInstall(context)) {
             "install blocked: 'Install unknown apps' not granted for ${context.packageName}"
         }
-        if (!signaturesMatch(context, apk)) {
-            throw SecurityException("downloaded APK signing certificate does not match installed app")
-        }
+        verifyUpdate(context, apk, manifest)
 
         val packageInstaller = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
@@ -128,4 +159,36 @@ object ApkInstaller {
                 .joinToString("") { "%02x".format(it) }
         }.toSet()
     }
+
+    private fun signingInfoFlags(): Int = if (Build.VERSION.SDK_INT >= 28) {
+        PackageManager.GET_SIGNING_CERTIFICATES
+    } else {
+        @Suppress("DEPRECATION")
+        PackageManager.GET_SIGNATURES
+    }
+}
+
+internal enum class UpdateArchiveVerification {
+    VERIFIED,
+    PACKAGE_MISMATCH,
+    VERSION_MISMATCH,
+    NOT_AN_UPGRADE,
+    SIGNER_MISMATCH,
+}
+
+internal fun verifyUpdateArchiveIdentity(
+    installedPackageName: String,
+    installedVersionCode: Long,
+    installedSignerDigests: Set<String>,
+    advertisedVersionCode: Long,
+    archivePackageName: String?,
+    archiveVersionCode: Long,
+    archiveSignerDigests: Set<String>,
+): UpdateArchiveVerification = when {
+    archivePackageName != installedPackageName -> UpdateArchiveVerification.PACKAGE_MISMATCH
+    archiveVersionCode != advertisedVersionCode -> UpdateArchiveVerification.VERSION_MISMATCH
+    archiveVersionCode <= installedVersionCode -> UpdateArchiveVerification.NOT_AN_UPGRADE
+    installedSignerDigests.isEmpty() || installedSignerDigests != archiveSignerDigests ->
+        UpdateArchiveVerification.SIGNER_MISMATCH
+    else -> UpdateArchiveVerification.VERIFIED
 }

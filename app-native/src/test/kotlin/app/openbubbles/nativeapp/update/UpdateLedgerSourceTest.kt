@@ -94,6 +94,47 @@ class UpdateLedgerSourceTest {
     }
 
     @Test
+    fun `appcast with a malformed build is rejected before update evaluation`() {
+        val server = MockWebServer().apply {
+            start()
+            val malformed = appcast(downloadUrl = url("/app.apk").toString())
+                .replace("sparkle:version=\"200\"", "sparkle:version=\"not-a-build\"")
+            enqueue(MockResponse().setBody(malformed))
+        }
+        val source = UpdateLedgerSource(baseUrl = server.url("/").toString())
+
+        assertFailsWith<UpdateLedgerSource.SourceException.Malformed> {
+            source.fetch(100)
+        }
+        server.shutdown()
+    }
+
+    @Test
+    fun `very high advertised build is not itself a trusted rollback floor`() {
+        val server = MockWebServer().apply {
+            start()
+            enqueue(
+                MockResponse().setBody(
+                    appcast(build = Long.MAX_VALUE, downloadUrl = url("/app.apk").toString()),
+                ),
+            )
+        }
+        val source = UpdateLedgerSource(baseUrl = server.url("/").toString())
+
+        val advertised = source.fetch(100)!!
+        val floor = trustedRollbackFloor(
+            RollbackFloorEvidence(
+                installedVersionCode = 100L,
+                legacyAdvertisedVersionCode = advertised.manifest.versionCode,
+            ),
+        )
+
+        assertEquals(Long.MAX_VALUE, advertised.manifest.versionCode)
+        assertEquals(100L, floor)
+        server.shutdown()
+    }
+
+    @Test
     fun `server error maps to Http`() {
         val server = MockWebServer().apply {
             start()

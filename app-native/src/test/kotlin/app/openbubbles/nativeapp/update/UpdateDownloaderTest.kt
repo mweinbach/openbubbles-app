@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -58,6 +59,67 @@ class UpdateDownloaderTest {
             UpdateDownloader(client()).download(UpdateFeed(bad, server.url("/apk").toString()), dir)
         }
         assertEquals(0, dir.listFiles()?.size ?: 0)
+        server.shutdown()
+    }
+
+    @Test
+    fun `cached artifact is authenticated against the current manifest`() {
+        val payload = "already-downloaded".toByteArray()
+        val dir = Files.createTempDirectory("ob-update-test").toFile()
+        val cached = UpdateDownloader.apkFileFor(dir, 42).apply { writeBytes(payload) }
+
+        UpdateDownloader.verify(cached, manifest(payload))
+    }
+
+    @Test
+    fun `cached artifact from another appcast cannot reuse an old hash`() {
+        val payload = "already-downloaded".toByteArray()
+        val dir = Files.createTempDirectory("ob-update-test").toFile()
+        val cached = UpdateDownloader.apkFileFor(dir, 42).apply { writeBytes(payload) }
+        val changedManifest = manifest(payload).copy(sha256 = sha256("different-release".toByteArray()))
+
+        assertFailsWith<UpdateDownloader.DownloadException.HashMismatch> {
+            UpdateDownloader.verify(cached, changedManifest)
+        }
+        assertContentEquals(payload, cached.readBytes())
+    }
+
+    @Test
+    fun `cached artifact must match the current manifest size`() {
+        val payload = "already-downloaded".toByteArray()
+        val dir = Files.createTempDirectory("ob-update-test").toFile()
+        val cached = UpdateDownloader.apkFileFor(dir, 42).apply { writeBytes(payload) }
+
+        val error = assertFailsWith<UpdateDownloader.DownloadException.SizeMismatch> {
+            UpdateDownloader.verify(cached, manifest(payload, sizeOverride = payload.size + 1L))
+        }
+
+        assertEquals(payload.size.toLong(), error.got)
+        assertContentEquals(payload, cached.readBytes())
+    }
+
+    @Test
+    fun `failed candidate download preserves a previously pending artifact`() {
+        val previousPayload = "previously-verified-release".toByteArray()
+        val invalidPayload = "untrusted-new-release".toByteArray()
+        val server = MockWebServer().apply {
+            start()
+            enqueue(MockResponse().setBody(okio.Buffer().write(invalidPayload)))
+        }
+        val dir = File(Files.createTempDirectory("ob-update-test").toFile(), "updates")
+            .apply { mkdirs() }
+        val previous = UpdateDownloader.apkFileFor(dir, 41).apply { writeBytes(previousPayload) }
+        val candidate = manifest(invalidPayload).copy(sha256 = sha256("other-content".toByteArray()))
+
+        assertFailsWith<UpdateDownloader.DownloadException.HashMismatch> {
+            UpdateDownloader(client()).download(
+                UpdateFeed(candidate, server.url("/apk").toString()),
+                dir,
+            )
+        }
+
+        assertContentEquals(previousPayload, previous.readBytes())
+        assertFalse(UpdateDownloader.apkFileFor(dir, candidate.versionCode).exists())
         server.shutdown()
     }
 

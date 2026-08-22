@@ -32,11 +32,11 @@ class UpdateDecisionTest {
     }
 
     @Test
-    fun `feed older than anything seen is a blocked rollback`() {
+    fun `feed older than an authenticated build is a blocked rollback`() {
         val decision = UpdateDecision.evaluate(
             installedCode = 9,
             manifest = manifest(10),
-            highestSeenCode = 12,
+            highestVerifiedCode = 12,
         )
         assertEquals(UpdateDecision.RollbackBlocked, decision)
     }
@@ -46,7 +46,7 @@ class UpdateDecisionTest {
         val decision = UpdateDecision.evaluate(
             installedCode = 9,
             manifest = manifest(12),
-            highestSeenCode = 11,
+            highestVerifiedCode = 11,
         )
         assertIs<UpdateDecision.Available>(decision)
     }

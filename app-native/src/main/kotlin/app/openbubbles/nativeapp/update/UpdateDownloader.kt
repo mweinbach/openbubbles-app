@@ -25,6 +25,8 @@ class UpdateDownloader(
             DownloadException("download truncated: $got of $want bytes")
         class Http(val code: Int) : DownloadException("download HTTP $code")
         class Io(cause: Throwable) : DownloadException("download IO failure", cause)
+        class UntrustedApk(message: String) : DownloadException(message)
+        class RollbackBlocked : DownloadException("downloaded APK is older than a verified update")
     }
 
     /**
@@ -104,6 +106,32 @@ class UpdateDownloader(
 
         fun apkFileFor(destDir: File, versionCode: Long): File =
             File(destDir, "openbubbles-$versionCode.apk")
+
+        /** Recheck cached bytes against the current, not an earlier, appcast. */
+        fun verify(apk: File, manifest: UpdateManifest) {
+            val digest = MessageDigest.getInstance("SHA-256")
+            var bytesRead = 0L
+            try {
+                apk.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        digest.update(buffer, 0, read)
+                        bytesRead += read
+                    }
+                }
+            } catch (error: IOException) {
+                throw DownloadException.Io(error)
+            }
+            if (manifest.bytes > 0L && bytesRead != manifest.bytes) {
+                throw DownloadException.SizeMismatch(bytesRead, manifest.bytes)
+            }
+            val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+            if (actualSha256 != manifest.normalizedSha256()) {
+                throw DownloadException.HashMismatch()
+            }
+        }
 
         /** Delete every downloaded APK except the one for [keepVersionCode]. */
         fun purgeStale(destDir: File, keepVersionCode: Long) {

@@ -20,6 +20,7 @@ import androidx.work.workDataOf
 import app.openbubbles.nativeapp.NativeMainActivity
 import app.openbubbles.nativeapp.R
 import app.openbubbles.nativeapp.telemetry.AppTelemetry
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -122,14 +123,13 @@ object UpdateCoordinator {
             installedCode = installedCode,
             manifest = feed.manifest,
             deferredCode = UpdateSettings.deferredVersionCode(context),
-            highestSeenCode = UpdateSettings.highestSeenVersionCode(context),
+            highestVerifiedCode = verifiedRollbackFloor(context, installedCode),
         )
         when (decision) {
             is UpdateDecision.Available, is UpdateDecision.Mandatory -> {
                 val manifest = feed.manifest
-                UpdateSettings.recordSeenVersionCode(context, manifest.versionCode)
                 val downloaded = try {
-                    downloadVerified(context, feed)
+                    downloadVerified(context, feed, installedCode)
                 } catch (e: UpdateDownloader.DownloadException) {
                     Log.w(TAG, "download failed: ${e.message}")
                     AppTelemetry.event(context, "update_download", mapOf("result" to "failed"))
@@ -168,20 +168,89 @@ object UpdateCoordinator {
 
     /**
      * Downloads and verifies the APK unless the exact version is already on
-     * disk. @return true when a usable APK is present afterwards.
+     * disk. A cached artifact is rechecked against the current appcast, and no
+     * pending state or rollback floor changes until its identity is authentic.
+     *
+     * @return true when a usable APK is present afterwards.
      */
-    private fun downloadVerified(context: Context, feed: UpdateFeed): Boolean {
+    @Synchronized
+    private fun downloadVerified(
+        context: Context,
+        feed: UpdateFeed,
+        installedVersionCode: Long,
+    ): Boolean {
         val dir = UpdateDownloader.updatesDir(context.cacheDir)
         val target = UpdateDownloader.apkFileFor(dir, feed.manifest.versionCode)
         val downloader = UpdateDownloader(
             client = UpdateLedgerSource.defaultClient(),
         )
-        if (!target.isFile) {
-            downloader.download(feed, dir)
+        val preservePriorPending = target.isFile &&
+            UpdateSettings.pendingVersionCode(context) == feed.manifest.versionCode
+        try {
+            if (target.isFile) {
+                UpdateDownloader.verify(target, feed.manifest)
+            } else {
+                downloader.download(feed, dir)
+            }
+            try {
+                ApkInstaller.verifyUpdate(context, target, feed.manifest)
+            } catch (error: SecurityException) {
+                throw UpdateDownloader.DownloadException.UntrustedApk(
+                    error.message ?: "downloaded APK identity verification failed",
+                )
+            }
+            when (UpdateSettings.recordVerifiedPending(context, feed.manifest, installedVersionCode)) {
+                VerifiedUpdatePublication.PUBLISHED -> Unit
+                VerifiedUpdatePublication.ROLLBACK_BLOCKED ->
+                    throw UpdateDownloader.DownloadException.RollbackBlocked()
+                VerifiedUpdatePublication.PERSISTENCE_FAILED ->
+                    throw UpdateDownloader.DownloadException.Io(
+                        IOException("failed to persist verified update metadata"),
+                    )
+            }
+        } catch (error: UpdateDownloader.DownloadException) {
+            if (!preservePriorPending) target.delete()
+            throw error
         }
         UpdateDownloader.purgeStale(dir, feed.manifest.versionCode)
-        UpdateSettings.recordPending(context, feed.manifest)
         return true
+    }
+
+    /** Recover old poisoned floors without discarding an authenticated pending APK. */
+    private fun verifiedRollbackFloor(context: Context, installedVersionCode: Long): Long {
+        val authenticatedPendingVersionCode = if (UpdateSettings.hasVerifiedRollbackFloor(context)) {
+            0L
+        } else {
+            authenticatedLegacyPendingVersionCode(context, installedVersionCode)
+        }
+        return UpdateSettings.highestVerifiedVersionCode(
+            context,
+            installedVersionCode,
+            authenticatedPendingVersionCode,
+        )
+    }
+
+    private fun authenticatedLegacyPendingVersionCode(
+        context: Context,
+        installedVersionCode: Long,
+    ): Long {
+        val pendingVersionCode = UpdateSettings.pendingVersionCode(context)
+        if (pendingVersionCode <= installedVersionCode) return 0L
+        val apk = UpdateDownloader.apkFileFor(
+            UpdateDownloader.updatesDir(context.cacheDir),
+            pendingVersionCode,
+        )
+        if (!apk.isFile) return 0L
+        val manifest = UpdateManifest(
+            versionCode = pendingVersionCode,
+            versionName = UpdateSettings.pendingVersionName(context) ?: pendingVersionCode.toString(),
+            apkAsset = apk.name,
+            sha256 = "",
+        )
+        return runCatching {
+            ApkInstaller.verifyUpdate(context, apk, manifest)
+            pendingVersionCode
+        }.getOrDefault(0L)
     }
 
     // ------------------------------------------------------------------
@@ -195,6 +264,10 @@ object UpdateCoordinator {
     fun installNow(context: Context): InstallNowResult {
         val code = UpdateSettings.pendingVersionCode(context)
         if (code <= 0L) return InstallNowResult.NothingPending
+        val installedCode = installedVersionCode(context)
+        if (!canPublishVerifiedUpdate(installedCode, verifiedRollbackFloor(context, installedCode), code)) {
+            return InstallNowResult.Failed("update blocked by verified rollback protection")
+        }
         val dir = UpdateDownloader.updatesDir(context.cacheDir)
         val apk = UpdateDownloader.apkFileFor(dir, code)
         if (!apk.isFile) {
@@ -208,12 +281,18 @@ object UpdateCoordinator {
             versionCode = code,
             versionName = UpdateSettings.pendingVersionName(context) ?: code.toString(),
             apkAsset = apk.name,
-            sha256 = "",
+            sha256 = UpdateSettings.pendingSha256(context).orEmpty(),
+            bytes = UpdateSettings.pendingBytes(context),
         )
         return try {
+            if (manifest.sha256.isNotBlank()) {
+                UpdateDownloader.verify(apk, manifest)
+            }
             ApkInstaller.install(context, apk, manifest)
             cancelNotification(context)
             InstallNowResult.Installing
+        } catch (e: UpdateDownloader.DownloadException) {
+            InstallNowResult.Failed(e.message ?: "downloaded APK verification failed")
         } catch (e: SecurityException) {
             InstallNowResult.Failed(e.message ?: "signature check failed")
         } catch (e: Exception) {

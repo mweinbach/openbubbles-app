@@ -38,10 +38,10 @@ data class UpdateManifest(
 
 /** Outcome of comparing a fetched feed against on-device state. */
 sealed interface UpdateDecision {
-    /** Installed versionCode >= feed's (or feed's is stale vs. what we saw). */
+    /** Installed versionCode is greater than or equal to the advertised build. */
     data object UpToDate : UpdateDecision
 
-    /** Feed is older than a version this device has already seen — rollback blocked. */
+    /** Feed is older than an authenticated build — rollback blocked. */
     data object RollbackBlocked : UpdateDecision
 
     /** User asked to skip exactly this version. */
@@ -59,17 +59,17 @@ sealed interface UpdateDecision {
          *
          * @param installedCode  versionCode of the running build
          * @param deferredCode   versionCode the user chose to skip (0 = none)
-         * @param highestSeenCode highest versionCode ever offered to this device
-         *                        (local rollback floor; 0 = none seen yet)
+         * @param highestVerifiedCode highest installed or fully authenticated APK
+         *                            (local rollback floor; 0 = none verified yet)
          */
         fun evaluate(
             installedCode: Long,
             manifest: UpdateManifest,
             deferredCode: Long = 0L,
-            highestSeenCode: Long = 0L,
+            highestVerifiedCode: Long = 0L,
         ): UpdateDecision = when {
             manifest.versionCode <= installedCode -> UpToDate
-            manifest.versionCode < highestSeenCode -> RollbackBlocked
+            manifest.versionCode < highestVerifiedCode -> RollbackBlocked
             installedCode < manifest.minVersionCode -> Mandatory(manifest)
             manifest.versionCode == deferredCode -> Deferred(manifest.versionCode)
             else -> Available(manifest)
