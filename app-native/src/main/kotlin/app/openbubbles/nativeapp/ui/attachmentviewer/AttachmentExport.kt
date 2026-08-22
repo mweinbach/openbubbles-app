@@ -34,6 +34,7 @@ import app.openbubbles.nativeapp.data.writeJpegMotionPhotoCarrier
 
 /** Decode ceiling for re-encodes; bounds peak bitmap memory (~64 MB RGBA). */
 private const val EXPORT_DECODE_MAX_DIMENSION = 4096
+private const val MOTION_PHOTO_STILL_MAX_BYTES = 64L * 1024 * 1024
 
 internal fun requiresLegacyMediaWritePermission(sdkInt: Int, permissionGranted: Boolean): Boolean =
     sdkInt <= Build.VERSION_CODES.P && !permissionGranted
@@ -160,7 +161,8 @@ internal fun saveLivePhotoAsSeparateFiles(context: Context, pair: LivePhotoPair)
  * Motion Photo writer refuses to clobber, and the caller's two-file fallback
  * preserves full fidelity for that case instead.
  */
-private fun jpegCarrierBytes(stillFile: File): ByteArray? {
+internal fun jpegCarrierBytes(stillFile: File): ByteArray? {
+    if (stillFile.length() !in 1..MOTION_PHOTO_STILL_MAX_BYTES) return null
     val bytes = runCatching { stillFile.readBytes() }.getOrNull() ?: return null
     if (bytes.size >= 2 && (bytes[0].toInt() and 0xFF) == 0xFF && (bytes[1].toInt() and 0xFF) == 0xD8) {
         return bytes

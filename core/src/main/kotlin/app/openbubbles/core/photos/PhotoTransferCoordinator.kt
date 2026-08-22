@@ -78,6 +78,28 @@ class PhotoTransferCoordinator(
         }
     }
 
+    /** Keep a Live Photo's video companion private and distinct from its still. */
+    suspend fun downloadLivePhotoVideo(
+        asset: PhotoSummary,
+        onProgress: (PhotoTransfer) -> Unit = {},
+    ): PhotoTransfer {
+        val id = downloadId(asset.id, PhotoResourceKind.LivePhotoVideo)
+        return transferLocks.getOrPut(id) { Mutex() }.withLock {
+            runDownload(
+                id = id,
+                asset = asset,
+                resourceKind = PhotoResourceKind.LivePhotoVideo,
+                root = originalRoot,
+                extension = "mov",
+                expectedBytes = asset.livePhotoVideoSize,
+                mimeType = "video/quicktime",
+                validate = { validOriginalFile(it, PhotoMediaKind.Video) },
+                download = { path, progress -> port.downloadLivePhotoVideo(asset, path, progress) },
+                onProgress = onProgress,
+            )
+        }
+    }
+
     /**
      * A completed catalog row is only a cache hint. Revalidate its promoted
      * file before restoring it into UI state so eviction or corruption cannot
@@ -95,7 +117,7 @@ class PhotoTransferCoordinator(
         val expectedBytes = when (transfer.resourceKind) {
             PhotoResourceKind.Preview -> asset.previewSize
             PhotoResourceKind.Original -> asset.originalSize
-            PhotoResourceKind.LivePhotoVideo -> null
+            PhotoResourceKind.LivePhotoVideo -> asset.livePhotoVideoSize
         }
         val restored = withContext(ioDispatcher) {
             val file = File(transfer.localPath)
@@ -104,7 +126,7 @@ class PhotoTransferCoordinator(
                 file.length() == expectedBytes && when (transfer.resourceKind) {
                 PhotoResourceKind.Preview -> validPreviewFile(file, asset.mediaKind)
                 PhotoResourceKind.Original -> validOriginalFile(file, asset.mediaKind)
-                PhotoResourceKind.LivePhotoVideo -> false
+                PhotoResourceKind.LivePhotoVideo -> validOriginalFile(file, PhotoMediaKind.Video)
             }
             if (!valid) {
                 null

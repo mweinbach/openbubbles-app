@@ -231,6 +231,7 @@ class PhotosSqliteCatalog(context: Context) :
         putNullable("height", height)
         putNullable("original_size", originalSize)
         putNullable("preview_size", previewSize)
+        putNullable("live_photo_video_size", livePhotoVideoSize)
         putNullable("captured_at_ms", capturedAtMs)
         putNullable("added_at_ms", addedAtMs)
         put("favorite", favorite.asInt())
@@ -269,6 +270,7 @@ class PhotosSqliteCatalog(context: Context) :
         addedAtMs = nullableLong("added_at_ms"),
         favorite = int("favorite") != 0,
         hidden = int("hidden") != 0,
+        livePhotoVideoSize = nullableLong("live_photo_video_size"),
     )
 
     private fun Cursor.photoTransfer() = PhotoTransfer(
@@ -318,7 +320,7 @@ class PhotosSqliteCatalog(context: Context) :
 
     companion object {
         const val DATABASE_NAME = "openbubbles-photos.db"
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
 
         private const val ASSETS_TABLE = "photo_assets"
         private const val SYNC_TABLE = "photo_sync_state"
@@ -342,6 +344,7 @@ class PhotosSqliteCatalog(context: Context) :
                 height INTEGER,
                 original_size INTEGER,
                 preview_size INTEGER,
+                live_photo_video_size INTEGER,
                 captured_at_ms INTEGER,
                 added_at_ms INTEGER,
                 favorite INTEGER NOT NULL,
@@ -391,6 +394,13 @@ class PhotosSqliteCatalog(context: Context) :
             oldVersion == newVersion -> emptyList()
             oldVersion == 1 && newVersion == 2 -> listOf(
                 "ALTER TABLE photo_transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'Manual'",
+            )
+            oldVersion == 2 && newVersion == 3 -> listOf(
+                "ALTER TABLE photo_assets ADD COLUMN live_photo_video_size INTEGER",
+            )
+            oldVersion == 1 && newVersion == 3 -> listOf(
+                "ALTER TABLE photo_transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'Manual'",
+                "ALTER TABLE photo_assets ADD COLUMN live_photo_video_size INTEGER",
             )
             else -> error(
                 "Missing Photos catalog migration from version $oldVersion to $newVersion",

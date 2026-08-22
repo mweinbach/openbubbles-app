@@ -1551,6 +1551,8 @@ internal open class UniffiVTableCallbackInterfaceUSyncPageCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is
 // rather `InterfaceTooLargeException`, caused by too many methods
@@ -1719,6 +1721,8 @@ fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_cloud_a
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_group_photo(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs(
+): Short
+fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_live_video(
 ): Short
 fun uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_original(
 ): Short
@@ -2187,6 +2191,8 @@ fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_cloud_attachm
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_group_photo(`ptr`: Pointer,`recordId`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(`ptr`: Pointer,`mmcsXml`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
+): Long
+fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_photo_live_video(`ptr`: Pointer,`masterId`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
 fun uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_photo_original(`ptr`: Pointer,`masterId`: RustBuffer.ByValue,`mediaKind`: RustBuffer.ByValue,`destPath`: RustBuffer.ByValue,`progress`: RustBuffer.ByValue,
 ): Long
@@ -2902,6 +2908,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_mmcs() != 33762.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_live_video() != 7424.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_rust_lib_bluebubbles_checksum_method_nativepushstate_download_photo_original() != 33581.toShort()) {
@@ -6433,6 +6442,13 @@ public interface NativePushStateInterface {
     suspend fun `downloadMmcs`(`mmcsXml`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
 
     /**
+     * Download only the paired video of an explicitly selected Live Photo.
+     * The complement remains app-private until Android combines it with the
+     * still into one gallery-visible Motion Photo.
+     */
+    suspend fun `downloadPhotoLiveVideo`(`masterId`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?)
+
+    /**
      * Download one full-resolution Photos original after an explicit gallery
      * selection. Preview browsing uses a separate method and cannot reach this
      * path accidentally.
@@ -7462,6 +7478,33 @@ open class NativePushState: Disposable, AutoCloseable, NativePushStateInterface
             UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_mmcs(
                 thisPtr,
                 FfiConverterString.lower(`mmcsXml`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+
+        // Error FFI converter
+        UException.ErrorHandler,
+    )
+    }
+
+
+    /**
+     * Download only the paired video of an explicitly selected Live Photo.
+     * The complement remains app-private until Android combines it with the
+     * still into one gallery-visible Motion Photo.
+     */
+    @Throws(UException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `downloadPhotoLiveVideo`(`masterId`: kotlin.String, `destPath`: kotlin.String, `progress`: UProgressCallback?) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_rust_lib_bluebubbles_fn_method_nativepushstate_download_photo_live_video(
+                thisPtr,
+                FfiConverterString.lower(`masterId`),FfiConverterString.lower(`destPath`),FfiConverterOptionalTypeUProgressCallback.lower(`progress`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_rust_lib_bluebubbles_rust_future_poll_void(future, callback, continuation) },
@@ -14566,6 +14609,7 @@ data class UPhotoAssetSummary (
     var `filename`: kotlin.String?,
     var `mediaKind`: UPhotoMediaKind,
     var `livePhoto`: kotlin.Boolean,
+    var `livePhotoVideoSize`: kotlin.ULong?,
     var `width`: kotlin.UInt?,
     var `height`: kotlin.UInt?,
     var `originalSize`: kotlin.ULong?,
@@ -14590,6 +14634,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalString.read(buf),
             FfiConverterTypeUPhotoMediaKind.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalULong.read(buf),
             FfiConverterOptionalUInt.read(buf),
             FfiConverterOptionalUInt.read(buf),
             FfiConverterOptionalULong.read(buf),
@@ -14607,6 +14652,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalString.allocationSize(value.`filename`) +
             FfiConverterTypeUPhotoMediaKind.allocationSize(value.`mediaKind`) +
             FfiConverterBoolean.allocationSize(value.`livePhoto`) +
+            FfiConverterOptionalULong.allocationSize(value.`livePhotoVideoSize`) +
             FfiConverterOptionalUInt.allocationSize(value.`width`) +
             FfiConverterOptionalUInt.allocationSize(value.`height`) +
             FfiConverterOptionalULong.allocationSize(value.`originalSize`) +
@@ -14623,6 +14669,7 @@ public object FfiConverterTypeUPhotoAssetSummary: FfiConverterRustBuffer<UPhotoA
             FfiConverterOptionalString.write(value.`filename`, buf)
             FfiConverterTypeUPhotoMediaKind.write(value.`mediaKind`, buf)
             FfiConverterBoolean.write(value.`livePhoto`, buf)
+            FfiConverterOptionalULong.write(value.`livePhotoVideoSize`, buf)
             FfiConverterOptionalUInt.write(value.`width`, buf)
             FfiConverterOptionalUInt.write(value.`height`, buf)
             FfiConverterOptionalULong.write(value.`originalSize`, buf)

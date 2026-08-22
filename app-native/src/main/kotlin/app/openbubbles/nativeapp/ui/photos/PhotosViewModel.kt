@@ -55,6 +55,7 @@ data class PhotosUiState(
     val snapshot: PhotosSnapshot? = null,
     val previewTransfers: Map<String, PhotoTransfer> = emptyMap(),
     val originalTransfers: Map<String, PhotoTransfer> = emptyMap(),
+    val livePhotoVideoTransfers: Map<String, PhotoTransfer> = emptyMap(),
     val selectedAssetId: String? = null,
     /**
      * Gallery mirror state per asset. Downloading an original copies it into
@@ -94,6 +95,12 @@ private class LivePhotosPort(private val stateProvider: () -> NativePushState?) 
         onProgress: (Long, Long) -> Unit,
     ) = port().downloadOriginal(asset, destPath, onProgress)
 
+    override suspend fun downloadLivePhotoVideo(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ) = port().downloadLivePhotoVideo(asset, destPath, onProgress)
+
     override suspend fun uploadJpeg(
         originalPath: String,
         previewPath: String,
@@ -106,7 +113,7 @@ private class LivePhotosPort(private val stateProvider: () -> NativePushState?) 
 
 /** Fakeable seam for the one-way Android gallery mirror. */
 internal fun interface PhotoGalleryPort {
-    suspend fun export(asset: PhotoSummary, original: File): PhotoGalleryExportOutcome
+    suspend fun export(asset: PhotoSummary, original: File, livePhotoVideo: File?): PhotoGalleryExportOutcome
 }
 
 internal interface PhotosFolderPort {
@@ -142,11 +149,15 @@ internal interface PhotosBackupPort {
 
     /** Returns the resulting state; enabling can be refused without media permission. */
     suspend fun setEnabled(enabled: Boolean): Boolean
+
+    /** Read-only cloud reconciliation never implies consent to camera uploads. */
+    fun ensureLibrarySync() = Unit
 }
 
 private class AndroidPhotosBackupPort(private val context: Context) : PhotosBackupPort {
     override fun enabled(): Boolean = PhotosBackgroundSync.isEnabled(context)
     override suspend fun setEnabled(enabled: Boolean): Boolean = PhotosBackgroundSync.setEnabled(context, enabled)
+    override fun ensureLibrarySync() = PhotosBackgroundSync.enableLibrarySync(context)
 }
 
 internal class PhotosViewModel(
@@ -213,11 +224,14 @@ internal class PhotosViewModel(
             .associateBy { checkNotNull(it.assetId) }
         val originals = downloads.filter { it.resourceKind == PhotoResourceKind.Original }
             .associateBy { checkNotNull(it.assetId) }
+        val livePhotoVideos = downloads.filter { it.resourceKind == PhotoResourceKind.LivePhotoVideo }
+            .associateBy { checkNotNull(it.assetId) }
         val uploads = allTransfers.filter { it.direction == PhotoTransferDirection.Upload }
         mutableState.update {
             it.copy(
                 previewTransfers = previews,
                 originalTransfers = originals,
+                livePhotoVideoTransfers = livePhotoVideos,
                 uploadPlans = uploads,
                 folderSources = folderSources,
                 backgroundSyncEnabled = backup.enabled(),
@@ -251,6 +265,7 @@ internal class PhotosViewModel(
             val snapshot = browser.initial(cachedAssets = mutableState.value.snapshot?.assets.orEmpty())
             if (snapshot.access.availability == PhotosAvailability.Ready) {
                 catalog.replaceMetadata(snapshot.assets, snapshot.nextCursor)
+                backup.ensureLibrarySync()
             }
             mutableState.update { it.copy(snapshot = snapshot, showingCachedMetadata = false) }
         } catch (cancelled: CancellationException) {
@@ -363,7 +378,9 @@ internal class PhotosViewModel(
             originalJobs[asset.id]?.isActive == true
         ) return
         val existing = mutableState.value.originalTransfers[asset.id]
-        if (existing.isValidatedCacheFile()) return
+        val needsMotion = asset.livePhoto && asset.livePhotoVideoSize != null
+        val existingMotion = mutableState.value.livePhotoVideoTransfers[asset.id]
+        if (existing.isValidatedCacheFile() && (!needsMotion || existingMotion.isValidatedCacheFile())) return
         if (!retry && existing?.state !in listOf(
                 null,
                 PhotoTransferState.Queued,
@@ -380,9 +397,27 @@ internal class PhotosViewModel(
                 }
                 if (completed.state == PhotoTransferState.Succeeded) validatedDownloads += completed.id
                 updateOriginal(asset.id, completed)
+                if (completed.state == PhotoTransferState.Succeeded && needsMotion) {
+                    val motion = originalSlots.withPermit {
+                        coordinator.downloadLivePhotoVideo(asset) { transfer ->
+                            updateLivePhotoVideo(asset.id, transfer)
+                        }
+                    }
+                    if (motion.state == PhotoTransferState.Succeeded) validatedDownloads += motion.id
+                    updateLivePhotoVideo(asset.id, motion)
+                    if (motion.state != PhotoTransferState.Succeeded) {
+                        mutableState.update { state ->
+                            state.copy(
+                                galleryExports = state.galleryExports +
+                                    (asset.id to PhotoGalleryExportOutcome.Failed),
+                            )
+                        }
+                        return@createJob
+                    }
+                }
                 // Downloading a full-quality asset is what puts it in the
-                // Android gallery. This is a local copy out; it issues no
-                // Apple call and cannot travel back to iCloud.
+                // Android gallery. Live Photo resources become one combined
+                // Motion Photo; the companion MOV is never exported alone.
                 if (completed.state == PhotoTransferState.Succeeded) {
                     exportToGallery(asset, completed)
                 }
@@ -398,13 +433,25 @@ internal class PhotosViewModel(
     fun saveToGallery(asset: PhotoSummary) {
         val transfer = mutableState.value.originalTransfers[asset.id] ?: return
         if (transfer.state != PhotoTransferState.Succeeded) return
+        if (
+            asset.livePhoto &&
+            asset.livePhotoVideoSize != null &&
+            !mutableState.value.livePhotoVideoTransfers[asset.id].isValidatedCacheFile()
+        ) {
+            ensureOriginal(asset, retry = true)
+            return
+        }
         launchWork { exportToGallery(asset, transfer) }
     }
 
     private suspend fun exportToGallery(asset: PhotoSummary, transfer: PhotoTransfer) {
         val original = File(transfer.localPath)
         if (!original.isFile || original.length() <= 0) return
-        val outcome = gallery.export(asset, original)
+        val motion = mutableState.value.livePhotoVideoTransfers[asset.id]
+            ?.takeIf { it.isValidatedCacheFile() }
+            ?.localPath
+            ?.let(::File)
+        val outcome = gallery.export(asset, original, motion)
         mutableState.update { state ->
             state.copy(galleryExports = state.galleryExports + (asset.id to outcome))
         }
@@ -424,6 +471,12 @@ internal class PhotosViewModel(
     private fun updateOriginal(assetId: String, transfer: PhotoTransfer) {
         mutableState.update { state ->
             state.copy(originalTransfers = state.originalTransfers + (assetId to transfer))
+        }
+    }
+
+    private fun updateLivePhotoVideo(assetId: String, transfer: PhotoTransfer) {
+        mutableState.update { state ->
+            state.copy(livePhotoVideoTransfers = state.livePhotoVideoTransfers + (assetId to transfer))
         }
     }
 
@@ -619,9 +672,9 @@ internal class PhotosViewModel(
                         originalRoot = File(application.filesDir, "icloud_photos/originals"),
                     ),
                     folders = AndroidPhotosFolderPort(PhotoFolderSources(application)),
-                    gallery = { asset, original ->
+                    gallery = { asset, original, livePhotoVideo ->
                         withContext(Dispatchers.IO) {
-                            savePhotoToGallery(application, asset, original)
+                            savePhotoToGallery(application, asset, original, livePhotoVideo)
                         }
                     },
                     prepareUpload = { uri -> preparePhotoUploadCandidate(application, uri) },

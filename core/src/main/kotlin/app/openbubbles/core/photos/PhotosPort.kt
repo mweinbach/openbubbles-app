@@ -37,6 +37,7 @@ data class PhotoSummary(
     val addedAtMs: Long?,
     val favorite: Boolean,
     val hidden: Boolean,
+    val livePhotoVideoSize: Long? = null,
 )
 
 data class PhotosPage(
@@ -75,6 +76,12 @@ interface PhotosPort {
         destPath: String,
         onProgress: (Long, Long) -> Unit,
     ): Result<Unit> = Result.failure(UnsupportedOperationException("Photos original downloads are unavailable"))
+
+    suspend fun downloadLivePhotoVideo(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = Result.failure(UnsupportedOperationException("Live Photo video downloads are unavailable"))
 
     suspend fun uploadJpeg(
         originalPath: String,
@@ -123,6 +130,7 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
                     addedAtMs = asset.addedAtMs?.toSafeLong(),
                     favorite = asset.favorite,
                     hidden = asset.hidden,
+                    livePhotoVideoSize = asset.livePhotoVideoSize?.toSafeLong(),
                 )
             },
             nextCursor = page.nextCursor,
@@ -164,6 +172,22 @@ class UniffiPhotosPort(private val state: NativePushState) : PhotosPort {
         state.downloadPhotoOriginal(
             masterId = asset.id,
             mediaKind = mediaKind,
+            destPath = destPath,
+            progress = object : UProgressCallback {
+                override fun onProgress(done: ULong, total: ULong) {
+                    onProgress(done.toSafeLong(), total.toSafeLong())
+                }
+            },
+        )
+    }
+
+    override suspend fun downloadLivePhotoVideo(
+        asset: PhotoSummary,
+        destPath: String,
+        onProgress: (Long, Long) -> Unit,
+    ): Result<Unit> = runCatching {
+        state.downloadPhotoLiveVideo(
+            masterId = asset.id,
             destPath = destPath,
             progress = object : UProgressCallback {
                 override fun onProgress(done: ULong, total: ULong) {

@@ -28,6 +28,8 @@ import app.openbubbles.core.photos.PhotoTransferOrigin
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosAvailability
 import app.openbubbles.core.photos.PhotosBrowser
+import app.openbubbles.core.photos.PhotosCatalog
+import app.openbubbles.core.photos.PhotosPort
 import app.openbubbles.core.photos.UniffiPhotosPort
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.runAccountCleanupSteps
@@ -60,12 +62,14 @@ object PhotosBackgroundSync {
     private const val TAG = "PhotosBackup"
     private const val PREFS = "icloud_photos_backup"
     private const val KEY_ENABLED = "enabled"
+    private const val KEY_LIBRARY_SYNC_ENABLED = "library_sync_enabled"
     private const val KEY_WATERMARK_ID = "dcim_watermark_id"
     private const val KEY_LAST_PASS_MS = "last_pass_ms"
 
     /** Kept from the dormant worker so cancelling also covers older installs. */
     internal const val PERIODIC_WORK_NAME = "openbubbles-icloud-photos-background-sync"
     internal const val FOLLOW_UP_WORK_NAME = "openbubbles-icloud-photos-new-media"
+    internal const val LIBRARY_PERIODIC_WORK_NAME = "openbubbles-icloud-photos-library-refresh"
 
     /** New DCIM items staged per pass; a longer backlog continues in a follow-up run. */
     internal const val BATCH_LIMIT = 60
@@ -83,6 +87,9 @@ object PhotosBackgroundSync {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+
+    internal fun isLibrarySyncEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LIBRARY_SYNC_ENABLED, false)
 
     fun lastPassMs(context: Context): Long? =
         prefs(context).getLong(KEY_LAST_PASS_MS, 0L).takeIf { it > 0 }
@@ -145,6 +152,25 @@ object PhotosBackgroundSync {
     }
 
     /**
+     * A viewed personal library stays fresh even when camera uploads are off.
+     * This worker is metadata-only and never requests device media grants.
+     */
+    fun enableLibrarySync(context: Context) {
+        val app = context.applicationContext
+        prefs(app).edit { putBoolean(KEY_LIBRARY_SYNC_ENABLED, true) }
+        val request = PeriodicWorkRequestBuilder<PhotosLibrarySyncWorker>(30, TimeUnit.MINUTES)
+            .setConstraints(constraints())
+            .build()
+        runCatching {
+            WorkManager.getInstance(app).enqueueUniquePeriodicWork(
+                LIBRARY_PERIODIC_WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request,
+            )
+        }.onFailure { Log.w(TAG, "could not schedule Photos library refresh: ${it.javaClass.simpleName}") }
+    }
+
+    /**
      * A one-time run either soon (a batch was cut short by [BATCH_LIMIT]) or
      * when MediaStore reports new images. Re-armed at the end of every pass.
      */
@@ -182,6 +208,7 @@ object PhotosBackgroundSync {
         WorkManager.getInstance(context).apply {
             cancelUniqueWork(PERIODIC_WORK_NAME).result.get()
             cancelUniqueWork(FOLLOW_UP_WORK_NAME).result.get()
+            cancelUniqueWork(LIBRARY_PERIODIC_WORK_NAME).result.get()
         }
     }
 
@@ -314,22 +341,21 @@ object PhotosBackgroundSync {
                 if (completed.state == PhotoTransferState.Succeeded) uploaded += 1
             }
 
-            if (staged > 0 || uploaded > 0) {
-                runCatching {
-                    val snapshot = PhotosBrowser(port).initial(
-                        cachedAssets = catalog.loadMetadata().assets,
-                    )
-                    if (snapshot.access.availability == PhotosAvailability.Ready) {
-                        catalog.replaceMetadata(snapshot.assets, snapshot.nextCursor)
-                    }
-                }
-            }
+            refreshPhotosLibrary(port, catalog)
             prefs(app).edit { putLong(KEY_LAST_PASS_MS, System.currentTimeMillis()) }
             return PassOutcome(staged, uploaded, backlog = images.size >= BATCH_LIMIT)
         } finally {
             catalog.close()
         }
     }
+}
+
+/** Metadata-only reconciliation preserves older pages and never starts a transfer or upload. */
+internal suspend fun refreshPhotosLibrary(port: PhotosPort, catalog: PhotosCatalog): Boolean {
+    val snapshot = PhotosBrowser(port).initial(cachedAssets = catalog.loadMetadata().assets)
+    if (snapshot.access.availability != PhotosAvailability.Ready) return false
+    catalog.replaceMetadata(snapshot.assets, snapshot.nextCursor)
+    return true
 }
 
 internal data class DeviceImage(
@@ -463,6 +489,53 @@ class PhotosBackgroundSyncWorker(
         } finally {
             // close() cancels every tracked job, so release the currently
             // executing WorkManager owner before disposing its session.
+            session.release(owner)
+            session.close()
+        }
+    }
+}
+
+/** Account-scoped remote reconciliation; independent from opt-in camera backup. */
+class PhotosLibrarySyncWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val context = applicationContext
+        if (!PhotosBackgroundSync.isLibrarySyncEnabled(context)) return Result.success()
+        val policy = photoBackupPushPolicy(
+            hasLiveState = PushStateHolder.state != null,
+            batterySaverEnabled = BatterySaver.isEnabled(context),
+        )
+        val state = when (policy) {
+            PhotoBackupPushPolicy.EXISTING -> PushStateHolder.state
+            PhotoBackupPushPolicy.BOUNDED_ON_DEMAND,
+            PhotoBackupPushPolicy.RESTORE_PERSISTENT,
+            -> if (NativePushService.ensureOnDemandSession(context)) PushStateHolder.state else null
+        } ?: return Result.retry()
+        val owner = currentCoroutineContext()[Job] ?: return Result.retry()
+        val session = PhotosWorkRegistry.register()
+        if (!session.adopt(owner)) {
+            session.close()
+            return Result.success()
+        }
+        return try {
+            val catalog = PhotosSqliteCatalog(context)
+            try {
+                if (refreshPhotosLibrary(UniffiPhotosPort(state), catalog)) {
+                    Result.success()
+                } else {
+                    Result.retry()
+                }
+            } finally {
+                catalog.close()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.w("PhotosBackup", "library refresh failed: ${error.javaClass.simpleName}")
+            Result.retry()
+        } finally {
             session.release(owner)
             session.close()
         }

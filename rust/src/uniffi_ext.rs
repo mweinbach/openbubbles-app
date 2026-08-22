@@ -1070,6 +1070,7 @@ pub struct UPhotoAssetSummary {
     pub filename: Option<String>,
     pub media_kind: UPhotoMediaKind,
     pub live_photo: bool,
+    pub live_photo_video_size: Option<u64>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub original_size: Option<u64>,
@@ -1220,6 +1221,7 @@ fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSumma
             rustpush::photos::PhotoMediaKind::Unknown => UPhotoMediaKind::Unknown,
         },
         live_photo: asset.live_photo,
+        live_photo_video_size: asset.live_photo_video_size,
         width: asset.width,
         height: asset.height,
         original_size: asset.original_size,
@@ -1438,6 +1440,57 @@ impl NativePushState {
             }
             file.sync_all().map_err(|error| UError::Failed {
                 reason: format!("failed to sync Photos original: {error}"),
+            })?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Download only the paired video of an explicitly selected Live Photo.
+    /// The complement remains app-private until Android combines it with the
+    /// still into one gallery-visible Motion Photo.
+    pub async fn download_photo_live_video(
+        &self,
+        master_id: String,
+        dest_path: String,
+        progress: Option<Arc<dyn UProgressCallback>>,
+    ) -> Result<(), UError> {
+        if master_id.trim().is_empty() {
+            return Err(UError::InvalidArgument {
+                reason: "Photo master id is required".to_string(),
+            });
+        }
+        let client = native_photos(self)?;
+        drive_ffi(async move {
+            let mut file = create_dest(&dest_path)?;
+            {
+                let mut bounded = BoundedWriter::new(&mut file, Some(MAX_PHOTO_ORIGINAL_BYTES));
+                client
+                    .download_live_photo_video(&master_id, &mut bounded, progress_cb(progress))
+                    .await
+                    .map_err(|error| photos_protocol_error("Live Photo video download", error))?;
+            }
+            file.flush().map_err(|error| UError::Failed {
+                reason: format!("failed to flush Live Photo video: {error}"),
+            })?;
+            file.rewind().map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Live Photo video: {error}"),
+            })?;
+            let mut header = [0u8; 12];
+            let header_len = file.read(&mut header).map_err(|error| UError::Failed {
+                reason: format!("failed to inspect Live Photo video: {error}"),
+            })?;
+            if !rustpush::photos::valid_original_header(
+                &rustpush::photos::PhotoMediaKind::Video,
+                &header[..header_len],
+            ) {
+                return Err(UError::Failed {
+                    reason: "downloaded Live Photo video did not match its expected media format"
+                        .to_string(),
+                });
+            }
+            file.sync_all().map_err(|error| UError::Failed {
+                reason: format!("failed to sync Live Photo video: {error}"),
             })?;
             Ok(())
         })

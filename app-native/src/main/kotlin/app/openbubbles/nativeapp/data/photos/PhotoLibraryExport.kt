@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data.photos
 
 import app.openbubbles.core.photos.PhotoMediaKind
+import app.openbubbles.nativeapp.data.motionPhotoDisplayName
 
 /**
  * Where one downloaded iCloud original lands in the Android gallery.
@@ -65,6 +66,20 @@ object PhotoLibraryExport {
             relativePath = ALBUM_PATH,
             video = isVideo,
             dateTakenMillis = capturedAtMs?.takeIf { it > 0 },
+        )
+    }
+
+    /** One gallery image represents both private resources of an Apple Live Photo. */
+    fun motionPhotoPlan(
+        cachedFileName: String,
+        filename: String?,
+        capturedAtMs: Long?,
+    ): PhotoGalleryExportPlan? {
+        val still = plan(cachedFileName, filename, PhotoMediaKind.Image, capturedAtMs) ?: return null
+        return still.copy(
+            displayName = motionPhotoDisplayName(still.displayName),
+            mimeType = "image/jpeg",
+            video = false,
         )
     }
 

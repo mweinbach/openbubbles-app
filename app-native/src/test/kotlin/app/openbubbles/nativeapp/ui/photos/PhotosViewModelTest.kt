@@ -422,6 +422,71 @@ class PhotosViewModelTest {
         }
 
     @Test
+    fun `a live photo downloads both resources but exports one combined gallery item`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-live-gallery").toFile()
+            try {
+                val asset = photo("live").copy(livePhoto = true, livePhotoVideoSize = 16)
+                val catalog = FakeCatalog(CachedPhotos(listOf(asset)))
+                val port = CompletingDownloadPort(listOf(asset))
+                val gallery = FakeGallery()
+                val model = model(port, catalog, root, gallery)
+                advanceUntilIdle()
+
+                model.select(asset)
+                advanceUntilIdle()
+
+                assertEquals(PhotoTransferState.Succeeded, model.uiState.value.originalTransfers[asset.id]?.state)
+                assertEquals(
+                    PhotoTransferState.Succeeded,
+                    model.uiState.value.livePhotoVideoTransfers[asset.id]?.state,
+                )
+                assertEquals(1, port.livePhotoVideoDownloads)
+                assertEquals(listOf(asset.id), gallery.exported)
+                assertEquals(true, gallery.motionCompanions.single()?.name?.endsWith(".mov"))
+
+                model.closeSelected()
+                model.select(asset)
+                advanceUntilIdle()
+
+                assertEquals(listOf(asset.id), gallery.exported)
+                assertEquals(1, port.livePhotoVideoDownloads)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun `failed live photo companion never exports a duplicate still and can retry`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-live-retry").toFile()
+            try {
+                val asset = photo("live").copy(livePhoto = true, livePhotoVideoSize = 16)
+                val port = CompletingDownloadPort(listOf(asset)).apply { failLivePhotoVideo = true }
+                val gallery = FakeGallery()
+                val model = model(port, FakeCatalog(CachedPhotos(listOf(asset))), root, gallery)
+                advanceUntilIdle()
+
+                model.select(asset)
+                advanceUntilIdle()
+
+                assertEquals(emptyList(), gallery.exported)
+                assertEquals(PhotoTransferState.Failed, model.uiState.value.livePhotoVideoTransfers[asset.id]?.state)
+
+                port.failLivePhotoVideo = false
+                model.retryOriginal(asset)
+                advanceUntilIdle()
+
+                assertEquals(listOf(asset.id), gallery.exported)
+                assertEquals(2, port.livePhotoVideoDownloads)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
     fun `camera backup switch mirrors the port and explains a refusal`() = runTest(dispatcher) {
         val root = createTempDirectory("photos-view-model-backup").toFile()
         try {
@@ -430,6 +495,8 @@ class PhotosViewModelTest {
             val model = model(BlockingDownloadPort(listOf(asset)), FakeCatalog(CachedPhotos(listOf(asset))), root, backup = backup)
             advanceUntilIdle()
             assertEquals(false, model.uiState.value.backgroundSyncEnabled)
+            assertEquals(1, backup.librarySyncRequests)
+            assertEquals(emptyList(), backup.requests)
 
             model.setBackgroundSync(true)
             advanceUntilIdle()
@@ -500,6 +567,7 @@ class PhotosViewModelTest {
     private class FakeBackup(var allowEnable: Boolean) : PhotosBackupPort {
         var state = false
         val requests = mutableListOf<Boolean>()
+        var librarySyncRequests = 0
 
         override fun enabled(): Boolean = state
 
@@ -507,6 +575,10 @@ class PhotosViewModelTest {
             requests += enabled
             state = enabled && allowEnable
             return state
+        }
+
+        override fun ensureLibrarySync() {
+            librarySyncRequests += 1
         }
     }
 
@@ -568,6 +640,9 @@ class PhotosViewModelTest {
     ) : PhotosPort {
         var uploads = 0
             private set
+        var livePhotoVideoDownloads = 0
+            private set
+        var failLivePhotoVideo = false
 
         override suspend fun access(): PhotosAccess =
             PhotosAccess(PhotosAvailability.Ready, "Personal library metadata available")
@@ -586,6 +661,24 @@ class PhotosViewModelTest {
             destPath: String,
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> = writeJpeg(destPath, 100, onProgress)
+
+        override suspend fun downloadLivePhotoVideo(
+            asset: PhotoSummary,
+            destPath: String,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> {
+            livePhotoVideoDownloads += 1
+            if (failLivePhotoVideo) return Result.failure(IllegalStateException("Motion download failed"))
+            val bytes = byteArrayOf(
+                0, 0, 0, 16,
+                'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+                'q'.code.toByte(), 't'.code.toByte(), ' '.code.toByte(), ' '.code.toByte(),
+                0, 0, 0, 0,
+            )
+            File(destPath).writeBytes(bytes)
+            onProgress(bytes.size.toLong(), bytes.size.toLong())
+            return Result.success(Unit)
+        }
 
         override suspend fun uploadJpeg(
             originalPath: String,
@@ -619,12 +712,15 @@ class PhotosViewModelTest {
         private val outcome: PhotoGalleryExportOutcome = PhotoGalleryExportOutcome.Saved,
     ) : PhotoGalleryPort {
         val exported = mutableListOf<String>()
+        val motionCompanions = mutableListOf<File?>()
 
         override suspend fun export(
             asset: PhotoSummary,
             original: File,
+            livePhotoVideo: File?,
         ): PhotoGalleryExportOutcome {
             exported += asset.id
+            motionCompanions += livePhotoVideo
             return outcome
         }
     }

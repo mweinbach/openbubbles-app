@@ -359,6 +359,54 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
+    fun livePhotoCompanionUsesAnIndependentPrivateVerifiedTransfer() = runBlocking {
+        val root = createTempDirectory("photo-live-companion").toFile()
+        try {
+            val motion = ftypPayload("qt  ")
+            val port = FakePort(motion)
+            val catalog = FakeCatalog()
+            val asset = photo().copy(livePhoto = true, livePhotoVideoSize = motion.size.toLong())
+            val coordinator = PhotoTransferCoordinator(
+                port = port,
+                catalog = catalog,
+                previewRoot = File(root, "previews"),
+                originalRoot = File(root, "originals"),
+            )
+
+            val transfer = coordinator.downloadLivePhotoVideo(asset)
+            val restored = coordinator.revalidateCompletedDownload(asset, transfer)
+
+            assertEquals(PhotoResourceKind.LivePhotoVideo, transfer.resourceKind)
+            assertEquals(PhotoTransferState.Succeeded, transfer.state)
+            assertEquals("video/quicktime", transfer.mimeType)
+            assertTrue(transfer.localPath.endsWith(".mov"))
+            assertEquals(1, port.livePhotoVideoCalls)
+            assertEquals(0, port.originalCalls)
+            assertContentEquals(motion, File(transfer.localPath).readBytes())
+            assertEquals(transfer, restored)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun livePhotoCompanionRejectsMismatchedMediaWithoutPublishingIt() = runBlocking {
+        val root = createTempDirectory("photo-live-companion-invalid").toFile()
+        try {
+            val payload = jpegPayload()
+            val asset = photo().copy(livePhoto = true, livePhotoVideoSize = payload.size.toLong())
+            val transfer = PhotoTransferCoordinator(FakePort(payload), FakeCatalog(), root)
+                .downloadLivePhotoVideo(asset)
+
+            assertEquals(PhotoTransferState.Failed, transfer.state)
+            assertFalse(File(transfer.localPath).exists())
+            assertFalse(File(transfer.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun originalFormatIsSniffedFromMediaBytes() {
         val root = createTempDirectory("photo-original-formats").toFile()
         try {
@@ -930,6 +978,8 @@ class PhotoTransferCoordinatorTest {
             private set
         var originalCalls: Int = 0
             private set
+        var livePhotoVideoCalls: Int = 0
+            private set
         var uploadOrientation: Int? = null
             private set
         var uploadCapturedAtMs: Long? = null
@@ -955,6 +1005,16 @@ class PhotoTransferCoordinatorTest {
             onProgress: (Long, Long) -> Unit,
         ): Result<Unit> = runCatching {
             originalCalls += 1
+            File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
+            onProgress(payload.size.toLong(), payload.size.toLong())
+        }
+
+        override suspend fun downloadLivePhotoVideo(
+            asset: PhotoSummary,
+            destPath: String,
+            onProgress: (Long, Long) -> Unit,
+        ): Result<Unit> = runCatching {
+            livePhotoVideoCalls += 1
             File(destPath).apply { parentFile?.mkdirs() }.writeBytes(payload)
             onProgress(payload.size.toLong(), payload.size.toLong())
         }

@@ -10,10 +10,10 @@ import kotlin.test.assertTrue
 
 class PhotosSqliteCatalogSchemaTest {
     @Test
-    fun versionTwoSchemaIsPinned() {
-        assertEquals(2, PhotosSqliteCatalog.DATABASE_VERSION)
+    fun versionThreeSchemaIsPinned() {
+        assertEquals(3, PhotosSqliteCatalog.DATABASE_VERSION)
         assertEquals(
-            "ff74808d261ce6a0314451f7ecf0fc35f491efe6edfe7c319bfc579a62ea27c5",
+            "04fdfc80209a675ec77bc213527d4909157043b1c3135d779518079c0d6118d4",
             PhotosSqliteCatalog.CREATE_STATEMENTS.joinToString("\n").sha256(),
         )
     }
@@ -27,6 +27,21 @@ class PhotosSqliteCatalogSchemaTest {
     }
 
     @Test
+    fun livePhotoVideoSizesMigrateWithoutRewritingExistingAssets() {
+        assertEquals(
+            listOf("ALTER TABLE photo_assets ADD COLUMN live_photo_video_size INTEGER"),
+            PhotosSqliteCatalog.migrationStatements(2, 3),
+        )
+        assertEquals(
+            listOf(
+                "ALTER TABLE photo_transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'Manual'",
+                "ALTER TABLE photo_assets ADD COLUMN live_photo_video_size INTEGER",
+            ),
+            PhotosSqliteCatalog.migrationStatements(1, 3),
+        )
+    }
+
+    @Test
     fun versionBumpCannotSilentlySkipAMigration() {
         assertEquals(
             emptyList(),
@@ -36,11 +51,15 @@ class PhotosSqliteCatalogSchemaTest {
             emptyList(),
             PhotosSqliteCatalog.migrationStatements(2, 2),
         )
+        assertEquals(
+            emptyList(),
+            PhotosSqliteCatalog.migrationStatements(3, 3),
+        )
         assertFailsWith<IllegalStateException> {
-            PhotosSqliteCatalog.migrationStatements(2, 3)
+            PhotosSqliteCatalog.migrationStatements(3, 4)
         }
         assertFailsWith<IllegalStateException> {
-            PhotosSqliteCatalog.migrationStatements(1, 3)
+            PhotosSqliteCatalog.migrationStatements(1, 4)
         }
     }
 

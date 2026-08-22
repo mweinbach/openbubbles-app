@@ -16,8 +16,9 @@ user-initiated transfers:
 
 1. detect whether the signed-in account exposes the personal Photos library;
 2. page recent asset metadata without downloading the whole library;
-3. download small previews only for visible gallery cells, then download one original image or
-   video only after explicit selection (complete Live Photo pairs remain future work);
+3. download small previews only for visible gallery cells, then download an original image or
+   video only after explicit selection; a selected Live Photo additionally downloads its private
+   video complement and exports both components as one Android Motion Photo;
 4. persist metadata and transfer intent without treating missing local data as a cloud deletion;
 5. stage selected photos or manually scanned document-tree folders privately and require a
    separate explicit upload action;
@@ -61,9 +62,10 @@ The repository already has most lower-level primitives needed for a Photos proto
 - page/cursor/apply patterns in `core/.../sync/CloudSyncManager.kt` and
   `CloudSyncStateStore.kt`.
 
-The access/metadata slice, preview/original catalog foundation, adaptive foreground gallery, and
-explicit JPEG upload path are implemented. Live Photo pair downloads, incremental changes,
-enabled background work, and remote mutations other than that narrow upload path are not.
+The access/metadata slice, preview/original catalog foundation, adaptive foreground gallery,
+paired Live Photo downloads, read-only background metadata refresh, and explicit JPEG upload path
+are implemented. True incremental CloudKit changes and remote mutations other than that narrow
+upload path are not.
 
 ## Investigation completed
 
@@ -167,7 +169,7 @@ The 2026-08-19 static audit established that:
   camera-backup slice below replaced that with the opt-in `DCIM` backup switch.
 
 This slice has host coverage but no new hardware protocol claim. In particular, original images,
-original videos, converted HEIC uploads, multi-file batches, and folder batches still require
+  original videos, converted HEIC uploads, multi-file batches, and folder batches still require
 device evidence before they can be described as live-proven.
 
 ### Implemented capture metadata and camera backup slice (host-verified only)
@@ -394,6 +396,30 @@ This is a one-way copy out; it adds no Apple call.
   folder staging plus a separate upload tap. Editing or deleting the gallery copy does not change
   iCloud.
 
+### Implemented background metadata and Live Photo pair slice (host-verified only)
+
+- Successfully opening a personal library schedules an account-scoped, read-only WorkManager
+  refresh every 30 minutes with connected-network, battery-not-low, and storage-not-low
+  constraints. It requires no MediaStore permission and stays active when the separate opt-in
+  camera-backup switch is off. Existing camera-backup passes also refresh metadata even when no
+  local camera image was staged. Every refresh merges the newest bounded remote page with already
+  cached older history; this is periodic page reconciliation, not incremental CloudKit changes.
+- Both worker types use the existing Apple session/battery-saver policy and Photos account-work
+  registry. Sign-out cancels and awaits the camera periodic worker, camera content-trigger worker,
+  and read-only library worker before clearing account preferences, catalog rows, or private files.
+- `CPLMaster.resOriginalVidComplRes` now supplies a Live Photo companion's declared byte count and
+  a separately authorized, async UniFFI download. Listing remains `NO_ASSETS`; only explicit
+  selection downloads the still and companion, each with independent bounded transfer state,
+  header/length validation, and atomic app-private promotion.
+- Photos catalog version 3 adds the nullable `live_photo_video_size` column through explicit 2→3
+  and 1→3 migrations. Existing transfer consent and ObjectBox UIDs remain unchanged.
+- A complete selected pair is exported as exactly one JPEG Google Motion Photo in `DCIM/iCloud`.
+  The Apple MOV is appended to a valid Motion Photo carrier and is never inserted into the user's
+  gallery separately. If the companion fails, no premature still is exported; retrying completes
+  the same asset without creating duplicate gallery entries.
+- Original videos, device-side background scheduling, and real Live Photo download/playback still
+  require hardware evidence; host tests do not prove Apple account behavior on a device.
+
 ## Ownership and proposed architecture
 
 ```text
@@ -440,8 +466,9 @@ The first two names are now committed; keep later additions narrow.
   master/asset identifiers. Rust derives the capture date, zone, location, and camera metadata
   from the file's EXIF; the caller's instant and `UPhotoTimeZone` only fill what the file omits.
 - `download_photo_original(master_id, media_kind, destination, progress)` is committed for an
-  explicitly selected original. A later resource method must still cover Live Photo motion pairs
-  and return verified size/checksum information.
+  explicitly selected original. `download_photo_live_video(master_id, destination, progress)`
+  separately retrieves an explicitly selected Live Photo's advertised video complement; both
+  resource sizes are validated before app-private promotion.
 
 CloudKit authentication tokens, signed download URLs, change tags, encryption material, raw
 records, and server response bodies must remain in Rust and must not be logged or cross UniFFI.
@@ -467,7 +494,8 @@ like sync.
    live-proven; the sampled page contained no videos, so small-video proof remains pending.
 2. Download an original still image and video. The foreground path is implemented; live proof is
    still pending.
-3. Support and verify both components of a Live Photo.
+3. Download and validate both components of a Live Photo, then publish one Motion Photo; this is
+   host-verified and still requires live hardware proof.
 4. Atomically promote completed files; clean up partial files on cancellation/failure. The shared
    coordinator is implemented for previews and originals.
 5. Add an explicit "Save to device" MediaStore export. Exported gallery files are user-owned
@@ -486,9 +514,10 @@ like sync.
 
 ### Slice 4: background reconciliation
 
-1. The opt-in camera backup worker is scheduled (hourly periodic plus a MediaStore content trigger)
-   with connected-network, battery-not-low, and storage-not-low constraints and uploads only newer
-   `DCIM` images. Incremental *download* reconciliation of remote changes remains future work.
+1. An account-scoped metadata-only worker refreshes a previously viewed library every 30 minutes;
+   the independent opt-in camera backup worker is scheduled hourly plus a MediaStore content
+   trigger and uploads only newer `DCIM` images. Both preserve network/battery/storage constraints.
+   Incremental CloudKit changes and background original downloads remain future work.
 2. APS notifications may mark Photos dirty and enqueue work; never perform a library sync inside
    the APS callback or message poll.
 3. Use foreground transfer behavior for user-initiated long downloads where Android requires it.

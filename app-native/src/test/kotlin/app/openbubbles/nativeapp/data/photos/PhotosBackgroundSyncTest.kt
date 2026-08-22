@@ -1,11 +1,19 @@
 package app.openbubbles.nativeapp.data.photos
 
 import android.Manifest
+import app.openbubbles.core.photos.CachedPhotos
+import app.openbubbles.core.photos.PhotoMediaKind
 import app.openbubbles.core.photos.PhotoResourceKind
+import app.openbubbles.core.photos.PhotoSummary
 import app.openbubbles.core.photos.PhotoTransfer
 import app.openbubbles.core.photos.PhotoTransferDirection
 import app.openbubbles.core.photos.PhotoTransferOrigin
 import app.openbubbles.core.photos.PhotoTransferState
+import app.openbubbles.core.photos.PhotosAccess
+import app.openbubbles.core.photos.PhotosAvailability
+import app.openbubbles.core.photos.PhotosCatalog
+import app.openbubbles.core.photos.PhotosPage
+import app.openbubbles.core.photos.PhotosPort
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -169,6 +177,8 @@ class PhotosBackgroundSyncTest {
         // The worker name is shared with the previously dormant worker so that
         // sign-out and disable also cancel work scheduled by older builds.
         assertEquals("openbubbles-icloud-photos-background-sync", PhotosBackgroundSync.PERIODIC_WORK_NAME)
+        assertEquals("openbubbles-icloud-photos-library-refresh", PhotosBackgroundSync.LIBRARY_PERIODIC_WORK_NAME)
+        assertFalse(PhotosBackgroundSync.PERIODIC_WORK_NAME == PhotosBackgroundSync.LIBRARY_PERIODIC_WORK_NAME)
         assertTrue(PhotosBackgroundSync.BATCH_LIMIT in 1..200)
         assertTrue(PhotosBackgroundSync.MAX_AUTOMATIC_ATTEMPTS in 1..10)
     }
@@ -192,4 +202,75 @@ class PhotosBackgroundSyncTest {
             photoBackupPushPolicy(hasLiveState = true, batterySaverEnabled = false),
         )
     }
+
+    @Test
+    fun backgroundLibraryRefreshAddsCloudPhotosWithoutDroppingCachedHistory() = runTest {
+        val historical = backgroundPhoto("historical")
+        val newest = backgroundPhoto("newest")
+        var cached = CachedPhotos(listOf(historical), "old-cursor")
+        val catalog = object : PhotosCatalog {
+            override suspend fun loadMetadata() = cached
+
+            override suspend fun replaceMetadata(assets: List<PhotoSummary>, nextCursor: String?) {
+                cached = CachedPhotos(assets, nextCursor)
+            }
+
+            override suspend fun transfers() = emptyList<PhotoTransfer>()
+            override suspend fun transfer(id: String): PhotoTransfer? = null
+            override suspend fun putTransfer(transfer: PhotoTransfer) = error("Metadata refresh cannot transfer media")
+            override suspend fun recoverInterruptedTransfers() = Unit
+        }
+        val port = object : PhotosPort {
+            override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
+
+            override suspend fun page(cursor: String?, limit: Int): PhotosPage {
+                assertNull(cursor)
+                return PhotosPage(listOf(newest), "fresh-cursor")
+            }
+        }
+
+        assertTrue(refreshPhotosLibrary(port, catalog))
+        assertEquals(listOf(newest, historical), cached.assets)
+        assertEquals("fresh-cursor", cached.nextCursor)
+    }
+
+    @Test
+    fun unavailableBackgroundLibraryNeverReplacesTheLastCachedSnapshot() = runTest {
+        val previous = CachedPhotos(listOf(backgroundPhoto("previous")), "safe-cursor")
+        var cached = previous
+        val catalog = object : PhotosCatalog {
+            override suspend fun loadMetadata() = cached
+            override suspend fun replaceMetadata(assets: List<PhotoSummary>, nextCursor: String?) {
+                cached = CachedPhotos(assets, nextCursor)
+            }
+
+            override suspend fun transfers() = emptyList<PhotoTransfer>()
+            override suspend fun transfer(id: String): PhotoTransfer? = null
+            override suspend fun putTransfer(transfer: PhotoTransfer) = Unit
+            override suspend fun recoverInterruptedTransfers() = Unit
+        }
+        val port = object : PhotosPort {
+            override suspend fun access() = PhotosAccess(PhotosAvailability.Unavailable, "offline")
+            override suspend fun page(cursor: String?, limit: Int): PhotosPage = error("No page without access")
+        }
+
+        assertFalse(refreshPhotosLibrary(port, catalog))
+        assertEquals(previous, cached)
+    }
+
+    private fun backgroundPhoto(id: String) = PhotoSummary(
+        id = id,
+        assetId = "asset-$id",
+        filename = "$id.jpg",
+        mediaKind = PhotoMediaKind.Image,
+        livePhoto = false,
+        width = 100,
+        height = 100,
+        originalSize = 100,
+        previewSize = 10,
+        capturedAtMs = 1,
+        addedAtMs = 1,
+        favorite = false,
+        hidden = false,
+    )
 }

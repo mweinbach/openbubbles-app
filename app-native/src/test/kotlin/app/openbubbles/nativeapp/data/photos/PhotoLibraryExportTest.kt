@@ -39,6 +39,22 @@ class PhotoLibraryExportTest {
     }
 
     @Test
+    fun `live photo exports as one motion image instead of a separate still and video`() {
+        val plan = PhotoLibraryExport.motionPhotoPlan(
+            cachedFileName = "abc123.heic",
+            filename = "IMG_4821.HEIC",
+            capturedAtMs = 1_700_000_000_000,
+        )
+
+        assertEquals("IMG_4821.MP.jpg", plan?.displayName)
+        assertEquals("image/jpeg", plan?.mimeType)
+        assertEquals("DCIM/iCloud", plan?.relativePath)
+        assertEquals(false, plan?.video)
+        assertEquals(1_700_000_000_000, plan?.dateTakenMillis)
+        assertNull(PhotoLibraryExport.motionPhotoPlan("abc123.mov", "IMG_4821.MOV", null))
+    }
+
+    @Test
     fun `the cached file decides the format when the iCloud name disagrees`() {
         val plan = PhotoLibraryExport.plan(
             cachedFileName = "abc123.jpg",

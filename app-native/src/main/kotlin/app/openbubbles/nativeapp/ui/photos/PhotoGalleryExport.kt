@@ -7,12 +7,15 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import app.openbubbles.core.photos.PhotoSummary
+import app.openbubbles.nativeapp.data.writeJpegMotionPhotoCarrier
 import app.openbubbles.nativeapp.data.photos.PhotoGalleryExportPlan
 import app.openbubbles.nativeapp.data.photos.PhotoLibraryExport
+import app.openbubbles.nativeapp.ui.attachmentviewer.jpegCarrierBytes
 import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import app.openbubbles.nativeapp.ui.attachmentviewer.saveToMediaStore
 import app.openbubbles.nativeapp.ui.attachmentviewer.shareAttachment
 import java.io.File
+import java.io.OutputStream
 
 /**
  * One-way gallery export for a downloaded iCloud original.
@@ -35,7 +38,11 @@ internal fun savePhotoToGallery(
     context: Context,
     asset: PhotoSummary,
     original: File,
+    livePhotoVideo: File? = null,
 ): PhotoGalleryExportOutcome {
+    if (asset.livePhoto && livePhotoVideo?.isFile == true && livePhotoVideo.length() > 0) {
+        return saveLivePhotoToGallery(context, asset, original, livePhotoVideo)
+    }
     val plan = exportPlan(asset, original) ?: return PhotoGalleryExportOutcome.Unsupported
     if (legacyWriteBlocked(context)) return PhotoGalleryExportOutcome.PermissionRequired
     val length = original.length()
@@ -49,6 +56,50 @@ internal fun savePhotoToGallery(
         dateTakenMillis = plan.dateTakenMillis,
         relativePath = plan.relativePath,
     ) { output -> original.inputStream().use { it.copyTo(output) } }
+    return if (saved) PhotoGalleryExportOutcome.Saved else PhotoGalleryExportOutcome.Failed
+}
+
+/** The still and MOV stay private; only their combined Motion Photo enters MediaStore. */
+private fun saveLivePhotoToGallery(
+    context: Context,
+    asset: PhotoSummary,
+    original: File,
+    motion: File,
+): PhotoGalleryExportOutcome {
+    val plan = PhotoLibraryExport.motionPhotoPlan(original.name, asset.filename, asset.capturedAtMs)
+        ?: return PhotoGalleryExportOutcome.Unsupported
+    if (legacyWriteBlocked(context)) return PhotoGalleryExportOutcome.PermissionRequired
+    val still = jpegCarrierBytes(original) ?: return PhotoGalleryExportOutcome.Unsupported
+    val videoLength = motion.length()
+    val counter = object : OutputStream() {
+        var bytes = 0L
+
+        override fun write(value: Int) {
+            bytes += 1
+        }
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            bytes += length
+        }
+    }
+    if (!writeJpegMotionPhotoCarrier(still, videoLength, "video/quicktime", counter)) {
+        return PhotoGalleryExportOutcome.Unsupported
+    }
+    val totalBytes = counter.bytes + videoLength
+    if (alreadyInAlbum(context, plan, totalBytes)) return PhotoGalleryExportOutcome.AlreadySaved
+    val saved = saveToMediaStore(
+        context = context,
+        displayName = plan.displayName,
+        mime = plan.mimeType,
+        video = false,
+        dateTakenMillis = plan.dateTakenMillis,
+        relativePath = plan.relativePath,
+    ) { output ->
+        check(writeJpegMotionPhotoCarrier(still, videoLength, "video/quicktime", output)) {
+            "Motion Photo carrier is unsupported"
+        }
+        motion.inputStream().use { it.copyTo(output) }
+    }
     return if (saved) PhotoGalleryExportOutcome.Saved else PhotoGalleryExportOutcome.Failed
 }
 
