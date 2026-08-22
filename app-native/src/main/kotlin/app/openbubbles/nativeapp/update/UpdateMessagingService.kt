@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.update
 
 import android.content.Context
+import app.openbubbles.nativeapp.BuildConfig
 import app.openbubbles.nativeapp.telemetry.AppTelemetry
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -24,8 +25,37 @@ internal object UpdatePushContract {
     }
 }
 
+/** Mirrors startup policy without retaining or exposing the refreshed installation token. */
+internal fun refreshUpdateTopicForNewToken(
+    token: String,
+    debugBuild: Boolean,
+    firebaseTelemetryEnabled: Boolean,
+    performanceTest: Boolean,
+    resubscribe: () -> Unit,
+): Boolean {
+    if (token.isBlank() || performanceTest || !(debugBuild || firebaseTelemetryEnabled)) {
+        return false
+    }
+    resubscribe()
+    return true
+}
+
 /** Receives a trusted wake-up hint; Update Ledger's signed metadata stays authoritative. */
 class UpdateMessagingService : FirebaseMessagingService() {
+    @Deprecated("Required by Firebase's default token-based registration mode")
+    override fun onNewToken(token: String) {
+        refreshUpdateTopicForNewToken(
+            token = token,
+            debugBuild = BuildConfig.DEBUG,
+            firebaseTelemetryEnabled = BuildConfig.FIREBASE_TELEMETRY_ENABLED,
+            performanceTest = BuildConfig.PERFORMANCE_TEST,
+        ) {
+            // Firebase durably schedules and retries topic subscriptions; the
+            // application context survives this short-lived messaging service.
+            subscribeToUpdates(applicationContext)
+        }
+    }
+
     override fun onMessageReceived(message: RemoteMessage) {
         val payload = UpdatePushContract.parse(message.data)
         if (payload == null) {
@@ -48,10 +78,11 @@ class UpdateMessagingService : FirebaseMessagingService() {
 
     companion object {
         fun subscribeToUpdates(context: Context) {
+            val applicationContext = context.applicationContext
             FirebaseMessaging.getInstance().subscribeToTopic(UpdatePushContract.TOPIC)
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
-                        AppTelemetry.event(context, "ota_topic_ready")
+                        AppTelemetry.event(applicationContext, "ota_topic_ready")
                     } else {
                         AppTelemetry.nonFatal("ota_topic", "subscribe_failed")
                     }
