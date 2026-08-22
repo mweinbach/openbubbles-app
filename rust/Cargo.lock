@@ -4236,7 +4236,6 @@ dependencies = [
  "cargo_metadata",
  "clap",
  "uniffi_bindgen",
- "uniffi_build",
  "uniffi_core",
  "uniffi_macros",
 ]
@@ -4261,16 +4260,6 @@ dependencies = [
  "toml",
  "uniffi_meta",
  "uniffi_udl",
-]
-
-[[package]]
-name = "uniffi_build"
-version = "0.28.3"
-source = "git+https://github.com/mozilla/uniffi-rs#c5a437e9f34f9d46c097848810bf6111cfa13a9f"
-dependencies = [
- "anyhow",
- "camino",
- "uniffi_bindgen",
 ]
 
 [[package]]

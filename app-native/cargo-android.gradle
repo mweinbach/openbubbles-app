@@ -68,7 +68,8 @@ abstract class CheckUniffiBindingsTask extends DefaultTask {
         execOperations.exec {
             workingDir rustDir
             executable cargo
-            args "run", "--locked", "--bin", "uniffi-bindgen", "generate",
+            args "run", "--locked", "--features", "uniffi-bindgen-cli",
+                    "--bin", "uniffi-bindgen", "generate",
                     "--library", libraryFile.absolutePath,
                     "--language", "kotlin", "--no-format",
                     "--out-dir", tmp.absolutePath

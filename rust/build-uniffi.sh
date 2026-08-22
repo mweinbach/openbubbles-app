@@ -19,7 +19,8 @@ if [ -z "$LIB" ]; then
     echo "cdylib not found in target/debug" >&2
     exit 1
 fi
-cargo run --locked --bin uniffi-bindgen generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin
+cargo run --locked --features uniffi-bindgen-cli --bin uniffi-bindgen \
+    generate --library "$LIB" --language kotlin --out-dir ../core/src/main/kotlin
 GENERATED_BINDING=../core/src/main/kotlin/uniffi/rust_lib_bluebubbles/rust_lib_bluebubbles.kt
 perl -pi -e 's/[ \t]+$//' "$GENERATED_BINDING"
 mkdir -p ../core/src/test/kotlin/uniffi/rust_lib_bluebubbles

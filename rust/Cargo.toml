@@ -6,6 +6,13 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+# Binding generation is a host-only developer tool. Keeping its CLI behind an
+# explicit feature prevents clap, templates, and code generators from being
+# linked into the Android cdylib delivered to every user.
+uniffi-bindgen-cli = ["uniffi/cli", "uniffi/cargo-metadata"]
+
 [profile.release]
 # Keep the native networking/crypto path fully optimized while allowing LLVM
 # to remove duplicate generic code across crate boundaries. Preserve symbols
@@ -29,7 +36,7 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 anyhow = "1.0.75"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", features = [ "cli", "tokio" ] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", default-features = false, features = [ "tokio" ] }
 async-recursion = "1.0.5"
 prost = "0.12"
 # Only necessary if using Protobuf well-known types:
@@ -52,10 +59,10 @@ tempfile = "3"
 android_logger = "0.14.1"
 
 [build-dependencies]
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", features = [ "build" ] }
 prost-build = { version = "0.12" }
 
 [[bin]]
 # This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
 name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
+required-features = ["uniffi-bindgen-cli"]
