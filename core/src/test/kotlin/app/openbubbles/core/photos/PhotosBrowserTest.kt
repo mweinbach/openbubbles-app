@@ -20,6 +20,54 @@ class PhotosBrowserTest {
     }
 
     @Test
+    fun `refresh combines the newest page with cached history and prefers fresh metadata`() = runBlocking {
+        val historical = photo("historical")
+        val stale = photo("updated").copy(filename = "before.heic", favorite = false)
+        val updated = stale.copy(filename = "after.heic", favorite = true)
+        val newest = photo("newest")
+        val port = FakePhotosPort(
+            pages = ArrayDeque(
+                listOf(PhotosPage(listOf(newest, updated), "fresh-cursor")),
+            ),
+        )
+
+        val snapshot = PhotosBrowser(port).initial(cachedAssets = listOf(stale, historical))
+
+        assertEquals(listOf(newest.id, updated.id, historical.id), snapshot.assets.map(PhotoSummary::id))
+        assertEquals(updated, snapshot.assets.single { it.id == updated.id })
+        assertEquals("fresh-cursor", snapshot.nextCursor)
+        assertEquals(listOf<String?>(null), port.cursors)
+    }
+
+    @Test
+    fun `continuation refreshes overlapping cached metadata without losing history`() = runBlocking {
+        val historical = photo("historical")
+        val stale = photo("updated").copy(filename = "before.heic", favorite = false)
+        val updated = stale.copy(filename = "after.heic", favorite = true)
+        val newest = photo("newest")
+        val older = photo("older")
+        val port = FakePhotosPort(
+            pages = ArrayDeque(
+                listOf(
+                    PhotosPage(listOf(newest), "fresh-cursor"),
+                    PhotosPage(listOf(updated, older), null),
+                ),
+            ),
+        )
+        val browser = PhotosBrowser(port)
+
+        val snapshot = browser.next(browser.initial(cachedAssets = listOf(stale, historical)))
+
+        assertEquals(
+            listOf(newest.id, updated.id, historical.id, older.id),
+            snapshot.assets.map(PhotoSummary::id),
+        )
+        assertEquals(updated, snapshot.assets.single { it.id == updated.id })
+        assertEquals(null, snapshot.nextCursor)
+        assertEquals(listOf(null, "fresh-cursor"), port.cursors)
+    }
+
+    @Test
     fun `next page appends and deduplicates master ids`() = runBlocking {
         val first = photo("master-1")
         val second = photo("master-2")

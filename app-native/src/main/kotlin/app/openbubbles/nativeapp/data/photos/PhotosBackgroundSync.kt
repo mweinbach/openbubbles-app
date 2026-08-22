@@ -299,7 +299,9 @@ object PhotosBackgroundSync {
 
             if (staged > 0 || uploaded > 0) {
                 runCatching {
-                    val snapshot = PhotosBrowser(port).initial()
+                    val snapshot = PhotosBrowser(port).initial(
+                        cachedAssets = catalog.loadMetadata().assets,
+                    )
                     if (snapshot.access.availability == PhotosAvailability.Ready) {
                         catalog.replaceMetadata(snapshot.assets, snapshot.nextCursor)
                     }

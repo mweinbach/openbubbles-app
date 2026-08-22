@@ -217,7 +217,8 @@ class PhotosBrowser(
         require(pageSize in 1..100) { "Photos page size must be between 1 and 100" }
     }
 
-    suspend fun initial(): PhotosSnapshot {
+    /** Refresh the newest page without discarding metadata already loaded from older pages. */
+    suspend fun initial(cachedAssets: List<PhotoSummary> = emptyList()): PhotosSnapshot {
         val access = port.access()
         if (access.availability != PhotosAvailability.Ready) {
             return PhotosSnapshot(access = access)
@@ -225,7 +226,7 @@ class PhotosBrowser(
         val page = port.page(cursor = null, limit = pageSize)
         return PhotosSnapshot(
             access = access,
-            assets = page.assets.distinctBy(PhotoSummary::id),
+            assets = (page.assets + cachedAssets).distinctBy(PhotoSummary::id),
             nextCursor = page.nextCursor,
         )
     }
@@ -234,8 +235,11 @@ class PhotosBrowser(
         val cursor = snapshot.nextCursor ?: return snapshot
         val page = port.page(cursor = cursor, limit = pageSize)
         check(page.nextCursor != cursor) { "iCloud Photos cursor did not advance" }
+        val assetsById = LinkedHashMap<String, PhotoSummary>(snapshot.assets.size + page.assets.size)
+        snapshot.assets.forEach { asset -> assetsById[asset.id] = asset }
+        page.assets.forEach { asset -> assetsById[asset.id] = asset }
         return snapshot.copy(
-            assets = (snapshot.assets + page.assets).distinctBy(PhotoSummary::id),
+            assets = assetsById.values.toList(),
             nextCursor = page.nextCursor,
         )
     }

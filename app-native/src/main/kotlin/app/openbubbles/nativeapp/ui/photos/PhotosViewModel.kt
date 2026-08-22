@@ -241,7 +241,7 @@ internal class PhotosViewModel(
             it.copy(loading = it.snapshot == null, refreshing = it.snapshot != null, error = null)
         }
         try {
-            val snapshot = browser.initial()
+            val snapshot = browser.initial(cachedAssets = mutableState.value.snapshot?.assets.orEmpty())
             if (snapshot.access.availability == PhotosAvailability.Ready) {
                 catalog.replaceMetadata(snapshot.assets, snapshot.nextCursor)
             }

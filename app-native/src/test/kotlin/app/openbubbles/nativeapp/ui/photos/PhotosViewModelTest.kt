@@ -50,6 +50,108 @@ class PhotosViewModelTest {
     }
 
     @Test
+    fun `bootstrap keeps cached photo history and applies the latest metadata updates`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-history-bootstrap").toFile()
+            try {
+                val older = photo("older")
+                val stale = photo("updated").copy(filename = "before.jpg", favorite = false)
+                val updated = stale.copy(filename = "after.jpg", favorite = true)
+                val newest = photo("newest")
+                val catalog = FakeCatalog(
+                    metadata = CachedPhotos(listOf(stale, older), nextCursor = "stale-cursor"),
+                )
+                val port = MetadataPagesPort(
+                    PhotosPage(listOf(newest, updated), nextCursor = "fresh-cursor"),
+                )
+                val model = model(port, catalog, root)
+
+                advanceUntilIdle()
+
+                assertEquals(
+                    listOf(newest.id, updated.id, older.id),
+                    model.uiState.value.snapshot?.assets?.map(PhotoSummary::id),
+                )
+                assertEquals(
+                    updated,
+                    model.uiState.value.snapshot?.assets?.single { it.id == updated.id },
+                )
+                assertEquals("fresh-cursor", model.uiState.value.snapshot?.nextCursor)
+                assertEquals(
+                    listOf(newest.id, updated.id, older.id),
+                    catalog.loadMetadata().assets.map(PhotoSummary::id),
+                )
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun `manual refresh adds new photos without discarding previously loaded history`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-history-refresh").toFile()
+            try {
+                val historical = photo("historical")
+                val recent = photo("recent").copy(filename = "before.jpg")
+                val updated = recent.copy(filename = "after.jpg")
+                val newest = photo("newest")
+                val catalog = FakeCatalog(CachedPhotos(listOf(historical)))
+                val port = MetadataPagesPort(
+                    PhotosPage(listOf(recent), nextCursor = "first-cursor"),
+                    PhotosPage(listOf(newest, updated), nextCursor = "second-cursor"),
+                )
+                val model = model(port, catalog, root)
+                advanceUntilIdle()
+
+                model.refresh()
+                advanceUntilIdle()
+
+                assertEquals(
+                    listOf(newest.id, updated.id, historical.id),
+                    model.uiState.value.snapshot?.assets?.map(PhotoSummary::id),
+                )
+                assertEquals(updated, model.uiState.value.snapshot?.assets?.single { it.id == recent.id })
+                assertEquals("second-cursor", catalog.loadMetadata().nextCursor)
+                assertEquals(listOf<String?>(null, null), port.cursors)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun `paging after a refresh keeps cached history and follows the new cursor`() =
+        runTest(dispatcher) {
+            val root = createTempDirectory("photos-view-model-history-paging").toFile()
+            try {
+                val historical = photo("historical")
+                val newest = photo("newest")
+                val next = photo("next")
+                val catalog = FakeCatalog(CachedPhotos(listOf(historical), nextCursor = "old-cursor"))
+                val port = MetadataPagesPort(
+                    PhotosPage(listOf(newest), nextCursor = "fresh-cursor"),
+                    PhotosPage(listOf(newest, next), nextCursor = null),
+                )
+                val model = model(port, catalog, root)
+                advanceUntilIdle()
+
+                model.loadMore()
+                advanceUntilIdle()
+
+                assertEquals(
+                    listOf(newest.id, historical.id, next.id),
+                    model.uiState.value.snapshot?.assets?.map(PhotoSummary::id),
+                )
+                assertEquals(null, catalog.loadMetadata().nextCursor)
+                assertEquals(listOf(null, "fresh-cursor"), port.cursors)
+            } finally {
+                PhotosWorkRegistry.cancelAndJoinAll()
+                root.deleteRecursively()
+            }
+        }
+
+    @Test
     fun `missing completed downloads restore as queued instead of blank successes`() =
         runTest(dispatcher) {
             val root = createTempDirectory("photos-view-model-restore").toFile()
@@ -354,6 +456,18 @@ class PhotosViewModelTest {
             requests += enabled
             state = enabled && allowEnable
             return state
+        }
+    }
+
+    private class MetadataPagesPort(vararg pages: PhotosPage) : PhotosPort {
+        private val responses = ArrayDeque(pages.toList())
+        val cursors = mutableListOf<String?>()
+
+        override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
+
+        override suspend fun page(cursor: String?, limit: Int): PhotosPage {
+            cursors += cursor
+            return responses.removeFirst()
         }
     }
 
