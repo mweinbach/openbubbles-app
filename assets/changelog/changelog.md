@@ -2,6 +2,34 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.4
+
+### Enhancements
+
+- Outgoing messages now survive app restarts, offer explicit retry and
+  cancellation, and resume safely after temporary connection interruptions.
+- Battery Saver keeps messaging, notifications, and photo backup available
+  without restoring an unrestricted always-on Apple push connection.
+- Android password autofill and passkeys verify the requesting app or browser
+  before releasing credentials and support secure native passkey assertions.
+
+### Fixes
+
+- Incoming iMessages are durably recorded before Apple push acknowledgments and
+  survive temporary database, notification, or network failures.
+- SMS and MMS delivery status now reflects actual carrier results, including
+  multipart messages, while interrupted incoming media can safely retry.
+- Signing out isolates message history, pending transfers, deletion queues, and
+  password-vault state so they cannot leak into another Apple account.
+- Deleted messages, conversations, and attachments now remove their private
+  local files and propagate eligible removals to Messages in iCloud.
+- Apple push discovery and reconnection validate server responses, correlate
+  send confirmations correctly, and recover cleanly from stalled connections.
+- Sharing files into the app can no longer attach its private account state,
+  and iCloud recovery codes remain encrypted and bound to the active account.
+- iCloud Photos, Find My, Passwords, and Settings no longer crash from native
+  stack overflows while restoring or refreshing Apple account data.
+
 ## v3.5.3
 
 ### Enhancements
