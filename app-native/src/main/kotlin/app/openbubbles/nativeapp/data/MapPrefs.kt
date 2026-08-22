@@ -5,9 +5,16 @@ import androidx.core.content.edit
 
 private const val PREFS_NAME = "map_prefs"
 private const val KEY_IMAGERY_ENABLED = "imageryEnabled"
+private const val KEY_GOOGLE_MAPS_ENABLED = "googleMapsEnabled"
 
 internal fun resolveMapImageryPreference(storedPreference: Boolean?): Boolean =
     storedPreference ?: true
+
+internal fun resolveGoogleMapsPreference(
+    storedPreference: Boolean?,
+    isConfigured: Boolean,
+    playServicesAvailable: Boolean,
+): Boolean = storedPreference == true && isConfigured && playServicesAvailable
 
 /**
  * Whether the in-app map draws real imagery.
@@ -31,5 +38,12 @@ class MapPrefs(context: Context) {
         )
         set(value) {
             prefs.edit { putBoolean(KEY_IMAGERY_ENABLED, value) }
+        }
+
+    /** Google must not receive tracked locations without an explicit opt-in. */
+    var googleMapsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_GOOGLE_MAPS_ENABLED, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_GOOGLE_MAPS_ENABLED, value) }
         }
 }

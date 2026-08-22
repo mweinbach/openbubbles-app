@@ -85,6 +85,12 @@
         android:enableOnBackInvokedCallback="true"
         tools:ignore="UnusedAttribute">
 
+        <!-- Injected from ignored local.properties or the MAPS_API_KEY CI
+             secret; Google Maps is never created before explicit user consent. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${googleMapsApiKey}" />
+
         <!-- Collection is true only for production-signed release builds.
              Advertising identifiers and personalization signals stay disabled. -->
         <meta-data

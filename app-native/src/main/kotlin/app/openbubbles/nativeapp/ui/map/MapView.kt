@@ -262,7 +262,7 @@ fun OpenMap(
 }
 
 @Composable
-private fun MapMarkerPin(
+internal fun MapMarkerPin(
     marker: MapMarker,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

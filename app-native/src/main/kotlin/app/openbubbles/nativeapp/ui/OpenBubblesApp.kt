@@ -104,6 +104,7 @@ import app.openbubbles.nativeapp.data.MapPrefs
 import app.openbubbles.nativeapp.data.MessagingPrefs
 import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.SurfaceSwitcherPrefs
+import app.openbubbles.nativeapp.data.resolveGoogleMapsPreference
 import app.openbubbles.nativeapp.credentials.CredentialUserAuth
 import app.openbubbles.nativeapp.service.BatterySaver
 import app.openbubbles.nativeapp.service.NativePushService
@@ -161,6 +162,8 @@ import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 
 import androidx.compose.runtime.rememberCoroutineScope
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -1616,6 +1619,23 @@ fun OpenBubblesApp(
                     var imageryEnabled by remember(mapPrefs) {
                         mutableStateOf(mapPrefs.imageryEnabled)
                     }
+                    val playServicesAvailable = remember(mapContext) {
+                        BuildConfig.GOOGLE_MAPS_CONFIGURED && runCatching {
+                            GoogleApiAvailability.getInstance()
+                                .isGooglePlayServicesAvailable(mapContext) == ConnectionResult.SUCCESS
+                        }.getOrDefault(false)
+                    }
+                    val googleMapsAvailable = BuildConfig.GOOGLE_MAPS_CONFIGURED &&
+                        playServicesAvailable
+                    var googleMapsEnabled by remember(mapPrefs, googleMapsAvailable) {
+                        mutableStateOf(
+                            resolveGoogleMapsPreference(
+                                storedPreference = mapPrefs.googleMapsEnabled,
+                                isConfigured = BuildConfig.GOOGLE_MAPS_CONFIGURED,
+                                playServicesAvailable = playServicesAvailable,
+                            ),
+                        )
+                    }
                     val tileStore = remember(mapContext) {
                         MapTileStore.create(mapContext, BuildConfig.VERSION_NAME)
                     }
@@ -1638,6 +1658,17 @@ fun OpenBubblesApp(
                         onSetImageryEnabled = { enabled ->
                             mapPrefs.imageryEnabled = enabled
                             imageryEnabled = enabled
+                        },
+                        googleMapsAvailable = googleMapsAvailable,
+                        googleMapsEnabled = googleMapsEnabled,
+                        onSetGoogleMapsEnabled = { enabled ->
+                            val allowed = resolveGoogleMapsPreference(
+                                storedPreference = enabled,
+                                isConfigured = BuildConfig.GOOGLE_MAPS_CONFIGURED,
+                                playServicesAvailable = playServicesAvailable,
+                            )
+                            mapPrefs.googleMapsEnabled = allowed
+                            googleMapsEnabled = allowed
                         },
                         surfaceSwitcher = surfaceSwitcher,
                     )

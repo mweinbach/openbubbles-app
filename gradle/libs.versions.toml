@@ -66,6 +66,8 @@ cbor = "4.5.6"
 mlkitBarcode = "17.3.0"
 screenshotValidation = "0.0.1-alpha16"
 firebaseBom = "34.18.0"
+mapsCompose = "8.4.0"
+playServicesMaps = "20.0.0"
 
 [libraries]
 # --- compose platform ------------------------------------------------------
@@ -162,6 +164,10 @@ firebase-analytics = { module = "com.google.firebase:firebase-analytics" }
 firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
 firebase-crashlytics-ndk = { module = "com.google.firebase:firebase-crashlytics-ndk" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+
+# --- optional, explicitly enabled Google Maps renderer --------------------
+google-maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "mapsCompose" }
+google-play-services-maps = { module = "com.google.android.gms:play-services-maps", version.ref = "playServicesMaps" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

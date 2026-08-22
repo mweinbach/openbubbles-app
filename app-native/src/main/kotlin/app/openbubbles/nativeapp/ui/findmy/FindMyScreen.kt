@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LayersClear
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.rounded.Laptop
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Tablet
 import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,6 +58,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
@@ -91,6 +94,7 @@ import app.openbubbles.nativeapp.ui.common.avatarColorFor
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.map.GeoPoint
+import app.openbubbles.nativeapp.ui.map.GoogleMapsView
 import app.openbubbles.nativeapp.ui.map.MapCamera
 import app.openbubbles.nativeapp.ui.map.MapMarker
 import app.openbubbles.nativeapp.ui.map.MapTileStore
@@ -133,12 +137,47 @@ fun FindMyScreen(
     tiles: MapTileStore? = null,
     imageryEnabled: Boolean = true,
     onSetImageryEnabled: (Boolean) -> Unit = {},
+    googleMapsAvailable: Boolean = false,
+    googleMapsEnabled: Boolean = false,
+    onSetGoogleMapsEnabled: (Boolean) -> Unit = {},
     /** Clock injected so previews and screenshots render fixed freshness text. */
     nowMillis: Long? = null,
     surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
     val freshnessNowMillis = nowMillis ?: rememberFreshnessClock()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    var showGoogleMapsDisclosure by rememberSaveable { mutableStateOf(false) }
+
+    if (showGoogleMapsDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showGoogleMapsDisclosure = false },
+            title = { Text("Use Google Maps?") },
+            text = {
+                Text(
+                    "Google will receive the approximate locations of the devices, " +
+                        "people, and items shown on this map to load map imagery. " +
+                        "You can switch back at any time.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showGoogleMapsDisclosure = false
+                        onSetGoogleMapsEnabled(true)
+                        onSetImageryEnabled(true)
+                    },
+                ) {
+                    Text("Enable Google Maps")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGoogleMapsDisclosure = false }) {
+                    Text("Not now")
+                }
+            },
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -166,6 +205,33 @@ fun FindMyScreen(
                         }
                     },
                     actions = {
+                        if (googleMapsAvailable) {
+                            IconButton(
+                                onClick = {
+                                    if (googleMapsEnabled) {
+                                        onSetGoogleMapsEnabled(false)
+                                    } else {
+                                        showGoogleMapsDisclosure = true
+                                    }
+                                },
+                                modifier = Modifier.semantics {
+                                    stateDescription = if (googleMapsEnabled) {
+                                        "Google Maps enabled"
+                                    } else {
+                                        "Google Maps disabled"
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Map,
+                                    contentDescription = if (googleMapsEnabled) {
+                                        "Switch to OpenStreetMap"
+                                    } else {
+                                        "Use Google Maps"
+                                    },
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = { onSetImageryEnabled(!imageryEnabled) },
                         ) {
@@ -236,6 +302,7 @@ fun FindMyScreen(
                     onSelectTarget = onSelectTarget,
                     onRefresh = onRefresh,
                     tiles = tiles.takeIf { imageryEnabled },
+                    googleMapsEnabled = googleMapsAvailable && googleMapsEnabled && imageryEnabled,
                     nowMillis = freshnessNowMillis,
                 )
             }
@@ -301,6 +368,7 @@ private fun FindMyTracker(
     onSelectTarget: (String?) -> Unit,
     onRefresh: () -> Unit,
     tiles: MapTileStore?,
+    googleMapsEnabled: Boolean,
     nowMillis: Long,
 ) {
     val adaptiveInfo = currentWindowAdaptiveInfoV2()
@@ -343,6 +411,7 @@ private fun FindMyTracker(
                 following = following,
                 onFollow = { setManualCamera(null) },
                 tiles = tiles,
+                googleMapsEnabled = googleMapsEnabled,
                 nowMillis = nowMillis,
                 modifier = mapModifier,
             )
@@ -425,6 +494,7 @@ private fun FindMyMap(
     following: Boolean,
     onFollow: () -> Unit,
     tiles: MapTileStore?,
+    googleMapsEnabled: Boolean,
     nowMillis: Long,
     modifier: Modifier = Modifier,
 ) {
@@ -463,18 +533,30 @@ private fun FindMyMap(
                 trail = uiState.trail(target.id).map { GeoPoint(it.latitude, it.longitude) },
             ) { selected -> TargetGlyph(target = target, selected = selected) }
         }
-        OpenMap(
-            camera = activeCamera,
-            onCameraChange = onCameraChange,
-            markers = markers,
-            onMarkerClick = { id ->
-                onSelectTarget(id)
-                onFollow()
-            },
-            onMapClick = { onSelectTarget(null) },
-            tiles = tiles,
-            modifier = Modifier.fillMaxSize(),
-        )
+        val onMarkerClick: (String) -> Unit = { id ->
+            onSelectTarget(id)
+            onFollow()
+        }
+        if (googleMapsEnabled) {
+            GoogleMapsView(
+                camera = activeCamera,
+                onCameraChange = onCameraChange,
+                markers = markers,
+                onMarkerClick = onMarkerClick,
+                onMapClick = { onSelectTarget(null) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            OpenMap(
+                camera = activeCamera,
+                onCameraChange = onCameraChange,
+                markers = markers,
+                onMarkerClick = onMarkerClick,
+                onMapClick = { onSelectTarget(null) },
+                tiles = tiles,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Column(
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
