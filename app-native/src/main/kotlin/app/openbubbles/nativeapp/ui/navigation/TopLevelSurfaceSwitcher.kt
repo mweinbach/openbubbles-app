@@ -171,7 +171,7 @@ fun TopLevelSurfaceSwitcher(
                     shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     modifier = Modifier
-                        .offset(x = indicatorOffset)
+                        .offset { IntOffset(indicatorOffset.roundToPx(), 0) }
                         .width(metrics.itemWidth)
                         .height(SurfaceSwitcherHeight)
                         .graphicsLayer { alpha = indicatorAlpha },

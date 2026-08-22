@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -110,9 +111,9 @@ internal fun HistoryDownloadLockScreen(
     // job to wait for, so the restored lock must issue a cursor-resuming run.
     var startRequested by remember { mutableStateOf(false) }
     var connectionUnavailable by rememberSaveable { mutableStateOf(false) }
-    var connectionAttempt by rememberSaveable { mutableStateOf(0) }
+    var connectionAttempt by rememberSaveable { mutableIntStateOf(0) }
     // Consecutive silent restarts of a run that ended while still pending.
-    var autoRetryAttempt by rememberSaveable { mutableStateOf(0) }
+    var autoRetryAttempt by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(context, pushState, connectionAttempt) {
         connectionUnavailable = false

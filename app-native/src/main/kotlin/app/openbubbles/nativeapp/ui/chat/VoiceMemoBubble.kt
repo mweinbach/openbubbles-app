@@ -112,9 +112,9 @@ fun VoiceMemoBubble(
     onDownloadAttachment: (AttachmentMeta) -> Unit,
     fromMe: Boolean,
     smsChat: Boolean,
+    modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     onDoubleTap: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(18.dp),
 ) {
     // Disk presence beats the persisted flag, matching the image/video path.
@@ -206,9 +206,9 @@ internal fun VoiceMemoPlayerContent(
     onPlayCircle: Color,
     wave: Color,
     fallbackLabel: String?,
+    modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     onDoubleTap: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     val playback by ChatAudioPlayer.state.collectAsStateWithLifecycle()
     val mine = playback?.takeIf { it.key == playerKey }
@@ -274,9 +274,9 @@ internal fun PlayPauseMorphButton(
     circle: Color,
     onCircle: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     onDoubleTap: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -325,9 +325,9 @@ internal fun WavySeekBar(
     seekingEnabled: Boolean,
     playing: Boolean,
     color: Color,
+    modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null,
     onDoubleTap: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalReduceMotion.current
     val amplitude by androidx.compose.animation.core.animateFloatAsState(

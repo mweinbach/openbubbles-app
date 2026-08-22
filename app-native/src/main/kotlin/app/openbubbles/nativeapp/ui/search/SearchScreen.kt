@@ -99,8 +99,8 @@ fun SearchScreen(
     onOpenChat: (Long) -> Unit,
     onOpenContact: (RawContact) -> Unit,
     onBack: () -> Unit,
-    onOpenMessage: (Long, String) -> Unit = { chatId, _ -> onOpenChat(chatId) },
     modifier: Modifier = Modifier,
+    onOpenMessage: (Long, String) -> Unit = { chatId, _ -> onOpenChat(chatId) },
     /**
      * Medium+ list-detail: dock the expanded results to the collapsed bar
      * in the detail pane. Compact windows use the full-screen expanded bar.

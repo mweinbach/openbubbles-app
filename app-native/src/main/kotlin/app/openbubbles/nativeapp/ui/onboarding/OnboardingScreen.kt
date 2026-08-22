@@ -112,8 +112,8 @@ internal fun initialOnboardingStep(resumeAfterSignIn: Boolean): OnboardingStep =
 fun OnboardingScreen(
     onSignedIn: () -> Unit,
     onFinished: (completionPersisted: Boolean) -> Unit,
-    resumeAfterSignIn: Boolean = false,
     modifier: Modifier = Modifier,
+    resumeAfterSignIn: Boolean = false,
 ) {
     var step by rememberSaveable { mutableStateOf(initialOnboardingStep(resumeAfterSignIn)) }
     var signedIn by rememberSaveable { mutableStateOf(resumeAfterSignIn) }

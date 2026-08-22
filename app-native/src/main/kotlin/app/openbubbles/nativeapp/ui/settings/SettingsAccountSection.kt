@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,7 +75,7 @@ internal fun rememberAccountSection(
     var shareAutomatically by remember { mutableStateOf(profilePrefs.shareAutomatically) }
     var profileSaving by remember { mutableStateOf(false) }
     var profilePhotoPreparing by remember { mutableStateOf(false) }
-    var profilePhotoGeneration by remember { mutableStateOf(0L) }
+    var profilePhotoGeneration by remember { mutableLongStateOf(0L) }
     var activeProfilePickerGeneration by remember { mutableStateOf<Long?>(null) }
     var profileError by remember { mutableStateOf<String?>(null) }
     fun discardPendingAvatar() {
