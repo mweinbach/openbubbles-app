@@ -132,6 +132,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Verify release-note shell safety
+        run: node --test scripts/release-workflow-security.test.mjs
+
       - name: Validate Update Ledger publication access
         env:
           UPDATE_LEDGER_API_KEY: ${{ secrets.UPDATE_LEDGER_API_KEY }}
@@ -366,6 +369,7 @@ jobs:
         id: assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ github.event.inputs.notes || '' }}
         run: |
           APK_IN="build-native/app-native/outputs/apk/release/app-native-release.apk"
           [ -f "$APK_IN" ] || { echo "release APK missing at $APK_IN" >&2; exit 1; }
@@ -391,8 +395,8 @@ jobs:
           #   2. the `## v<versionName>` section of assets/changelog/changelog.md
           #      (kept current for each release; this is the documented path)
           #   3. the commit log since the previous release tag
-          if [ -n "${{ github.event.inputs.notes }}" ]; then
-            printf '%s\n' "${{ github.event.inputs.notes }}" > release-notes.md
+          if [ -n "$RELEASE_NOTES" ]; then
+            printf '%s\n' "$RELEASE_NOTES" > release-notes.md
           else
             python3 scripts/extract-release-notes.py \
               "${{ steps.ver.outputs.version_name }}" > release-notes.md
