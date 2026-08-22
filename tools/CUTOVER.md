@@ -55,20 +55,35 @@ unchecked until direct hardware evidence exists.
 - [ ] Upgrade from a real Flutter-era backup preserves chats and attachments.
 - [ ] Sign-out and fresh sign-in clear/rebuild the correct native state.
 
-## Self-update acceptance (GitHub Releases feed)
+## Self-update acceptance (Update Ledger)
 
 Publishing mechanics, signing, and the changelog-section notes convention live
-in [docs/RELEASES.md](../docs/RELEASES.md).
+in [docs/RELEASES.md](../docs/RELEASES.md). Version 3.4.7 was the final
+GitHub Releases bridge; current versions publish exclusively to Update Ledger
+and clients have no GitHub Releases fallback.
 
-- [ ] Publish path: `scripts/publish-update.sh --set --version-name <v> --version-code <n>`
-      (local, production keystore) or the `Self-update release` GitHub Action (push to main /
-      manual dispatch) creates a release with `openbubbles-<v>.apk` + `update.json`; publishing a
-      non-increasing version code aborts.
+- [ ] Publish path: the `Self-update release` GitHub Action, triggered by a
+      version-bump push to `main` or an explicit manual dispatch, first
+      verifies that `Native (Kotlin+Rust)` succeeded for its exact source
+      commit. It then publishes the production-signed APK and matching JSON /
+      Sparkle appcast feeds to the Update Ledger `openbubbles` stable channel;
+      a missing/failed exact-commit validation or non-increasing build aborts
+      without publishing.
+- [ ] Immutable release evidence: the workflow source commit, Update Ledger
+      project/channel/version/build, artifact filename and byte count, public
+      appcast URL, SHA-256, and downloaded APK all agree. The APK package,
+      version, and production signing certificate match the installed app.
 - [ ] Keystore continuity: `android/release.jks` + `android/key.properties` are backed up
       off-machine (they are gitignored; GitHub Actions secrets hold a copy). Losing the key
       breaks in-place updates for every installed device.
-- [ ] CI secret hygiene: `KEYSTORE_*` secrets exist, deploy keys on the private submodules are
-      read-only, and the repo's own release workflow cannot be triggered by fork PRs.
+- [ ] CI secret hygiene: `KEYSTORE_*` and `UPDATE_LEDGER_API_KEY` secrets
+      exist, deploy keys on the private submodules are read-only, the Ledger
+      project key is confined to publication, and the repo's own release
+      workflow cannot be triggered by fork PRs.
+- [ ] Instant release notice: an installed client receives the stable-channel
+      Firebase wake-up and performs an expedited Ledger appcast check. If
+      Firebase delivery fails, use **Update Ledger → OpenBubbles → Manage →
+      Notify devices**; the release and normal polling remain valid.
 - [ ] First self-update on hardware: background check downloads and verifies the APK, the
       "Install unknown apps" grant flow works, the system install confirmation appears, and the
       update installs in place.
@@ -78,6 +93,9 @@ in [docs/RELEASES.md](../docs/RELEASES.md).
 - [ ] Every later self-update also presents Android's installation confirmation;
       installer-of-record status never permits a silent install.
 - [ ] A corrupted APK (mismatched SHA-256 in the feed) is refused and cleaned up.
+- [ ] A malformed, oversized, or undownloadable advertised build cannot
+      advance the persisted rollback floor; a fully verified newer APK does
+      advance it and blocks subsequent lower-build advertisements.
 - [ ] A feed versionCode at or below the installed one is ignored as "up to date";
       "Skip this version" hides the notification until the next release.
 
