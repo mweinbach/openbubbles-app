@@ -189,13 +189,14 @@ internal abstract class EffectSimulator(
     var height = 0f
     var time = 0f
         protected set
+    private var accumulatedSeconds = 0f
 
     fun advance(dtSeconds: Float) {
-        var remaining = dtSeconds.coerceIn(0f, 0.25f)
-        while (remaining >= STEP_SECONDS) {
+        accumulatedSeconds += dtSeconds.coerceIn(0f, 0.25f)
+        while (accumulatedSeconds >= STEP_SECONDS) {
             step()
             time += STEP_SECONDS
-            remaining -= STEP_SECONDS
+            accumulatedSeconds -= STEP_SECONDS
         }
     }
 
