@@ -1215,7 +1215,7 @@ fun OpenBubblesApp(
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             copySensitiveVaultValue(
                                 clipboard = clipboard,
-                                scope = hostActivity?.lifecycleScope ?: prefetchScope,
+                                scope = lifecycleOwner.lifecycleScope,
                                 value = value,
                             )
                         },

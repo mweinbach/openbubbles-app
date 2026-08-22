@@ -185,11 +185,11 @@ internal fun rememberICloudSection(
         val alreadySecure = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
         val addedSecureFlag = recoveryCodeVisible && window != null && !alreadySecure
         if (addedSecureFlag) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         onDispose {
             if (addedSecureFlag) {
-                window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
         }
     }
