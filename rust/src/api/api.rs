@@ -35,7 +35,7 @@ use std::io::Seek;
 pub use rustpush::IdmsAuthListener;
 pub use broadcast::Receiver;
 
-use crate::{RUNTIME, frb_generated::{SseEncode, StreamSink}, init_logger, native::{HANDLE_WIFI_NETWORKS, MESSAGE_LOG, PACKAGER_LOCK, PackagedFile, QUEUED_MESSAGES, clear_account_messages}};
+use crate::{RUNTIME, frb_generated::{SseEncode, StreamSink}, init_logger, native::{HANDLE_WIFI_NETWORKS, MESSAGE_LOG, PACKAGER_LOCK, PackagedFile, PermanentJournalFailure, QUEUED_MESSAGES, clear_account_messages}};
 
 use flutter_rust_bridge::for_generated::{SimpleHandler, SimpleExecutor, NoOpErrorListener, SimpleThreadPool, BaseAsyncRuntime, lazy_static};
 
@@ -1507,15 +1507,11 @@ pub async fn mark_queue_attempt(id: u64, success: bool) -> anyhow::Result<()> {
     let mut log_lock = MESSAGE_LOG.lock().await;
     if success {
         log_lock.finish(id)?;
-    } else {
-        let count = log_lock.attempt(id)?;
-        // Kotlin retries at 2s/10s/30s; once an entry has failed three times
-        // it is poison (e.g. an undecodable payload) and would otherwise
-        // block every journal entry behind it forever. Drop it instead.
-        if count >= 2 {
-            warn!("Dropping queue entry {id} after {} failed attempts!", count + 1);
-            log_lock.finish(id)?;
-        }
+    } else if let PermanentJournalFailure::Discarded(attempts) = log_lock.mark_permanent_failure(id)? {
+        // A false result is reserved for explicitly malformed payloads. Both
+        // clients leave transient database, storage, and notification failures
+        // untouched, so they cannot consume the bounded poison-message budget.
+        warn!("Discarding permanently malformed queue entry {id} after {attempts} failed attempts");
     }
     Ok(())
 }

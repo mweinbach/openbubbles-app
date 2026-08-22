@@ -248,6 +248,14 @@ pub struct MessageLog {
     current_id: u64,
 }
 
+const MAX_PERMANENT_JOURNAL_FAILURES: u8 = 3;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PermanentJournalFailure {
+    Retry(u8),
+    Discarded(u8),
+}
+
 /// Compaction policy. The naive rule — rewrite whenever the file exceeds
 /// [MIN_JOURNAL_BYTES] — rewrites the entire journal on *every* record while
 /// a large backlog drains (each Finish only shrinks the live set by one), so
@@ -392,10 +400,26 @@ impl MessageLog {
     }
 
     pub fn finish(&mut self, id: u64) -> anyhow::Result<()> {
+        self.finish_with_outcome(id, true)
+    }
+
+    /// Only a caller-classified malformed payload consumes this budget.
+    /// Infrastructure failures leave the durable entry completely untouched.
+    pub(crate) fn mark_permanent_failure(&mut self, id: u64) -> anyhow::Result<PermanentJournalFailure> {
+        let attempts = self.attempt(id)?.saturating_add(1);
+        if attempts >= MAX_PERMANENT_JOURNAL_FAILURES {
+            self.finish_with_outcome(id, false)?;
+            Ok(PermanentJournalFailure::Discarded(attempts))
+        } else {
+            Ok(PermanentJournalFailure::Retry(attempts))
+        }
+    }
+
+    fn finish_with_outcome(&mut self, id: u64, success: bool) -> anyhow::Result<()> {
         if !self.messages.contains_key(&id) {
             return Ok(());
         }
-        self.log_entry(MessageJournal::Finish { id, success: true })?;
+        self.log_entry(MessageJournal::Finish { id, success })?;
         self.messages.remove(&id);
         Ok(())
     }
@@ -738,9 +762,33 @@ impl NativePushState {
 
 #[cfg(test)]
 mod journal_tests {
-    use super::{MessageLog, should_compact};
+    use super::{MessageJournal, MessageLog, PermanentJournalFailure, should_compact};
     use rustpush::{Message, MessageInst};
-    use std::fs::OpenOptions;
+    use std::fs::{File, OpenOptions};
+
+    fn message(id: &str) -> MessageInst {
+        MessageInst {
+            id: id.to_owned(),
+            sender: None,
+            conversation: None,
+            message: Message::Delivered,
+            sent_timestamp: 0,
+            target: None,
+            send_delivered: false,
+            verification_failed: false,
+            certified_context: None,
+        }
+    }
+
+    fn open_log(path: &std::path::Path) -> MessageLog {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)
+            .expect("open journal");
+        MessageLog::create(path.to_path_buf(), file)
+    }
 
     #[test]
     fn small_journals_never_compact() {
@@ -770,25 +818,7 @@ mod journal_tests {
     fn account_cleanup_replaces_open_journal_and_preserves_monotonic_ids() {
         let directory = tempfile::tempdir().expect("temporary journal directory");
         let path = directory.path().join("messages.journal");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)
-            .expect("create journal");
-        let mut log = MessageLog::create(path.clone(), file);
-
-        let message = |id: &str| MessageInst {
-            id: id.to_owned(),
-            sender: None,
-            conversation: None,
-            message: Message::Delivered,
-            sent_timestamp: 0,
-            target: None,
-            send_delivered: false,
-            verification_failed: false,
-            certified_context: None,
-        };
+        let mut log = open_log(&path);
 
         let previous_id = log.insert(message("old-account")).expect("old message");
         assert!(path.metadata().expect("journal metadata").len() > 0);
@@ -809,5 +839,101 @@ mod journal_tests {
         let restored = MessageLog::create(path, reopened);
         assert_eq!(restored.messages.len(), 1);
         assert_eq!(restored.messages[&next_id].msg.id, "new-account");
+    }
+
+    #[test]
+    fn transient_replays_preserve_durable_messages_and_permanent_failure_budget() {
+        let directory = tempfile::tempdir().expect("temporary journal directory");
+        let path = directory.path().join("messages.journal");
+        let mut log = open_log(&path);
+        let id = log.insert(message("recoverable-storage-failure")).expect("journal message");
+
+        assert_eq!(
+            log.mark_permanent_failure(id).expect("prior malformed attempt"),
+            PermanentJournalFailure::Retry(1),
+        );
+        assert_eq!(
+            log.mark_permanent_failure(id).expect("second malformed attempt"),
+            PermanentJournalFailure::Retry(2),
+        );
+        let durable_len = path.metadata().expect("journal metadata").len();
+
+        for _ in 0..16 {
+            let (&pending_id, entry) = log.messages.iter().next().expect("durable retry");
+            assert_eq!(pending_id, id);
+            assert_eq!(entry.attempts, 2);
+            assert_eq!(path.metadata().expect("journal metadata").len(), durable_len);
+        }
+
+        drop(log);
+        let restored = open_log(&path);
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(restored.messages[&id].attempts, 2);
+        assert_eq!(restored.messages[&id].msg.id, "recoverable-storage-failure");
+    }
+
+    #[test]
+    fn permanent_payload_failures_are_bounded_without_blocking_later_messages() {
+        let directory = tempfile::tempdir().expect("temporary journal directory");
+        let path = directory.path().join("messages.journal");
+        let mut log = open_log(&path);
+        let malformed = log.insert(message("malformed-payload")).expect("malformed entry");
+        let next = log.insert(message("later-message")).expect("later entry");
+
+        assert_eq!(
+            log.mark_permanent_failure(malformed).expect("first permanent failure"),
+            PermanentJournalFailure::Retry(1),
+        );
+        assert_eq!(
+            log.mark_permanent_failure(malformed).expect("second permanent failure"),
+            PermanentJournalFailure::Retry(2),
+        );
+
+        drop(log);
+        let mut restored = open_log(&path);
+        assert_eq!(restored.messages[&malformed].attempts, 2);
+        assert_eq!(
+            restored.mark_permanent_failure(malformed).expect("bounded permanent failure"),
+            PermanentJournalFailure::Discarded(3),
+        );
+        assert_eq!(restored.messages.keys().next(), Some(&next));
+
+        drop(restored);
+        let reopened = open_log(&path);
+        assert!(!reopened.messages.contains_key(&malformed));
+        assert_eq!(reopened.messages[&next].msg.id, "later-message");
+
+        let mut journal = File::open(&path).expect("inspect journal");
+        let mut recorded_failure = false;
+        while let Ok((_, entry)) = MessageJournal::read(&mut journal) {
+            if let MessageJournal::Finish { id, success } = entry {
+                if id == malformed {
+                    assert!(!success, "malformed payload must not be recorded as successful");
+                    recorded_failure = true;
+                }
+            }
+        }
+        assert!(recorded_failure, "permanent rejection must be durably recorded");
+    }
+
+    #[test]
+    fn stale_account_failure_cannot_discard_the_next_accounts_message() {
+        let directory = tempfile::tempdir().expect("temporary journal directory");
+        let path = directory.path().join("messages.journal");
+        let mut log = open_log(&path);
+        let previous_id = log.insert(message("previous-account")).expect("previous message");
+
+        log.clear_account().expect("clear previous account");
+        let current_id = log.insert(message("current-account")).expect("current message");
+        assert!(current_id > previous_id);
+
+        assert!(log.mark_permanent_failure(previous_id).is_err());
+        assert_eq!(log.messages[&current_id].attempts, 0);
+        assert_eq!(log.messages[&current_id].msg.id, "current-account");
+
+        drop(log);
+        let restored = open_log(&path);
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(restored.messages[&current_id].attempts, 0);
     }
 }
