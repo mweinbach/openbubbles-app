@@ -278,6 +278,26 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `grouped conversation results preserve both the visible chat and exact message guid`() = runTest(dispatcher) {
+        val groupedChat = coffeeChat.copy(
+            id = 70L,
+            memberChatIds = listOf(7L, 9L),
+            preferredChatId = 9L,
+        )
+        val model = SearchViewModel(
+            FakeSearch(messages = listOf(message(42, "coffee at noon", chatId = 9L))),
+            FakeChats(listOf(groupedChat)),
+        )
+        backgroundScope.launch { model.uiState.collect() }
+        model.onQueryChange("coffee")
+        advanceUntilIdle()
+
+        val match = model.uiState.value.messages.single()
+        assertEquals(70L, match.chatId)
+        assertEquals("g42", match.guid)
+    }
+
+    @Test
     fun `a message surfaced as a link is not repeated as a message`() = runTest(dispatcher) {
         val both = message(
             3,

@@ -99,6 +99,7 @@ fun SearchScreen(
     onOpenChat: (Long) -> Unit,
     onOpenContact: (RawContact) -> Unit,
     onBack: () -> Unit,
+    onOpenMessage: (Long, String) -> Unit = { chatId, _ -> onOpenChat(chatId) },
     modifier: Modifier = Modifier,
     /**
      * Medium+ list-detail: dock the expanded results to the collapsed bar
@@ -170,6 +171,7 @@ fun SearchScreen(
             highlight = highlight,
             uriHandlerOpen = { url -> runCatching { uriHandler.openUri(url) } },
             onOpenChat = onOpenChat,
+            onOpenMessage = onOpenMessage,
             onOpenContact = onOpenContact,
         )
     }
@@ -205,6 +207,7 @@ private fun SearchResults(
     highlight: String,
     uriHandlerOpen: (String) -> Unit,
     onOpenChat: (Long) -> Unit,
+    onOpenMessage: (Long, String) -> Unit,
     onOpenContact: (RawContact) -> Unit,
 ) {
     when {
@@ -291,7 +294,7 @@ private fun SearchResults(
                         row = row,
                         highlight = highlight,
                         shape = segmentedRowShape(index, uiState.messages.size),
-                        onClick = { onOpenChat(row.chatId) },
+                        onClick = { onOpenMessage(row.chatId, row.guid) },
                     )
                 }
             }

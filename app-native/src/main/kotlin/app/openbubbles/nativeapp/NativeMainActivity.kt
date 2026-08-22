@@ -157,7 +157,7 @@ private fun decodeComposeValue(value: String, plusAsSpace: Boolean): String = ru
  * Passwords stack can hand the task back to messaging.
  */
 sealed interface MainLaunchAction {
-    data class OpenChat(val guid: String) : MainLaunchAction
+    data class OpenChat(val guid: String, val messageGuid: String? = null) : MainLaunchAction
     data class Share(val request: IncomingShareRequest) : MainLaunchAction
     data class Compose(val request: SmsComposeRequest) : MainLaunchAction
     data class OpenRoute(val route: String, val standaloneTask: Boolean) : MainLaunchAction
@@ -174,8 +174,11 @@ internal fun decideMainLaunchAction(
     chatGuid: String?,
     initialRoute: String?,
     standaloneTask: Boolean,
+    messageGuid: String? = null,
 ): MainLaunchAction {
-    chatGuid?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenChat(it) }
+    chatGuid?.takeIf { it.isNotBlank() }?.let { guid ->
+        return MainLaunchAction.OpenChat(guid, messageGuid?.takeIf { it.isNotBlank() })
+    }
     parseIncomingShareRequest(action, mimeType, extraText, streams)?.let { return MainLaunchAction.Share(it) }
     parseSmsComposeRequest(action, dataString, extraText)?.let { return MainLaunchAction.Compose(it) }
     initialRoute?.takeIf { it.isNotBlank() }?.let { return MainLaunchAction.OpenRoute(it, standaloneTask) }
@@ -274,6 +277,7 @@ class NativeMainActivity : FragmentActivity() {
                 OpenBubblesApp(
                     debugLines = debugLines,
                     startChatGuid = pendingChatGuid,
+                    startMessageGuid = pendingMessageGuid,
                     startComposeRequest = pendingComposeRequest,
                     onComposeRequestConsumed = { pendingComposeRequest = null },
                     startShareRequest = pendingShareRequest,
@@ -387,8 +391,11 @@ class NativeMainActivity : FragmentActivity() {
             chatGuid = intent?.getStringExtra(EXTRA_CHAT_GUID),
             initialRoute = intent?.getStringExtra(EXTRA_INITIAL_ROUTE),
             standaloneTask = intent?.getBooleanExtra(EXTRA_STANDALONE_TASK, false) ?: false,
+            messageGuid = intent?.getStringExtra(Notifications.EXTRA_MESSAGE_GUID),
         )
-        pendingChatGuid = (launch as? MainLaunchAction.OpenChat)?.guid
+        val chatLaunch = launch as? MainLaunchAction.OpenChat
+        pendingMessageGuid = chatLaunch?.messageGuid
+        pendingChatGuid = chatLaunch?.guid
         pendingShareRequest = (launch as? MainLaunchAction.Share)?.request
         pendingComposeRequest = (launch as? MainLaunchAction.Compose)?.request
         pendingRouteRequest = launch as? MainLaunchAction.OpenRoute
@@ -449,5 +456,8 @@ class NativeMainActivity : FragmentActivity() {
          * Compose state, so an onNewIntent tap recomposes the scaffold.
          */
         var pendingChatGuid: String? by mutableStateOf<String?>(null)
+
+        /** Optional exact message from the same one-shot notification launch. */
+        var pendingMessageGuid: String? by mutableStateOf<String?>(null)
     }
 }

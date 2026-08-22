@@ -57,6 +57,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.CameraAlt
@@ -78,6 +80,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -140,6 +143,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -204,6 +208,9 @@ private val ConversationContentMaxWidth = 840.dp
 
 /** Per-picking cap for the multi-select system photo picker. */
 private const val PhotoPickerMaxItems = 10
+
+/** Avoid turning a stale search or notification target into unbounded paging. */
+private const val MaximumTargetHistoryPageLoads = 100
 
 /** Accept one emoji grapheme, including flags, skin tones, and ZWJ families. */
 internal fun normalizeCustomReaction(raw: String): String? {
@@ -382,6 +389,9 @@ fun ChatScreen(
     routeChatId: Long? = uiState.chat?.id,
     /** Null while off-main repository membership is still resolving. */
     routeMemberChatIds: List<Long>? = uiState.chat?.memberChatIds,
+    /** Search or notification target; consumed only after resolution finishes. */
+    targetMessageGuid: String? = null,
+    onTargetMessageConsumed: (String) -> Unit = {},
     onSubjectChange: (String) -> Unit = {},
     onInsertMention: (Int, Int, String, String) -> Unit = { _, _, _, _ -> },
     /**
@@ -404,6 +414,8 @@ fun ChatScreen(
     onEdit: (MessageItem) -> Unit = {},
     onReact: (MessageItem, Long, Int, String?, Boolean) -> Unit = { _, _, _, _, _ -> },
     onUnsend: (MessageItem) -> Unit = {},
+    onForwardMessages: (List<MessageItem>) -> Unit = {},
+    onOpenConversation: (Long) -> Unit = {},
     onCancelComposerAction: () -> Unit = {},
     onActionErrorShown: () -> Unit = {},
     onStartFaceTime: () -> Unit = {},
@@ -424,6 +436,27 @@ fun ChatScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedAction by remember { mutableStateOf<SelectedMessageAction?>(null) }
+    var selectedMessageGuids by rememberSaveable(routeChatId ?: uiState.chat?.id) {
+        mutableStateOf(emptyList<String>())
+    }
+    val selectedMessageGuidSet = remember(selectedMessageGuids) { selectedMessageGuids.toSet() }
+    val selectedMessages = remember(uiState.messages, selectedMessageGuidSet) {
+        uiState.messages.filter { it.guid in selectedMessageGuidSet }
+    }
+    val selectingMessages = selectedMessageGuids.isNotEmpty()
+
+    fun clearMessageSelection() {
+        selectedMessageGuids = emptyList()
+    }
+
+    fun toggleMessageSelection(message: MessageItem) {
+        if (!canOpenMessageActions(message)) return
+        selectedMessageGuids = if (message.guid in selectedMessageGuidSet) {
+            selectedMessageGuids - message.guid
+        } else {
+            selectedMessageGuids + message.guid
+        }
+    }
     // Double-tap opens the centered reaction picker; long-press keeps the full
     // action sheet. Only one of the two is ever presented.
     var reactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
@@ -474,6 +507,7 @@ fun ChatScreen(
         }
     }
     BackHandler(enabled = openThread != null) { onCloseReplyThread() }
+    BackHandler(enabled = selectingMessages) { clearMessageSelection() }
 
     // Tapping a reply quote scrolls to the original and pulses it; the guid
     // outlives the pulse so a row that composes mid-scroll still flashes.
@@ -830,6 +864,7 @@ fun ChatScreen(
     }
 
     val currentEntries by rememberUpdatedState(entries)
+    val currentUiState by rememberUpdatedState(uiState)
     val currentTyping by rememberUpdatedState(isTyping)
     var pagingAnchor by remember(uiState.chat?.id) { mutableStateOf<PagingAnchor?>(null) }
 
@@ -960,6 +995,104 @@ fun ChatScreen(
         listState.scrollToItem(target.first, target.second)
     }
 
+    LaunchedEffect(routeChatId, targetMessageGuid, openThread?.rootGuid) {
+        val guid = targetMessageGuid?.takeIf(String::isNotBlank) ?: return@LaunchedEffect
+        if (openThread != null) {
+            onCloseReplyThread()
+            return@LaunchedEffect
+        }
+
+        var previousPageCursor: Long? = null
+        var requestedPages = 0
+        var observedPageLoading = false
+        var finished = false
+        snapshotFlow { Triple(currentEntries, currentUiState, currentTyping) }
+            .collect { (visibleEntries, state, _) ->
+                if (finished || state.initialLoading) return@collect
+
+                val targetIndex = resolveReplyScrollTarget(visibleEntries, guid)
+                if (targetIndex != null) {
+                    // The explicit destination owns the viewport: neither a
+                    // completed page nor a concurrent arrival may pull it back.
+                    pagingAnchor = null
+                    followingBottom = false
+                    repeat(3) {
+                        val latestEntries = currentEntries
+                        val latestIndex = resolveReplyScrollTarget(latestEntries, guid)
+                            ?: return@repeat
+                        val rowIndex = latestIndex + if (currentTyping) 1 else 0
+                        val rowKey = latestEntries[latestIndex].key
+                        if (reduceMotion) {
+                            listState.scrollToItem(rowIndex)
+                        } else {
+                            listState.animateScrollToItem(rowIndex)
+                        }
+                        withFrameNanos { }
+                        if (listState.layoutInfo.visibleItemsInfo.any { it.key == rowKey }) {
+                            replyHighlightGuid = guid
+                            finished = true
+                            onTargetMessageConsumed(guid)
+                            return@collect
+                        }
+                    }
+                    return@collect
+                }
+
+                if (state.loadingOlder) {
+                    if (previousPageCursor != null) observedPageLoading = true
+                    return@collect
+                }
+                val oldestMessageId = state.messages.firstOrNull()?.id
+                if (oldestMessageId == null) {
+                    if (state.chat != null) {
+                        finished = true
+                        onTargetMessageConsumed(guid)
+                    }
+                    return@collect
+                }
+                // loadingOlder can clear before the expanded repository window
+                // emits. Wait for the oldest-row cursor to actually advance so
+                // the same page is never fetched twice.
+                if (oldestMessageId == previousPageCursor) {
+                    if (observedPageLoading) {
+                        // A final empty page changes only loadingOlder. Give a
+                        // real expanded window its documented delayed frame,
+                        // then finish if the oldest cursor truly never moved.
+                        withFrameNanos { }
+                        withFrameNanos { }
+                        val latestState = currentUiState
+                        if (!latestState.loadingOlder &&
+                            latestState.messages.firstOrNull()?.id == oldestMessageId &&
+                            resolveReplyScrollTarget(currentEntries, guid) == null
+                        ) {
+                            finished = true
+                            onTargetMessageConsumed(guid)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Message is no longer available")
+                            }
+                        }
+                    }
+                    return@collect
+                }
+                if (requestedPages >= MaximumTargetHistoryPageLoads) {
+                    finished = true
+                    onTargetMessageConsumed(guid)
+                    scope.launch { snackbarHostState.showSnackbar("Message is too far back to display") }
+                    return@collect
+                }
+
+                previousPageCursor = oldestMessageId
+                requestedPages++
+                observedPageLoading = false
+                pagingAnchor = null
+                if (!onLoadOlder()) {
+                    finished = true
+                    onTargetMessageConsumed(guid)
+                    scope.launch { snackbarHostState.showSnackbar("Message is no longer available") }
+                }
+            }
+    }
+
     val background = rememberChatBackground(
         customPath = uiState.chat?.customBackgroundPath,
         syncedPath = uiState.chat?.transcriptBackgroundPath,
@@ -1020,7 +1153,12 @@ fun ChatScreen(
                         )
                     },
                     title = {
-                        if (openThread != null) {
+                        if (selectingMessages) {
+                            Text(
+                                text = "${selectedMessageGuids.size} selected",
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                            )
+                        } else if (openThread != null) {
                             Text(
                                 text = "Thread",
                                 style = MaterialTheme.typography.titleLargeEmphasized,
@@ -1040,7 +1178,7 @@ fun ChatScreen(
                         }
                     },
                     subtitle = {
-                        if (openThread != null) {
+                        if (!selectingMessages && openThread != null) {
                             val root = openThread.messages.firstOrNull { it.guid == openThread.rootGuid }
                                 ?: openThread.messages.firstOrNull()
                             Text(
@@ -1053,7 +1191,19 @@ fun ChatScreen(
                         }
                     },
                     navigationIcon = {
-                        if (openThread != null) {
+                        if (selectingMessages) {
+                            FilledTonalIconButton(
+                                onClick = ::clearMessageSelection,
+                                shapes = IconButtonDefaults.shapes(),
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Cancel message selection")
+                            }
+                        } else if (openThread != null) {
                             FilledTonalIconButton(
                                 onClick = onCloseReplyThread,
                                 shapes = IconButtonDefaults.shapes(),
@@ -1083,7 +1233,48 @@ fun ChatScreen(
                         }
                     },
                     actions = {
-                        if (uiState.chat?.isSms == false) {
+                        if (selectingMessages) {
+                            FilledTonalIconButton(
+                                onClick = {
+                                    val messages = selectedMessages
+                                    if (messages.isNotEmpty()) {
+                                        clearMessageSelection()
+                                        onForwardMessages(messages)
+                                    }
+                                },
+                                enabled = selectedMessages.isNotEmpty(),
+                                shapes = IconButtonDefaults.shapes(),
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Forward selected messages",
+                                )
+                            }
+                            FilledTonalIconButton(
+                                onClick = {
+                                    val messages = selectedMessages
+                                    if (messages.isNotEmpty()) {
+                                        clearMessageSelection()
+                                        scope.launch {
+                                            runCatching {
+                                                AppGraph.messageActions.deleteLocal(messages.map { it.id })
+                                            }.onFailure { error ->
+                                                snackbarHostState.showSnackbar(
+                                                    error.message ?: "Could not delete selected messages",
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = selectedMessages.isNotEmpty() &&
+                                    selectedMessages.all(::canDeleteMessageLocally),
+                                shapes = IconButtonDefaults.shapes(),
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete selected messages")
+                            }
+                        } else if (uiState.chat?.isSms == false) {
                             FilledTonalIconButton(
                                 onClick = onStartFaceTime,
                                 shapes = IconButtonDefaults.shapes(),
@@ -1298,89 +1489,185 @@ fun ChatScreen(
                             },
                         ) { entry ->
                             when (entry) {
-                                is ConversationEntry.Message -> MessageBubble(
-                                    message = entry.message,
-                                    showStatus = entry.showStatus,
-                                    showDeliveryTimestamp = showDeliveryTimestamps,
-                                    tightTop = entry.tightTop,
-                                    tightBottom = entry.tightBottom,
-                                    showSenderName = entry.showSenderName,
-                                    showAvatarGutter = isGroupChat,
-                                    showAvatar = entry.showAvatar,
-                                    smsChat = entry.message.isSms,
-                                    attachmentFile = resolvedAttachmentFile,
-                                    onOpenAttachment = onOpenAttachment,
-                                    onDownloadAttachment = onDownloadAttachment,
-                                    senderDisplayName = entry.message.senderAddress?.let {
-                                        senderNames[it]
-                                            ?: ContactDisplayWarmCache.peek(it)?.displayName
-                                    },
-                                    replyQuote = if (entry.message.guid in repliesWithContext) {
-                                        null
+                                is ConversationEntry.Message -> {
+                                    val message = entry.message
+                                    val selectable = canOpenMessageActions(message)
+                                    val selected = message.guid in selectedMessageGuidSet
+                                    val selectionLabel = if (selected) {
+                                        "Deselect message"
                                     } else {
-                                        resolveReplyQuote(
-                                            entry.message,
-                                            messagesByGuid,
-                                            senderNames,
-                                        )
-                                    },
-                                    onReplyQuoteTap = {
-                                        val target = resolveReplyScrollTarget(
-                                            entries,
-                                            entry.message.replyToGuid,
-                                        )
-                                        if (target == null) {
-                                            // Original not in the loaded window:
-                                            // the thread pane can fetch it.
-                                            onOpenReplyThread(entry.message)
-                                        } else {
-                                            replyHighlightGuid = entry.message.replyToGuid
-                                            scope.launch {
-                                                listState.animateScrollToItem(
-                                                    target + if (isTyping) 1 else 0,
+                                        "Select message"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .widthIn(max = ConversationContentMaxWidth)
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (selectingMessages && selectable) {
+                                                    Modifier
+                                                        .clickable(
+                                                            onClickLabel = selectionLabel,
+                                                            role = Role.Checkbox,
+                                                        ) { toggleMessageSelection(message) }
+                                                        .semantics {
+                                                            stateDescription = if (selected) {
+                                                                "Selected"
+                                                            } else {
+                                                                "Not selected"
+                                                            }
+                                                        }
+                                                } else {
+                                                    Modifier
+                                                },
+                                            )
+                                            .animateItem(
+                                                fadeInSpec = itemSpecs.fadeIn,
+                                                fadeOutSpec = itemSpecs.fadeOut,
+                                                placementSpec = itemSpecs.placement,
+                                            )
+                                            .replyHighlightPulse(
+                                                active = replyHighlightGuid == message.guid,
+                                            ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (selectingMessages) {
+                                            if (selectable) {
+                                                Checkbox(
+                                                    checked = selected,
+                                                    onCheckedChange = {
+                                                        toggleMessageSelection(message)
+                                                    },
+                                                    modifier = Modifier.size(48.dp),
+                                                )
+                                            } else {
+                                                Box(Modifier.size(48.dp))
+                                            }
+                                        }
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            MessageBubble(
+                                                message = message,
+                                                showStatus = entry.showStatus,
+                                                showDeliveryTimestamp = showDeliveryTimestamps,
+                                                tightTop = entry.tightTop,
+                                                tightBottom = entry.tightBottom,
+                                                showSenderName = entry.showSenderName,
+                                                showAvatarGutter = isGroupChat,
+                                                showAvatar = entry.showAvatar,
+                                                smsChat = message.isSms,
+                                                attachmentFile = resolvedAttachmentFile,
+                                                onOpenAttachment = { guid ->
+                                                    if (selectingMessages) {
+                                                        toggleMessageSelection(message)
+                                                    } else {
+                                                        onOpenAttachment(guid)
+                                                    }
+                                                },
+                                                onDownloadAttachment = { attachment ->
+                                                    if (selectingMessages) {
+                                                        toggleMessageSelection(message)
+                                                    } else {
+                                                        onDownloadAttachment(attachment)
+                                                    }
+                                                },
+                                                senderDisplayName = message.senderAddress?.let {
+                                                    senderNames[it]
+                                                        ?: ContactDisplayWarmCache.peek(it)?.displayName
+                                                },
+                                                replyQuote = if (message.guid in repliesWithContext) {
+                                                    null
+                                                } else {
+                                                    resolveReplyQuote(
+                                                        message,
+                                                        messagesByGuid,
+                                                        senderNames,
+                                                    )
+                                                },
+                                                onReplyQuoteTap = {
+                                                    if (selectingMessages) {
+                                                        toggleMessageSelection(message)
+                                                    } else {
+                                                        val target = resolveReplyScrollTarget(
+                                                            entries,
+                                                            message.replyToGuid,
+                                                        )
+                                                        if (target == null) {
+                                                            // The thread pane can fetch originals
+                                                            // outside the currently loaded window.
+                                                            onOpenReplyThread(message)
+                                                        } else {
+                                                            replyHighlightGuid = message.replyToGuid
+                                                            scope.launch {
+                                                                listState.animateScrollToItem(
+                                                                    target + if (isTyping) 1 else 0,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                replyCount = replyCounts[message.guid] ?: 0,
+                                                onReplyCountTap = {
+                                                    if (selectingMessages) {
+                                                        toggleMessageSelection(message)
+                                                    } else {
+                                                        onOpenReplyThread(message)
+                                                    }
+                                                },
+                                                onDownloadSticker = { guid ->
+                                                    if (selectingMessages) {
+                                                        toggleMessageSelection(message)
+                                                    } else {
+                                                        onDownloadAttachment(
+                                                            AttachmentMeta(
+                                                                guid = guid,
+                                                                mime = "image/*",
+                                                                name = "Sticker",
+                                                                sizeBytes = null,
+                                                                isImage = true,
+                                                                downloaded = false,
+                                                            ),
+                                                        )
+                                                    }
+                                                },
+                                                onLongPressPart = if (!selectingMessages &&
+                                                    canOpenMessageActions(message)
+                                                ) {
+                                                    { part ->
+                                                        selectedAction = SelectedMessageAction(message, part)
+                                                    }
+                                                } else {
+                                                    null
+                                                },
+                                                onDoubleTapPart = if (!selectingMessages &&
+                                                    canDoubleTapMessageActions(message)
+                                                ) {
+                                                    { part ->
+                                                        reactionTarget = SelectedMessageAction(message, part)
+                                                    }
+                                                } else {
+                                                    null
+                                                },
+                                                onSwipeReply = if (!selectingMessages &&
+                                                    canSwipeReply(message)
+                                                ) {
+                                                    { part -> onReply(message, part) }
+                                                } else {
+                                                    null
+                                                },
+                                            )
+                                            if (selectingMessages && selectable) {
+                                                Box(
+                                                    Modifier
+                                                        .matchParentSize()
+                                                        .pointerInput(message.guid, selectedMessageGuids) {
+                                                            detectTapGestures {
+                                                                toggleMessageSelection(message)
+                                                            }
+                                                        },
                                                 )
                                             }
                                         }
-                                    },
-                                    replyCount = replyCounts[entry.message.guid] ?: 0,
-                                    onReplyCountTap = { onOpenReplyThread(entry.message) },
-                                    onDownloadSticker = { guid ->
-                                        onDownloadAttachment(
-                                            AttachmentMeta(
-                                                guid = guid,
-                                                mime = "image/*",
-                                                name = "Sticker",
-                                                sizeBytes = null,
-                                                isImage = true,
-                                                downloaded = false,
-                                            ),
-                                        )
-                                    },
-                                    onLongPressPart = if (canOpenMessageActions(entry.message)) {
-                                        { part -> selectedAction = SelectedMessageAction(entry.message, part) }
-                                    } else {
-                                        null
-                                    },
-                                    onDoubleTapPart = if (canDoubleTapMessageActions(entry.message)) {
-                                        { part -> reactionTarget = SelectedMessageAction(entry.message, part) }
-                                    } else {
-                                        null
-                                    },
-                                    onSwipeReply = if (canSwipeReply(entry.message)) {
-                                        { part -> onReply(entry.message, part) }
-                                    } else {
-                                        null
-                                    },
-                                    modifier = Modifier.widthIn(max = ConversationContentMaxWidth)
-                                        .animateItem(
-                                            fadeInSpec = itemSpecs.fadeIn,
-                                            fadeOutSpec = itemSpecs.fadeOut,
-                                            placementSpec = itemSpecs.placement,
-                                        )
-                                        .replyHighlightPulse(
-                                            active = replyHighlightGuid == entry.message.guid,
-                                        ),
-                                )
+                                    }
+                                }
                                 is ConversationEntry.TimeSeparator -> {
                                     val timestamp = formatConversationTimestamp(entry.epochMillis)
                                     TimeSeparatorRow(
@@ -1545,12 +1832,7 @@ fun ChatScreen(
             },
             onForward = {
                 selectedAction = null
-                scope.launch {
-                    runCatching {
-                        AppGraph.messageActions.markForwarded(listOf(message.id))
-                    }
-                    snackbarHostState.showSnackbar("Forward: pick a chat from the share sheet")
-                }
+                onForwardMessages(listOf(message))
             },
             onBookmark = {
                 selectedAction = null
@@ -1561,7 +1843,11 @@ fun ChatScreen(
                     )
                 }
             },
-            onSelectMultiple = { selectedAction = null },
+            onSelectMultiple = {
+                selectedAction = null
+                selectedMessageGuids = listOf(message.guid)
+                if (openThread != null) onCloseReplyThread()
+            },
             onViewThread = {
                 selectedAction = null
                 if (message.replyToGuid != null) onOpenReplyThread(message)
@@ -1575,7 +1861,7 @@ fun ChatScreen(
                             CoreGraph.findOrCreateChat(listOf(address), sms = false)
                         }
                         if (id != null) {
-                            snackbarHostState.showSnackbar("Opened a conversation")
+                            onOpenConversation(id)
                         }
                     }
                 }

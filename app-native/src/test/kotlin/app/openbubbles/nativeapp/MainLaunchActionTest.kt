@@ -16,6 +16,7 @@ class MainLaunchActionTest {
         chatGuid: String? = null,
         initialRoute: String? = null,
         standaloneTask: Boolean = false,
+        messageGuid: String? = null,
     ) = decideMainLaunchAction(
         action = action,
         dataString = dataString,
@@ -25,6 +26,7 @@ class MainLaunchActionTest {
         chatGuid = chatGuid,
         initialRoute = initialRoute,
         standaloneTask = standaloneTask,
+        messageGuid = messageGuid,
     )
 
     @Test
@@ -73,6 +75,40 @@ class MainLaunchActionTest {
     }
 
     @Test
+    fun `notification preserves the exact tapped message`() {
+        assertEquals(
+            MainLaunchAction.OpenChat("iMessage;-;chat123", "message-456"),
+            decide(
+                chatGuid = "iMessage;-;chat123",
+                messageGuid = "message-456",
+                initialRoute = Routes.PASSWORDS,
+                standaloneTask = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `blank notification message guid does not create an anchor`() {
+        assertEquals(
+            MainLaunchAction.OpenChat("iMessage;-;chat123"),
+            decide(chatGuid = "iMessage;-;chat123", messageGuid = "  "),
+        )
+    }
+
+    @Test
+    fun `orphan message guid cannot override a safe share launch`() {
+        assertEquals(
+            MainLaunchAction.Share(IncomingShareRequest(text = "shared text", mimeType = "text/plain")),
+            decide(
+                action = Intent.ACTION_SEND,
+                mimeType = "text/plain",
+                extraText = "shared text",
+                messageGuid = "message-456",
+            ),
+        )
+    }
+
+    @Test
     fun `share payload beats compose and route`() {
         assertEquals(
             MainLaunchAction.Share(IncomingShareRequest(text = "shared text", mimeType = "text/plain")),
@@ -102,6 +138,13 @@ class MainLaunchActionTest {
     fun `route requests compare equal across warm redelivery`() {
         val cold = decide(action = Intent.ACTION_MAIN, initialRoute = Routes.PASSWORDS, standaloneTask = true)
         val warm = decide(action = Intent.ACTION_MAIN, initialRoute = Routes.PASSWORDS, standaloneTask = true)
+        assertEquals(cold, warm)
+    }
+
+    @Test
+    fun `notification anchors compare equal across warm redelivery`() {
+        val cold = decide(chatGuid = "iMessage;-;chat123", messageGuid = "message-456")
+        val warm = decide(chatGuid = "iMessage;-;chat123", messageGuid = "message-456")
         assertEquals(cold, warm)
     }
 }

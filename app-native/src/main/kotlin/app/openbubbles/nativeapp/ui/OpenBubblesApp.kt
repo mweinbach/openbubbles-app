@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.activity.compose.LocalActivity
@@ -54,10 +55,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +148,7 @@ import app.openbubbles.nativeapp.ui.photos.PhotosViewModel
 import app.openbubbles.nativeapp.ui.search.SearchScreen
 import app.openbubbles.nativeapp.ui.share.ShareTargetPickerScreen
 import app.openbubbles.nativeapp.ui.search.SearchViewModel
+import app.openbubbles.nativeapp.ui.sharedalbums.SharedAlbumGalleryScreen
 import app.openbubbles.nativeapp.ui.sharedalbums.SharedAlbumsScreen
 import app.openbubbles.nativeapp.ui.sharedalbums.SharedAlbumsViewModel
 import app.openbubbles.nativeapp.ui.settings.SettingsScreen
@@ -184,7 +189,12 @@ object Routes {
     const val SHARE = "share"
     const val RECENTLY_DELETED = "recently-deleted"
     fun bookmarks(chatId: Long): String = "bookmarks/$chatId"
-    fun chat(chatId: Long): String = "chat/$chatId"
+    fun chat(chatId: Long, messageGuid: String? = null): String = buildString {
+        append("chat/").append(chatId)
+        messageGuid?.takeIf(String::isNotBlank)?.let {
+            append("?message=").append(Uri.encode(it))
+        }
+    }
     fun chatInfo(chatId: Long): String = "chatinfo/$chatId"
     fun newChat(recipients: List<String>, body: String?, useSms: Boolean): String = buildString {
         append(NEW_CHAT)
@@ -213,6 +223,7 @@ data class ChatKey(
     val chatId: Long,
     val initialDraft: String? = null,
     val sharedUris: List<String> = emptyList(),
+    val targetMessageGuid: String? = null,
 ) : NavKey
 
 @Serializable
@@ -251,6 +262,10 @@ internal fun isSensitiveVaultDestination(destination: NavKey?): Boolean =
 @Serializable
 data object SharedAlbumsKey : NavKey
 
+/** Gallery reads only files already synced into this album's private folder. */
+@Serializable
+data class SharedAlbumGalleryKey(val albumId: String) : NavKey
+
 @Serializable
 data object PhotosKey : NavKey
 
@@ -272,10 +287,16 @@ data class NewChatKey(
     val body: String? = null,
     val useSms: Boolean = false,
     val sharedUris: List<String> = emptyList(),
+    /** Local forwarding metadata is committed only after a real destination exists. */
+    val forwardedMessageIds: List<Long> = emptyList(),
 ) : NavKey
 
 @Serializable
-data class ShareTargetPickerKey(val request: IncomingShareRequest) : NavKey
+data class ShareTargetPickerKey(
+    val request: IncomingShareRequest,
+    /** Canceling the picker leaves these source rows untouched. */
+    val forwardedMessageIds: List<Long> = emptyList(),
+) : NavKey
 
 @Serializable
 data class ChatInfoKey(val chatId: Long) : NavKey
@@ -291,13 +312,15 @@ data object LoginKey : NavKey
 
 private fun NavKey.toRoute(): String = when (this) {
     is ChatsKey -> Routes.CHATS
-    is ChatKey -> Routes.chat(chatId)
+    is ChatKey -> Routes.chat(chatId, targetMessageGuid)
     is SettingsKey -> Routes.SETTINGS
     is PasswordsKey -> Routes.PASSWORDS
     // Secrets never persist across process death; resume on the vault list.
     is VaultItemKey -> Routes.PASSWORDS
     is VaultGroupKey -> Routes.PASSWORDS
     is SharedAlbumsKey -> Routes.SHARED_ALBUMS
+    // Album contents are account-private; restoring the manager revalidates membership first.
+    is SharedAlbumGalleryKey -> Routes.SHARED_ALBUMS
     is PhotosKey -> Routes.PHOTOS
     is ArchivedChatsKey -> Routes.ARCHIVED
     is RecentlyDeletedKey -> Routes.RECENTLY_DELETED
@@ -369,13 +392,58 @@ private fun routeToKey(route: String): NavKey? = when {
         useSms = routeParameter(route, "sms") == "1",
     )
     route == Routes.LOGIN -> LoginKey
-    route.startsWith("chat/") -> route.substringBefore('?').removePrefix("chat/").toLongOrNull()?.let(::ChatKey)
+    route.startsWith("chat/") -> route.substringBefore('?').removePrefix("chat/")
+        .toLongOrNull()
+        ?.let { ChatKey(it, targetMessageGuid = routeParameter(route, "message")) }
     route.startsWith("chatinfo/") -> route.removePrefix("chatinfo/").toLongOrNull()?.let(::ChatInfoKey)
     route.startsWith("attachment/") -> AttachmentKey(
         guid = Uri.decode(route.substringBefore('?').removePrefix("attachment/")),
         chatId = routeParameter(route, "chat")?.toLongOrNull(),
     )
     else -> null
+}
+
+/**
+ * Builds an in-app forwarding draft without passing our own FileProvider URIs
+ * through the exported share-ingress parser. Picking a destination only stages
+ * this payload; dispatch still requires the user's explicit send action.
+ */
+internal fun forwardShareRequest(
+    messages: List<MessageItem>,
+    attachmentUri: (String) -> String?,
+): IncomingShareRequest? {
+    val ordered = messages.sortedWith(compareBy(MessageItem::date, MessageItem::id))
+    val text = ordered.mapNotNull { it.text.takeIf(String::isNotBlank) }
+        .joinToString("\n")
+        .takeIf(String::isNotBlank)
+    val attachments = ordered.flatMap { message ->
+        message.attachmentMetas.ifEmpty { listOfNotNull(message.attachmentMeta) }
+            .mapNotNull { attachment ->
+                attachmentUri(attachment.guid)?.let { uri -> uri to attachment.mime }
+            }
+    }
+    if (text == null && attachments.isEmpty()) return null
+
+    val distinctMimeTypes = attachments.mapNotNull { it.second }.distinct()
+    return IncomingShareRequest(
+        text = text,
+        streams = attachments.map { it.first },
+        mimeType = when {
+            attachments.isEmpty() -> "text/plain"
+            distinctMimeTypes.size == 1 -> distinctMimeTypes.single()
+            else -> "*/*"
+        },
+    )
+}
+
+/** A forward is not recorded until an existing or newly created chat is chosen. */
+internal fun forwardingHandoffMessageIds(
+    messageIds: List<Long>,
+    destinationChatId: Long?,
+): List<Long> = if (destinationChatId == null || destinationChatId <= 0L) {
+    emptyList()
+} else {
+    messageIds.filter { it > 0L }.distinct()
 }
 
 /**
@@ -395,6 +463,8 @@ fun OpenBubblesApp(
     debugLines: List<String> = emptyList(),
     /** Chat guid from a notification tap; resolved and consumed once. */
     startChatGuid: String? = null,
+    /** Exact message from that notification, when the notification carried one. */
+    startMessageGuid: String? = null,
     startComposeRequest: SmsComposeRequest? = null,
     onComposeRequestConsumed: () -> Unit = {},
     startShareRequest: IncomingShareRequest? = null,
@@ -439,6 +509,8 @@ fun OpenBubblesApp(
     )
     val prefetchScope = rememberCoroutineScope()
     var transcriptPrefetchJob by remember { mutableStateOf<Job?>(null) }
+    var targetRequestSequence by remember { mutableIntStateOf(0) }
+    val consumedTargetGuids = remember { mutableStateMapOf<Long, String>() }
 
     // A conversation shown beside its list must not offer a back arrow, and the
     // navigation container stays visible in that layout. The directive is the
@@ -483,18 +555,36 @@ fun OpenBubblesApp(
      * behaviour, which matches every mainstream messaging app: back from a
      * conversation always lands on the list.
      */
-    fun openChat(chatId: Long) {
+    fun openChat(
+        chatId: Long,
+        targetMessageGuid: String? = null,
+        initialDraft: String? = null,
+        sharedUris: List<String> = emptyList(),
+    ) {
         transcriptPrefetchJob?.cancel()
         val last = backStack.lastOrNull()
         // Tapping the already-selected row while chat info replaced the
         // conversation pops back to that transcript. The list is visible
         // in multi-pane, so this is the list-detail "same item" contract.
-        if (last is ChatInfoKey && last.chatId == chatId) {
+        if (
+            last is ChatInfoKey && last.chatId == chatId &&
+            targetMessageGuid == null && initialDraft == null && sharedUris.isEmpty()
+        ) {
             popBack()
             return
         }
-        val key = ChatKey(chatId)
-        if (last == key) return
+        val key = ChatKey(chatId, initialDraft, sharedUris, targetMessageGuid)
+        if (last == key) {
+            if (targetMessageGuid != null) {
+                consumedTargetGuids.remove(chatId)
+                targetRequestSequence++
+            }
+            return
+        }
+        if (
+            last is ChatKey && last.chatId == chatId && targetMessageGuid == null &&
+            initialDraft == null && sharedUris.isEmpty()
+        ) return
         // A conversation belongs to the Chats tab: entering one from another
         // top-level destination (notification tap while in Settings) replaces
         // it so the detail pane never renders orphaned beside nothing.
@@ -512,6 +602,14 @@ fun OpenBubblesApp(
             backStack.removeAt(backStack.lastIndex)
         }
         backStack.add(key)
+    }
+
+    fun markForwardedAtDestination(messageIds: List<Long>, destinationChatId: Long) {
+        val handedOff = forwardingHandoffMessageIds(messageIds, destinationChatId)
+        if (handedOff.isEmpty()) return
+        prefetchScope.launch(Dispatchers.IO) {
+            runCatching { AppGraph.messages.markForwarded(handedOff) }
+        }
     }
 
     /**
@@ -612,26 +710,38 @@ fun OpenBubblesApp(
         onHomeRequestConsumed()
     }
 
-    LaunchedEffect(current) {
-        onRouteChanged(current?.toRoute())
+    val currentRoute = if (
+        current is ChatKey && current.targetMessageGuid != null &&
+        consumedTargetGuids[current.chatId] == current.targetMessageGuid
+    ) {
+        Routes.chat(current.chatId)
+    } else {
+        current?.toRoute()
+    }
+    LaunchedEffect(currentRoute) {
+        onRouteChanged(currentRoute)
     }
 
     // Deep link from a notification tap: resolve the guid to a chat id and
     // navigate once, then clear the pending static so config changes (and
     // any recomposition) don't re-trigger it. When resolution fails, the
     // user still gets the route their previous session left behind.
-    LaunchedEffect(startChatGuid) {
+    LaunchedEffect(startChatGuid, startMessageGuid) {
         val guid = startChatGuid?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val chatId = withContext(Dispatchers.IO) { CoreGraph.chatIdForGuid(guid) }
         if (chatId != null && chatId > 0L) {
             AppContext.current?.let { Notifications.cancelForChat(it, chatId) }
-            if (backStack.none { it is ChatKey && it.chatId == chatId }) {
-                openChat(chatId)
+            if (
+                !startMessageGuid.isNullOrBlank() ||
+                backStack.none { it is ChatKey && it.chatId == chatId }
+            ) {
+                openChat(chatId, targetMessageGuid = startMessageGuid)
             }
         } else {
             restoreResumeRoute()
         }
         NativeMainActivity.pendingChatGuid = null
+        NativeMainActivity.pendingMessageGuid = null
     }
 
     LaunchedEffect(startComposeRequest) {
@@ -954,6 +1064,13 @@ fun OpenBubblesApp(
                         ),
                     )
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    var targetMessageGuid by rememberSaveable(
+                        chatId,
+                        key.targetMessageGuid,
+                        targetRequestSequence,
+                    ) {
+                        mutableStateOf(key.targetMessageGuid)
+                    }
                     LaunchedEffect(key.sharedUris) {
                         if (key.sharedUris.isNotEmpty()) {
                             val staged = key.sharedUris.mapNotNull { raw ->
@@ -966,6 +1083,13 @@ fun OpenBubblesApp(
                         uiState = state,
                         routeChatId = chatId,
                         routeMemberChatIds = routeMemberChatIds,
+                        targetMessageGuid = targetMessageGuid,
+                        onTargetMessageConsumed = { consumed ->
+                            if (targetMessageGuid == consumed) {
+                                targetMessageGuid = null
+                                consumedTargetGuids[chatId] = consumed
+                            }
+                        },
                         historySyncActive = historySyncActive,
                         onInputChange = viewModel::onInputChange,
                         onSubjectChange = viewModel::onSubjectChange,
@@ -992,6 +1116,32 @@ fun OpenBubblesApp(
                         onFaceTimeLaunchConsumed = viewModel::consumeFaceTimeLaunch,
                         onScreenEffectConsumed = viewModel::consumeScreenEffect,
                         onOutgoingSendEventConsumed = viewModel::consumeOutgoingSendEvent,
+                        onForwardMessages = { messages ->
+                            prefetchScope.launch {
+                                val request = withContext(Dispatchers.IO) {
+                                    forwardShareRequest(messages) { guid ->
+                                        AppGraph.attachments.localFile(guid)?.let { file ->
+                                            runCatching {
+                                                FileProvider.getUriForFile(
+                                                    conversationContext,
+                                                    "${conversationContext.packageName}.fileprovider",
+                                                    file,
+                                                ).toString()
+                                            }.getOrNull()
+                                        }
+                                    }
+                                }
+                                if (request != null) {
+                                    navigateTo(
+                                        ShareTargetPickerKey(
+                                            request = request,
+                                            forwardedMessageIds = messages.map(MessageItem::id),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                        onOpenConversation = { targetId -> openChat(targetId) },
                         onBack = { popBack() },
                         // Beside its own list there is nothing to go back to.
                         showBackButton = !isMultiPane,
@@ -1075,8 +1225,13 @@ fun OpenBubblesApp(
                         initialUseSms = key.useSms,
                         onChatOpened = { chatId ->
                             // Drop the creator, then open the new conversation.
+                            markForwardedAtDestination(key.forwardedMessageIds, chatId)
                             popBack()
-                            navigateTo(ChatKey(chatId, key.body, key.sharedUris))
+                            openChat(
+                                chatId,
+                                initialDraft = key.body,
+                                sharedUris = key.sharedUris,
+                            )
                         },
                         onBack = { popBack() },
                     )
@@ -1089,12 +1244,24 @@ fun OpenBubblesApp(
                     ShareTargetPickerScreen(
                         uiState = pickerState,
                         onChatClick = { chat ->
+                            markForwardedAtDestination(key.forwardedMessageIds, chat.id)
                             popBack()
-                            navigateTo(ChatKey(chat.id, key.request.text, key.request.streams))
+                            openChat(
+                                chat.id,
+                                initialDraft = key.request.text,
+                                sharedUris = key.request.streams,
+                            )
                             onShareRequestConsumed()
                         },
                         onNewChat = {
-                            navigateTo(NewChatKey(body = key.request.text, sharedUris = key.request.streams))
+                            popBack()
+                            navigateTo(
+                                NewChatKey(
+                                    body = key.request.text,
+                                    sharedUris = key.request.streams,
+                                    forwardedMessageIds = key.forwardedMessageIds,
+                                ),
+                            )
                             onShareRequestConsumed()
                         },
                         onBack = {
@@ -1108,11 +1275,9 @@ fun OpenBubblesApp(
                     val archivedModel: ChatListViewModel =
                         viewModel(factory = ChatListViewModel.factory(AppGraph.chats))
                     val listState by archivedModel.uiState.collectAsStateWithLifecycle()
-                    val recentlyDeletedCount by produceState(0) {
-                        value = withContext(Dispatchers.IO) {
-                            AppGraph.chats.recentlyDeletedCount()
-                        }
-                    }
+                    val recentlyDeletedCount by remember {
+                        AppGraph.chats.observeRecentlyDeletedCount()
+                    }.collectAsStateWithLifecycle(initialValue = 0)
                     SettingsScreen(
                         onBack = { popBack() },
                         onOpenFindMy = { navigateTo(FindMyKey) },
@@ -1155,6 +1320,11 @@ fun OpenBubblesApp(
                         onPrepareCreatePassword = viewModel::prepareCreatePassword,
                         onCreatePassword = viewModel::createPassword,
                         onCreateGroup = viewModel::createGroup,
+                        onOpenCreateGroup = viewModel::openCreateGroup,
+                        onOpenInvite = viewModel::openInvite,
+                        onUpdatePasswordDraft = viewModel::updatePasswordDraft,
+                        onUpdateGroupDraft = viewModel::updateGroupDraft,
+                        onDismissComposer = viewModel::dismissComposer,
                         onAcceptInvite = viewModel::acceptInvite,
                         onDeclineInvite = viewModel::declineInvite,
                         surfaceSwitcher = surfaceSwitcher,
@@ -1253,6 +1423,10 @@ fun OpenBubblesApp(
                         onInviteMember = viewModel::inviteMember,
                         onRemoveMember = viewModel::removeMember,
                         onDeleteOrLeave = viewModel::deleteOrLeave,
+                        onOpenRename = viewModel::openRenameEditor,
+                        onOpenInvite = viewModel::openInviteEditor,
+                        onUpdateEditor = viewModel::updateEditor,
+                        onDismissEditor = viewModel::dismissEditor,
                     )
                 }
 
@@ -1265,7 +1439,11 @@ fun OpenBubblesApp(
                         onBack = { popBack() },
                         onRefresh = { viewModel.refresh(true) },
                         onSyncNow = viewModel::syncNow,
-                        onSelect = viewModel::select,
+                        onSelect = { album ->
+                            if (album != null && !album.invitation) {
+                                navigateTo(SharedAlbumGalleryKey(album.id))
+                            }
+                        },
                         onAccept = viewModel::accept,
                         onAcceptToken = viewModel::acceptToken,
                         onClearError = viewModel::clearError,
@@ -1282,6 +1460,45 @@ fun OpenBubblesApp(
                             }
                             viewModel.setSync(album, folder)
                         },
+                    )
+                }
+
+                entry<SharedAlbumGalleryKey>(metadata = overlayMetadata) { key ->
+                    val viewModel: SharedAlbumsViewModel =
+                        viewModel(factory = SharedAlbumsViewModel.factory())
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+                    val albumContext = LocalContext.current
+                    val albumsRoot = remember(albumContext) {
+                        albumContext.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                            ?.resolve("Shared Albums")
+                    }
+                    LaunchedEffect(key.albumId, state.albums, albumsRoot) {
+                        state.albums.firstOrNull {
+                            it.id == key.albumId && !it.invitation
+                        }?.let { album ->
+                            // Opening a gallery must never fetch, sync, upload,
+                            // or create folders: only existing local files count.
+                            viewModel.selectSyncedAlbum(album, albumsRoot)
+                        }
+                    }
+                    SharedAlbumGalleryScreen(
+                        uiState = state,
+                        onBack = { popBack() },
+                        onRefresh = { viewModel.refresh(true) },
+                        onSyncNow = viewModel::syncNow,
+                        onSetSync = { album, enabled ->
+                            val folder = if (enabled) {
+                                val safeName = album.name
+                                    .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+                                    .takeUnless { it.isBlank() || it == "." || it == ".." }
+                                    ?: "Shared Album"
+                                albumsRoot?.resolve(safeName)?.also { it.mkdirs() }?.absolutePath
+                            } else {
+                                null
+                            }
+                            viewModel.setSync(album, folder)
+                        },
+                        onClearError = viewModel::clearError,
                     )
                 }
 
@@ -1356,12 +1573,12 @@ fun OpenBubblesApp(
                 }
 
                 entry<RecentlyDeletedKey>(metadata = overlayMetadata) {
-                    val chats by produceState(emptyList<ChatListItem>()) {
-                        value = withContext(Dispatchers.IO) { AppGraph.chats.recentlyDeleted() }
-                    }
-                    val messages by produceState(emptyList<MessageItem>()) {
-                        value = withContext(Dispatchers.IO) { AppGraph.messages.recentlyDeleted() }
-                    }
+                    val chats by remember {
+                        AppGraph.chats.observeRecentlyDeleted()
+                    }.collectAsStateWithLifecycle(initialValue = emptyList())
+                    val messages by remember {
+                        AppGraph.messages.observeRecentlyDeleted()
+                    }.collectAsStateWithLifecycle(initialValue = emptyList())
                     RecentlyDeletedScreen(
                         chats = chats,
                         messages = messages,
@@ -1378,9 +1595,9 @@ fun OpenBubblesApp(
                 }
 
                 entry<BookmarksKey>(metadata = overlayMetadata) { key ->
-                    val messages by produceState(emptyList<MessageItem>(), key.chatId) {
-                        value = withContext(Dispatchers.IO) { AppGraph.messages.bookmarked(key.chatId) }
-                    }
+                    val messages by remember(key.chatId) {
+                        AppGraph.messages.observeBookmarked(key.chatId)
+                    }.collectAsStateWithLifecycle(initialValue = emptyList())
                     BookmarkedMessagesScreen(
                         messages = messages,
                         onBack = { popBack() },
@@ -1437,15 +1654,18 @@ fun OpenBubblesApp(
                         viewModel(factory = SearchViewModel.factory(AppGraph.search, AppGraph.chats))
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     val searchScope = rememberCoroutineScope()
-                    fun openResult(chatId: Long) {
+                    fun openResult(chatId: Long, messageGuid: String? = null) {
                         // The page is transient — land back on the list, not on search.
                         popBack()
-                        openChat(chatId)
+                        openChat(chatId, targetMessageGuid = messageGuid)
                     }
                     SearchScreen(
                         uiState = state,
                         onQueryChange = viewModel::onQueryChange,
-                        onOpenChat = ::openResult,
+                        onOpenChat = { chatId -> openResult(chatId) },
+                        onOpenMessage = { chatId, messageGuid ->
+                            openResult(chatId, messageGuid)
+                        },
                         onOpenContact = { contact ->
                             val address = contact.addresses.firstOrNull() ?: return@SearchScreen
                             searchScope.launch {

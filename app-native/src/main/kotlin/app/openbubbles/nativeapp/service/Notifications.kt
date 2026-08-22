@@ -139,7 +139,8 @@ object Notifications {
             requestCode,
             Intent(context, NativeMainActivity::class.java)
                 .withNotificationIdentity(conversationId, NotificationPendingIntentOperation.OPEN)
-                .putExtra(EXTRA_CHAT_GUID, chatGuid),
+                .putExtra(EXTRA_CHAT_GUID, chatGuid)
+                .putExtra(EXTRA_MESSAGE_GUID, messageGuid),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
