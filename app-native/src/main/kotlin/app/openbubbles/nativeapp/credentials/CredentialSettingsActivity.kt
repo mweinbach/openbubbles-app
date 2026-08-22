@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.autofill.AutofillManager
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.NativeMainActivity
@@ -25,6 +26,10 @@ class CredentialSettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(EXTRA_AUTOFILL_AUTHENTICATION, false)) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+                cancelAutofill()
+                return
+            }
             authenticateAutofill()
             return
         }
@@ -38,10 +43,11 @@ class CredentialSettingsActivity : AppCompatActivity() {
     }
 
     /** Existing declared provider activity; no extra exported component is needed. */
+    @RequiresApi(Build.VERSION_CODES.O_MR1)
     private fun authenticateAutofill() {
-        val site = intent.getStringExtra(CredentialService.EXTRA_SITE)
-        val credentialId = intent.getStringExtra(CredentialService.EXTRA_CRED_ID)
-        val expectedPackage = intent.getStringExtra(CredentialService.EXTRA_PACKAGE_NAME)
+        val site = intent.getStringExtra(CredentialIntentContract.EXTRA_SITE)
+        val credentialId = intent.getStringExtra(CredentialIntentContract.EXTRA_CRED_ID)
+        val expectedPackage = intent.getStringExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME)
         val structure = verifiedAutofillStructure(expectedPackage, site)
         if (site == null || credentialId.isNullOrBlank() || structure == null) {
             cancelAutofill()
@@ -57,6 +63,7 @@ class CredentialSettingsActivity : AppCompatActivity() {
         )
     }
 
+    @RequiresApi(Build.VERSION_CODES.O_MR1)
     private fun completeAutofill(site: String, credentialId: String, expectedPackage: String?) {
         lifecycleScope.launch {
             try {
@@ -108,6 +115,7 @@ class CredentialSettingsActivity : AppCompatActivity() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O_MR1)
     private fun verifiedAutofillStructure(expectedPackage: String?, site: String?): AutofillStructure? {
         if (expectedPackage.isNullOrBlank() || site.isNullOrBlank()) return null
         @Suppress("DEPRECATION")

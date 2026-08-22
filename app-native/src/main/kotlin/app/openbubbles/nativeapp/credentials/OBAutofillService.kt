@@ -66,7 +66,7 @@ class OBAutofillService : AutofillService() {
         intent.putExtra("chatGuid", "-55")
         pendingClaifyIntent = PendingIntent.getActivity(
             this, 1, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            mutablePendingIntentFlags(),
         )
 
         val suggestions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -101,12 +101,12 @@ class OBAutofillService : AutofillService() {
                             ),
                         )
                         .putExtra(CredentialSettingsActivity.EXTRA_AUTOFILL_AUTHENTICATION, true)
-                        .putExtra(CredentialService.EXTRA_SITE, domain)
-                        .putExtra(CredentialService.EXTRA_CRED_ID, password.credId)
-                        .putExtra(CredentialService.EXTRA_PACKAGE_NAME, structure.packageName),
+                        .putExtra(CredentialIntentContract.EXTRA_SITE, domain)
+                        .putExtra(CredentialIntentContract.EXTRA_CRED_ID, password.credId)
+                        .putExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME, structure.packageName),
                     // Android appends EXTRA_ASSIST_STRUCTURE when launching the
                     // authentication activity, so this explicit intent must be mutable.
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                    mutablePendingIntentFlags(),
                 )
                 response.addDataset(AutofillDatasets.LoginInfo(
                     password.username,
@@ -155,6 +155,14 @@ class OBAutofillService : AutofillService() {
 
         // Return an empty response
         callback.onSuccess(finish)
+    }
+
+    private fun mutablePendingIntentFlags(): Int {
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            flags = flags or PendingIntent.FLAG_MUTABLE
+        }
+        return flags
     }
 
 

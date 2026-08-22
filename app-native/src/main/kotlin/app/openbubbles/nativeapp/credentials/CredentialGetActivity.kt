@@ -60,7 +60,7 @@ class CredentialGetActivity : FragmentActivity() {
             }
         }
 
-        if (selection.type == CredentialService.TYPE_PASSKEY) {
+        if (selection.type == CredentialIntentContract.TYPE_PASSKEY) {
             CredentialUserAuth.authenticateForPasskey(
                 this,
                 onSuccess = continueFlow,
@@ -112,7 +112,7 @@ class CredentialGetActivity : FragmentActivity() {
                         return
                     }
                     when (type) {
-                        CredentialService.TYPE_PASSWORD -> {
+                        CredentialIntentContract.TYPE_PASSWORD -> {
                             val saved = passwords.firstOrNull { it.credId == credId }
                             if (saved == null) {
                                 // The picker entry came from the durable catalog;
@@ -142,7 +142,7 @@ class CredentialGetActivity : FragmentActivity() {
                             finish()
                         }
 
-                        CredentialService.TYPE_PASSKEY -> {
+                        CredentialIntentContract.TYPE_PASSKEY -> {
                             val saved = passkeys.firstOrNull { it.credId == credId }
                             if (saved == null || requestJson == null) {
                                 if (saved == null) {

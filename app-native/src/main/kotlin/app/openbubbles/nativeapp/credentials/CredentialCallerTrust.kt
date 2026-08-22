@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.content.pm.verify.domain.DomainVerificationManager
-import android.content.pm.verify.domain.DomainVerificationUserState
 import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
@@ -18,6 +17,23 @@ import androidx.credentials.provider.ProviderCreateCredentialRequest
 import androidx.credentials.provider.ProviderGetCredentialRequest
 import java.security.MessageDigest
 import org.json.JSONObject
+
+/** Shared with legacy Autofill, which runs before Credential Manager's API 34 boundary. */
+internal object CredentialIntentContract {
+    const val EXTRA_SITE = "credential.site"
+    const val EXTRA_CRED_ID = "credential.cred_id"
+    const val EXTRA_TYPE = "credential.type"
+    const val EXTRA_ORIGIN = "credential.origin"
+    const val EXTRA_PACKAGE_NAME = "credential.package_name"
+    const val EXTRA_REQUEST_JSON = "credential.request_json"
+    const val EXTRA_CLIENT_DATA_HASH = "credential.client_data_hash"
+    const val TYPE_PASSWORD = "password"
+    const val TYPE_PASSKEY = "passkey"
+}
+
+// DomainVerificationUserState.DOMAIN_STATE_VERIFIED has the stable value 2. Keep the
+// pure host matcher usable before API 31 without linking an API 31 framework class.
+private const val VERIFIED_APP_LINK_DOMAIN_STATE = 2
 
 /**
  * Package/domain trust shared by Credential Manager and legacy Autofill.
@@ -58,7 +74,7 @@ internal object CredentialCallerTrust {
 
     private fun verifiedAppDomains(context: Context, packageName: String): Set<String> =
         domainStates(context, packageName)
-            .filterValues { it == DomainVerificationUserState.DOMAIN_STATE_VERIFIED }
+            .filterValues { it == VERIFIED_APP_LINK_DOMAIN_STATE }
             .keys
             .mapNotNull(::canonicalRpHost)
             .toSet()
@@ -113,7 +129,7 @@ internal object CredentialCallerTrust {
 
     private fun installedSigners(context: Context, packageName: String): Set<String> = runCatching {
         val packageManager = context.packageManager
-        val signatures: Array<Signature> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val signatures: Array<out Signature> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             @Suppress("DEPRECATION")
             packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
                 .signingInfo?.apkContentsSigners.orEmpty()
@@ -136,7 +152,7 @@ internal object CredentialCallerTrust {
 internal fun isVerifiedDomain(host: String, states: Map<String, Int>): Boolean {
     val expected = canonicalRpHost(host) ?: return false
     return states.any { (candidate, state) ->
-        state == DomainVerificationUserState.DOMAIN_STATE_VERIFIED &&
+        state == VERIFIED_APP_LINK_DOMAIN_STATE &&
             canonicalRpHost(candidate) == expected
     }
 }
@@ -172,7 +188,7 @@ internal fun verifiedCredentialCreationSite(
     request: ProviderCreateCredentialRequest,
 ): String? {
     val caller = request.callingAppInfo
-    val expectedPackage = intent.getStringExtra(CredentialService.EXTRA_PACKAGE_NAME)
+    val expectedPackage = intent.getStringExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME)
     if (expectedPackage != null && expectedPackage != caller.packageName) return null
     val origin = runCatching { CredentialService.appInfoToOrigin(context, caller) }.getOrNull()
         ?: return null
@@ -201,13 +217,13 @@ internal fun verifyCredentialSelection(
     intent: Intent,
     request: ProviderGetCredentialRequest,
 ): VerifiedCredentialSelection? {
-    val site = intent.getStringExtra(CredentialService.EXTRA_SITE)?.takeIf(String::isNotBlank)
+    val site = intent.getStringExtra(CredentialIntentContract.EXTRA_SITE)?.takeIf(String::isNotBlank)
         ?: return null
-    val credentialId = intent.getStringExtra(CredentialService.EXTRA_CRED_ID)
+    val credentialId = intent.getStringExtra(CredentialIntentContract.EXTRA_CRED_ID)
         ?.takeIf(String::isNotBlank) ?: return null
-    val type = intent.getStringExtra(CredentialService.EXTRA_TYPE) ?: return null
-    val expectedPackage = intent.getStringExtra(CredentialService.EXTRA_PACKAGE_NAME) ?: return null
-    val expectedOrigin = intent.getStringExtra(CredentialService.EXTRA_ORIGIN) ?: return null
+    val type = intent.getStringExtra(CredentialIntentContract.EXTRA_TYPE) ?: return null
+    val expectedPackage = intent.getStringExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME) ?: return null
+    val expectedOrigin = intent.getStringExtra(CredentialIntentContract.EXTRA_ORIGIN) ?: return null
     val caller = request.callingAppInfo
     val origin = runCatching { CredentialService.appInfoToOrigin(context, caller) }.getOrNull()
         ?: return null
@@ -218,7 +234,7 @@ internal fun verifyCredentialSelection(
     if (!CredentialCallerTrust.accepts(context, caller, site)) return null
 
     return when (type) {
-        CredentialService.TYPE_PASSWORD -> {
+        CredentialIntentContract.TYPE_PASSWORD -> {
             val option = request.credentialOptions.filterIsInstance<GetPasswordOption>()
                 .singleOrNull() ?: return null
             VerifiedCredentialSelection(
@@ -234,7 +250,7 @@ internal fun verifyCredentialSelection(
             )
         }
 
-        CredentialService.TYPE_PASSKEY -> {
+        CredentialIntentContract.TYPE_PASSKEY -> {
             val option = request.credentialOptions.filterIsInstance<GetPublicKeyCredentialOption>()
                 .singleOrNull() ?: return null
             val rpId = runCatching { JSONObject(option.requestJson).optString("rpId") }

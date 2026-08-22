@@ -72,7 +72,7 @@ class CredentialService : CredentialProviderService() {
                     )
                     .apply {
                         if (requestingPackage.isNotEmpty()) {
-                            putExtra(EXTRA_PACKAGE_NAME, requestingPackage)
+                            putExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME, requestingPackage)
                         }
                         if (groupId != null) putExtra("group_id", groupId)
                     }
@@ -176,16 +176,6 @@ class CredentialService : CredentialProviderService() {
 
     companion object {
         private const val TAG = "CredentialService"
-
-        const val EXTRA_SITE = "credential.site"
-        const val EXTRA_CRED_ID = "credential.cred_id"
-        const val EXTRA_TYPE = "credential.type"
-        const val EXTRA_ORIGIN = "credential.origin"
-        const val EXTRA_PACKAGE_NAME = "credential.package_name"
-        const val EXTRA_REQUEST_JSON = "credential.request_json"
-        const val EXTRA_CLIENT_DATA_HASH = "credential.client_data_hash"
-        const val TYPE_PASSWORD = "password"
-        const val TYPE_PASSKEY = "passkey"
 
         fun appInfoToOrigin(context: Context, info: CallingAppInfo): String {
             if (info.isOriginPopulated()) {

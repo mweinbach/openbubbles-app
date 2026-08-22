@@ -212,7 +212,7 @@ internal object CredentialEntries {
                         type = "unlock",
                     ),
                 )
-                .putExtra(CredentialService.EXTRA_SITE, query.site),
+                .putExtra(CredentialIntentContract.EXTRA_SITE, query.site),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         ),
     )
@@ -320,21 +320,21 @@ internal object CredentialEntries {
                 query.callingOrigin,
                 record.site,
                 record.id,
-                if (passkey) CredentialService.TYPE_PASSKEY else CredentialService.TYPE_PASSWORD,
+                if (passkey) CredentialIntentContract.TYPE_PASSKEY else CredentialIntentContract.TYPE_PASSWORD,
             )
             // The raw Apple site, not the canonical host: the backend still
             // matches it exactly when the selection activity reads the secret.
-            putExtra(CredentialService.EXTRA_SITE, record.site)
-            putExtra(CredentialService.EXTRA_CRED_ID, record.id)
+            putExtra(CredentialIntentContract.EXTRA_SITE, record.site)
+            putExtra(CredentialIntentContract.EXTRA_CRED_ID, record.id)
             putExtra(
-                CredentialService.EXTRA_TYPE,
-                if (passkey) CredentialService.TYPE_PASSKEY else CredentialService.TYPE_PASSWORD,
+                CredentialIntentContract.EXTRA_TYPE,
+                if (passkey) CredentialIntentContract.TYPE_PASSKEY else CredentialIntentContract.TYPE_PASSWORD,
             )
-            putExtra(CredentialService.EXTRA_ORIGIN, query.callingOrigin)
-            putExtra(CredentialService.EXTRA_PACKAGE_NAME, query.packageName)
+            putExtra(CredentialIntentContract.EXTRA_ORIGIN, query.callingOrigin)
+            putExtra(CredentialIntentContract.EXTRA_PACKAGE_NAME, query.packageName)
             if (passkey) {
-                query.passkeyRequestJson?.let { putExtra(CredentialService.EXTRA_REQUEST_JSON, it) }
-                query.clientDataHash?.let { putExtra(CredentialService.EXTRA_CLIENT_DATA_HASH, it) }
+                query.passkeyRequestJson?.let { putExtra(CredentialIntentContract.EXTRA_REQUEST_JSON, it) }
+                query.clientDataHash?.let { putExtra(CredentialIntentContract.EXTRA_CLIENT_DATA_HASH, it) }
             }
         }
         return PendingIntent.getActivity(
