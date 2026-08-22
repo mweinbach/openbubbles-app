@@ -2,6 +2,29 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.3
+
+### Enhancements
+
+- Messages, Photos, Passwords, and Find My share a more fluid Material 3
+  Expressive surface switcher with polished transitions and clearer selection.
+- The inbox highlights pinned conversations and unread messages in a cleaner,
+  edge-to-edge conversation list without unnecessary section labels or cards.
+- Conversations, message composition, and Settings use refined typography,
+  spacing, responsive animations, and Android's wallpaper-derived Material You
+  colors.
+- The message composer adds a balanced paper-airplane send button and a more
+  compact attachment action while preserving accessible touch targets.
+
+### Fixes
+
+- Conversation headers no longer repeat the iMessage or SMS service below the
+  contact name.
+- The message composer no longer adds a distracting full-width background or
+  divider over custom conversation backgrounds.
+- Surface-switcher interactions remain aligned across narrow, wide, and
+  right-to-left layouts, including when reduced motion is enabled.
+
 ## v3.5.2
 
 ### Enhancements
