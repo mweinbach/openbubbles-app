@@ -97,9 +97,12 @@ fun AttachmentVideoPlayer(
     var dragFraction by remember(key) { mutableStateOf<Float?>(null) }
 
     val player = remember(key) {
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
-        ExoPlayer.Builder(context, renderersFactory).build().apply {
+        ExoPlayer.Builder(context)
+            .setRenderersFactory(
+                DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+            )
+            .build()
+            .apply {
             setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             prepare()
             playWhenReady = playbackEnabled
