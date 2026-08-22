@@ -165,6 +165,26 @@ test('shell metacharacters in release notes are preserved without execution', ()
   assert.equal(result.stdout, `${payload}\n`);
 });
 
+test('signed releases require the encrypted Google Maps key and verify the resulting build', () => {
+  const workflow = readFileSync(workflowPath, 'utf8');
+  const validationStart = workflow.indexOf('      - name: Verify Google Maps release key is configured');
+  const buildStart = workflow.indexOf('      - name: Build signed release APK');
+  const verificationStart = workflow.indexOf('      - name: Verify Google Maps is enabled in the signed build');
+
+  assert.ok(validationStart >= 0 && validationStart < buildStart, 'missing Google Maps preflight');
+  assert.ok(buildStart < verificationStart, 'Google Maps must be verified immediately after building');
+
+  const preflight = workflow.slice(validationStart, buildStart);
+  const build = workflow.slice(buildStart, verificationStart);
+  const verification = workflow.slice(verificationStart, workflow.indexOf('      - name: ', verificationStart + 1));
+
+  assert.match(preflight, /^\s+MAPS_API_KEY:\s+\$\{\{\s*secrets\.GOOGLE_MAPS_API_KEY\s*\}\}\s*$/m);
+  assert.match(preflight, /if \[ -z "\$MAPS_API_KEY" \]; then/);
+  assert.match(build, /^\s+MAPS_API_KEY:\s+\$\{\{\s*secrets\.GOOGLE_MAPS_API_KEY\s*\}\}\s*$/m);
+  assert.match(verification, /GOOGLE_MAPS_CONFIGURED/);
+  assert.match(verification, /true;/);
+});
+
 test('release signing depends on least-privilege successful native validation for the exact commit', () => {
   const workflow = readFileSync(workflowPath, 'utf8');
   const gateStart = workflow.indexOf('\n  native_validation:\n');

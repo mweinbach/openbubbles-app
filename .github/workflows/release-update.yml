@@ -437,10 +437,27 @@ jobs:
             echo "publish_github=$PUBLISH_GITHUB"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify Google Maps release key is configured
+        env:
+          MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then
+            echo "missing GOOGLE_MAPS_API_KEY repository secret" >&2
+            exit 1
+          fi
+
       - name: Build signed release APK
         env:
           MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: ./gradlew :app-native:assembleRelease :app-native:uploadCrashlyticsSymbolFileRelease --console=plain
+
+      - name: Verify Google Maps is enabled in the signed build
+        run: |
+          BUILD_CONFIG="build-native/app-native/generated/source/buildConfig/release/app/openbubbles/nativeapp/BuildConfig.java"
+          if ! grep -Eq 'GOOGLE_MAPS_CONFIGURED[[:space:]]*=[[:space:]]*true;' "$BUILD_CONFIG"; then
+            echo "signed release was built without its Google Maps configuration" >&2
+            exit 1
+          fi
 
       - name: Save Cargo registry and host builds
         if: always() && !cancelled()
