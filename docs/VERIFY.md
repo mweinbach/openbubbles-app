@@ -107,11 +107,17 @@ ANDROID_SERIAL=<serial> ./gradlew :app-native:generateReleaseBaselineProfile \
   --console=plain --no-configuration-cache
 ```
 
-The committed profile belongs under `app-native/src/release/generated/baselineProfiles`. Rebuild
-`:app-native:assembleRelease` and confirm the APK contains `assets/dexopt/baseline.prof` and
-`assets/dexopt/baseline.profm`. The connected Macrobenchmark task intentionally fails before
-installation when the app-owned `baseline-prof.txt` is absent; dependency profiles are not accepted
-as proof of OpenBubbles startup/chat/Photos coverage.
+The committed profile belongs under `app-native/src/release/generated/baselineProfiles`. The
+repository includes a source-reviewed bootstrap Baseline Profile and startup profile covering its
+own process/activity startup, conversation list, transcript, and Photos gallery. This seed makes
+release packaging and benchmark preflight reproducible without touching a signed-in device; it is
+not a generated device trace or measured performance evidence. Replace or extend it with the
+instrumentation capture above when a disposable benchmark device is available.
+
+Run `./gradlew :benchmark:verifyAppBaselineProfile` to require real app-owned startup, chat, and
+Photos rules; dependency-only or incomplete profiles are rejected before any device installation.
+Rebuild `:app-native:assembleRelease` and confirm the APK contains
+`assets/dexopt/baseline.prof` and `assets/dexopt/baseline.profm`.
 
 Measure startup, chat-list scrolling, and Photos scrolling only after the profile is packaged:
 

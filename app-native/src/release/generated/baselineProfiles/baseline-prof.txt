@@ -1,0 +1,29 @@
+# Reviewed bootstrap profile for OpenGarden-owned startup and critical journeys.
+# Replace or expand these rules with a profile collected on a disposable device;
+# this source-reviewed seed is not a claim of measured hardware performance.
+
+# Process and activity startup.
+HSPLapp/openbubbles/nativeapp/OpenBubblesApplication;-><init>()V
+HSPLapp/openbubbles/nativeapp/OpenBubblesApplication;->onCreate()V
+HSPLapp/openbubbles/nativeapp/NativeMainActivity;-><init>()V
+HSPLapp/openbubbles/nativeapp/NativeMainActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLapp/openbubbles/nativeapp/ui/OpenBubblesAppKt;->OpenBubblesApp(**)V
+
+# Conversation list, row rendering, and the selected transcript.
+Lapp/openbubbles/nativeapp/ui/chatlist/ChatListScreenKt;
+Lapp/openbubbles/nativeapp/ui/chatlist/ChatListViewModel;
+HSPLapp/openbubbles/nativeapp/ui/chatlist/ChatListScreenKt;->ChatListScreen**(**)V
+HPLapp/openbubbles/nativeapp/ui/chatlist/ChatListScreenKt;->ChatListRow(**)V
+HPLapp/openbubbles/nativeapp/ui/chatlist/ChatListViewModel;->getUiState()Lkotlinx/coroutines/flow/StateFlow;
+Lapp/openbubbles/nativeapp/ui/chat/ChatScreenKt;
+Lapp/openbubbles/nativeapp/ui/chat/ChatViewModel;
+HPLapp/openbubbles/nativeapp/ui/chat/ChatScreenKt;->ChatScreen(**)V
+HPLapp/openbubbles/core/repo/ChatRepo;->chats(**)**
+
+# Metadata-only Photos gallery and its account-scoped catalog.
+Lapp/openbubbles/nativeapp/ui/photos/PhotosScreenKt;
+Lapp/openbubbles/nativeapp/ui/photos/PhotosViewModel;
+Lapp/openbubbles/nativeapp/data/photos/PhotosSqliteCatalog;
+HPLapp/openbubbles/nativeapp/ui/photos/PhotosScreenKt;->PhotosScreen(**)V
+HPLapp/openbubbles/nativeapp/ui/photos/PhotosViewModel;->getUiState()Lkotlinx/coroutines/flow/StateFlow;
+HPLapp/openbubbles/nativeapp/ui/photos/PhotosViewModel;->refresh()V

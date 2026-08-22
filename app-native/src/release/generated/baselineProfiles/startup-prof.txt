@@ -1,0 +1,7 @@
+# Keep app-owned process/activity and initial conversation rendering together
+# in the startup DEX. A disposable-device trace can refine this checked-in seed.
+Lapp/openbubbles/nativeapp/OpenBubblesApplication;
+Lapp/openbubbles/nativeapp/NativeMainActivity;
+Lapp/openbubbles/nativeapp/ui/OpenBubblesAppKt;
+Lapp/openbubbles/nativeapp/ui/chatlist/ChatListScreenKt;
+Lapp/openbubbles/nativeapp/ui/chatlist/ChatListViewModel;

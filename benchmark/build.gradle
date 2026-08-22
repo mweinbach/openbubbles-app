@@ -48,15 +48,33 @@ def appBaselineProfile = rootProject.file(
 )
 def verifyAppBaselineProfile = tasks.register("verifyAppBaselineProfile") {
     group = "verification"
-    description = "Requires a generated, committed OpenBubbles Baseline Profile before device measurement."
+    description = "Requires committed app-owned startup, chat, and Photos Baseline Profile coverage."
     outputs.upToDateWhen { false }
     doLast {
         if (!appBaselineProfile.isFile() || appBaselineProfile.length() == 0L) {
             throw new GradleException(
-                    "Generate and commit ${appBaselineProfile} before running Macrobenchmark; " +
+                    "Commit ${appBaselineProfile} before running Macrobenchmark; " +
                     "dependency profiles alone do not cover OpenBubbles journeys.",
             )
         }
+        def profileRules = appBaselineProfile.readLines("UTF-8")
+                .collect { it.trim() }
+                .findAll { it && !it.startsWith("#") }
+        def requiredJourneyOwners = [
+                startup: "Lapp/openbubbles/nativeapp/NativeMainActivity;",
+                chats  : "Lapp/openbubbles/nativeapp/ui/chatlist/",
+                photos : "Lapp/openbubbles/nativeapp/ui/photos/",
+        ]
+        def missingJourneys = requiredJourneyOwners.findAll { journey, owner ->
+            !profileRules.any { rule -> rule.contains(owner) }
+        }.keySet()
+        if (!missingJourneys.isEmpty()) {
+            throw new GradleException(
+                    "OpenBubbles Baseline Profile is missing app-owned journey coverage: " +
+                    missingJourneys.join(", "),
+            )
+        }
+        logger.lifecycle("Verified app-owned Baseline Profile coverage: startup, chats, photos")
     }
 }
 
