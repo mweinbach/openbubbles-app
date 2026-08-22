@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +37,9 @@ class VaultItemDetailViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(VaultItemDetailUiState(item = item))
     val uiState: StateFlow<VaultItemDetailUiState> = mutableState.asStateFlow()
+    private var actionGeneration = 0L
+    private var secretGeneration = 0L
+    private var activeReveal: Job? = null
 
     init {
         val groupId = item.groupId
@@ -57,11 +61,45 @@ class VaultItemDetailViewModel(
     fun reveal() {
         val state = mutableState.value
         if (state.busy || state.item.category == VaultCategory.Passkeys) return
-        runAction {
+        val generation = secretGeneration
+        val revealAction = runAction {
             val (secret, expiry) = port.reveal(state.item)
             mutableState.update {
-                it.copy(secret = secret, secretExpiresAtSeconds = expiry)
+                if (secretGeneration == generation) {
+                    it.copy(secret = secret, secretExpiresAtSeconds = expiry)
+                } else {
+                    it
+                }
             }
+        } ?: return
+        activeReveal = revealAction
+        revealAction.invokeOnCompletion {
+            if (activeReveal === revealAction) activeReveal = null
+        }
+    }
+
+    /** A TOTP timer can refresh only an already authenticated, visible secret. */
+    fun refreshRevealedSecret() {
+        val state = mutableState.value
+        if (state.item.category != VaultCategory.Codes || state.secret == null) return
+        reveal()
+    }
+
+    /** Drop the foreground authentication grant without interrupting account writes. */
+    fun conceal() {
+        secretGeneration += 1
+        val pendingReveal = activeReveal
+        if (pendingReveal != null) {
+            actionGeneration += 1
+            activeReveal = null
+            pendingReveal.cancel()
+        }
+        mutableState.update {
+            it.copy(
+                secret = null,
+                secretExpiresAtSeconds = null,
+                busy = if (pendingReveal == null) it.busy else false,
+            )
         }
     }
 
@@ -99,18 +137,24 @@ class VaultItemDetailViewModel(
         }
     }
 
-    private fun runAction(action: suspend () -> Unit) {
-        if (mutableState.value.busy) return
-        viewModelScope.launch {
-            mutableState.update { it.copy(busy = true, error = null) }
+    private fun runAction(action: suspend () -> Unit): Job? {
+        if (mutableState.value.busy) return null
+        val generation = ++actionGeneration
+        mutableState.update { it.copy(busy = true, error = null) }
+        return viewModelScope.launch {
             try {
                 action()
-                mutableState.update { it.copy(busy = false) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(busy = false, error = error.message ?: "iCloud Passwords failed")
+                if (actionGeneration == generation) {
+                    mutableState.update {
+                        it.copy(error = error.message ?: "iCloud Passwords failed")
+                    }
+                }
+            } finally {
+                if (actionGeneration == generation) {
+                    mutableState.update { it.copy(busy = false) }
                 }
             }
         }

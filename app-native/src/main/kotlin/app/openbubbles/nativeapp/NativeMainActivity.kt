@@ -1,9 +1,11 @@
 package app.openbubbles.nativeapp
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.net.Uri
+import android.os.Process
 import android.view.ViewGroup
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.rust_lib_bluebubbles.isLocked
 import uniffi.rust_lib_bluebubbles.uniffiEnsureInitialized
+import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import kotlinx.serialization.Serializable
@@ -44,6 +47,50 @@ data class IncomingShareRequest(
     val mimeType: String? = null,
 )
 
+private const val MAX_INCOMING_SHARE_STREAMS = 32
+private val CONTENT_PROVIDER_AUTHORITY = Regex("[A-Za-z0-9][A-Za-z0-9._-]*")
+
+internal data class IncomingShareContentProvider(
+    val packageName: String,
+    val uid: Int,
+    val exported: Boolean,
+    val grantUriPermissions: Boolean,
+)
+
+/** Parses without Android framework calls so malformed authorities fail closed in host tests too. */
+internal fun incomingShareContentAuthority(stream: String): String? {
+    val uri = runCatching { URI(stream) }.getOrNull() ?: return null
+    if (uri.scheme != "content" || uri.isOpaque || uri.rawUserInfo != null) return null
+    val authority = uri.rawAuthority ?: return null
+    return authority.takeIf(CONTENT_PROVIDER_AUTHORITY::matches)
+}
+
+/**
+ * Exported share ingress accepts only a URI grant actually delivered to this app.
+ * In particular, our own provider is never a share source: our process can
+ * always read it, so treating that ambient access as a caller grant would turn
+ * this activity into a confused deputy for private attachment paths.
+ */
+internal fun isTrustedIncomingShareStream(
+    stream: String,
+    intentFlags: Int,
+    applicationPackageName: String,
+    applicationUid: Int,
+    resolveProvider: (String) -> IncomingShareContentProvider?,
+    hasReadGrant: (String) -> Boolean,
+): Boolean {
+    val authority = incomingShareContentAuthority(stream) ?: return false
+    if (intentFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return false
+    if (authority == applicationPackageName || authority.startsWith("$applicationPackageName.")) return false
+
+    val provider = runCatching { resolveProvider(authority) }.getOrNull() ?: return false
+    if (provider.packageName.isBlank() || provider.uid < 0) return false
+    if (provider.packageName == applicationPackageName || provider.uid == applicationUid) return false
+    if (!provider.exported && !provider.grantUriPermissions) return false
+
+    return runCatching { hasReadGrant(stream) }.getOrDefault(false)
+}
+
 internal fun parseIncomingShareRequest(
     action: String?,
     mimeType: String?,
@@ -52,7 +99,10 @@ internal fun parseIncomingShareRequest(
 ): IncomingShareRequest? {
     if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
     val text = extraText?.take(20_000)?.takeIf { it.isNotBlank() }
-    val safeStreams = streams.filter { it.startsWith("content://") || it.startsWith("file://") }.take(32)
+    val safeStreams = streams.asSequence()
+        .take(MAX_INCOMING_SHARE_STREAMS)
+        .filter { incomingShareContentAuthority(it) != null }
+        .toList()
     return IncomingShareRequest(text, safeStreams, mimeType?.take(200))
         .takeIf { it.text != null || it.streams.isNotEmpty() }
 }
@@ -291,13 +341,43 @@ class NativeMainActivity : FragmentActivity() {
     }
 
     private fun readPendingIntent(intent: Intent?) {
-        @Suppress("DEPRECATION")
-        val streams = when (intent?.action) {
-            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString())
-            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                .orEmpty().map(Uri::toString)
-            else -> emptyList()
-        }
+        val streams = runCatching {
+            @Suppress("DEPRECATION")
+            when (intent?.action) {
+                Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
+                Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+                else -> emptyList()
+            }.asSequence()
+                .take(MAX_INCOMING_SHARE_STREAMS)
+                .map(Uri::toString)
+                .filter { stream ->
+                    isTrustedIncomingShareStream(
+                        stream = stream,
+                        intentFlags = intent?.flags ?: 0,
+                        applicationPackageName = packageName,
+                        applicationUid = applicationInfo.uid,
+                        resolveProvider = { authority ->
+                            packageManager.resolveContentProvider(authority, 0)?.let { provider ->
+                                IncomingShareContentProvider(
+                                    packageName = provider.packageName,
+                                    uid = provider.applicationInfo.uid,
+                                    exported = provider.exported,
+                                    grantUriPermissions = provider.grantUriPermissions,
+                                )
+                            }
+                        },
+                        hasReadGrant = { grantedStream ->
+                            checkUriPermission(
+                                Uri.parse(grantedStream),
+                                Process.myPid(),
+                                Process.myUid(),
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                            ) == PackageManager.PERMISSION_GRANTED
+                        },
+                    )
+                }
+                .toList()
+        }.getOrDefault(emptyList())
         val launch = decideMainLaunchAction(
             action = intent?.action,
             dataString = intent?.dataString,

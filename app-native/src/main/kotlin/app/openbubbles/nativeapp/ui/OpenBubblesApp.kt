@@ -1,11 +1,11 @@
 package app.openbubbles.nativeapp.ui
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.result.PickVisualMediaRequest
@@ -70,8 +70,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
@@ -133,6 +137,7 @@ import app.openbubbles.nativeapp.ui.passwords.VaultGroupDetailViewModel
 import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailScreen
 import app.openbubbles.nativeapp.ui.passwords.VaultItemDetailViewModel
 import app.openbubbles.nativeapp.ui.passwords.VaultItemUi
+import app.openbubbles.nativeapp.ui.passwords.copySensitiveVaultValue
 import app.openbubbles.nativeapp.ui.photos.PhotosScreen
 import app.openbubbles.nativeapp.data.photos.PhotosBackgroundSync
 import app.openbubbles.nativeapp.ui.photos.PhotosViewModel
@@ -238,6 +243,10 @@ data class VaultItemKey(
 /** One shared-password group opened as its own page. */
 @Serializable
 data class VaultGroupKey(val id: String, val name: String) : NavKey
+
+/** Every vault destination can reveal credentials or other account-private metadata. */
+internal fun isSensitiveVaultDestination(destination: NavKey?): Boolean =
+    destination is PasswordsKey || destination is VaultItemKey || destination is VaultGroupKey
 
 @Serializable
 data object SharedAlbumsKey : NavKey
@@ -405,6 +414,20 @@ fun OpenBubblesApp(
     val hostActivity = LocalActivity.current
     val backStack = rememberNavBackStack(ChatsKey)
     val current = backStack.lastOrNull()
+    val sensitiveVaultDestination = isSensitiveVaultDestination(current)
+    DisposableEffect(hostActivity, sensitiveVaultDestination) {
+        val window = hostActivity?.window
+        val alreadySecure = window?.attributes?.flags
+            ?.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
+        if (sensitiveVaultDestination && window != null && !alreadySecure) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            if (sensitiveVaultDestination && window != null && !alreadySecure) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
     val pushState by PushStateHolder.stateFlow.collectAsStateWithLifecycle()
     val registrationState by PushStateHolder.registrationStateFlow.collectAsStateWithLifecycle()
     val pushError by PushStateHolder.lastErrorFlow.collectAsStateWithLifecycle()
@@ -1153,6 +1176,17 @@ fun OpenBubblesApp(
                         viewModel(factory = VaultItemDetailViewModel.factory(item))
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     val context = LocalContext.current
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    DisposableEffect(viewModel, lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (event == Lifecycle.Event.ON_STOP) viewModel.conceal()
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose {
+                            lifecycleOwner.lifecycle.removeObserver(observer)
+                            viewModel.conceal()
+                        }
+                    }
                     VaultItemDetailScreen(
                         uiState = state,
                         onBack = { popBack() },
@@ -1176,10 +1210,14 @@ fun OpenBubblesApp(
                         },
                         // Verification codes roll over on-page after the user
                         // already authenticated for the first reveal.
-                        onRefreshCode = viewModel::reveal,
+                        onRefreshCode = viewModel::refreshRevealedSecret,
                         onCopy = { value ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("iCloud Password", value))
+                            copySensitiveVaultValue(
+                                clipboard = clipboard,
+                                scope = hostActivity?.lifecycleScope ?: prefetchScope,
+                                value = value,
+                            )
                         },
                         onDelete = {
                             val activity = context as? androidx.fragment.app.FragmentActivity

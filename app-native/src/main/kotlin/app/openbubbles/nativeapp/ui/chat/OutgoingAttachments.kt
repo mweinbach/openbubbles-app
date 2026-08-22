@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.nativeapp.incomingShareContentAuthority
 import app.openbubbles.nativeapp.data.DraftTooLargeException
 import app.openbubbles.nativeapp.data.MAX_OUTGOING_DRAFT_BYTES
 import app.openbubbles.nativeapp.data.OutgoingAttachment
@@ -19,6 +20,7 @@ import app.openbubbles.nativeapp.data.outgoingVideoDecision
 import app.openbubbles.nativeapp.data.promoteOwnedSibling
 import app.openbubbles.nativeapp.data.resolveContentLength
 import java.io.File
+import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +85,43 @@ sealed interface PreparedOutgoingItem {
 private val maxDraftMegabytes = MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)
 
 /**
+ * Picker content may come from another app. Our own provider is limited to
+ * camera captures, and file URIs are accepted only for app-owned capture or
+ * compression drafts; exported share ingress rejects both kinds entirely.
+ */
+internal fun isSafeOutgoingAttachmentSource(
+    source: String,
+    applicationPackageName: String,
+    cacheDirectory: File,
+): Boolean {
+    val uri = runCatching { URI(source) }.getOrNull() ?: return false
+    return when (uri.scheme) {
+        "content" -> {
+            val authority = incomingShareContentAuthority(source) ?: return false
+            if (authority == applicationPackageName || authority.startsWith("$applicationPackageName.")) {
+                authority == "$applicationPackageName.fileprovider" &&
+                    uri.rawPath?.startsWith("/captures/") == true
+            } else {
+                true
+            }
+        }
+
+        "file" -> {
+            if (uri.rawAuthority != null || uri.rawQuery != null || uri.rawFragment != null) return false
+            val sourceFile = runCatching { File(uri).canonicalFile }.getOrNull() ?: return false
+            listOf("captures", "outgoing").any { directory ->
+                val ownedDirectory = runCatching {
+                    File(cacheDirectory, directory).canonicalFile
+                }.getOrNull() ?: return@any false
+                sourceFile.path.startsWith("${ownedDirectory.path}${File.separator}")
+            }
+        }
+
+        else -> false
+    }
+}
+
+/**
  * Prepares a picked content [uri] for the draft. Sources within the local
  * draft policy are copied into the app cache exactly as before. A video over
  * the policy is inspected and routed to the explicit compression review
@@ -91,6 +130,10 @@ private val maxDraftMegabytes = MAX_OUTGOING_DRAFT_BYTES / (1024 * 1024)
  */
 suspend fun prepareOutgoingItem(context: Context, uri: Uri): PreparedOutgoingItem =
     withContext(Dispatchers.IO) {
+        if (!isSafeOutgoingAttachmentSource(uri.toString(), context.packageName, context.cacheDir)) {
+            return@withContext PreparedOutgoingItem.Failed("Could not read attachment")
+        }
+
         val resolver = context.contentResolver
         val mime = runCatching { resolver.getType(uri) }.getOrNull() ?: "application/octet-stream"
 
