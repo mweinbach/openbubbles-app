@@ -2,6 +2,20 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.6
+
+### Enhancements
+
+- Find My offers optional Google Maps imagery after explicit location-sharing
+  consent, with OpenStreetMap remaining available as the default fallback.
+
+### Fixes
+
+- Fixed Find My device, people, and item tracking, including AirTag refreshes
+  that previously failed when Apple returned incomplete location metadata.
+- Find My map imagery now starts enabled by default while preserving existing
+  privacy preferences.
+
 ## v3.5.5
 
 ### Enhancements
