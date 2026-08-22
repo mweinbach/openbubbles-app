@@ -16,6 +16,7 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -302,6 +303,7 @@ object DesktopGraph {
         if (drainerStarted) return
         drainerStarted = true
         scope.launch {
+            val retryState = DesktopJournalRetryState()
             while (true) {
                 val state = PushStateHolder.state
                 val handles = PushStateHolder.myHandles
@@ -324,14 +326,30 @@ object DesktopGraph {
                 try {
                     ing.ingest(entry.message, handles)
                     runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
+                    retryState.complete(entry.id)
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Throwable) {
-                    runCatching {
-                        runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
+                    val failure = retryState.recordFailure(entry.id, entry.attempts.toInt(), error)
+                    if (failure.disposition == DesktopJournalFailureDisposition.PERMANENT_PAYLOAD) {
+                        try {
+                            runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, false) }
+                            if (entry.attempts.toInt() >= 2) {
+                                retryState.complete(entry.id)
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (persistenceError: Throwable) {
+                            PushStateHolder.reportError(
+                                "Journal failure could not be persisted: " +
+                                    (persistenceError.message ?: persistenceError.javaClass.simpleName),
+                            )
+                        }
                     }
                     PushStateHolder.reportError(
                         "Journal message ${entry.id} failed: ${error.message ?: error.javaClass.simpleName}",
                     )
-                    delay(desktopJournalRetryDelayMs(entry.attempts.toInt()))
+                    delay(failure.retryDelayMs)
                 }
             }
         }
@@ -446,6 +464,55 @@ object DesktopGraph {
             )
             Result.success(Unit)
         }
+    }
+}
+
+internal enum class DesktopJournalFailureDisposition {
+    PERMANENT_PAYLOAD,
+    TRANSIENT,
+}
+
+internal class PermanentDesktopJournalPayloadException(
+    cause: Throwable,
+) : IllegalArgumentException("Invalid incoming message payload", cause)
+
+internal fun desktopJournalFailureDisposition(error: Throwable): DesktopJournalFailureDisposition {
+    // Serialization is an optional desktop dependency, so inspect its known
+    // exception hierarchy without requiring the module merely to classify it.
+    val serializationFailure = generateSequence<Class<*>>(error.javaClass) { it.superclass }
+        .any { it.name == "kotlinx.serialization.SerializationException" }
+    return if (error is PermanentDesktopJournalPayloadException || serializationFailure) {
+        DesktopJournalFailureDisposition.PERMANENT_PAYLOAD
+    } else {
+        DesktopJournalFailureDisposition.TRANSIENT
+    }
+}
+
+internal data class DesktopJournalFailureDecision(
+    val disposition: DesktopJournalFailureDisposition,
+    val retryDelayMs: Long,
+)
+
+internal class DesktopJournalRetryState {
+    private val attempts = mutableMapOf<ULong, Int>()
+
+    fun recordFailure(
+        id: ULong,
+        persistedAttempts: Int,
+        error: Throwable,
+    ): DesktopJournalFailureDecision {
+        val priorAttempts = attempts[id] ?: 0
+        val nextAttempt = priorAttempts.coerceAtMost(Int.MAX_VALUE - 1) + 1
+        attempts[id] = nextAttempt
+        val retryAttempt = maxOf(persistedAttempts.coerceAtLeast(0), nextAttempt - 1)
+        return DesktopJournalFailureDecision(
+            disposition = desktopJournalFailureDisposition(error),
+            retryDelayMs = desktopJournalRetryDelayMs(retryAttempt),
+        )
+    }
+
+    fun complete(id: ULong) {
+        attempts.remove(id)
     }
 }
 
