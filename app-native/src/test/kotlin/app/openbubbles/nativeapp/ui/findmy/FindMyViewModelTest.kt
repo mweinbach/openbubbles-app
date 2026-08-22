@@ -44,6 +44,7 @@ class FindMyViewModelTest {
         assertTrue(port.friendsStarted.isCompleted)
         assertTrue(port.itemsStarted.isCompleted)
         assertTrue(model.uiState.value.refreshing)
+        assertTrue(model.uiState.value.awaitingInitialRefresh)
 
         port.devicesRelease.complete(Unit)
         port.friendsRelease.complete(Unit)
@@ -56,6 +57,84 @@ class FindMyViewModelTest {
         assertEquals(1, port.devicesRefreshes)
         assertEquals(1, port.friendsRefreshes)
         assertEquals(1, port.itemsRefreshes)
+        assertFalse(model.uiState.value.awaitingInitialRefresh)
+    }
+
+    @Test
+    fun `initial refresh keeps cached targets visible while loading fresh data`() = runTest(dispatcher) {
+        val cachedDevice = FmDeviceUi("cached", "Cached phone")
+        val port = ParallelRefreshPort(cachedDevices = listOf(cachedDevice))
+        val model = FindMyViewModel(port)
+
+        runCurrent()
+
+        assertTrue(model.uiState.value.refreshing)
+        assertEquals(listOf(cachedDevice), model.uiState.value.devices)
+        assertFalse(model.uiState.value.awaitingInitialRefresh)
+
+        port.devicesRelease.complete(Unit)
+        port.friendsRelease.complete(Unit)
+        port.itemsRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `failed initial refresh without cached targets exposes a recoverable error`() = runTest(dispatcher) {
+        val model = FindMyViewModel(RefreshOutcomePort())
+
+        advanceUntilIdle()
+
+        assertTrue(model.uiState.value.isEmpty)
+        assertTrue(model.uiState.value.hasInitialRefreshError)
+        assertFalse(model.uiState.value.awaitingInitialRefresh)
+        assertEquals(
+            listOf("Devices: offline", "Friends: offline", "Items: offline"),
+            model.uiState.value.refreshErrors,
+        )
+    }
+
+    @Test
+    fun `successful initial refresh distinguishes an empty account from a failure`() = runTest(dispatcher) {
+        val model = FindMyViewModel(RefreshOutcomePort(failRefresh = false))
+
+        advanceUntilIdle()
+
+        assertTrue(model.uiState.value.isEmpty)
+        assertFalse(model.uiState.value.hasInitialRefreshError)
+        assertFalse(model.uiState.value.awaitingInitialRefresh)
+        assertTrue(model.uiState.value.refreshErrors.isEmpty())
+    }
+
+    @Test
+    fun `cached targets remain available when refreshing fails`() = runTest(dispatcher) {
+        val cachedDevice = FmDeviceUi("cached", "Cached phone")
+        val model = FindMyViewModel(RefreshOutcomePort(cachedDevices = listOf(cachedDevice)))
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(cachedDevice), model.uiState.value.devices)
+        assertFalse(model.uiState.value.isEmpty)
+        assertFalse(model.uiState.value.hasInitialRefreshError)
+        assertEquals(3, model.uiState.value.refreshErrors.size)
+    }
+
+    @Test
+    fun `retrying failed initial refresh clears the error after a successful response`() = runTest(dispatcher) {
+        val port = RefreshOutcomePort()
+        val model = FindMyViewModel(port)
+        advanceUntilIdle()
+        assertTrue(model.uiState.value.hasInitialRefreshError)
+
+        val refreshedDevice = FmDeviceUi("device", "Recovered phone")
+        port.failRefresh = false
+        port.refreshedDevices = listOf(refreshedDevice)
+        model.refresh()
+        advanceUntilIdle()
+
+        assertEquals(listOf(refreshedDevice), model.uiState.value.devices)
+        assertTrue(model.uiState.value.refreshErrors.isEmpty())
+        assertFalse(model.uiState.value.hasInitialRefreshError)
+        assertEquals(2, port.deviceRefreshes)
     }
 
     // While tracking is live the view model always has a pending timer, so these
@@ -206,7 +285,9 @@ private class MovingPort(private val available: Boolean = true) : FindMyPort {
     )
 }
 
-private class ParallelRefreshPort : FindMyPort {
+private class ParallelRefreshPort(
+    private val cachedDevices: List<FmDeviceUi> = emptyList(),
+) : FindMyPort {
     val devicesStarted = CompletableDeferred<Unit>()
     val friendsStarted = CompletableDeferred<Unit>()
     val itemsStarted = CompletableDeferred<Unit>()
@@ -219,7 +300,7 @@ private class ParallelRefreshPort : FindMyPort {
 
     override fun isAvailable(): Boolean = true
 
-    override suspend fun devices(): List<FmDeviceUi> = emptyList()
+    override suspend fun devices(): List<FmDeviceUi> = cachedDevices
 
     override suspend fun refreshDevices(): List<FmDeviceUi> {
         devicesRefreshes += 1
@@ -244,6 +325,39 @@ private class ParallelRefreshPort : FindMyPort {
         itemsStarted.complete(Unit)
         itemsRelease.await()
         return listOf(FmItemUi("item", "Keys"))
+    }
+}
+
+private class RefreshOutcomePort(
+    private val cachedDevices: List<FmDeviceUi> = emptyList(),
+    var failRefresh: Boolean = true,
+) : FindMyPort {
+    var refreshedDevices: List<FmDeviceUi> = cachedDevices
+    var deviceRefreshes: Int = 0
+        private set
+
+    override fun isAvailable(): Boolean = true
+
+    override suspend fun devices(): List<FmDeviceUi> = cachedDevices
+
+    override suspend fun refreshDevices(): List<FmDeviceUi> {
+        deviceRefreshes += 1
+        if (failRefresh) error("offline")
+        return refreshedDevices
+    }
+
+    override suspend fun friends(): List<FmFriendUi> = emptyList()
+
+    override suspend fun refreshFriends(): List<FmFriendUi> {
+        if (failRefresh) error("offline")
+        return emptyList()
+    }
+
+    override suspend fun items(): List<FmItemUi> = emptyList()
+
+    override suspend fun refreshItems(): List<FmItemUi> {
+        if (failRefresh) error("offline")
+        return emptyList()
     }
 }
 

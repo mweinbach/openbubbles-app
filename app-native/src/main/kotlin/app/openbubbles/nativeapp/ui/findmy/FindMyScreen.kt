@@ -42,6 +42,8 @@ import androidx.compose.material.icons.rounded.Laptop
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Tablet
 import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -212,10 +214,18 @@ fun FindMyScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
-                uiState.loading -> LoadingState()
+                uiState.loading || uiState.awaitingInitialRefresh -> LoadingState()
                 uiState.unavailable -> EmptyState(
                     title = "Not connected",
                     detail = "Sign in with your Apple ID to see devices, friends and items.",
+                )
+                uiState.hasInitialRefreshError -> EmptyState(
+                    title = "Couldn't load Find My",
+                    detail = "Your devices, friends, and items couldn't be loaded. " +
+                        "Check your connection and try again.",
+                    errors = uiState.refreshErrors,
+                    onRetry = onRefresh,
+                    retrying = uiState.refreshing,
                 )
                 uiState.isEmpty -> EmptyState(
                     title = "Nothing here yet",
@@ -841,7 +851,13 @@ private fun LoadingState() {
 }
 
 @Composable
-private fun EmptyState(title: String, detail: String) {
+private fun EmptyState(
+    title: String,
+    detail: String,
+    errors: List<String> = emptyList(),
+    onRetry: (() -> Unit)? = null,
+    retrying: Boolean = false,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -849,14 +865,22 @@ private fun EmptyState(title: String, detail: String) {
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (errors.isEmpty()) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else {
+                    MaterialTheme.colorScheme.errorContainer
+                },
                 modifier = Modifier.size(64.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Filled.LocationOn,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (errors.isEmpty()) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        },
                         modifier = Modifier.size(28.dp),
                     )
                 }
@@ -869,6 +893,37 @@ private fun EmptyState(title: String, detail: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            if (errors.isNotEmpty()) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.padding(top = 16.dp).fillMaxWidth(),
+                ) {
+                    Text(
+                        text = errors.joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+            if (onRetry != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onRetry,
+                    enabled = !retrying,
+                    shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.SmallIconSize),
+                    )
+                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                    Text(if (retrying) "Retrying…" else "Retry")
+                }
+            }
         }
     }
 }
@@ -963,6 +1018,23 @@ private fun FindMyOfflinePreview() {
         FindMyScreen(
             uiState = previewState(failRefresh = true)
                 .copy(refreshErrors = listOf("Devices: offline"), liveUpdates = false),
+            onRefresh = {},
+            onBack = {},
+            nowMillis = PREVIEW_NOW,
+        )
+    }
+}
+
+@LightDarkPreviews
+@Composable
+private fun FindMyInitialRefreshErrorPreview() {
+    OpenBubblesTheme(dynamicColor = false) {
+        FindMyScreen(
+            uiState = FindMyUiState(
+                loading = false,
+                refreshErrors = listOf("Devices: offline", "Friends: offline", "Items: offline"),
+                lastUpdatedAtMs = PREVIEW_NOW,
+            ),
             onRefresh = {},
             onBack = {},
             nowMillis = PREVIEW_NOW,

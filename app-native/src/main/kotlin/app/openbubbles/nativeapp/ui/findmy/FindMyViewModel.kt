@@ -58,8 +58,20 @@ data class FindMyUiState(
 
     val locatedTargets: List<FmTarget> get() = targets.filter(FmTarget::located)
 
+    /** An empty cache is not an empty account until its first refresh finishes. */
+    val awaitingInitialRefresh: Boolean
+        get() = !loading &&
+            refreshing &&
+            targets.isEmpty() &&
+            refreshErrors.isEmpty() &&
+            lastUpdatedAtMs == null
+
     val isEmpty: Boolean
         get() = !loading && targets.isEmpty()
+
+    /** Without cached targets, a failed refresh needs its own recoverable state. */
+    val hasInitialRefreshError: Boolean
+        get() = isEmpty && refreshErrors.isNotEmpty()
 
     fun trail(targetId: String): List<FmPoint> = trails[targetId].orEmpty()
 }
