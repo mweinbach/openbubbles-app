@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.Laptop
@@ -49,7 +50,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
@@ -341,9 +341,9 @@ private val SplitWidth = 720.dp
  * Stacked panel heights. A selected target's card is taller than the collapsed
  * list peek, so selecting something never clips its own actions.
  */
-private val PanelCollapsedHeight = 196.dp
-private val PanelSelectedHeight = 300.dp
-private val PanelExpandedHeight = 420.dp
+private val PanelCollapsedHeight = 340.dp
+private val PanelSelectedHeight = 480.dp
+private val PanelExpandedHeight = 560.dp
 
 private data class SaveableMapCamera(val camera: MapCamera?)
 
@@ -382,6 +382,12 @@ private fun FindMyTracker(
         mutableStateOf(SaveableMapCamera(null))
     }
     var panelExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedSection by rememberSaveable {
+        mutableStateOf(
+            FmFindMySection.entries.firstOrNull { it.kind == uiState.selectedTarget?.kind }
+                ?: FmFindMySection.People,
+        )
+    }
     val manualCamera = manualCameraState.camera
     val setManualCamera: (MapCamera?) -> Unit = { camera ->
         manualCameraState = SaveableMapCamera(camera)
@@ -398,6 +404,7 @@ private fun FindMyTracker(
         val map: @Composable (Modifier) -> Unit = { mapModifier ->
             FindMyMap(
                 uiState = uiState,
+                selectedSection = selectedSection,
                 manualCamera = manualCamera,
                 onCameraChange = setManualCamera,
                 onSelectTarget = { id ->
@@ -419,6 +426,12 @@ private fun FindMyTracker(
         val panel: @Composable (Modifier) -> Unit = { panelModifier ->
             TargetPanel(
                 uiState = uiState,
+                selectedSection = selectedSection,
+                onSelectSection = { section ->
+                    selectedSection = section
+                    setManualCamera(null)
+                    onSelectTarget(null)
+                },
                 nowMillis = nowMillis,
                 expanded = splitPanes || panelExpanded,
                 onToggleExpanded = { panelExpanded = !panelExpanded },
@@ -445,11 +458,14 @@ private fun FindMyTracker(
             }
             // Compact landscape and freeform windows still reserve meaningful
             // room for the primary map; the panel itself remains scrollable.
-            val boundedPanelHeight = minOf(desiredPanelHeight, maxHeight * 0.6f)
-            Column(modifier = Modifier.fillMaxSize()) {
-                map(Modifier.fillMaxWidth().weight(1f))
+            val boundedPanelHeight = minOf(desiredPanelHeight, maxHeight * 0.72f)
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Keep the camera's focal point above the floating sheet while
+                // still letting imagery continue underneath its upper half.
+                map(Modifier.fillMaxSize().padding(bottom = boundedPanelHeight / 2))
                 panel(
                     Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(boundedPanelHeight),
                 )
@@ -487,6 +503,7 @@ private const val FOCUS_ZOOM = 15.5
 @Composable
 private fun FindMyMap(
     uiState: FindMyUiState,
+    selectedSection: FmFindMySection,
     manualCamera: MapCamera?,
     onCameraChange: (MapCamera) -> Unit,
     onSelectTarget: (String?) -> Unit,
@@ -502,7 +519,7 @@ private fun FindMyMap(
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        val located = uiState.locatedTargets
+        val located = findMySectionTargets(uiState.locatedTargets, selectedSection)
         val selectedPoint = uiState.selectedTarget?.point
         val activeCamera = when {
             manualCamera != null -> manualCamera
@@ -643,6 +660,8 @@ private fun RefreshNotice(errors: List<String>, modifier: Modifier = Modifier) {
 @Composable
 private fun TargetPanel(
     uiState: FindMyUiState,
+    selectedSection: FmFindMySection,
+    onSelectSection: (FmFindMySection) -> Unit,
     nowMillis: Long,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
@@ -652,7 +671,9 @@ private fun TargetPanel(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = if (showExpandToggle) RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp) else RoundedCornerShape(0.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.97f),
+        tonalElevation = 3.dp,
         modifier = modifier,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -661,7 +682,7 @@ private fun TargetPanel(
                 // reachable with a keyboard, a switch, and TalkBack.
                 Surface(
                     onClick = onToggleExpanded,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    color = androidx.compose.ui.graphics.Color.Transparent,
                     modifier = Modifier
                         .fillMaxWidth()
                         .semantics {
@@ -687,6 +708,21 @@ private fun TargetPanel(
                     }
                 }
             }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = selectedSection.title,
+                    style = MaterialTheme.typography.headlineMediumEmphasized,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = findMySectionTargets(uiState.targets, selectedSection).size.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             val selected = uiState.selectedTarget
             if (selected != null) {
                 SelectedTargetCard(
@@ -697,16 +733,23 @@ private fun TargetPanel(
                     onDismiss = { onSelectTarget(null) },
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-                HorizontalDivider()
             }
             if (expanded || selected == null) {
                 TargetList(
                     uiState = uiState,
+                    selectedSection = selectedSection,
                     nowMillis = nowMillis,
                     onSelectTarget = onSelectTarget,
                     modifier = Modifier.weight(1f),
                 )
+            } else {
+                Spacer(Modifier.weight(1f))
             }
+            FindMySectionSelector(
+                selected = selectedSection,
+                onSelect = onSelectSection,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp).navigationBarsPadding(),
+            )
         }
     }
 }
@@ -793,61 +836,98 @@ private fun distanceBetween(from: FmTarget?, to: FmTarget): String? {
 @Composable
 private fun TargetList(
     uiState: FindMyUiState,
+    selectedSection: FmFindMySection,
     nowMillis: Long,
     onSelectTarget: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxWidth().navigationBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
     ) {
-        FmTargetKind.entries.forEach { kind ->
-            val targets = uiState.targets.filter { it.kind == kind }
-            item(key = "header-$kind") {
+        val targets = findMySectionTargets(uiState.targets, selectedSection)
+        if (targets.isEmpty()) {
+            item(key = "empty-${selectedSection.name}") {
                 Text(
-                    text = sectionTitle(kind, targets.size),
-                    style = MaterialTheme.typography.labelMedium,
+                    text = "No ${selectedSection.title.lowercase()} available",
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 10.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 20.dp),
                 )
             }
-            if (targets.isEmpty()) {
-                item(key = "empty-$kind") {
-                    Text(
-                        text = "None",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
-                    )
-                }
-            } else {
-                itemsIndexed(targets, key = { _, target -> target.id }) { index, target ->
-                    TargetRow(
-                        target = target,
-                        nowMillis = nowMillis,
-                        selected = target.id == uiState.selectedTargetId,
-                        shape = segmentedRowShape(index, targets.size),
-                        onClick = { onSelectTarget(target.id) },
-                    )
+        } else {
+            itemsIndexed(targets, key = { _, target -> target.id }) { index, target ->
+                TargetRow(
+                    target = target,
+                    thisDevice = uiState.targets.firstOrNull { it.thisDevice && it.located },
+                    nowMillis = nowMillis,
+                    selected = target.id == uiState.selectedTargetId,
+                    shape = segmentedRowShape(index, targets.size),
+                    onClick = { onSelectTarget(target.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FindMySectionSelector(
+    selected: FmFindMySection,
+    onSelect: (FmFindMySection) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            FmFindMySection.entries.forEach { section ->
+                val active = section == selected
+                Surface(
+                    onClick = { onSelect(section) },
+                    shape = CircleShape,
+                    color = if (active) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        androidx.compose.ui.graphics.Color.Transparent
+                    },
+                    modifier = Modifier.weight(1f).semantics { this.selected = active },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            imageVector = when (section) {
+                                FmFindMySection.People -> Icons.Filled.Person
+                                FmFindMySection.Devices -> Icons.Rounded.Smartphone
+                                FmFindMySection.Items -> Icons.Filled.LocationOn
+                            },
+                            contentDescription = null,
+                            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-private fun sectionTitle(kind: FmTargetKind, count: Int): String {
-    val name = when (kind) {
-        FmTargetKind.Device -> "Devices"
-        FmTargetKind.Friend -> "People"
-        FmTargetKind.Item -> "Items"
-    }
-    return if (count > 0) "$name ($count)".uppercase() else name.uppercase()
-}
-
 @Composable
 private fun TargetRow(
     target: FmTarget,
+    thisDevice: FmTarget?,
     nowMillis: Long,
     selected: Boolean,
     shape: RoundedCornerShape,
@@ -897,7 +977,7 @@ private fun TargetRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = targetSummary(target, nowMillis),
+                    text = targetLocationSummary(target, nowMillis),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -905,11 +985,15 @@ private fun TargetRow(
                 )
             }
             if (target.located) {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                val distance = distanceBetween(thisDevice, target)
+                if (distance != null) {
+                    Text(
+                        text = distance.substringBefore(" from "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }

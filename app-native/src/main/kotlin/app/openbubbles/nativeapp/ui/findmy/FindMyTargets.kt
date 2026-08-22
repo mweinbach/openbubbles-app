@@ -17,6 +17,18 @@ import kotlin.math.round
 
 enum class FmTargetKind { Device, Friend, Item }
 
+/** Feature-local filters, ordered like the native Find My people-first experience. */
+enum class FmFindMySection(val title: String, val kind: FmTargetKind) {
+    People("People", FmTargetKind.Friend),
+    Devices("Devices", FmTargetKind.Device),
+    Items("Items", FmTargetKind.Item),
+}
+
+internal fun findMySectionTargets(
+    targets: List<FmTarget>,
+    section: FmFindMySection,
+): List<FmTarget> = targets.filter { it.kind == section.kind }
+
 /** One trackable thing: a device, a followed friend, or a beacon item. */
 data class FmTarget(
     val id: String,
@@ -195,4 +207,13 @@ fun targetSummary(target: FmTarget, nowMillis: Long): String {
     if (target.lostMode) parts += "Lost Mode"
     target.sharedBy?.let { parts += "shared by $it" }
     return parts.joinToString(" · ")
+}
+
+/** Native Find My makes the place, not accuracy or battery, the row's primary detail. */
+fun targetLocationSummary(target: FmTarget, nowMillis: Long): String {
+    val point = target.point ?: return if (target.locating) "Locating…" else "Location unavailable"
+    return listOfNotNull(
+        point.address?.takeIf(String::isNotBlank) ?: "Address unavailable",
+        fixFreshness(point.timestampMs, nowMillis),
+    ).joinToString(" · ")
 }

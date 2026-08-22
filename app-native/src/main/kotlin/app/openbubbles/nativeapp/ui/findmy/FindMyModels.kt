@@ -145,40 +145,6 @@ class RustFindMyPort(
     private fun requireState(): NativePushState =
         stateProvider() ?: error("not connected")
 
-    /** Epoch-ms normalization: FindMy mixes ms timestamps and SystemTime seconds. */
-    private fun Long.asEpochMs(): Long {
-        val value = this
-        return if (value > 0 && value < 100_000_000_000L) value * 1000L else value
-    }
-
-    private fun mapPoint(raw: UFmLocation?): FmPoint? {
-        raw ?: return null
-        return FmPoint(
-            latitude = raw.latitude,
-            longitude = raw.longitude,
-            accuracyMeters = raw.horizontalAccuracy,
-            timestampMs = raw.timestamp.asEpochMs(),
-            address = raw.address?.let(::formatAddress),
-        )
-    }
-
-    /**
-     * Apple already reverse-geocoded the fix, so the street line comes from the
-     * same response as the coordinates — no geocoding request of our own, and
-     * nothing about the location leaves the device to resolve it.
-     */
-    private fun formatAddress(address: UFmAddress): String? {
-        address.formattedAddressLines
-            ?.filter(String::isNotBlank)
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it.joinToString(", ") }
-        return listOfNotNull(
-            address.streetAddress.nonBlank() ?: address.streetName.nonBlank(),
-            address.locality.nonBlank(),
-            address.administrativeArea.nonBlank() ?: address.stateCode.nonBlank(),
-        ).takeIf { it.isNotEmpty() }?.joinToString(", ")
-    }
-
     private fun mapDevice(index: Int, raw: UFmDevice): FmDeviceUi {
         val model = raw.modelDisplayName.nonBlank()
             ?: raw.rawDeviceModel.nonBlank()
@@ -199,7 +165,7 @@ class RustFindMyPort(
             model = model,
             batteryPercent = batteryPercent,
             batteryStatus = raw.batteryStatus.nonBlank(),
-            location = mapPoint(raw.location),
+            location = raw.location?.toUiPoint(),
             deviceClass = raw.deviceClass.nonBlank(),
             lostModeEnabled = raw.lostModeEnabled == true,
             thisDevice = raw.thisDevice == true,
@@ -211,17 +177,56 @@ class RustFindMyPort(
         val contactName = address?.let { addr ->
             runCatching { UiContacts.contactNames?.invoke(addr)?.first }.getOrNull()
         }
-        return FmFriendUi(
-            id = raw.id.nonBlank() ?: "friend",
-            name = contactName?.takeIf { it.isNotBlank() } ?: address ?: "Friend",
-            address = address,
-            location = mapPoint(raw.lastLocation),
-            locating = raw.locateInProgress,
-        )
+        return raw.toUi(contactName)
     }
 }
 
 private fun String?.nonBlank(): String? = this?.takeIf(String::isNotBlank)
+
+private const val APPLE_EPOCH_UNIX_MS = 978_307_200_000L
+
+/** Find My mixes Unix seconds/milliseconds with milliseconds since Apple's 2001 epoch. */
+internal fun normalizeFindMyTimestamp(value: Long): Long {
+    if (value <= 0L) return value
+    val milliseconds = if (value < 100_000_000_000L) value * 1_000L else value
+    return if (milliseconds < APPLE_EPOCH_UNIX_MS) {
+        milliseconds + APPLE_EPOCH_UNIX_MS
+    } else {
+        milliseconds
+    }
+}
+
+internal fun UFmLocation.toUiPoint(): FmPoint = FmPoint(
+    latitude = latitude,
+    longitude = longitude,
+    accuracyMeters = horizontalAccuracy,
+    timestampMs = normalizeFindMyTimestamp(timestamp),
+    address = address?.let(::formatFindMyAddress),
+)
+
+/** Apple already supplied this address; resolving it must not contact another map provider. */
+private fun formatFindMyAddress(address: UFmAddress): String? {
+    address.formattedAddressLines
+        ?.filter(String::isNotBlank)
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { return it.joinToString(", ") }
+    return listOfNotNull(
+        address.streetAddress.nonBlank() ?: address.streetName.nonBlank(),
+        address.locality.nonBlank(),
+        address.administrativeArea.nonBlank() ?: address.stateCode.nonBlank(),
+    ).takeIf { it.isNotEmpty() }?.joinToString(", ")
+}
+
+internal fun UFmFriend.toUi(contactName: String? = null): FmFriendUi {
+    val handle = (invitationAcceptedHandles + invitationFromHandles).firstOrNull()
+    return FmFriendUi(
+        id = id.nonBlank() ?: "friend",
+        name = contactName.nonBlank() ?: handle ?: "Friend",
+        address = handle,
+        location = lastLocation?.toUiPoint(),
+        locating = locateInProgress,
+    )
+}
 
 internal fun UFmItem.toUi(): FmItemUi {
     val displayModel = model.nonBlank()

@@ -119,6 +119,42 @@ class FindMyViewModelTest {
     }
 
     @Test
+    fun `refreshed people locations become visible map targets and retain their place`() = runTest(dispatcher) {
+        val location = FmPoint(
+            latitude = 40.903,
+            longitude = -73.459,
+            timestampMs = 1_760_000_000_000,
+            address = "Jennings Rd, Lloyd Harbor, NY",
+        )
+        val person = FmFriendUi("person", "Taylor", "person@icloud.com", location)
+        val port = RefreshOutcomePort(failRefresh = false, refreshedFriends = listOf(person))
+        val model = FindMyViewModel(port)
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(person), model.uiState.value.friends)
+        assertEquals(listOf("friend:person"), model.uiState.value.locatedTargets.map { it.id })
+        assertEquals("Jennings Rd, Lloyd Harbor, NY", model.uiState.value.locatedTargets.single().point?.address)
+        assertEquals(listOf(location), model.uiState.value.trail("friend:person"))
+    }
+
+    @Test
+    fun `cached people locations remain visible when their refresh fails`() = runTest(dispatcher) {
+        val person = FmFriendUi(
+            id = "person",
+            name = "Taylor",
+            location = FmPoint(40.903, -73.459, timestampMs = 1_760_000_000_000),
+        )
+        val model = FindMyViewModel(RefreshOutcomePort(cachedFriends = listOf(person)))
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(person), model.uiState.value.friends)
+        assertEquals(listOf("friend:person"), model.uiState.value.locatedTargets.map { it.id })
+        assertTrue(model.uiState.value.refreshErrors.any { it.startsWith("Friends:") })
+    }
+
+    @Test
     fun `retrying failed initial refresh clears the error after a successful response`() = runTest(dispatcher) {
         val port = RefreshOutcomePort()
         val model = FindMyViewModel(port)
@@ -330,7 +366,9 @@ private class ParallelRefreshPort(
 
 private class RefreshOutcomePort(
     private val cachedDevices: List<FmDeviceUi> = emptyList(),
+    private val cachedFriends: List<FmFriendUi> = emptyList(),
     var failRefresh: Boolean = true,
+    var refreshedFriends: List<FmFriendUi> = cachedFriends,
 ) : FindMyPort {
     var refreshedDevices: List<FmDeviceUi> = cachedDevices
     var deviceRefreshes: Int = 0
@@ -346,11 +384,11 @@ private class RefreshOutcomePort(
         return refreshedDevices
     }
 
-    override suspend fun friends(): List<FmFriendUi> = emptyList()
+    override suspend fun friends(): List<FmFriendUi> = cachedFriends
 
     override suspend fun refreshFriends(): List<FmFriendUi> {
         if (failRefresh) error("offline")
-        return emptyList()
+        return refreshedFriends
     }
 
     override suspend fun items(): List<FmItemUi> = emptyList()

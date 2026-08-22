@@ -84,6 +84,21 @@ fun FindMySelectedScreenshot() {
     }
 }
 
+/** People is the default section and a selected friend's real fix remains visible on the map. */
+@PreviewTest
+@Preview(name = "findmy-people-location", device = Devices.PHONE, showBackground = true)
+@Composable
+fun FindMyPeopleLocationScreenshot() {
+    OpenBubblesTheme(dynamicColor = false) {
+        FindMyScreen(
+            uiState = trackerState(selectedTargetId = "friend:f1"),
+            onRefresh = {},
+            onBack = {},
+            nowMillis = FIXED_NOW,
+        )
+    }
+}
+
 /** Paused tracking after a failed refresh: last known locations stay on the map. */
 @PreviewTest
 @Preview(name = "findmy-offline", device = Devices.PHONE, showBackground = true)

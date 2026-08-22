@@ -101,6 +101,20 @@ class FindMyTargetsTest {
         )
         assertEquals(3, targets.map { it.id }.distinct().size)
     }
+
+    @Test
+    fun `people section isolates located friends even when devices appear first`() {
+        val personLocation = FmPoint(40.903, -73.459, timestampMs = NOW)
+        val targets = findMyTargets(
+            devices = listOf(device("phone", "Phone", FmPoint(41.0, -73.0, timestampMs = NOW))),
+            friends = listOf(FmFriendUi("person", "Taylor", location = personLocation)),
+            items = listOf(FmItemUi("keys", "Keys", location = FmPoint(42.0, -72.0))),
+        )
+
+        assertEquals(listOf(FmFindMySection.People, FmFindMySection.Devices, FmFindMySection.Items), FmFindMySection.entries)
+        assertEquals(listOf("friend:person"), findMySectionTargets(targets, FmFindMySection.People).map { it.id })
+        assertEquals(personLocation, findMySectionTargets(targets, FmFindMySection.People).single().point)
+    }
 }
 
 class FindMyPaneSplitTest {
@@ -250,5 +264,24 @@ class FindMyFormattingTest {
             sharedBy = "mom@icloud.com",
         )
         assertTrue(targetSummary(item, NOW).endsWith("shared by mom@icloud.com"))
+    }
+
+    @Test
+    fun `person rows prominently show the resolved place and location freshness`() {
+        val target = FmTarget(
+            id = "friend:person",
+            kind = FmTargetKind.Friend,
+            name = "Taylor",
+            point = FmPoint(
+                latitude = 40.903,
+                longitude = -73.459,
+                timestampMs = NOW - 60_000,
+                address = "Jennings Rd, Lloyd Harbor, NY",
+            ),
+        )
+
+        assertEquals("Jennings Rd, Lloyd Harbor, NY · 1 min ago", targetLocationSummary(target, NOW))
+        assertEquals("Location unavailable", targetLocationSummary(target.copy(point = null), NOW))
+        assertEquals("Locating…", targetLocationSummary(target.copy(point = null, locating = true), NOW))
     }
 }
