@@ -542,18 +542,24 @@ class ChatViewModelTest {
         photo.file.delete()
     }
 
-    /**
-     * Documents the tracked limitation from issue #47: a composed media send
-     * drops the reply target instead of threading it. The caption and media
-     * still travel as one message, which is what that issue protects; reply
-     * metadata for media is separate work.
-     */
     @Test
-    fun `composed media send keeps its parts but does not thread the reply yet`() = runTest(dispatcher) {
+    fun `composed media reply preserves its root and part-aware locator`() = runTest(dispatcher) {
         val sender = RecordingSender()
         val attachmentSender = RecordingAttachmentSender()
-        val root = message(id = 1L, guid = "root", text = "original")
-        val child = message(id = 2L, guid = "child", text = "reply", replyToGuid = "root")
+        val root = message(
+            id = 1L,
+            guid = "root",
+            text = "original",
+            replyPartLocators = mapOf(2L to "2:4:3"),
+        )
+        val child = message(
+            id = 2L,
+            guid = "child",
+            text = "reply",
+            replyToGuid = "root",
+            replyToPart = 2L,
+            replyToPartLocator = "2:4:3",
+        )
         val model = model(
             sender,
             RecordingActions(),
@@ -575,8 +581,47 @@ class ChatViewModelTest {
         assertEquals(1, attachmentSender.calls)
         assertEquals("in the thread", attachmentSender.caption)
         assertEquals(listOf("threaded.jpg"), attachmentSender.attachmentNames)
+        assertEquals("root", attachmentSender.replyGuid)
+        assertEquals("2:4:3", attachmentSender.replyPartLocator)
         assertEquals(null, sender.reply)
         photo.file.delete()
+    }
+
+    @Test
+    fun `an ordinary attachment send does not invent reply metadata`() = runTest(dispatcher) {
+        val attachmentSender = RecordingAttachmentSender()
+        val model = model(RecordingSender(), RecordingActions(), attachmentSender = attachmentSender)
+        val photo = tempAttachment("ordinary.jpg")
+
+        model.stageAttachment(photo)
+        model.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(null, attachmentSender.replyGuid)
+        assertEquals(null, attachmentSender.replyPartLocator)
+        photo.file.delete()
+    }
+
+    @Test
+    fun `retry forwards the original durable message identity`() = runTest(dispatcher) {
+        val actions = RecordingActions()
+        val model = model(RecordingSender(), actions)
+
+        model.retryOutgoing(message(id = 73L, guid = "failed"))
+        advanceUntilIdle()
+
+        assertEquals(73L, actions.retriedMessageId)
+    }
+
+    @Test
+    fun `refused outgoing cancellation surfaces an actionable error`() = runTest(dispatcher) {
+        val model = model(RecordingSender(), RecordingActions())
+        backgroundScope.launch(dispatcher) { model.uiState.collect() }
+
+        model.cancelOutgoing(message(id = 74L, guid = "already-sent"))
+        advanceUntilIdle()
+
+        assertEquals("This message has already been sent", model.uiState.value.actionError)
     }
 
     @Test
@@ -1245,6 +1290,7 @@ private class RecordingActions : MessageActions {
     var reactionChatId: Long? = null
     var reactionEnable: Boolean? = null
     var unsend: Pair<Long, String>? = null
+    var retriedMessageId: Long? = null
 
     override suspend fun react(
         chatId: Long,
@@ -1269,6 +1315,11 @@ private class RecordingActions : MessageActions {
     override suspend fun unsend(chatId: Long, messageGuid: String) {
         unsend = chatId to messageGuid
     }
+
+    override suspend fun retryOutgoing(messageId: Long): Boolean {
+        retriedMessageId = messageId
+        return true
+    }
 }
 
 private object NoopAttachmentSender : AttachmentSender {
@@ -1284,6 +1335,8 @@ private class RecordingAttachmentSender : AttachmentSender {
     var chatId: Long? = null
     var caption: String? = null
     var attachmentNames: List<String> = emptyList()
+    var replyGuid: String? = null
+    var replyPartLocator: String? = null
 
     override suspend fun send(
         chatId: Long,
@@ -1295,6 +1348,19 @@ private class RecordingAttachmentSender : AttachmentSender {
         this.caption = caption
         attachmentNames = attachments.mapNotNull { it.name }
         return OutgoingAttachmentSend(49L)
+    }
+
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+        subject: String?,
+        replyGuid: String?,
+        replyPartLocator: String?,
+    ): OutgoingAttachmentSend {
+        this.replyGuid = replyGuid
+        this.replyPartLocator = replyPartLocator
+        return send(chatId, attachments, caption)
     }
 }
 

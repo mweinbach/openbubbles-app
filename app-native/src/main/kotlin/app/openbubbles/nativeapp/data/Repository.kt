@@ -440,7 +440,9 @@ interface MessageActions {
 
     suspend fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) = Unit
     suspend fun deleteLocal(messageIds: Collection<Long>) = Unit
+    suspend fun deleteEverywhere(messageIds: Collection<Long>) = Unit
     suspend fun cancelOutgoing(messageId: Long): Boolean = false
+    suspend fun retryOutgoing(messageId: Long): Boolean = false
     suspend fun markForwarded(messageIds: Collection<Long>) = Unit
     suspend fun blockSender(chatId: Long, archive: Boolean = false) = Unit
 }
@@ -494,6 +496,16 @@ interface AttachmentSender {
         caption: String?,
         subject: String?,
     ): OutgoingAttachmentSend = send(chatId, attachments, caption)
+
+    /** Sends media in the same part-aware reply thread as an ordinary text reply. */
+    suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+        subject: String?,
+        replyGuid: String?,
+        replyPartLocator: String?,
+    ): OutgoingAttachmentSend = send(chatId, attachments, caption, subject)
 }
 
 /** One live "X is typing…" entry; entries expire automatically upstream. */

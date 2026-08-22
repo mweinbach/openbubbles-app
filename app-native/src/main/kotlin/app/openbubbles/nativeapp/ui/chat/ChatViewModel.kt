@@ -536,7 +536,20 @@ class ChatViewModel(
     fun cancelOutgoing(message: MessageItem) {
         viewModelScope.launch {
             runCatching { messageActions.cancelOutgoing(message.id) }
+                .onSuccess { cancelled ->
+                    if (!cancelled) actionError.value = "This message has already been sent"
+                }
                 .onFailure { actionError.value = it.message ?: "Could not cancel send" }
+        }
+    }
+
+    fun retryOutgoing(message: MessageItem) {
+        viewModelScope.launch {
+            runCatching { messageActions.retryOutgoing(message.id) }
+                .onSuccess { retried ->
+                    if (!retried) actionError.value = "This message cannot be retried"
+                }
+                .onFailure { actionError.value = it.message ?: "Could not retry send" }
         }
     }
 
@@ -750,6 +763,7 @@ class ChatViewModel(
         // Effects do not ride attachment sends; consume any staged one so it
         // cannot leak onto a later text send.
         val effectId = PendingSendEffect.effectId
+        val reply = replyingTo.value
         val sendRevision = composerRevision
         attachmentSendInProgress.value = true
         viewModelScope.launch {
@@ -760,7 +774,14 @@ class ChatViewModel(
                 if (chatItem.isSms) {
                     smsAttachmentSender.send(targetChatId, attachments, value, subject.value.trim().takeIf { it.isNotEmpty() })
                 } else {
-                    attachmentSender.send(targetChatId, attachments, value, subject.value.trim().takeIf { it.isNotEmpty() })
+                    attachmentSender.send(
+                        chatId = reply?.let { sourceChatId(it.message) } ?: targetChatId,
+                        attachments = attachments,
+                        caption = value,
+                        subject = subject.value.trim().takeIf { it.isNotEmpty() },
+                        replyGuid = reply?.rootGuid,
+                        replyPartLocator = reply?.partLocator,
+                    )
                 }
             }.onSuccess { accepted ->
                 if (PendingSendEffect.effectId == effectId) PendingSendEffect.effectId = null

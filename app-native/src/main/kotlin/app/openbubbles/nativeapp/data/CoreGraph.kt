@@ -48,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -98,6 +99,14 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+
+private const val MAX_OUTGOING_CONNECTION_ATTEMPTS = 3
+
+internal data class OutgoingAccountSession(
+    val owner: String,
+    val generation: Long,
+)
+
 /**
  * Live composition root binding the UI contracts to :core (ObjectBox) and,
  * when the push service is up, the Rust send path. Falls back to the fake
@@ -107,6 +116,11 @@ import java.util.concurrent.atomic.AtomicLong
 object CoreGraph {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val messagingWork = MessagingAccountWorkRegistry(scope)
+    private val outboxLock = Any()
+
+    @Volatile
+    private var activeMessagingOwner: String? = null
+    private var outgoingJournal: MessagingOutboxStore? = null
 
     internal fun launchBackground(block: suspend () -> Unit) {
         scope.launch { block() }
@@ -122,11 +136,246 @@ object CoreGraph {
         block: suspend () -> Unit,
     ): Job? = messagingWork.launch(generation, block)
 
+    private fun messagingOutbox(context: Context): MessagingOutboxStore = synchronized(outboxLock) {
+        outgoingJournal ?: MessagingOutboxStore(File(context.filesDir, "messaging_outbox"))
+            .also { outgoingJournal = it }
+    }
+
+    internal suspend fun prepareOutgoingAccount(context: Context, sender: String): OutgoingAccountSession {
+        if (PushStateHolder.state == null) {
+            val savedUsername = runCatching {
+                savedLoginUsername(context.filesDir.absolutePath)
+            }.getOrNull()
+            check(!savedUsername.isNullOrBlank()) { "No Apple account is signed in" }
+        }
+        val handles = PushStateHolder.myHandles.takeIf { it.isNotEmpty() } ?: setOf(sender)
+        ensureMessagingAccount(context, handles)
+        val owner = activeMessagingOwner ?: error("outgoing messaging account is unavailable")
+        return OutgoingAccountSession(owner, messagingWork.activate())
+    }
+
+    internal fun enqueueOutgoing(context: Context, entry: OutgoingOutboxEntry) {
+        check(activeMessagingOwner == entry.accountOwner) { "outgoing Apple account is no longer active" }
+        val journal = messagingOutbox(context)
+        val repository = store?.let(::MessageRepo)
+        journal.entries(entry.accountOwner).forEach { previous ->
+            if (previous.state != OutgoingOutboxState.DISPATCHING ||
+                messagingWork.hasMessage(previous.messageId)
+            ) return@forEach
+            val existing = repository?.messageById(previous.messageId)
+            if (existing == null ||
+                (existing.sendingServiceId == null &&
+                    repository.statusOf(existing) != app.openbubbles.core.model.MessageStatus.FAILED)
+            ) {
+                journal.remove(previous.messageId, entry.accountOwner)
+            } else if (existing.sendingServiceId == null) {
+                journal.update(previous.messageId, entry.accountOwner) {
+                    it.copy(state = OutgoingOutboxState.FAILED)
+                }
+            }
+        }
+        journal.enqueue(entry)
+    }
+
+    internal fun launchOutgoing(
+        entry: OutgoingOutboxEntry,
+        generation: Long,
+        block: suspend () -> Unit,
+    ): Job? {
+        if (activeMessagingOwner != entry.accountOwner) return null
+        return messagingWork.launchMessage(generation, entry.messageId, block)
+    }
+
+    internal fun isCurrentOutgoing(entry: OutgoingOutboxEntry, generation: Long): Boolean =
+        activeMessagingOwner == entry.accountOwner &&
+            messagingWork.canPublish(generation, entry.messageId)
+
+    internal fun beginOutgoingDispatch(
+        context: Context,
+        entry: OutgoingOutboxEntry,
+        generation: Long,
+    ): Boolean {
+        if (!isCurrentOutgoing(entry, generation) ||
+            !messagingWork.beginDispatch(generation, entry.messageId)
+        ) {
+            return false
+        }
+        return messagingOutbox(context).update(entry.messageId, entry.accountOwner) {
+            it.copy(
+                state = OutgoingOutboxState.DISPATCHING,
+                attempt = it.attempt + 1,
+                nextAttemptAtMs = 0L,
+            )
+        } != null
+    }
+
+    internal fun failOutgoingAttempt(context: Context, entry: OutgoingOutboxEntry) {
+        if (activeMessagingOwner != entry.accountOwner) return
+        messagingOutbox(context).update(entry.messageId, entry.accountOwner) {
+            it.copy(state = OutgoingOutboxState.FAILED, nextAttemptAtMs = 0L)
+        }
+    }
+
+    internal suspend fun awaitOutgoingPushState(
+        context: Context,
+        entry: OutgoingOutboxEntry,
+        generation: Long,
+    ): NativePushState {
+        repeat(MAX_OUTGOING_CONNECTION_ATTEMPTS) { attempt ->
+            check(isCurrentOutgoing(entry, generation)) { "outgoing Apple account is no longer active" }
+            PushStateHolder.state?.let { return it }
+            if (app.openbubbles.nativeapp.service.NativePushService.ensureOnDemandSession(context)) {
+                PushStateHolder.state?.let { return it }
+            }
+            if (attempt == MAX_OUTGOING_CONNECTION_ATTEMPTS - 1) {
+                error("Apple push connection could not be restored")
+            }
+            val retryDelay = outgoingRetryDelayMs(attempt)
+            messagingOutbox(context).update(entry.messageId, entry.accountOwner) {
+                it.copy(
+                    nextAttemptAtMs = System.currentTimeMillis() + retryDelay,
+                    attempt = it.attempt + 1,
+                )
+            }
+            delay(retryDelay)
+        }
+        error("Apple push connection could not be restored")
+    }
+
+    internal fun resumeOutgoingMessages(context: Context) {
+        val owner = activeMessagingOwner ?: return
+        val currentStore = store ?: return
+        val repository = MessageRepo(currentStore)
+        val generation = messagingWork.generation()
+        val journal = messagingOutbox(context)
+        journal.entries(owner).forEach { entry ->
+            if (messagingWork.hasMessage(entry.messageId)) return@forEach
+            val message = repository.messageById(entry.messageId)
+            if (message == null || message.chat.target?.isRpSms == true) {
+                journal.remove(entry.messageId, owner)
+                return@forEach
+            }
+            when (entry.state) {
+                OutgoingOutboxState.CANCELLED -> {
+                    repository.cancelOutgoing(message.id)
+                    journal.remove(entry.messageId, owner)
+                }
+                OutgoingOutboxState.FAILED -> Unit
+                OutgoingOutboxState.DISPATCHING -> {
+                    if (message.sendingServiceId == null) {
+                        journal.remove(entry.messageId, owner)
+                    } else {
+                        // The prior process may already have transmitted this
+                        // attempt. Never guess and silently duplicate a message.
+                        repository.failOutgoing(
+                            message.guid,
+                            "Previous delivery could not be confirmed; retry manually",
+                        )
+                        failOutgoingAttempt(context, entry)
+                    }
+                }
+                OutgoingOutboxState.QUEUED -> dispatchOutgoing(entry, generation)
+            }
+        }
+        // A crash between the ObjectBox stage and journal publication cannot
+        // be made atomic without changing the compatibility-bound schema.
+        // Surface these orphan rows explicitly instead of pretending to resend.
+        val knownIds = journal.entries(owner).mapTo(HashSet()) { it.messageId }
+        currentStore.boxFor(Message::class.java).query()
+            .equal(Message_.isFromMe, true)
+            .notNull(Message_.sendingServiceId)
+            .build().use { query ->
+                query.find().forEach { pending ->
+                    if (pending.chat.target?.isRpSms != true && pending.id !in knownIds) {
+                        repository.failOutgoing(
+                            pending.guid,
+                            "Previous send was interrupted before it could be recovered",
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun dispatchOutgoing(entry: OutgoingOutboxEntry, generation: Long): Job? =
+        when (entry.kind) {
+            OutgoingOutboxKind.TEXT -> CoreSender.dispatch(entry, generation)
+            OutgoingOutboxKind.ATTACHMENT -> CoreAttachmentSender.dispatch(entry, generation)
+        }
+
+    internal suspend fun retryOutgoingMessage(messageId: Long): Boolean {
+        val context = AppContext.current ?: return false
+        val currentStore = store ?: return false
+        val repository = MessageRepo(currentStore)
+        val failed = repository.messageById(messageId) ?: return false
+        val chat = failed.chat.target ?: return false
+        if (chat.isRpSms == true) return false
+        val sender = sendingHandle(chat) ?: chat.usingHandle ?: return false
+        val session = prepareOutgoingAccount(context, sender)
+        val previous = messagingOutbox(context).entry(messageId)
+        if (previous != null && previous.accountOwner != session.owner) return false
+        val restored = repository.retryOutgoing(messageId) ?: return false
+        val entry = OutgoingOutboxEntry(
+            accountOwner = session.owner,
+            messageId = restored.id,
+            chatId = chat.id,
+            sender = sender,
+            kind = if (restored.hasAttachments) OutgoingOutboxKind.ATTACHMENT else OutgoingOutboxKind.TEXT,
+            mentions = previous?.mentions.orEmpty(),
+        )
+        try {
+            enqueueOutgoing(context, entry)
+            if (dispatchOutgoing(entry, session.generation) == null) {
+                repository.failOutgoing(restored.guid, "Apple messaging account is no longer active")
+                failOutgoingAttempt(context, entry)
+                return false
+            }
+        } catch (failure: Throwable) {
+            repository.failOutgoing(restored.guid, "Message retry could not be scheduled")
+            failOutgoingAttempt(context, entry)
+            throw failure
+        }
+        return true
+    }
+
+    internal suspend fun cancelOutgoingMessage(messageId: Long): Boolean {
+        val context = AppContext.current ?: return false
+        val currentStore = store ?: return false
+        val repository = MessageRepo(currentStore)
+        val message = repository.messageById(messageId) ?: return false
+        if (!message.isFromMe) return false
+        val failed = repository.statusOf(message) == app.openbubbles.core.model.MessageStatus.FAILED
+        if (message.chat.target?.isRpSms == true) {
+            if (!failed && !app.openbubbles.nativeapp.sms.SmsBridge.cancelOutgoing(messageId)) return false
+            return repository.cancelOutgoing(messageId)
+        }
+        val owner = activeMessagingOwner ?: return false
+        val journal = messagingOutbox(context)
+        val entry = journal.entry(messageId)
+        if (entry != null && entry.accountOwner != owner) return false
+        if (!failed) {
+            if (entry?.state == OutgoingOutboxState.DISPATCHING) return false
+            val cancelled = messagingWork.cancelMessageAndJoin(messageId) {
+                journal.update(messageId, owner) { it.copy(state = OutgoingOutboxState.CANCELLED) }
+            }
+            if (!cancelled) return false
+        } else if (messagingWork.hasMessage(messageId)) {
+            if (!messagingWork.cancelMessageAndJoin(messageId) {
+                    journal.update(messageId, owner) { it.copy(state = OutgoingOutboxState.CANCELLED) }
+                }
+            ) return false
+        }
+        val removed = repository.cancelOutgoing(messageId)
+        if (removed && entry != null) journal.remove(messageId, owner)
+        return removed
+    }
+
     private suspend fun ensureMessagingAccount(context: Context, handles: Set<String>) {
         val username = runCatching { savedLoginUsername(context.filesDir.absolutePath) }.getOrNull()
         val owner = messagingAccountOwner(username, handles)
         CloudSyncWiring.ensureAccount(context, owner) {
             messagingWork.invalidateAndJoin()
+            messagingOutbox(context).clear()
+            activeMessagingOwner = null
             UploadProgressBoard.clearAll()
             attachmentManager?.cancelAndJoin()
             PhotosWorkRegistry.cancelAndJoinAll()
@@ -140,6 +389,7 @@ object CoreGraph {
             (messages as? CoreMessageListRepository)?.clearAccountSnapshots()
             CoreContacts.invalidateAccountCaches()
         }
+        activeMessagingOwner = owner
     }
 
     internal suspend fun activateMessagingAccount(context: Context, handles: Set<String>) {
@@ -153,6 +403,23 @@ object CoreGraph {
         withContext(Dispatchers.IO + NonCancellable) {
             runAccountCleanupSteps(
                 { messagingWork.invalidateAndJoin() },
+                {
+                    val owner = activeMessagingOwner
+                    val context = AppContext.current
+                    if (owner != null && context != null) {
+                        val repository = store?.let(::MessageRepo)
+                        val journal = messagingOutbox(context)
+                        journal.entries(owner).forEach { pending ->
+                            repository?.messageById(pending.messageId)?.let { row ->
+                                if (row.sendingServiceId != null) {
+                                    repository.failOutgoing(row.guid, "Apple account signed out before delivery")
+                                }
+                            }
+                        }
+                        journal.clearOwner(owner)
+                    }
+                    activeMessagingOwner = null
+                },
                 { UploadProgressBoard.clearAll() },
                 { CloudSyncWiring.cancelAndJoin() },
                 { attachmentManager?.cancelAndJoin() },
@@ -365,38 +632,58 @@ object CoreGraph {
         onNewUnread: (chatId: Long, body: String) -> Unit,
     ) {
         ensureMessagingAccount(context, accountHandles)
-        val st = store ?: return
+        val st = store ?: error("background message store unavailable")
         val chatBox = st.boxFor(Chat::class.java)
+        val messageBox = st.boxFor(Message::class.java)
         val allowNotifications = CloudSyncWiring.hasCompletedHistorySync(context)
-        val before: Map<Long, Boolean> = chatBox.query()
-            .equal(Chat_.hasUnreadMessage, true)
-            .build().use { q -> q.find().associate { it.id to true } }
+        // CloudKit import intentionally leaves local unread flags untouched.
+        // One indexed high-water mark distinguishes newly inserted incoming
+        // rows, including messages for conversations which were already unread.
+        val newestIncomingBeforeSync = messageBox.query()
+            .equal(Message_.isFromMe, false)
+            .orderDesc(Message_.id)
+            .build().use { query -> query.findFirst()?.id ?: 0L }
 
         CloudSyncWiring.onStateInstalled(context, state, autoSync = false)
         try {
             val manager = CloudSyncWiring.manager
-            val summary = kotlinx.coroutines.runBlocking {
-                manager?.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
+                ?: error("background message synchronization is unavailable")
+            val summary = manager.sync(app.openbubbles.core.sync.SyncMode.INCREMENTAL)
+            if (summary.cancelled) {
+                throw CancellationException("background message synchronization was cancelled")
             }
-            if (summary?.error == null && summary?.cancelled == false) {
-                relinkContacts()
-                CloudSyncWiring.markHistorySyncComplete(context)
+            if (summary.error != null) {
+                throw IllegalStateException("background message synchronization failed")
             }
+            relinkContacts()
+            CloudSyncWiring.markHistorySyncComplete(context)
 
             if (allowNotifications) {
-                chatBox.query()
-                    .equal(Chat_.hasUnreadMessage, true)
-                    .build().use { q ->
-                        q.find().forEach { chat ->
-                            if (!before.containsKey(chat.id)) {
-                                val latest = chat.dbLatestMessage.target
-                                onNewUnread(
-                                    chat.id,
-                                    latest?.text?.takeIf { it.isNotBlank() } ?: "New message",
-                                )
-                            }
-                        }
+                val arrived = messageBox.query()
+                    .greater(Message_.id, newestIncomingBeforeSync)
+                    .equal(Message_.isFromMe, false)
+                    .isNull(Message_.dateRead)
+                    .isNull(Message_.dateDeleted)
+                    .build().use { query -> query.find() }
+                val newestByChat = arrived.groupBy { it.chat.targetId }
+                    .mapValues { (_, messages) ->
+                        messages.maxWithOrNull(
+                            compareBy<Message> { it.dateCreated?.time ?: Long.MIN_VALUE }
+                                .thenBy { it.id },
+                        )!!
                     }
+                val notifications = mutableListOf<Pair<Long, String>>()
+                st.runInTx {
+                    newestByChat.forEach { (chatId, latest) ->
+                        val chat = chatBox.get(chatId) ?: return@forEach
+                        if (chat.dateDeleted != null) return@forEach
+                        chat.hasUnreadMessage = true
+                        chatBox.put(chat)
+                        notifications += chatId to
+                            (latest.text?.takeIf { it.isNotBlank() } ?: "New message")
+                    }
+                }
+                notifications.forEach { (chatId, body) -> onNewUnread(chatId, body) }
             }
         } finally {
             CloudSyncWiring.clear()
@@ -486,6 +773,10 @@ object CoreGraph {
         PushStateHolder.clear(resetError = true)
         val accountWorkers = stopAccountWork()
         if (accountWorkers.isFailure) return accountWorkers
+        val scheduledWorkers = withContext(Dispatchers.IO) {
+            runCatching { app.openbubbles.nativeapp.service.BatterySaver.cancelAccountWork(context) }
+        }
+        if (scheduledWorkers.isFailure) return scheduledWorkers
         val teardown = withContext(Dispatchers.IO) {
             runCatching { previousState?.teardown(true) }.map { Unit }
         }
@@ -533,6 +824,10 @@ object CoreGraph {
         PushStateHolder.clear(resetError = true)
         val accountWorkers = stopAccountWork()
         if (accountWorkers.isFailure) return accountWorkers
+        val scheduledWorkers = withContext(Dispatchers.IO) {
+            runCatching { app.openbubbles.nativeapp.service.BatterySaver.cancelAccountWork(context) }
+        }
+        if (scheduledWorkers.isFailure) return scheduledWorkers
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
@@ -894,8 +1189,15 @@ internal fun messagingAccountOwner(username: String?, handles: Set<String>): Str
 internal class MessagingAccountWorkRegistry(
     private val scope: CoroutineScope,
 ) {
+    private data class MessageWork(
+        val job: Job,
+        var dispatched: Boolean = false,
+        var cancelled: Boolean = false,
+    )
+
     private val lock = Any()
     private val jobs = linkedSetOf<Job>()
+    private val messageJobs = mutableMapOf<Long, MessageWork>()
     private var generation = 0L
     private var accepting = false
 
@@ -924,6 +1226,76 @@ internal class MessagingAccountWorkRegistry(
         }
         job.start()
         return job
+    }
+
+    /** Exactly one account-owned transport job may own a persisted message identity. */
+    fun launchMessage(
+        expectedGeneration: Long,
+        messageId: Long,
+        block: suspend () -> Unit,
+    ): Job? {
+        lateinit var job: Job
+        lateinit var owner: MessageWork
+        synchronized(lock) {
+            if (!accepting || generation != expectedGeneration || messageId in messageJobs) return null
+            job = scope.launch(start = CoroutineStart.LAZY) {
+                if (canPublish(expectedGeneration, messageId)) block()
+            }
+            owner = MessageWork(job)
+            messageJobs[messageId] = owner
+            jobs += job
+            job.invokeOnCompletion {
+                synchronized(lock) {
+                    jobs.remove(job)
+                    if (messageJobs[messageId] === owner) messageJobs.remove(messageId)
+                }
+            }
+        }
+        job.start()
+        return job
+    }
+
+    /** Claims the irreversible Apple boundary before calling native transport. */
+    fun beginDispatch(expectedGeneration: Long, messageId: Long): Boolean = synchronized(lock) {
+        val owner = messageJobs[messageId] ?: return@synchronized false
+        if (!accepting || generation != expectedGeneration || owner.cancelled || owner.dispatched) {
+            return@synchronized false
+        }
+        owner.dispatched = true
+        true
+    }
+
+    fun canPublish(expectedGeneration: Long, messageId: Long): Boolean = synchronized(lock) {
+        val owner = messageJobs[messageId] ?: return@synchronized false
+        accepting && generation == expectedGeneration && !owner.cancelled
+    }
+
+    fun hasMessage(messageId: Long): Boolean = synchronized(lock) { messageId in messageJobs }
+
+    /**
+     * Cancel only work that has not crossed its irreversible native boundary.
+     * The callback durably tombstones the attempt before cancellation can complete.
+     */
+    suspend fun cancelMessageAndJoin(
+        messageId: Long,
+        beforeJoin: () -> Unit = {},
+    ): Boolean {
+        val owner = synchronized(lock) {
+            val active = messageJobs[messageId] ?: return false
+            if (active.dispatched || active.cancelled) return false
+            active.cancelled = true
+            active
+        }
+        try {
+            beforeJoin()
+        } catch (failure: Throwable) {
+            synchronized(lock) {
+                if (messageJobs[messageId] === owner) owner.cancelled = false
+            }
+            throw failure
+        }
+        owner.job.cancelAndJoin()
+        return true
     }
 
     suspend fun invalidateAndJoin() {
@@ -1073,6 +1445,7 @@ object PushStateHolder {
         _state.value = state
         _myHandles.value = handles
         updateRegistration(registration)
+        CoreGraph.resumeOutgoingMessages(context)
         CloudSyncWiring.onStateInstalled(context, state)
         // Warm the vault catalog now: the credential provider and Autofill
         // service are started by the system with no chance to wait for a
@@ -2211,98 +2584,125 @@ private object CoreSender : Sender {
         mentions: List<OutgoingMention> = emptyList(),
     ): OutgoingTextSend {
         val graph = CoreGraph
+        val context = AppContext.current ?: error("application context unavailable")
         val store = graph.store ?: error("store unavailable")
-        val ing = graph.ingestor ?: error("ingestor unavailable")
         val pushState = PushStateHolder.state
-        val accountGeneration = graph.messagingGeneration()
-        val accountHandles = PushStateHolder.myHandles.toSet()
-        val (stage, myHandle) = withContext(Dispatchers.IO) {
+        val myHandle = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
-            val handle = sendingHandle(chat)
+            sendingHandle(chat)
                 ?: (if (pushState == null) chat.usingHandle else null)
                 ?: error("no registered sending handle")
+        }
+        val account = graph.prepareOutgoingAccount(context, myHandle)
+        val stage = withContext(Dispatchers.IO) {
+            val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             stageOutgoingText(
                 store = store,
                 chatGuid = chat.guid,
-                sender = handle,
+                sender = myHandle,
                 text = text,
                 effectId = effectId,
                 replyGuid = replyGuid,
                 replyPartLocator = replyPartLocator,
                 subject = subject,
                 attributedBody = outgoingAttributedBody(text, mentions),
-            ) to handle
+            )
         }
-        val tempGuid = stage.tempGuid
-        val accepted = OutgoingTextSend(stage.message.id)
-
-        if (pushState == null) {
-            withContext(Dispatchers.IO) {
-                failOutgoingText(store, tempGuid, "Not connected to Apple push")
-            }
-            return accepted
+        val entry = OutgoingOutboxEntry(
+            accountOwner = account.owner,
+            messageId = stage.message.id,
+            chatId = chatId,
+            sender = myHandle,
+            kind = OutgoingOutboxKind.TEXT,
+            mentions = mentions.map {
+                OutgoingOutboxMention(it.start, it.end, it.handle, it.displayText)
+            },
+        )
+        try {
+            graph.enqueueOutgoing(context, entry)
+        } catch (failure: Throwable) {
+            failOutgoingText(store, stage.tempGuid, "Message could not be scheduled safely")
+            throw failure
         }
+        if (dispatch(entry, account.generation) == null) {
+            failOutgoingText(store, stage.tempGuid, "Apple messaging account is no longer active")
+            graph.failOutgoingAttempt(context, entry)
+        }
+        return OutgoingTextSend(stage.message.id)
+    }
 
-        val dispatch = graph.launchMessagingWork(accountGeneration) {
-            sendLocks.computeIfAbsent(chatId) { Mutex() }.withLock {
-                var failureLookupGuid = tempGuid
+    fun dispatch(entry: OutgoingOutboxEntry, accountGeneration: Long): Job? {
+        val graph = CoreGraph
+        val context = AppContext.current ?: return null
+        val store = graph.store ?: return null
+        val ingestor = graph.ingestor ?: return null
+        return graph.launchOutgoing(entry, accountGeneration) {
+            sendLocks.computeIfAbsent(entry.chatId) { Mutex() }.withLock {
+                var failureLookupGuid: String? = null
                 try {
-                    check(graph.isCurrentMessagingGeneration(accountGeneration) &&
-                        PushStateHolder.state === pushState) {
+                    check(graph.isCurrentOutgoing(entry, accountGeneration)) {
                         "Apple messaging account is no longer active"
                     }
-                    val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
-                    val conversation = sendConversation(store, chat, myHandle)
-                    maybeShareProfile(pushState, chat, conversation, myHandle)
-                    check(graph.isCurrentMessagingGeneration(accountGeneration) &&
-                        PushStateHolder.state === pushState) {
-                        "Apple messaging account changed before send"
+                    val row = MessageRepo(store).messageById(entry.messageId)
+                        ?: error("staged outgoing message disappeared")
+                    val tempGuid = row.guid
+                    failureLookupGuid = tempGuid
+                    val pushState = graph.awaitOutgoingPushState(context, entry, accountGeneration)
+                    val chat = store.boxFor(Chat::class.java).get(entry.chatId)
+                        ?: error("outgoing conversation disappeared")
+                    val conversation = sendConversation(store, chat, entry.sender)
+                    maybeShareProfile(pushState, chat, conversation, entry.sender)
+                    check(graph.isCurrentOutgoing(entry, accountGeneration) &&
+                        PushStateHolder.state === pushState &&
+                        graph.beginOutgoingDispatch(context, entry, accountGeneration)
+                    ) { "Apple messaging account changed before send" }
+                    val text = row.text.orEmpty()
+                    val mentions = entry.mentions.map {
+                        OutgoingMention(it.start, it.end, it.handle, it.displayText)
                     }
                     val inst = if (mentions.isEmpty()) {
                         pushState.sendText(
                             conversation,
-                            myHandle,
+                            entry.sender,
                             text,
-                            replyGuid,
-                            replyPartLocator,
-                            effectId,
-                            subject,
+                            row.threadOriginatorGuid,
+                            row.threadOriginatorPart,
+                            row.expressiveSendStyleId,
+                            row.subject,
                         )
                     } else {
                         pushState.sendParts(
                             conversation,
-                            myHandle,
+                            entry.sender,
                             outgoingMessageParts(text, mentions),
-                            replyGuid,
-                            replyPartLocator,
-                            effectId,
-                            subject,
+                            row.threadOriginatorGuid,
+                            row.threadOriginatorPart,
+                            row.expressiveSendStyleId,
+                            row.subject,
                         )
                     }
                     failureLookupGuid = inst.id
-                    if (!graph.isCurrentMessagingGeneration(accountGeneration) ||
+                    if (!graph.isCurrentOutgoing(entry, accountGeneration) ||
                         PushStateHolder.state !== pushState
                     ) return@withLock
                     // Promote the staged row to the Rust staging guid so the echo and
                     // SendConfirm receipts find it (same swap Dart performs).
                     promoteOutgoingText(store, tempGuid, inst.id)
-                    if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@withLock
-                    ing.ingest(UPushMessage.IMessage(inst), accountHandles)
+                    if (!graph.isCurrentOutgoing(entry, accountGeneration)) return@withLock
+                    ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles.toSet())
                 } catch (failure: CancellationException) {
                     throw failure
                 } catch (failure: Throwable) {
-                    if (graph.isCurrentMessagingGeneration(accountGeneration)) {
+                    if (graph.isCurrentOutgoing(entry, accountGeneration)) {
                         val reason = "Message send failed (${failure.javaClass.simpleName})"
-                        failOutgoingText(store, failureLookupGuid, reason)
-                            ?: failOutgoingText(store, tempGuid, reason)
+                        val row = MessageRepo(store).messageById(entry.messageId)
+                        failureLookupGuid?.let { failOutgoingText(store, it, reason) }
+                            ?: row?.let { failOutgoingText(store, it.guid, reason) }
+                        graph.failOutgoingAttempt(context, entry)
                     }
                 }
             }
         }
-        if (dispatch == null) {
-            failOutgoingText(store, tempGuid, "Apple messaging account is no longer active")
-        }
-        return accepted
     }
 }
 
@@ -2521,10 +2921,17 @@ private object CoreMessageActions : MessageActions {
         }
     }
 
-    override suspend fun cancelOutgoing(messageId: Long): Boolean =
+    override suspend fun deleteEverywhere(messageIds: Collection<Long>) {
         withContext(Dispatchers.IO) {
-            CoreGraph.store?.let { MessageRepo(it).cancelOutgoing(messageId) } == true
+            CoreGraph.store?.let { MessageRepo(it).deleteEverywhere(messageIds) }
         }
+    }
+
+    override suspend fun cancelOutgoing(messageId: Long): Boolean =
+        withContext(Dispatchers.IO) { CoreGraph.cancelOutgoingMessage(messageId) }
+
+    override suspend fun retryOutgoing(messageId: Long): Boolean =
+        withContext(Dispatchers.IO) { CoreGraph.retryOutgoingMessage(messageId) }
 
     override suspend fun markForwarded(messageIds: Collection<Long>) {
         withContext(Dispatchers.IO) {
@@ -2935,24 +3342,32 @@ internal object CoreAttachmentSender : AttachmentSender {
         attachments: List<OutgoingAttachment>,
         caption: String?,
         subject: String?,
+    ): OutgoingAttachmentSend = send(chatId, attachments, caption, subject, null, null)
+
+    override suspend fun send(
+        chatId: Long,
+        attachments: List<OutgoingAttachment>,
+        caption: String?,
+        subject: String?,
+        replyGuid: String?,
+        replyPartLocator: String?,
     ): OutgoingAttachmentSend {
         require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
         val graph = CoreGraph
+        val context = AppContext.current ?: error("application context unavailable")
         val store = graph.store ?: error("store unavailable")
-        val ing = graph.ingestor ?: error("ingestor unavailable")
         val pushState = PushStateHolder.state
-        val accountGeneration = graph.messagingGeneration()
-        val accountHandles = PushStateHolder.myHandles.toSet()
-        val prepared = withContext(Dispatchers.IO) {
+        val myHandle = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
-            val myHandle = sendingHandle(chat)
+            sendingHandle(chat)
                 ?: (if (pushState == null) chat.usingHandle else null)
                 ?: error("no registered sending handle")
+        }
+        val account = graph.prepareOutgoingAccount(context, myHandle)
+        val prepared = withContext(Dispatchers.IO) {
+            val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val tempGuid = MessageIngestor.tempGuid()
-            val root = File(
-                AppContext.current?.dataDir ?: error("no files dir"),
-                "app_flutter",
-            )
+            val root = File(context.dataDir, "app_flutter")
             val disk = AttachmentStore(store, root)
             val stagedGuids = attachments.indices.map { index -> "${tempGuid}_att$index" }
             val destinations = attachments.mapIndexed { index, attachment ->
@@ -2966,7 +3381,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                     stages = attachments.mapIndexed { index, attachment ->
                         OutgoingPayloadStage(attachment.file, destinations[index])
                     },
-                    cacheRoot = AppContext.current?.cacheDir ?: error("no cache dir"),
+                    cacheRoot = context.cacheDir,
                 ) { payloads ->
                     val message = CoreGraphStageHolder.messageRepo(store)
                         .stageOutgoingMessageWithAttachments(
@@ -2984,6 +3399,8 @@ internal object CoreAttachmentSender : AttachmentSender {
                                 )
                             },
                             subject = subject,
+                            threadOriginatorGuid = replyGuid,
+                            threadOriginatorPart = replyPartLocator,
                         )
                     PreparedAttachmentSend(
                         messageId = message.id,
@@ -3004,61 +3421,126 @@ internal object CoreAttachmentSender : AttachmentSender {
         // whole batch (not just the first upload) reports through it.
         val progressGuid = prepared.stagedGuids.first()
         UploadProgressBoard.update(progressGuid, 0L to 0L)
-
-        if (pushState == null) {
+        val entry = OutgoingOutboxEntry(
+            accountOwner = account.owner,
+            messageId = prepared.messageId,
+            chatId = chatId,
+            sender = myHandle,
+            kind = OutgoingOutboxKind.ATTACHMENT,
+        )
+        try {
+            graph.enqueueOutgoing(context, entry)
+        } catch (failure: Throwable) {
             CoreGraphStageHolder.messageRepo(store)
-                .failOutgoing(prepared.tempGuid, "Not connected to Apple push")
+                .failOutgoing(prepared.tempGuid, "Attachment send could not be scheduled safely")
             UploadProgressBoard.clear(progressGuid)
-            Log.w(
-                ATTACHMENT_SEND_TAG,
-                "attachment send staged as failed with no push state (files=${prepared.payloads.size})",
-            )
-            return OutgoingAttachmentSend(prepared.messageId)
+            throw failure
         }
+        if (dispatch(entry, account.generation) == null) {
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(prepared.tempGuid, "Apple messaging account is no longer active")
+            graph.failOutgoingAttempt(context, entry)
+            UploadProgressBoard.clear(progressGuid)
+        }
+        return OutgoingAttachmentSend(prepared.messageId)
+    }
 
-        val dispatch = graph.launchMessagingWork(accountGeneration) {
-            var failureLookupGuid = prepared.tempGuid
+    fun dispatch(entry: OutgoingOutboxEntry, accountGeneration: Long): Job? {
+        val graph = CoreGraph
+        val context = AppContext.current ?: return null
+        val store = graph.store ?: return null
+        val ingestor = graph.ingestor ?: return null
+        return graph.launchOutgoing(entry, accountGeneration) {
+            var failureLookupGuid: String? = null
+            var progressGuid: String? = null
             try {
-                check(graph.isCurrentMessagingGeneration(accountGeneration) &&
-                    PushStateHolder.state === pushState) {
+                check(graph.isCurrentOutgoing(entry, accountGeneration)) {
                     "Apple messaging account is no longer active"
                 }
+                val row = MessageRepo(store).messageById(entry.messageId)
+                    ?: error("staged attachment message disappeared")
+                failureLookupGuid = row.guid
+                val chat = store.boxFor(Chat::class.java).get(entry.chatId)
+                    ?: error("outgoing conversation disappeared")
+                val disk = AttachmentStore(store, File(context.dataDir, "app_flutter"))
+                val persistedAttachments = row.dbAttachments.toList()
+                check(persistedAttachments.isNotEmpty()) { "staged attachment payloads disappeared" }
+                val attachments = persistedAttachments.map { attachment ->
+                    val payload = disk.existingFile(attachment)
+                        ?: error("staged attachment payload is unavailable")
+                    OutgoingAttachment(
+                        file = payload,
+                        mime = attachment.mimeType ?: "application/octet-stream",
+                        uti = attachment.uti ?: "public.data",
+                        name = attachment.transferName,
+                        sizeBytes = payload.length(),
+                    )
+                }
+                val prepared = PreparedAttachmentSend(
+                    messageId = row.id,
+                    tempGuid = row.guid,
+                    myHandle = entry.sender,
+                    conversation = sendConversation(store, chat, entry.sender),
+                    disk = disk,
+                    stagedGuids = persistedAttachments.map { attachment ->
+                        attachment.guid ?: error("staged attachment has no identity")
+                    },
+                    payloads = attachments.map { it.file },
+                )
+                progressGuid = prepared.stagedGuids.first()
+                UploadProgressBoard.update(progressGuid, 0L to 0L)
+                val pushState = graph.awaitOutgoingPushState(context, entry, accountGeneration)
+                check(graph.isCurrentOutgoing(entry, accountGeneration) &&
+                    PushStateHolder.state === pushState &&
+                    graph.beginOutgoingDispatch(context, entry, accountGeneration)
+                ) { "Apple messaging account changed before attachment send" }
                 Log.i(
                     ATTACHMENT_SEND_TAG,
                     "attachment send request files=${prepared.payloads.size} " +
-                        "caption=${caption?.isNotBlank() == true} subject=${subject != null}",
+                        "caption=${row.text?.isNotBlank() == true} subject=${row.subject != null}",
                 )
                 val inst = pushState.sendAttachments(
                     USendAttachmentsRequest(
                         conversation = prepared.conversation,
                         sender = prepared.myHandle,
                         filePaths = prepared.payloads.map { it.absolutePath },
-                        text = caption?.takeIf { it.isNotBlank() },
+                        text = row.text?.takeIf { it.isNotBlank() },
                         mimes = attachments.map { it.mime },
                         utis = attachments.map { it.uti },
                         names = attachments.map { it.name },
-                        replyGuid = null,
-                        replyPart = null,
+                        replyGuid = row.threadOriginatorGuid,
+                        replyPart = row.threadOriginatorPart,
                         effect = null,
-                        subject = subject,
+                        subject = row.subject,
                         voice = false,
                     ),
                     attachmentSendProgressCallback(),
                 )
                 failureLookupGuid = inst.id
-                if (!graph.isCurrentMessagingGeneration(accountGeneration) ||
+                if (!graph.isCurrentOutgoing(entry, accountGeneration) ||
                     PushStateHolder.state !== pushState
-                ) return@launchMessagingWork
+                ) return@launchOutgoing
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
                 val returned = returnedAttachmentPlan(normal, inst.id, prepared.stagedGuids)
                 // Move every returned payload before ingest. Even an
                 // incomplete response promotes the subset whose ObjectBox
                 // rows the echo is about to move to real guids.
-                returned.promotions.forEach { (local, real) ->
-                    check(graph.isCurrentMessagingGeneration(accountGeneration)) {
-                        "Apple messaging account changed during attachment promotion"
+                val promoted = mutableListOf<Pair<String, String>>()
+                try {
+                    returned.promotions.forEach { (local, real) ->
+                        check(graph.isCurrentOutgoing(entry, accountGeneration)) {
+                            "Apple messaging account changed during attachment promotion"
+                        }
+                        check(prepared.disk.promoteLocalDirectory(local, real)) {
+                            "could not promote an outgoing attachment payload"
+                        }
+                        promoted += local to real
                     }
-                    prepared.disk.promoteLocalDirectory(local, real)
+                } catch (failure: Throwable) {
+                    promoted.asReversed().forEach { (local, real) ->
+                        runCatching { prepared.disk.promoteLocalDirectory(real, local) }
+                    }
+                    throw failure
                 }
                 Log.i(
                     ATTACHMENT_SEND_TAG,
@@ -3066,13 +3548,13 @@ internal object CoreAttachmentSender : AttachmentSender {
                         "attachments=${returned.rawAttachmentCount} " +
                         "persisted=${returned.persistedAttachmentGuids.size} " +
                         "staged=${prepared.stagedGuids.size} " +
-                        "caption=${caption?.isNotBlank() == true}",
+                        "caption=${row.text?.isNotBlank() == true}",
                 )
                 // Promote to the Rust staging guid so the echo and SendConfirm
                 // receipts find the row (same swap Dart performs).
                 val messageBox = store.boxFor(Message::class.java)
                 store.runInTx {
-                    if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@runInTx
+                    if (!graph.isCurrentOutgoing(entry, accountGeneration)) return@runInTx
                     messageBox.query()
                         .equal(
                             Message_.guid,
@@ -3086,8 +3568,8 @@ internal object CoreAttachmentSender : AttachmentSender {
                             messageBox.put(this)
                         }
                 }
-                if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@launchMessagingWork
-                ing.ingest(UPushMessage.IMessage(inst), accountHandles)
+                if (!graph.isCurrentOutgoing(entry, accountGeneration)) return@launchOutgoing
+                ingestor.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles.toSet())
                 if (!returned.complete) {
                     // The accepted message does not carry the attachment set we
                     // staged, so this send is not a success. Surface it after
@@ -3102,30 +3584,27 @@ internal object CoreAttachmentSender : AttachmentSender {
                         inst.id,
                         "Only ${returned.rawAttachmentCount} of ${prepared.stagedGuids.size} attachments were sent",
                     )
+                    graph.failOutgoingAttempt(context, entry)
                 }
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                if (graph.isCurrentMessagingGeneration(accountGeneration)) {
+                if (graph.isCurrentOutgoing(entry, accountGeneration)) {
                     val reason = "Attachment send failed (${failure.javaClass.simpleName})"
                     val repository = CoreGraphStageHolder.messageRepo(store)
-                    val marked = repository.failOutgoing(failureLookupGuid, reason)
-                        ?: repository.failOutgoing(prepared.tempGuid, reason)
+                    val row = repository.messageById(entry.messageId)
+                    val marked = failureLookupGuid?.let { repository.failOutgoing(it, reason) }
+                        ?: row?.let { repository.failOutgoing(it.guid, reason) }
+                    graph.failOutgoingAttempt(context, entry)
                     Log.w(
                         ATTACHMENT_SEND_TAG,
                         "attachment send failed (${failure.javaClass.simpleName}) marked=${marked != null}",
                     )
                 }
             } finally {
-                UploadProgressBoard.clear(progressGuid)
+                progressGuid?.let(UploadProgressBoard::clear)
             }
         }
-        if (dispatch == null) {
-            CoreGraphStageHolder.messageRepo(store)
-                .failOutgoing(prepared.tempGuid, "Apple messaging account is no longer active")
-            UploadProgressBoard.clear(progressGuid)
-        }
-        return OutgoingAttachmentSend(prepared.messageId)
     }
 }
 
