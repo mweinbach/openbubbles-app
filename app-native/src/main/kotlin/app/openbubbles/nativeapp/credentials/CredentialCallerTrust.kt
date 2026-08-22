@@ -1,13 +1,14 @@
 package app.openbubbles.nativeapp.credentials
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.content.pm.verify.domain.DomainVerificationManager
-import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.core.net.toUri
 import androidx.credentials.CreatePasswordRequest
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.GetPasswordOption
@@ -92,12 +93,13 @@ internal object CredentialCallerTrust {
     }
 
     private fun isDefaultBrowser(context: Context, packageName: String): Boolean = runCatching {
-        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(DEFAULT_BROWSER_PROBE))
+        val browserIntent = Intent(Intent.ACTION_VIEW, DEFAULT_BROWSER_PROBE.toUri())
             .addCategory(Intent.CATEGORY_BROWSABLE)
         context.packageManager.resolveActivity(browserIntent, PackageManager.MATCH_DEFAULT_ONLY)
             ?.activityInfo?.packageName == packageName
     }.getOrDefault(false)
 
+    @SuppressLint("VisibleForTests") // Jetpack exposes no public factory for its canonical signer verifier.
     private fun isSignedPrivilegedBrowser(
         context: Context,
         packageName: String,

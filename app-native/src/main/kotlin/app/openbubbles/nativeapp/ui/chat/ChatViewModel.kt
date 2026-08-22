@@ -3,6 +3,7 @@ package app.openbubbles.nativeapp.ui.chat
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -209,7 +210,7 @@ private fun VideoCompressionRequest.toBundle() = Bundle().apply {
 
 private fun Bundle.toVideoCompressionRequest(): VideoCompressionRequest? = runCatching {
     VideoCompressionRequest(
-        source = Uri.parse(requireNotNull(getString("source"))),
+        source = requireNotNull(getString("source")).toUri(),
         displayName = requireNotNull(getString("displayName")),
         metadata = OutgoingVideoMetadata(
             sizeBytes = optionalLong("sizeBytes"),
@@ -262,6 +263,7 @@ class ChatViewModel(
     private val stickerSender: StickerSender,
     typingRepository: TypingRepository,
     private val readReceiptSender: ReadReceiptSender,
+    private val savedStateHandle: SavedStateHandle,
     private val smsSender: SmsSender = SmsBridge.sender,
     private val smsAttachmentSender: AttachmentSender = SmsBridge.attachmentSender,
     initialInput: String? = null,
@@ -272,7 +274,6 @@ class ChatViewModel(
     },
     private val participantLookupDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val outgoingCacheRoot: File? = AppContext.current?.cacheDir,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     init {

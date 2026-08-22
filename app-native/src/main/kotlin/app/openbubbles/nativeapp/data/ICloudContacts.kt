@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
@@ -784,6 +785,7 @@ object ICloudContactSync {
     }
 
     /** Clears only CardDAV-owned rows, preferences, avatars, and mirror state. */
+    @SuppressLint("UseKtx") // Account teardown must fail closed when its durable clear fails.
     suspend fun clearAccountState(context: Context): Result<Unit> = mutex.withLock {
         // Invalidate sync calls that captured the old account while waiting
         // for this mutex. An in-flight pass finishes first, then is erased.

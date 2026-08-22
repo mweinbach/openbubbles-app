@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data
 
+import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
@@ -125,6 +126,7 @@ object ICloudKeychainEnrollment {
     }
 
     /** Synchronously destroys both legacy plaintext and account-owned ciphertext/key material. */
+    @SuppressLint("UseKtx") // Recovery secrets must not survive a failed synchronous clear.
     fun clearRecoveryCode(context: Context) {
         synchronized(recoveryLock) {
             val legacy = legacyPrefs(context)
@@ -188,6 +190,7 @@ object ICloudKeychainEnrollment {
             ProtectedRecoveryCode(accountScope, Base64.getEncoder().encodeToString(encrypted))
         }
 
+    @SuppressLint("UseKtx") // Account scope and ciphertext must commit atomically with a checked result.
     private fun persistRecoveryCode(context: Context, protectedCode: ProtectedRecoveryCode) {
         synchronized(recoveryLock) {
             check(currentRecoveryAccountScope(context) == protectedCode.accountScope) {
@@ -203,6 +206,7 @@ object ICloudKeychainEnrollment {
         }
     }
 
+    @SuppressLint("UseKtx") // Legacy plaintext removal must be durable before another account proceeds.
     private fun removeUnscopedLegacyRecoveryCode(context: Context) {
         val legacy = legacyPrefs(context)
         if (!legacy.contains(LEGACY_KEYCHAIN_RECOVERY_CODE)) return
@@ -222,6 +226,7 @@ object ICloudKeychainEnrollment {
         return recoveryCodeAccountScope(username)
     }
 
+    @SuppressLint("UseKtx") // Reject an unprotected wrapping key if its old ciphertext cannot be cleared.
     @Suppress("DEPRECATION")
     private fun recoveryPublicKey(context: Context): java.security.PublicKey {
         val keyguard = context.getSystemService(KeyguardManager::class.java)

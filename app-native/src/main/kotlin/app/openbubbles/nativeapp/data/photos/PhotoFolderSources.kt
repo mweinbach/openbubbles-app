@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data.photos
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -72,6 +73,7 @@ class PhotoFolderSources(private val context: Context) {
      * including an orphan whose preference write was previously lost, then
      * clears the account-specific source list.
      */
+    @SuppressLint("UseKtx") // The cleanup result must retain the synchronous preference-commit verdict.
     internal fun clearAccountState(): PhotoFolderGrantCleanup {
         val storedResult = runCatching { prefs.getStringSet(KEY_URIS, emptySet()).orEmpty() }
         val stored = storedResult.getOrDefault(emptySet())

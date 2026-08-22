@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.data.contacts
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
@@ -110,6 +111,7 @@ object ContactDeviceSync {
      * and periodic work. Contacts already copied into Android's provider are
      * user-owned and deliberately remain on the phone.
      */
+    @SuppressLint("UseKtx") // Account cleanup must observe the synchronous commit result.
     suspend fun clearAccountState(context: Context): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runAccountCleanupSteps(

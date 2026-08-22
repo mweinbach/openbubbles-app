@@ -20,6 +20,7 @@ import android.provider.ContactsContract.CommonDataKinds.StructuredName
 import android.provider.ContactsContract.Data
 import android.provider.ContactsContract.RawContacts
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.scale
 import app.openbubbles.core.contacts.MergeAction
 import app.openbubbles.core.contacts.MergePlan
 import app.openbubbles.core.contacts.RawContact
@@ -587,11 +588,10 @@ private fun decodeContactAvatar(file: File, hash: String): ContactAvatarPhoto? =
         MAX_CONTACT_PHOTO_DIM.toFloat() / maxOf(decoded.width, decoded.height),
     )
     val bounded = if (scale < 1f) {
-        Bitmap.createScaledBitmap(
-            decoded,
+        decoded.scale(
             maxOf(1, (decoded.width * scale).toInt()),
             maxOf(1, (decoded.height * scale).toInt()),
-            true,
+            filter = true,
         ).also { decoded.recycle() }
     } else {
         decoded
@@ -621,11 +621,10 @@ private fun encodeBoundedContactAvatar(bitmap: Bitmap): EncodedAvatar? {
             }
             if (maxOf(current.width, current.height) <= MIN_CONTACT_PHOTO_DIM) return null
             val scale = 0.75f
-            val smaller = Bitmap.createScaledBitmap(
-                current,
+            val smaller = current.scale(
                 maxOf(MIN_CONTACT_PHOTO_DIM, (current.width * scale).toInt()),
                 maxOf(MIN_CONTACT_PHOTO_DIM, (current.height * scale).toInt()),
-                true,
+                filter = true,
             )
             if (ownsCurrent) current.recycle()
             current = smaller

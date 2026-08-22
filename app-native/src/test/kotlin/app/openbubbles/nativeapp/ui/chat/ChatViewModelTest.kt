@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.ui.chat
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -1077,6 +1078,7 @@ class ChatViewModelTest {
             stickerSender = stickerSender,
             typingRepository = NoopTyping,
             readReceiptSender = readReceiptSender,
+            savedStateHandle = SavedStateHandle(),
             smsSender = smsSender,
             smsAttachmentSender = smsAttachmentSender,
             historySyncActive = historySyncActive,

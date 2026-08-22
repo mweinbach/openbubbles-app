@@ -186,6 +186,7 @@ object PhotosBackgroundSync {
     }
 
     /** The switch, watermark, and schedule belong to the signed-in account. */
+    @SuppressLint("UseKtx") // Account cleanup must fail if the synchronous preference clear fails.
     suspend fun clearAccountState(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         runAccountCleanupSteps(
             { cancelAndAwait(context) },

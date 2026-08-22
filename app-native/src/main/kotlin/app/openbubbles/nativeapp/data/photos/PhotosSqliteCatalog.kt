@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 import app.openbubbles.core.photos.CachedPhotos
 import app.openbubbles.core.photos.PhotoMediaKind
 import app.openbubbles.core.photos.PhotoResourceKind
@@ -80,8 +81,7 @@ class PhotosSqliteCatalog(context: Context) :
         synchronized(metadataMutationLock) {
             val database = writableDatabase
             var committedBaseline: PhotoMetadataBaseline? = null
-            database.beginTransaction()
-            try {
+            database.transaction {
                 val currentRevision = metadataRevision(database)
                 val previousAssets = metadataBaseline
                     ?.takeIf { baseline -> currentRevision != null && baseline.revision == currentRevision }
@@ -128,9 +128,6 @@ class PhotosSqliteCatalog(context: Context) :
                     SQLiteDatabase.CONFLICT_REPLACE,
                 )
                 committedBaseline = PhotoMetadataBaseline(nextRevision, mutation.assetsById)
-                database.setTransactionSuccessful()
-            } finally {
-                database.endTransaction()
             }
             // Never expose an optimistic baseline: a failed transaction must
             // make the next pass derive its state from committed SQLite rows.
@@ -217,12 +214,8 @@ class PhotosSqliteCatalog(context: Context) :
     suspend fun clearAccountData(): Unit = withContext(Dispatchers.IO) {
         synchronized(metadataMutationLock) {
             val database = writableDatabase
-            database.beginTransaction()
-            try {
+            database.transaction {
                 ACCOUNT_CLEAR_TABLES.forEach { table -> database.delete(table, null, null) }
-                database.setTransactionSuccessful()
-            } finally {
-                database.endTransaction()
             }
             metadataBaseline = null
         }

@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.scale
 import androidx.exifinterface.media.ExifInterface
 import app.openbubbles.core.photos.PhotoTimeZone
 import java.io.File
@@ -301,12 +302,11 @@ private fun Bitmap.transformed(matrix: Matrix): Bitmap {
 private fun Bitmap.scaledToMaxDimension(maxDimension: Int): Bitmap {
     val longest = max(width, height)
     if (longest <= maxDimension) return this
-    val scale = maxDimension.toFloat() / longest.toFloat()
-    val scaled = Bitmap.createScaledBitmap(
-        this,
-        (width * scale).roundToInt().coerceAtLeast(1),
-        (height * scale).roundToInt().coerceAtLeast(1),
-        true,
+    val scaleFactor = maxDimension.toFloat() / longest.toFloat()
+    val scaled = scale(
+        (width * scaleFactor).roundToInt().coerceAtLeast(1),
+        (height * scaleFactor).roundToInt().coerceAtLeast(1),
+        filter = true,
     )
     if (scaled !== this) recycle()
     return scaled

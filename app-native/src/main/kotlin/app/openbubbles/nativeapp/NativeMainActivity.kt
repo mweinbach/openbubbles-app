@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import app.openbubbles.nativeapp.data.AppearancePrefs
 import app.openbubbles.nativeapp.data.CoreGraph
@@ -372,7 +373,7 @@ class NativeMainActivity : FragmentActivity() {
                         },
                         hasReadGrant = { grantedStream ->
                             checkUriPermission(
-                                Uri.parse(grantedStream),
+                                grantedStream.toUri(),
                                 Process.myPid(),
                                 Process.myUid(),
                                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
