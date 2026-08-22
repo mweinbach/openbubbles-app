@@ -45,6 +45,37 @@ private class GatedCliquePort(
     override suspend fun isInClique(): Boolean = clique.await()
 }
 
+private class ControlledVaultMutationPort(
+    private val delegate: FakePasswordsPort,
+    var failure: String? = null,
+    var gate: CompletableDeferred<Unit>? = null,
+) : PasswordsPort by delegate {
+    private suspend fun beforeMutation() {
+        gate?.await()
+        failure?.let { error(it) }
+    }
+
+    override suspend fun createPassword(site: String, username: String, password: String, groupId: String?) {
+        beforeMutation()
+        delegate.createPassword(site, username, password, groupId)
+    }
+
+    override suspend fun createGroup(name: String) {
+        beforeMutation()
+        delegate.createGroup(name)
+    }
+
+    override suspend fun acceptInvite(id: String) {
+        beforeMutation()
+        delegate.acceptInvite(id)
+    }
+
+    override suspend fun declineInvite(id: String) {
+        beforeMutation()
+        delegate.declineInvite(id)
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordsViewModelTest {
 
@@ -344,6 +375,109 @@ class PasswordsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<String>(), model.uiState.value.invites.map { it.id })
+    }
+
+    @Test
+    fun `password draft survives failed writes and stays open until a successful retry`() = runTest(dispatcher) {
+        val operation = CompletableDeferred<Unit>()
+        val delegate = FakePasswordsPort()
+        val port = ControlledVaultMutationPort(delegate, failure = "Apple is offline", gate = operation)
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+
+        model.prepareCreatePassword()
+        val draft = VaultPasswordDraft(
+            site = "example.com",
+            username = "ada",
+            password = "generated-secret",
+            passwordVisible = true,
+        )
+        model.updatePasswordDraft(draft)
+        model.createPassword(draft.site, draft.username, draft.password, draft.groupId)
+        runCurrent()
+
+        assertEquals(true, model.uiState.value.busy)
+        assertEquals(draft, model.uiState.value.composer?.passwordDraft)
+        model.dismissComposer()
+        assertEquals(draft, model.uiState.value.composer?.passwordDraft)
+
+        operation.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(false, model.uiState.value.busy)
+        assertEquals(draft, model.uiState.value.composer?.passwordDraft)
+        assertEquals("Apple is offline", model.uiState.value.composer?.error)
+        assertEquals(null, model.uiState.value.error)
+
+        port.failure = null
+        port.gate = null
+        model.createPassword(draft.site, draft.username, draft.password, draft.groupId)
+        advanceUntilIdle()
+
+        assertEquals(null, model.uiState.value.composer)
+        assertEquals(listOf("example.com"), delegate.items.map { it.title })
+    }
+
+    @Test
+    fun `closing the password editor discards its sensitive memory-only draft`() = runTest(dispatcher) {
+        val model = PasswordsViewModel(FakePasswordsPort())
+        advanceUntilIdle()
+
+        model.prepareCreatePassword()
+        model.updatePasswordDraft(VaultPasswordDraft(site = "example.com", password = "must-not-survive"))
+        assertEquals("must-not-survive", model.uiState.value.composer?.passwordDraft?.password)
+
+        model.dismissComposer()
+        assertEquals(null, model.uiState.value.composer)
+
+        model.prepareCreatePassword()
+        assertEquals("", model.uiState.value.composer?.passwordDraft?.password)
+    }
+
+    @Test
+    fun `group creation failure retains the typed name for an inline retry`() = runTest(dispatcher) {
+        val delegate = FakePasswordsPort()
+        val port = ControlledVaultMutationPort(delegate, failure = "Group creation failed")
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+
+        model.openCreateGroup()
+        model.updateGroupDraft("Family")
+        model.createGroup("Family")
+        advanceUntilIdle()
+
+        assertEquals(VaultComposerKind.CreateGroup, model.uiState.value.composer?.kind)
+        assertEquals("Family", model.uiState.value.composer?.groupDraft)
+        assertEquals("Group creation failed", model.uiState.value.composer?.error)
+
+        port.failure = null
+        model.createGroup(model.uiState.value.composer?.groupDraft.orEmpty())
+        advanceUntilIdle()
+
+        assertEquals(null, model.uiState.value.composer)
+        assertEquals(listOf("Family"), delegate.groups.map { it.name })
+    }
+
+    @Test
+    fun `invitation remains actionable after a failed response and closes on success`() = runTest(dispatcher) {
+        val invite = VaultInviteUi("inv", "Family", "alice@example.com")
+        val delegate = FakePasswordsPort(invites = listOf(invite))
+        val port = ControlledVaultMutationPort(delegate, failure = "Invitation response failed")
+        val model = PasswordsViewModel(port)
+        advanceUntilIdle()
+
+        model.openInvite(invite)
+        model.acceptInvite(invite.id)
+        advanceUntilIdle()
+
+        assertEquals(invite, model.uiState.value.composer?.invite)
+        assertEquals("Invitation response failed", model.uiState.value.composer?.error)
+
+        port.failure = null
+        model.acceptInvite(invite.id)
+        advanceUntilIdle()
+
+        assertEquals(null, model.uiState.value.composer)
+        assertTrue(delegate.invites.isEmpty())
     }
 
     @Test

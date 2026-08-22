@@ -160,6 +160,29 @@ private fun VaultGroupRecord.ui() = VaultGroupUi(
     members = members.map { VaultGroupMemberUi(it.name, it.handle, it.joined, it.currentUser) },
 )
 
+/**
+ * A credential draft lives only in its navigation-entry ViewModel. In
+ * particular, its password must never enter SavedStateHandle, a Bundle, the
+ * durable catalog, or a rememberSaveable slot.
+ */
+data class VaultPasswordDraft(
+    val site: String = "",
+    val username: String = "",
+    val password: String = "",
+    val groupId: String? = null,
+    val passwordVisible: Boolean = false,
+)
+
+enum class VaultComposerKind { CreatePassword, CreateGroup, Invite }
+
+data class VaultComposerUiState(
+    val kind: VaultComposerKind,
+    val passwordDraft: VaultPasswordDraft? = null,
+    val groupDraft: String = "",
+    val invite: VaultInviteUi? = null,
+    val error: String? = null,
+)
+
 data class PasswordsUiState(
     val loading: Boolean = true,
     val inClique: Boolean? = null,
@@ -174,6 +197,8 @@ data class PasswordsUiState(
     val groupsLoaded: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
+    /** Transient, memory-only editor retained by this entry's ViewModel. */
+    val composer: VaultComposerUiState? = null,
 ) {
     /** The shown category has not produced content yet. */
     val categoryLoading: Boolean get() = category !in loadedCategories
@@ -569,32 +594,94 @@ class PasswordsViewModel(
 
     fun setQuery(query: String) = mutableState.update { it.copy(query = query) }
 
-    fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction { generation ->
+    fun createPassword(site: String, username: String, password: String, groupId: String?) = runAction(
+        closeComposerOnSuccess = true,
+    ) { generation ->
         port.createPassword(site.trim(), username.trim(), password, groupId)
         refreshAfterWrite(generation, VaultCategory.Passwords)
     }
 
-    fun createGroup(name: String) = runAction { generation ->
+    fun createGroup(name: String) = runAction(closeComposerOnSuccess = true) { generation ->
         port.createGroup(name.trim())
         refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
-    fun acceptInvite(id: String) = runAction { generation ->
+    fun acceptInvite(id: String) = runAction(closeComposerOnSuccess = true) { generation ->
         port.acceptInvite(id)
         refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
-    fun declineInvite(id: String) = runAction { generation ->
+    fun declineInvite(id: String) = runAction(closeComposerOnSuccess = true) { generation ->
         port.declineInvite(id)
         refreshAfterWrite(generation, VaultCategory.Groups)
     }
 
-    fun clearError() = mutableState.update { it.copy(error = null) }
+    fun clearError() = mutableState.update { state ->
+        state.copy(error = null, composer = state.composer?.copy(error = null))
+    }
 
     fun prepareCreatePassword() {
+        if (mutableState.value.busy) return
+        mutableState.update {
+            it.copy(
+                composer = VaultComposerUiState(
+                    kind = VaultComposerKind.CreatePassword,
+                    passwordDraft = VaultPasswordDraft(),
+                ),
+                error = null,
+            )
+        }
         if (mutableState.value.groupsLoaded) return
         runAction { generation ->
             applyGroups(generation, port.listGroups(), port.listInvites())
+        }
+    }
+
+    fun openCreateGroup() {
+        if (mutableState.value.busy) return
+        mutableState.update {
+            it.copy(
+                composer = VaultComposerUiState(kind = VaultComposerKind.CreateGroup),
+                error = null,
+            )
+        }
+    }
+
+    fun openInvite(invite: VaultInviteUi) {
+        if (mutableState.value.busy) return
+        mutableState.update {
+            it.copy(
+                composer = VaultComposerUiState(kind = VaultComposerKind.Invite, invite = invite),
+                error = null,
+            )
+        }
+    }
+
+    fun updatePasswordDraft(draft: VaultPasswordDraft) {
+        mutableState.update { state ->
+            val composer = state.composer
+            if (state.busy || composer?.kind != VaultComposerKind.CreatePassword) {
+                state
+            } else {
+                state.copy(composer = composer.copy(passwordDraft = draft, error = null))
+            }
+        }
+    }
+
+    fun updateGroupDraft(value: String) {
+        mutableState.update { state ->
+            val composer = state.composer
+            if (state.busy || composer?.kind != VaultComposerKind.CreateGroup) {
+                state
+            } else {
+                state.copy(composer = composer.copy(groupDraft = value, error = null))
+            }
+        }
+    }
+
+    fun dismissComposer() {
+        mutableState.update { state ->
+            if (state.busy) state else state.copy(composer = null)
         }
     }
 
@@ -687,18 +774,38 @@ class PasswordsViewModel(
         loadEverything(generation)
     }
 
-    private fun runAction(action: suspend (Long) -> Unit) {
+    private fun runAction(
+        closeComposerOnSuccess: Boolean = false,
+        action: suspend (Long) -> Unit,
+    ) {
         viewModelScope.launch {
             val generation = VaultCatalogSync.captureGeneration()
-            mutableState.update { it.copy(busy = true, error = null) }
+            mutableState.update { state ->
+                state.copy(
+                    busy = true,
+                    error = null,
+                    composer = state.composer?.copy(error = null),
+                )
+            }
             try {
                 action(generation)
+                if (closeComposerOnSuccess) {
+                    VaultCatalogSync.publishIfCurrent(generation) {
+                        mutableState.update { it.copy(composer = null) }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 VaultCatalogSync.publishIfCurrent(generation) {
-                    mutableState.update {
-                        it.copy(error = error.message ?: "iCloud Passwords failed")
+                    mutableState.update { state ->
+                        val message = error.message ?: "iCloud Passwords failed"
+                        val composer = state.composer
+                        if (composer == null) {
+                            state.copy(error = message)
+                        } else {
+                            state.copy(composer = composer.copy(error = message))
+                        }
                     }
                 }
             } finally {

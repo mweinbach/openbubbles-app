@@ -13,6 +13,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+enum class VaultGroupEditorKind { Rename, Invite }
+
+data class VaultGroupEditorUiState(
+    val kind: VaultGroupEditorKind,
+    val value: String,
+    val error: String? = null,
+)
+
 data class VaultGroupDetailUiState(
     val groupId: String,
     /** Last known name; the loaded group supersedes it. */
@@ -21,6 +29,8 @@ data class VaultGroupDetailUiState(
     val loading: Boolean = true,
     val busy: Boolean = false,
     val error: String? = null,
+    /** Memory-only editor retained by the navigation entry's ViewModel. */
+    val editor: VaultGroupEditorUiState? = null,
     /** The group was deleted or left; the page should pop. */
     val closed: Boolean = false,
 )
@@ -54,13 +64,56 @@ class VaultGroupDetailViewModel(
         }
     }
 
-    fun rename(name: String) = runAction {
+    fun openRenameEditor() {
+        mutableState.update { state ->
+            if (state.busy) {
+                state
+            } else {
+                state.copy(
+                    editor = VaultGroupEditorUiState(VaultGroupEditorKind.Rename, state.name),
+                    error = null,
+                )
+            }
+        }
+    }
+
+    fun openInviteEditor() {
+        mutableState.update { state ->
+            if (state.busy) {
+                state
+            } else {
+                state.copy(
+                    editor = VaultGroupEditorUiState(VaultGroupEditorKind.Invite, ""),
+                    error = null,
+                )
+            }
+        }
+    }
+
+    fun updateEditor(value: String) {
+        mutableState.update { state ->
+            val editor = state.editor
+            if (state.busy || editor == null) {
+                state
+            } else {
+                state.copy(editor = editor.copy(value = value, error = null))
+            }
+        }
+    }
+
+    fun dismissEditor() {
+        mutableState.update { state ->
+            if (state.busy) state else state.copy(editor = null)
+        }
+    }
+
+    fun rename(name: String) = runAction(closeEditorOnSuccess = true) {
         port.renameGroup(mutableState.value.groupId, name.trim())
         VaultEditBus.notifyChanged()
         reloadGroup()
     }
 
-    fun inviteMember(handle: String) = runAction {
+    fun inviteMember(handle: String) = runAction(closeEditorOnSuccess = true) {
         port.inviteGroupMember(mutableState.value.groupId, handle.trim())
         VaultEditBus.notifyChanged()
         reloadGroup()
@@ -90,18 +143,31 @@ class VaultGroupDetailViewModel(
         }
     }
 
-    private fun runAction(action: suspend () -> Unit) {
+    private fun runAction(closeEditorOnSuccess: Boolean = false, action: suspend () -> Unit) {
         if (mutableState.value.busy) return
         viewModelScope.launch {
-            mutableState.update { it.copy(busy = true, error = null) }
+            mutableState.update { state ->
+                state.copy(busy = true, error = null, editor = state.editor?.copy(error = null))
+            }
             try {
                 action()
-                mutableState.update { it.copy(busy = false) }
+                mutableState.update { state ->
+                    state.copy(
+                        busy = false,
+                        editor = if (closeEditorOnSuccess) null else state.editor,
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(busy = false, error = error.message ?: "iCloud Passwords failed")
+                mutableState.update { state ->
+                    val message = error.message ?: "iCloud Passwords failed"
+                    val editor = state.editor
+                    if (editor == null) {
+                        state.copy(busy = false, error = message)
+                    } else {
+                        state.copy(busy = false, editor = editor.copy(error = message))
+                    }
                 }
             }
         }

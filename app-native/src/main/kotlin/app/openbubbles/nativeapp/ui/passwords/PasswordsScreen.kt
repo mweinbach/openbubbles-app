@@ -106,17 +106,20 @@ fun PasswordsScreen(
     onAcceptInvite: (String) -> Unit,
     onDeclineInvite: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenCreateGroup: () -> Unit = {},
+    onOpenInvite: (VaultInviteUi) -> Unit = {},
+    onUpdatePasswordDraft: (VaultPasswordDraft) -> Unit = {},
+    onUpdateGroupDraft: (String) -> Unit = {},
+    onDismissComposer: () -> Unit = {},
     /** Clears a failure the user has read; the cached vault stays usable. */
     onDismissError: () -> Unit = {},
     /**
      * Peer-surface switcher pinned under the app bar. It only routes: revealing
      * or copying a secret still goes through this surface's own authentication.
-     */
+    */
     surfaceSwitcher: @Composable (gestureEnabled: Boolean) -> Unit = {},
 ) {
-    var showCreatePassword by remember { mutableStateOf(false) }
-    var showCreateGroup by remember { mutableStateOf(false) }
-    var inviteActions by remember { mutableStateOf<VaultInviteUi?>(null) }
+    val composer = uiState.composer
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -133,10 +136,7 @@ fun PasswordsScreen(
                     actions = {
                         if (uiState.inClique == true) {
                             IconButton(
-                                onClick = {
-                                    onPrepareCreatePassword()
-                                    showCreatePassword = true
-                                },
+                                onClick = onPrepareCreatePassword,
                                 enabled = !uiState.busy,
                             ) {
                                 Icon(Icons.Filled.Add, contentDescription = "Create password")
@@ -148,9 +148,7 @@ fun PasswordsScreen(
                     },
                     scrollBehavior = scrollBehavior,
                 )
-                surfaceSwitcher(
-                    !showCreatePassword && !showCreateGroup && inviteActions == null,
-                )
+                surfaceSwitcher(composer == null)
             }
         },
     ) { padding ->
@@ -166,44 +164,45 @@ fun PasswordsScreen(
                 onCategory = onCategory,
                 onQuery = onQuery,
                 onSelect = onSelect,
-                onCreateGroup = { showCreateGroup = true },
+                onCreateGroup = onOpenCreateGroup,
                 onGroupClick = onOpenGroup,
-                onInviteClick = { inviteActions = it },
+                onInviteClick = onOpenInvite,
                 modifier = Modifier.padding(padding),
             )
         }
     }
 
-    inviteActions?.let { invite ->
+    composer?.takeIf { it.kind == VaultComposerKind.Invite }?.invite?.let { invite ->
         InviteActionsDialog(
             invite = invite,
             busy = uiState.busy,
-            onAccept = { onAcceptInvite(invite.id); inviteActions = null },
-            onDecline = { onDeclineInvite(invite.id); inviteActions = null },
-            onDismiss = { inviteActions = null },
+            error = composer.error,
+            onAccept = { onAcceptInvite(invite.id) },
+            onDecline = { onDeclineInvite(invite.id) },
+            onDismiss = onDismissComposer,
         )
     }
-    if (showCreatePassword) {
+    if (composer?.kind == VaultComposerKind.CreatePassword && composer.passwordDraft != null) {
         CreatePasswordSheet(
+            draft = composer.passwordDraft,
             groups = uiState.groups,
             busy = uiState.busy,
-            onDismiss = { showCreatePassword = false },
-            onCreate = { site, username, password, group ->
-                onCreatePassword(site, username, password, group)
-                showCreatePassword = false
-            },
+            error = composer.error,
+            onDraftChange = onUpdatePasswordDraft,
+            onDismiss = onDismissComposer,
+            onCreate = onCreatePassword,
         )
     }
-    if (showCreateGroup) {
+    if (composer?.kind == VaultComposerKind.CreateGroup) {
         TextEntrySheet(
             title = "Create password group",
             label = "Group name",
             busy = uiState.busy,
-            onDismiss = { showCreateGroup = false },
-            onSubmit = {
-                onCreateGroup(it)
-                showCreateGroup = false
-            },
+            value = composer.groupDraft,
+            onValueChange = onUpdateGroupDraft,
+            error = composer.error,
+            onDismiss = onDismissComposer,
+            onSubmit = onCreateGroup,
         )
     }
     uiState.error?.let { error ->
@@ -646,15 +645,35 @@ private fun VaultRow(
 private fun InviteActionsDialog(
     invite: VaultInviteUi,
     busy: Boolean,
+    error: String?,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(invite.groupName) },
-        text = { Text("Invited by ${invite.inviter}") },
-        confirmButton = { TextButton(onClick = onAccept, enabled = !busy) { Text("Accept") } },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Invited by ${invite.inviter}")
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onAccept, enabled = !busy) {
+                if (busy) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else {
+                    Text("Accept")
+                }
+            }
+        },
         dismissButton = {
             TextButton(
                 onClick = onDecline,
@@ -676,18 +695,16 @@ private fun InviteActionsDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreatePasswordSheet(
+    draft: VaultPasswordDraft,
     groups: List<VaultGroupUi>,
     busy: Boolean,
+    error: String?,
+    onDraftChange: (VaultPasswordDraft) -> Unit,
     onDismiss: () -> Unit,
     onCreate: (String, String, String, String?) -> Unit,
 ) {
-    var site by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var reveal by remember { mutableStateOf(false) }
-    var groupId by remember { mutableStateOf<String?>(null) }
     var groupMenu by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -699,38 +716,44 @@ private fun CreatePasswordSheet(
         ) {
             Text("New password", style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
-                value = site,
-                onValueChange = { site = it },
+                value = draft.site,
+                onValueChange = { onDraftChange(draft.copy(site = it)) },
                 label = { Text("Website") },
+                enabled = !busy,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
+                value = draft.username,
+                onValueChange = { onDraftChange(draft.copy(username = it)) },
                 label = { Text("Username") },
+                enabled = !busy,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
+                value = draft.password,
+                onValueChange = { onDraftChange(draft.copy(password = it)) },
                 label = { Text("Password") },
+                enabled = !busy,
                 singleLine = true,
-                visualTransformation = if (reveal) {
+                visualTransformation = if (draft.passwordVisible) {
                     VisualTransformation.None
                 } else {
                     PasswordVisualTransformation()
                 },
                 trailingIcon = {
-                    IconButton(onClick = { reveal = !reveal }) {
+                    IconButton(
+                        onClick = { onDraftChange(draft.copy(passwordVisible = !draft.passwordVisible)) },
+                        enabled = !busy,
+                    ) {
                         Icon(
-                            imageVector = if (reveal) {
+                            imageVector = if (draft.passwordVisible) {
                                 Icons.Filled.VisibilityOff
                             } else {
                                 Icons.Filled.Visibility
                             },
-                            contentDescription = if (reveal) "Hide password" else "Show password",
+                            contentDescription = if (draft.passwordVisible) "Hide password" else "Show password",
                         )
                     }
                 },
@@ -739,9 +762,14 @@ private fun CreatePasswordSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     onClick = {
-                        password = VaultPasswordGenerator.generate()
-                        reveal = true
+                        onDraftChange(
+                            draft.copy(
+                                password = VaultPasswordGenerator.generate(),
+                                passwordVisible = true,
+                            ),
+                        )
                     },
+                    enabled = !busy,
                 ) {
                     Icon(Icons.Filled.Autorenew, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
@@ -753,13 +781,13 @@ private fun CreatePasswordSheet(
                     OutlinedButton(onClick = { groupMenu = true }, enabled = !busy) {
                         Icon(Icons.Filled.Badge, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(groups.firstOrNull { it.id == groupId }?.name ?: "Personal")
+                        Text(groups.firstOrNull { it.id == draft.groupId }?.name ?: "Personal")
                     }
                     DropdownMenu(expanded = groupMenu, onDismissRequest = { groupMenu = false }) {
                         DropdownMenuItem(
                             text = { Text("Personal") },
                             onClick = {
-                                groupId = null
+                                onDraftChange(draft.copy(groupId = null))
                                 groupMenu = false
                             },
                         )
@@ -767,7 +795,7 @@ private fun CreatePasswordSheet(
                             DropdownMenuItem(
                                 text = { Text(group.name) },
                                 onClick = {
-                                    groupId = group.id
+                                    onDraftChange(draft.copy(groupId = group.id))
                                     groupMenu = false
                                 },
                             )
@@ -775,16 +803,34 @@ private fun CreatePasswordSheet(
                     }
                 }
             }
+            if (error != null) {
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                Button(
-                    onClick = { onCreate(site, username, password, groupId) },
-                    enabled = !busy && site.isNotBlank() && username.isNotBlank() && password.isNotEmpty(),
+                OutlinedButton(
+                    onClick = onDismiss,
+                    enabled = !busy,
                     modifier = Modifier.weight(1f),
-                ) { Text("Create") }
+                ) { Text("Cancel") }
+                Button(
+                    onClick = { onCreate(draft.site, draft.username, draft.password, draft.groupId) },
+                    enabled = !busy && draft.site.isNotBlank() && draft.username.isNotBlank() &&
+                        draft.password.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    } else {
+                        Text("Create")
+                    }
+                }
             }
         }
     }
@@ -804,9 +850,13 @@ internal fun TextEntrySheet(
     onSubmit: (String) -> Unit,
     initial: String = "",
     confirmLabel: String = "Create",
+    value: String? = null,
+    onValueChange: ((String) -> Unit)? = null,
+    error: String? = null,
 ) {
-    var value by remember { mutableStateOf(initial) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    var localValue by remember(initial) { mutableStateOf(initial) }
+    val shownValue = value ?: localValue
+    ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -818,22 +868,42 @@ internal fun TextEntrySheet(
         ) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
+                value = shownValue,
+                onValueChange = { next ->
+                    if (onValueChange == null) localValue = next else onValueChange(next)
+                },
                 label = { Text(label) },
+                enabled = !busy,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (error != null) {
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                Button(
-                    onClick = { onSubmit(value) },
-                    enabled = !busy && value.isNotBlank(),
+                OutlinedButton(
+                    onClick = onDismiss,
+                    enabled = !busy,
                     modifier = Modifier.weight(1f),
-                ) { Text(confirmLabel) }
+                ) { Text("Cancel") }
+                Button(
+                    onClick = { onSubmit(shownValue) },
+                    enabled = !busy && shownValue.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    } else {
+                        Text(confirmLabel)
+                    }
+                }
             }
         }
     }

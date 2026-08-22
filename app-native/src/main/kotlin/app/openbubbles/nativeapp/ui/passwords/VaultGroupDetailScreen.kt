@@ -71,9 +71,11 @@ fun VaultGroupDetailScreen(
     onRemoveMember: (String) -> Unit,
     onDeleteOrLeave: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenRename: () -> Unit = {},
+    onOpenInvite: () -> Unit = {},
+    onUpdateEditor: (String) -> Unit = {},
+    onDismissEditor: () -> Unit = {},
 ) {
-    var showRename by remember { mutableStateOf(false) }
-    var showInvite by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<VaultGroupMemberUi?>(null) }
     var confirmDeleteOrLeave by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.closed) {
@@ -167,7 +169,7 @@ fun VaultGroupDetailScreen(
                                 SettingsActionItem(
                                     title = "Add Member",
                                     supporting = "Invite by email or phone number",
-                                    onClick = { showInvite = true },
+                                    onClick = onOpenInvite,
                                     index = 0,
                                     count = 2,
                                     icon = Icons.Filled.PersonAdd,
@@ -175,7 +177,7 @@ fun VaultGroupDetailScreen(
                                 )
                                 SettingsActionItem(
                                     title = "Rename Group",
-                                    onClick = { showRename = true },
+                                    onClick = onOpenRename,
                                     index = 1,
                                     count = 2,
                                     icon = Icons.Filled.Edit,
@@ -226,31 +228,31 @@ fun VaultGroupDetailScreen(
         }
     }
 
-    if (showRename) {
+    val editor = uiState.editor
+    if (editor?.kind == VaultGroupEditorKind.Rename) {
         TextEntrySheet(
             title = "Rename group",
             label = "Group name",
             busy = uiState.busy,
-            initial = uiState.name,
+            value = editor.value,
+            onValueChange = onUpdateEditor,
+            error = editor.error,
             confirmLabel = "Rename",
-            onDismiss = { showRename = false },
-            onSubmit = {
-                onRename(it)
-                showRename = false
-            },
+            onDismiss = onDismissEditor,
+            onSubmit = onRename,
         )
     }
-    if (showInvite) {
+    if (editor?.kind == VaultGroupEditorKind.Invite) {
         TextEntrySheet(
             title = "Invite to ${uiState.name}",
             label = "Email or phone number",
             busy = uiState.busy,
+            value = editor.value,
+            onValueChange = onUpdateEditor,
+            error = editor.error,
             confirmLabel = "Invite",
-            onDismiss = { showInvite = false },
-            onSubmit = {
-                onInviteMember(it)
-                showInvite = false
-            },
+            onDismiss = onDismissEditor,
+            onSubmit = onInviteMember,
         )
     }
     removeTarget?.let { member ->
