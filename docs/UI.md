@@ -141,8 +141,9 @@ Effects: `ui/effects/SendEffects.kt`, `EffectPicker.kt`.
   can be proven on the host; `MapGeometryTest` is the oracle for "the pin is in the right place".
 - `MapTiles.kt` fetches OpenStreetMap raster tiles through OkHttp with a memory and disk cache. The
   attribution is drawn by `OpenMap` whenever imagery is, because the licence requires it.
-- Imagery is a per-user switch (`MapPrefs`, toggled from the Find My app bar). A tile request tells
-  the tile server roughly where a tracked thing is, so imagery-off is a first-class state: the map
+- Imagery starts enabled and remains a per-user switch (`MapPrefs`, toggled from the Find My app
+  bar). A tile request tells the tile server roughly where a tracked thing is, so an explicit
+  imagery-off choice is a first-class state: the map
   keeps pins, accuracy circles, tracks, and the scale bar on a plain graticule.
 - `OpenMap` markers are real buttons with labels, and zoom has explicit buttons, so the map never
   depends on a pinch.

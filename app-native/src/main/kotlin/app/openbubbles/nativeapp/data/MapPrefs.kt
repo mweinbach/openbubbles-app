@@ -6,11 +6,15 @@ import androidx.core.content.edit
 private const val PREFS_NAME = "map_prefs"
 private const val KEY_IMAGERY_ENABLED = "imageryEnabled"
 
+internal fun resolveMapImageryPreference(storedPreference: Boolean?): Boolean =
+    storedPreference ?: true
+
 /**
  * Whether the in-app map draws real imagery.
  *
- * Fetching a tile tells whoever serves it roughly where the thing being tracked
- * is, so this is a deliberate, per-user switch rather than a hidden default.
+ * Imagery starts enabled so Find My opens as a useful map. Fetching a tile tells
+ * its provider roughly where the tracked thing is, so users can still turn the
+ * layer off and that explicit choice stays persisted.
  * With imagery off the map still works — pins, accuracy and tracks are drawn on
  * a plain graticule — so turning it off costs context, not function.
  */
@@ -18,7 +22,13 @@ class MapPrefs(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var imageryEnabled: Boolean
-        get() = prefs.getBoolean(KEY_IMAGERY_ENABLED, false)
+        get() = resolveMapImageryPreference(
+            if (prefs.contains(KEY_IMAGERY_ENABLED)) {
+                prefs.getBoolean(KEY_IMAGERY_ENABLED, false)
+            } else {
+                null
+            },
+        )
         set(value) {
             prefs.edit { putBoolean(KEY_IMAGERY_ENABLED, value) }
         }
