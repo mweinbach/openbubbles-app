@@ -45,6 +45,16 @@ private class GatedCliquePort(
     override suspend fun isInClique(): Boolean = clique.await()
 }
 
+private class GatedVaultSyncPort(
+    private val delegate: FakePasswordsPort,
+    private val sync: CompletableDeferred<Unit>,
+) : PasswordsPort by delegate {
+    override suspend fun sync() {
+        sync.await()
+        delegate.sync()
+    }
+}
+
 private class ControlledVaultMutationPort(
     private val delegate: FakePasswordsPort,
     var failure: String? = null,
@@ -138,7 +148,7 @@ class PasswordsViewModelTest {
     }
 
     @Test
-    fun `initial refresh loads everything, syncs, then reloads`() = runTest(dispatcher) {
+    fun `initial refresh syncs before fetching each vault collection exactly once`() = runTest(dispatcher) {
         val synced = VaultItemUi("remote", VaultCategory.Passwords, "example.com", "alice")
         val port = FakePasswordsPort(syncedItems = listOf(synced))
 
@@ -147,10 +157,68 @@ class PasswordsViewModelTest {
 
         assertEquals(1, port.syncCount)
         assertEquals(listOf(synced), model.uiState.value.items)
-        // Two eager rounds over the four item categories: cold, then post-sync.
-        assertEquals(8, port.itemListRequests.size)
-        assertEquals(2, port.groupListCount)
-        assertEquals(2, port.inviteListCount)
+        assertEquals(
+            mapOf(
+                VaultCategory.Passwords to 1,
+                VaultCategory.Passkeys to 1,
+                VaultCategory.Codes to 1,
+                VaultCategory.Wifi to 1,
+            ),
+            port.itemListRequests.groupingBy { it }.eachCount(),
+        )
+        assertEquals(1, port.groupListCount)
+        assertEquals(1, port.inviteListCount)
+    }
+
+    @Test
+    fun `cached metadata remains visible while sync precedes the only listing pass`() = runTest(dispatcher) {
+        val cached = VaultItemUi("cached", VaultCategory.Passwords, "cached.example", "alice")
+        val synced = VaultItemUi("synced", VaultCategory.Passwords, "fresh.example", "alice")
+        val cache = VaultCacheStore().apply {
+            inClique = true
+            itemsByCategory = mapOf(VaultCategory.Passwords to listOf(cached))
+        }
+        val synchronization = CompletableDeferred<Unit>()
+        val delegate = FakePasswordsPort(items = listOf(cached), syncedItems = listOf(synced))
+        val model = PasswordsViewModel(GatedVaultSyncPort(delegate, synchronization), cache)
+
+        runCurrent()
+
+        assertEquals(listOf(cached), model.uiState.value.items)
+        assertEquals(false, model.uiState.value.loading)
+        assertTrue(model.uiState.value.busy)
+        assertTrue(delegate.itemListRequests.isEmpty())
+        assertEquals(0, delegate.groupListCount)
+        assertEquals(0, delegate.inviteListCount)
+
+        synchronization.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(listOf(synced), model.uiState.value.items)
+        assertEquals(4, delegate.itemListRequests.size)
+        assertEquals(1, delegate.groupListCount)
+        assertEquals(1, delegate.inviteListCount)
+    }
+
+    @Test
+    fun `failed synchronization still lists available vault metadata once and reports the error`() =
+        runTest(dispatcher) {
+            val cached = VaultItemUi("cached", VaultCategory.Passwords, "cached.example", "alice")
+            val delegate = FakePasswordsPort(items = listOf(cached))
+            val port = object : PasswordsPort by delegate {
+                override suspend fun sync() = error("Apple is offline")
+            }
+
+            val model = PasswordsViewModel(port)
+            advanceUntilIdle()
+
+            assertEquals(listOf(cached), model.uiState.value.items)
+            assertEquals("Apple is offline", model.uiState.value.error)
+            assertEquals(4, delegate.itemListRequests.size)
+            assertEquals(1, delegate.groupListCount)
+            assertEquals(1, delegate.inviteListCount)
+            assertEquals(false, model.uiState.value.loading)
+            assertEquals(false, model.uiState.value.busy)
     }
 
     @Test
@@ -358,9 +426,9 @@ class PasswordsViewModelTest {
         PasswordsViewModel(port, VaultCacheStore(requestCatalogRefresh = { refreshes += 1 }))
         advanceUntilIdle()
 
-        // Two eager rounds (cold, then post-sync); the provider's catalog must
-        // not be left behind whatever the screen just read.
-        assertEquals(2, refreshes)
+        // One post-sync snapshot is shared with the credential-provider
+        // invalidation instead of scheduling a second redundant refresh.
+        assertEquals(1, refreshes)
     }
 
     @Test

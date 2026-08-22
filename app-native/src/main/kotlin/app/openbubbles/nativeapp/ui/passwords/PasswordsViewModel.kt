@@ -544,9 +544,21 @@ class PasswordsViewModel(
                         true
                     } == null
                 ) return@launch
+                // Cached metadata already paints immediately, so synchronize
+                // before the one authoritative listing pass instead of
+                // decrypting every category twice. A failed sync must still
+                // expose the last locally available vault, as the former
+                // pre-sync pass did, while retaining its visible error.
+                val syncFailure = try {
+                    port.sync()
+                    null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    failure
+                }
                 if (!loadEverything(accountGeneration)) return@launch
-                port.sync()
-                if (!loadEverything(accountGeneration)) return@launch
+                syncFailure?.let { throw it }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
