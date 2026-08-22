@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.telephony.SmsManager
 import android.util.Log
+import androidx.core.net.toUri
 import app.openbubbles.core.intake.MessageIngestor
 import app.openbubbles.core.repo.MessageRepo
 import app.openbubbles.db.Chat
@@ -17,7 +18,6 @@ import app.openbubbles.nativeapp.data.PushStateHolder
 import app.openbubbles.nativeapp.data.SmsSender
 import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,6 +40,7 @@ class SmsManagerSender(private val context: Context) : SmsSender {
             val store = CoreGraph.store ?: error("store unavailable")
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val chatGuid = chat.guid ?: error("chat $chatId has no guid")
+            check(chat.isRpSms == true) { "chat $chatId is not a SIM conversation" }
             check(SmsPermissions.canSendSms(context)) { "SMS permission not granted" }
 
             val myHandle = app.openbubbles.nativeapp.data.sendingHandle(chat)
@@ -64,7 +65,7 @@ class SmsManagerSender(private val context: Context) : SmsSender {
                 destinations = destinations,
             )
         }
-        SmsBridge.scope.launch { dispatch(prepared, text) }
+        SmsBridge.launchOutgoing(prepared.messageId) { dispatch(prepared, text) }
         return OutgoingTextSend(prepared.messageId)
     }
 
@@ -72,24 +73,52 @@ class SmsManagerSender(private val context: Context) : SmsSender {
         try {
             val smsManager = smsManager()
             val parts = smsManager.divideMessage(text)
-            for (dest in prepared.destinations) {
+            check(parts.isNotEmpty()) { "SMS has no message segments" }
+            prepareCarrierSendStatus(
+                store = prepared.store,
+                guid = prepared.tempGuid,
+                recipientCount = prepared.destinations.size,
+                partCount = parts.size,
+            )
+            if (!SmsBridge.beginOutgoingDispatch(prepared.messageId)) return
+            for ((recipientIndex, dest) in prepared.destinations.withIndex()) {
                 if (parts.size == 1) {
                     smsManager.sendTextMessage(
                         dest,
                         null,
                         text,
-                        statusPendingIntent(prepared.tempGuid, 0, SmsSendStatusReceiver.ACTION_SENT),
-                        statusPendingIntent(prepared.tempGuid, 0, SmsSendStatusReceiver.ACTION_DELIVERED),
+                        statusPendingIntent(
+                            prepared.tempGuid,
+                            recipientIndex,
+                            0,
+                            SmsSendStatusReceiver.ACTION_SENT,
+                        ),
+                        statusPendingIntent(
+                            prepared.tempGuid,
+                            recipientIndex,
+                            0,
+                            SmsSendStatusReceiver.ACTION_DELIVERED,
+                        ),
                     )
                 } else {
                     val sentIntents = ArrayList<PendingIntent>(parts.size)
                     val deliveredIntents = ArrayList<PendingIntent>(parts.size)
                     for (index in parts.indices) {
                         sentIntents.add(
-                            statusPendingIntent(prepared.tempGuid, index, SmsSendStatusReceiver.ACTION_SENT),
+                            statusPendingIntent(
+                                prepared.tempGuid,
+                                recipientIndex,
+                                index,
+                                SmsSendStatusReceiver.ACTION_SENT,
+                            ),
                         )
                         deliveredIntents.add(
-                            statusPendingIntent(prepared.tempGuid, index, SmsSendStatusReceiver.ACTION_DELIVERED),
+                            statusPendingIntent(
+                                prepared.tempGuid,
+                                recipientIndex,
+                                index,
+                                SmsSendStatusReceiver.ACTION_DELIVERED,
+                            ),
                         )
                     }
                     smsManager.sendMultipartTextMessage(dest, null, parts, sentIntents, deliveredIntents)
@@ -132,15 +161,22 @@ class SmsManagerSender(private val context: Context) : SmsSender {
             SmsManager.getDefault()
         }
 
-    private fun statusPendingIntent(guid: String, partIndex: Int, action: String): PendingIntent {
+    private fun statusPendingIntent(
+        guid: String,
+        recipientIndex: Int,
+        partIndex: Int,
+        action: String,
+    ): PendingIntent {
         val intent = Intent(context, SmsSendStatusReceiver::class.java)
             .setAction(action)
+            .setData("openbubbles://sms/status/$guid/$recipientIndex/$partIndex".toUri())
             .putExtra(SmsSendStatusReceiver.EXTRA_GUID, guid)
+            .putExtra(SmsSendStatusReceiver.EXTRA_RECIPIENT_INDEX, recipientIndex)
             .putExtra(SmsSendStatusReceiver.EXTRA_PART_INDEX, partIndex)
             .putExtra(SmsSendStatusReceiver.EXTRA_TRANSPORT, "SMS")
-        // Unique request code per (guid, action, part) so multipart parts do
-        // not collapse into one PendingIntent.
-        val requestCode = (guid.hashCode() * 31 + action.hashCode() * 7 + partIndex)
+        // Extras do not participate in PendingIntent identity. Include both
+        // recipient and segment in the data URI as well as the request code.
+        val requestCode = carrierCallbackRequestCode(guid, action, recipientIndex, partIndex)
         return PendingIntent.getBroadcast(
             context,
             requestCode,

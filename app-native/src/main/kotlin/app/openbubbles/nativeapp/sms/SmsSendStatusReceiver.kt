@@ -6,11 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import app.openbubbles.db.Message
-import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
-import io.objectbox.query.QueryBuilder
 import java.io.File
-import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -30,34 +27,28 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
         SmsIngest.seedAppContext(context) // cold-started broadcasts have no activity
         val store = CoreGraph.store ?: return
 
+        // goAsync() detaches BroadcastReceiver.mPendingResult; its resultCode
+        // getter returns 0 afterward even when Android reported RESULT_OK.
+        val callbackResultCode = resultCode
         val pending = goAsync()
         SmsBridge.scope.launch(Dispatchers.IO) {
             try {
-                val box = store.boxFor(Message::class.java)
-                val row = box.query()
-                    .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() } ?: return@launch
-
-                when (intent.action) {
-                    ACTION_SENT -> when (resultCode) {
-                        Activity.RESULT_OK -> if (row.sendingServiceId != null || row.error != null) {
-                            row.sendingServiceId = null
-                            row.error = null
-                            row.errorMessage = null
-                            box.put(row)
-                        }
-                        else -> {
-                            row.error = 1L
-                            row.errorMessage = "$transport send failed (code $resultCode)"
-                            row.sendingServiceId = null
-                            box.put(row)
-                        }
-                    }
-                    ACTION_DELIVERED -> if (row.dateDelivered == null) {
-                        row.dateDelivered = Date()
-                        box.put(row)
-                    }
+                val kind = when (intent.action) {
+                    ACTION_SENT -> CarrierCallbackKind.SENT
+                    ACTION_DELIVERED -> CarrierCallbackKind.DELIVERED
+                    else -> return@launch
                 }
+                applyCarrierSendStatus(
+                    store = store,
+                    guid = guid,
+                    kind = kind,
+                    identity = CarrierCallbackIdentity(
+                        recipientIndex = intent.getIntExtra(EXTRA_RECIPIENT_INDEX, 0),
+                        partIndex = intent.getIntExtra(EXTRA_PART_INDEX, 0),
+                    ),
+                    successful = callbackResultCode == Activity.RESULT_OK,
+                    failureDescription = "$transport ${kind.name.lowercase()} failed (code $callbackResultCode)",
+                )
             } catch (t: Throwable) {
                 Log.w(TAG, "SMS status update failed", t)
             } finally {
@@ -75,6 +66,7 @@ class SmsSendStatusReceiver : BroadcastReceiver() {
         const val ACTION_DELIVERED = "app.openbubbles.nativeapp.sms.SMS_DELIVERED"
         const val EXTRA_GUID = "sms_staged_guid"
         const val EXTRA_PART_INDEX = "sms_part_index"
+        const val EXTRA_RECIPIENT_INDEX = "sms_recipient_index"
         const val EXTRA_TRANSPORT = "message_transport"
 
         private const val TAG = "SmsSendStatusReceiver"

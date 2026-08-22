@@ -10,8 +10,12 @@ import app.openbubbles.nativeapp.data.OutgoingAttachmentSend
 import app.openbubbles.nativeapp.data.OutgoingTextSend
 import app.openbubbles.nativeapp.data.SmsSender
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -27,13 +31,58 @@ object SmsBridge {
     /** Shared IO scope for receiver-driven ingest + status flips. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Provider MMS row ids already ingested this process (bounded). */
-    val seenMmsIds: MutableSet<Long> = object : LinkedHashSet<Long>() {
-        override fun add(value: Long): Boolean {
-            if (size >= 256) iterator().let { if (it.hasNext()) { it.next(); it.remove() } }
-            return super.add(value)
-        }
+    private val carrierDispatchLock = Any()
+    private val carrierDispatches = mutableMapOf<Long, CarrierDispatch>()
+
+    private class CarrierDispatch {
+        lateinit var job: Job
+        var cancelled = false
+        var dispatched = false
     }
+
+    /** Carrier work survives Apple sign-out, but remains cancellable until modem dispatch. */
+    internal fun launchOutgoing(messageId: Long, block: suspend () -> Unit): Job {
+        val dispatch = CarrierDispatch()
+        synchronized(carrierDispatchLock) {
+            check(!carrierDispatches.containsKey(messageId)) {
+                "Carrier message $messageId already has a dispatch owner"
+            }
+            dispatch.job = scope.launch(start = CoroutineStart.LAZY) { block() }
+            carrierDispatches[messageId] = dispatch
+            dispatch.job.invokeOnCompletion {
+                synchronized(carrierDispatchLock) {
+                    if (carrierDispatches[messageId] === dispatch) {
+                        carrierDispatches.remove(messageId)
+                    }
+                }
+            }
+        }
+        dispatch.job.start()
+        return dispatch.job
+    }
+
+    /** Claims the irreversible modem boundary; cancellation and the claim cannot cross. */
+    internal fun beginOutgoingDispatch(messageId: Long): Boolean = synchronized(carrierDispatchLock) {
+        val dispatch = carrierDispatches[messageId] ?: return@synchronized false
+        if (dispatch.cancelled || dispatch.dispatched) return@synchronized false
+        dispatch.dispatched = true
+        true
+    }
+
+    /** Returns true only when the queued carrier job stopped before any modem call. */
+    suspend fun cancelOutgoing(messageId: Long): Boolean {
+        val job = synchronized(carrierDispatchLock) {
+            val dispatch = carrierDispatches[messageId] ?: return false
+            if (dispatch.cancelled || dispatch.dispatched) return false
+            dispatch.cancelled = true
+            dispatch.job
+        }
+        job.cancelAndJoin()
+        return true
+    }
+
+    /** Provider messages become deduplicated only after every payload is durably published. */
+    internal val mmsIngestionGate = MmsIngestionGate()
 
     /**
      * SMS send path behind the [SmsSender] seam (modem implementation);

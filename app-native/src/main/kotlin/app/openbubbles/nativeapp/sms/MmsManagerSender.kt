@@ -23,7 +23,6 @@ import com.klinker.android.send_message.Transaction
 import io.objectbox.query.QueryBuilder
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Sends media in a SIM conversation through Android's carrier MMS service. */
@@ -100,7 +99,7 @@ class MmsManagerSender(private val context: Context) : AttachmentSender {
             }
         }
 
-        SmsBridge.scope.launch {
+        SmsBridge.launchOutgoing(prepared.messageId) {
             try {
                 val threadId = prepared.existingThreadId
                     ?: TelephonySmsStore.threadId(context, prepared.destinations)
@@ -115,10 +114,19 @@ class MmsManagerSender(private val context: Context) : AttachmentSender {
                     setGroup(prepared.destinations.size > 1)
                     setDeliveryReports(true)
                 }
+                // One group MMS is one carrier transaction, independent of
+                // how many destination addresses its PDU contains.
+                prepareCarrierSendStatus(
+                    store = prepared.store,
+                    guid = prepared.tempGuid,
+                    recipientCount = 1,
+                    partCount = 1,
+                )
                 val statusIntent = Intent(context, SmsSendStatusReceiver::class.java)
                     .setAction(SmsSendStatusReceiver.ACTION_SENT)
                     .setData("openbubbles://mms/status/${prepared.tempGuid}".toUri())
                     .putExtra(SmsSendStatusReceiver.EXTRA_GUID, prepared.tempGuid)
+                    .putExtra(SmsSendStatusReceiver.EXTRA_RECIPIENT_INDEX, 0)
                     .putExtra(SmsSendStatusReceiver.EXTRA_PART_INDEX, 0)
                     .putExtra(SmsSendStatusReceiver.EXTRA_TRANSPORT, "MMS")
                 val transaction = Transaction(context.applicationContext, settings)
@@ -130,6 +138,7 @@ class MmsManagerSender(private val context: Context) : AttachmentSender {
                         addMedia(item.payload.readBytes(), item.mime, item.name)
                     }
                 }
+                if (!SmsBridge.beginOutgoingDispatch(prepared.messageId)) return@launchOutgoing
                 transaction.sendNewMessage(message, threadId ?: Transaction.NO_THREAD_ID)
             } catch (failure: Throwable) {
                 Log.w(TAG, "MMS send failed after local staging", failure)

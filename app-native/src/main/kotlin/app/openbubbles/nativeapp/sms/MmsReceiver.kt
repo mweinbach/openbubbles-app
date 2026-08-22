@@ -11,10 +11,14 @@ import android.util.Log
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
+import app.openbubbles.db.Message
+import app.openbubbles.db.Message_
 import app.openbubbles.nativeapp.data.CoreGraph
 import app.openbubbles.nativeapp.data.PushStateHolder
 import io.objectbox.query.QueryBuilder
 import java.io.File
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -41,13 +45,14 @@ class MmsReceiver : BroadcastReceiver() {
         }
 
         val receivedAtMs = System.currentTimeMillis()
+        MmsIngestionRetry.scheduleDiscovery(context, receivedAtMs)
         val pending = goAsync()
         SmsBridge.scope.launch(Dispatchers.IO) {
             try {
                 // The default SMS app needs a moment to download + store the
                 // message; stay inside the ~10s goAsync budget.
                 repeat(8) {
-                    if (ingestNewProviderMms(context, receivedAtMs)) return@launch
+                    if (ingestRecentProviderMms(context, receivedAtMs)) return@launch
                     Thread.sleep(1_000)
                 }
                 Log.i(TAG, "No provider MMS row appeared after notification")
@@ -63,15 +68,14 @@ class MmsReceiver : BroadcastReceiver() {
      * Ingests every not-yet-seen inbox MMS row dated after [sinceMs].
      * Returns true when at least one row was ingested.
      */
-    private suspend fun ingestNewProviderMms(context: Context, sinceMs: Long): Boolean {
+    internal suspend fun ingestRecentProviderMms(context: Context, sinceMs: Long): Boolean {
         val rows = queryNewMmsRows(context, sinceMs) ?: return false
         var ingested = false
         for (row in rows) {
-            // Redelivery/duplicate rows are deduped by the deterministic guid,
-            // but skipping known ids keeps the provider read cheap.
-            if (SmsBridge.seenMmsIds.contains(row.id)) continue
-            if (ingestOne(context, row)) {
-                SmsBridge.seenMmsIds.add(row.id)
+            // Own recovery durably before provider reads, staging, or ObjectBox
+            // writes; a process death cannot turn a partial ingest into loss.
+            MmsIngestionRetry.scheduleProvider(context, row.id)
+            if (SmsBridge.mmsIngestionGate.process(row.id) { ingestOne(context, row) }) {
                 ingested = true
             }
         }
@@ -81,10 +85,10 @@ class MmsReceiver : BroadcastReceiver() {
     /** Ingests the exact provider row persisted by the carrier MMS callback. */
     internal suspend fun ingestProviderMms(context: Context, uri: Uri): Boolean {
         val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return false
-        if (SmsBridge.seenMmsIds.contains(id)) return true
-        val row = queryMmsRow(context, uri) ?: return false
-        return ingestOne(context, row).also { ingested ->
-            if (ingested) SmsBridge.seenMmsIds.add(id)
+        MmsIngestionRetry.scheduleProvider(context, id)
+        return SmsBridge.mmsIngestionGate.process(id) {
+            val row = queryMmsRow(context, uri) ?: return@process false
+            ingestOne(context, row)
         }
     }
 
@@ -140,7 +144,7 @@ class MmsReceiver : BroadcastReceiver() {
 
         val parts = queryMmsParts(context, row.id)
         val text = parts.filter { it.text != null }.joinToString("\n") { it.text.orEmpty() }
-        val media = parts.filter { it.bytes != null }
+        val media = parts.filter { it.partId != null }
         if (text.isBlank() && media.isEmpty()) return false
 
         val guid = SmsPushBuilder.mmsGuid(row.id)
@@ -166,13 +170,31 @@ class MmsReceiver : BroadcastReceiver() {
             else -> "MMS"
         }
 
-        val chatId = SmsIngest.ingestIncoming(context, push, preview, row.threadId) ?: return false
-
-        // The ingestor created attachment metadata rows with guid
-        // "<msgGuid>_<idx>" (xml empty); move the payloads into the canonical
-        // store layout so bubbles render without a rustpush transfer.
-        if (media.isNotEmpty()) persistMedia(context, store, guid, media, chatId)
-        return true
+        val staged = if (media.isNotEmpty()) stageMedia(context, store, guid, media) else emptyList()
+        try {
+            // Retries reuse a previously committed carrier row instead of
+            // replaying its notification while recovering failed media writes.
+            val existing = store.boxFor(Message::class.java)
+                .query()
+                .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+                .build().use { it.findFirst() }
+            if (existing != null) {
+                check(existing.chat.target?.isRpSms == true) {
+                    "MMS provider row cannot replace a non-carrier message"
+                }
+            } else if (SmsIngest.ingestIncoming(context, push, preview, row.threadId) == null) {
+                return false
+            }
+            if (media.isNotEmpty()) persistMedia(store, guid, staged)
+            return true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            Log.w(TAG, "MMS media ingest remains pending for retry", failure)
+            return false
+        } finally {
+            discardIncomingMmsMedia(staged)
+        }
     }
 
     private data class MmsAddress(val address: String, val type: Int)
@@ -198,7 +220,7 @@ class MmsReceiver : BroadcastReceiver() {
         val mime: String,
         val name: String,
         val text: String?,
-        val bytes: ByteArray?,
+        val partId: Long?,
     )
 
     private fun queryMmsParts(context: Context, mmsId: Long): List<MmsPart> = runCatching {
@@ -219,45 +241,55 @@ class MmsReceiver : BroadcastReceiver() {
                         val body = cursor.getString(3)
                         if (!body.isNullOrEmpty()) add(MmsPart(mime, name, body, null))
                     } else {
-                        val bytes = readPartBytes(context, partId) ?: continue
-                        add(MmsPart(mime, name, null, bytes))
+                        add(MmsPart(mime, name, null, partId))
                     }
                 }
             }
         }
     }.getOrNull() ?: emptyList()
 
-    private fun readPartBytes(context: Context, partId: Long): ByteArray? = runCatching {
-        context.contentResolver.openInputStream("content://mms/part/$partId".toUri())?.use { it.readBytes() }
-    }.getOrNull()
-
-    private fun persistMedia(
+    private fun stageMedia(
         context: Context,
         store: io.objectbox.BoxStore,
         messageGuid: String,
         media: List<MmsPart>,
-        @Suppress("UNUSED_PARAMETER") chatId: Long,
-    ) {
-        runCatching {
-            val root = File(context.dataDir, "app_flutter")
-            val disk = AttachmentStore(store, root)
-            val box = store.boxFor(Attachment::class.java)
-            media.forEachIndexed { index, part ->
+    ): List<StagedIncomingMmsMedia> {
+        val disk = AttachmentStore(store, File(context.dataDir, "app_flutter"))
+        return stageIncomingMmsMedia(
+            media.mapIndexed { index, part ->
                 val attachmentGuid = "${messageGuid}_$index"
                 val payload = File(disk.directoryFor(attachmentGuid), disk.sanitizeFileName(part.name))
-                payload.parentFile?.mkdirs()
-                payload.writeBytes(part.bytes ?: return@forEachIndexed)
+                IncomingMmsMediaSource(destination = payload) {
+                    val partId = part.partId ?: throw IOException("MMS attachment has no provider identity")
+                    context.contentResolver.openInputStream("content://mms/part/$partId".toUri())
+                        ?: throw IOException("MMS attachment provider stream is unavailable")
+                }
+            }
+        )
+    }
 
-                box.query()
+    private fun persistMedia(
+        store: io.objectbox.BoxStore,
+        messageGuid: String,
+        staged: List<StagedIncomingMmsMedia>,
+    ) {
+        publishIncomingMmsMedia(staged)
+        val box = store.boxFor(Attachment::class.java)
+        store.runInTx {
+            staged.forEachIndexed { index, media ->
+                val attachmentGuid = "${messageGuid}_$index"
+                val attachment = box.query()
                     .equal(Attachment_.guid, attachmentGuid, QueryBuilder.StringOrder.CASE_SENSITIVE)
                     .build().use { it.findFirst() }
-                    ?.apply {
-                        isDownloaded = true
-                        totalBytes = payload.length()
-                        box.put(this)
-                    }
+                    ?: throw IOException("MMS attachment row $attachmentGuid was not persisted")
+                check(attachment.message.target?.chat?.target?.isRpSms == true) {
+                    "MMS attachment does not belong to a SIM conversation"
+                }
+                attachment.isDownloaded = true
+                attachment.totalBytes = media.sizeBytes
+                box.put(attachment)
             }
-        }.onFailure { Log.w(TAG, "MMS media persist failed", it) }
+        }
     }
 
     private companion object {
