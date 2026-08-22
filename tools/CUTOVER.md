@@ -75,8 +75,8 @@ in [docs/RELEASES.md](../docs/RELEASES.md).
 - [ ] Data survives a self-update: chats, attachments, and the ObjectBox store at
       `{dataDir}/app_flutter/objectbox` are intact; the push service restarts via
       `MY_PACKAGE_REPLACED`.
-- [ ] Second self-update installs without a confirmation dialog (installer-of-record,
-      Android 12+).
+- [ ] Every later self-update also presents Android's installation confirmation;
+      installer-of-record status never permits a silent install.
 - [ ] A corrupted APK (mismatched SHA-256 in the feed) is refused and cleaned up.
 - [ ] A feed versionCode at or below the installed one is ignored as "up to date";
       "Skip this version" hides the notification until the next release.

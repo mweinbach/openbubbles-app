@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
  * Foreground target of the "Update ready" notification. Notifications must
  * launch activities (Android 12+ discards activity starts relayed through a
  * receiver or service — the "notification trampoline" restriction), and the
- * PackageInstaller confirmation for the first self-update can only be shown
+ * PackageInstaller confirmation for each self-update can only be shown
  * while this app is visible. The activity therefore stays in the foreground
  * while the session is committed and finishes when the pipeline reports a
  * terminal result; `noHistory` in the manifest tears it down whenever

@@ -20,10 +20,9 @@ import java.security.MessageDigest
  *
  * Android 8.0+ (our minSdk) requires the user to grant this app the per-app
  * "Install unknown apps" toggle before any install; see [canInstall] and
- * [unknownSourcesIntent]. On Android 12+ the first self-update still shows
- * the system confirmation, and once this app is its own installer-of-record,
- * `setRequireUserAction(USER_ACTION_NOT_REQUIRED)` lets later self-updates
- * install silently.
+ * [unknownSourcesIntent]. Every self-update must show Android's system
+ * confirmation; becoming the installer-of-record must never turn updates
+ * into unattended package installations.
  */
 object ApkInstaller {
     const val ACTION_INSTALL_RESULT = "app.openbubbles.nativeapp.action.UPDATE_INSTALL_RESULT"
@@ -81,9 +80,7 @@ object ApkInstaller {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
             if (Build.VERSION.SDK_INT >= 31) {
-                // Honored only when this app is installer-of-record for the
-                // current version — i.e. from the second self-update on.
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
             }
         }
         val sessionId = packageInstaller.createSession(params)

@@ -11,7 +11,7 @@ import android.os.Build
  * never exported: only the system (holding our PendingIntent) can reach it.
  *
  * - `STATUS_PENDING_USER_ACTION`: the system wants explicit confirmation
- *   (always true for the very first self-update). Launch the confirmation
+ *   for this self-update. Launch the confirmation
  *   activity it hands us — [UpdateInstallActivity] is still in the
  *   foreground at this point, so the start is permitted.
  * - `STATUS_SUCCESS`: the new version is already live in place of this
