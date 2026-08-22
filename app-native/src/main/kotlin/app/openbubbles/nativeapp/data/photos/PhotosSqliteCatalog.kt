@@ -14,6 +14,7 @@ import app.openbubbles.core.photos.PhotoTransferDirection
 import app.openbubbles.core.photos.PhotoTransferOrigin
 import app.openbubbles.core.photos.PhotoTransferState
 import app.openbubbles.core.photos.PhotosCatalog
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,6 +25,11 @@ import kotlinx.coroutines.withContext
 class PhotosSqliteCatalog(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION),
     PhotosCatalog {
+
+    private val metadataMutationLock = Any()
+
+    @Volatile
+    private var metadataBaseline: PhotoMetadataBaseline? = null
 
     init {
         setWriteAheadLoggingEnabled(true)
@@ -71,26 +77,92 @@ class PhotosSqliteCatalog(context: Context) :
         assets: List<PhotoSummary>,
         nextCursor: String?,
     ): Unit = withContext(Dispatchers.IO) {
-        val database = writableDatabase
-        database.beginTransaction()
-        try {
-            database.delete(ASSETS_TABLE, null, null)
-            assets.forEach { asset ->
-                database.insertOrThrow(ASSETS_TABLE, null, asset.contentValues())
+        synchronized(metadataMutationLock) {
+            val database = writableDatabase
+            var committedBaseline: PhotoMetadataBaseline? = null
+            database.beginTransaction()
+            try {
+                val currentRevision = metadataRevision(database)
+                val previousAssets = metadataBaseline
+                    ?.takeIf { baseline -> currentRevision != null && baseline.revision == currentRevision }
+                    ?.assetsById
+                    ?: persistedMetadata(database)
+                val mutation = planPhotoMetadataMutation(previousAssets, assets)
+
+                photoMetadataDeletionBatches(mutation.removedAssetIds).forEach { removedIds ->
+                    val placeholders = List(removedIds.size) { "?" }.joinToString(",")
+                    check(
+                        database.delete(
+                            ASSETS_TABLE,
+                            "master_id IN ($placeholders)",
+                            removedIds.toTypedArray(),
+                        ) == removedIds.size,
+                    ) { "Photos metadata changed during a deletion" }
+                }
+                mutation.insertedAssets.forEach { asset ->
+                    database.insertOrThrow(ASSETS_TABLE, null, asset.contentValues())
+                }
+                mutation.updatedAssets.forEach { asset ->
+                    check(
+                        database.update(
+                            ASSETS_TABLE,
+                            asset.contentValues(),
+                            "master_id = ?",
+                            arrayOf(asset.id),
+                        ) == 1,
+                    ) { "Photos metadata changed during an update" }
+                }
+
+                val nextRevision = photoMetadataRevisionAllocator.reserve(
+                    currentRevision,
+                    System.currentTimeMillis(),
+                )
+                database.insertWithOnConflict(
+                    SYNC_TABLE,
+                    null,
+                    ContentValues().apply {
+                        put("sync_key", METADATA_SYNC_KEY)
+                        if (nextCursor == null) putNull("next_cursor") else put("next_cursor", nextCursor)
+                        put("updated_at_ms", nextRevision)
+                    },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+                committedBaseline = PhotoMetadataBaseline(nextRevision, mutation.assetsById)
+                database.setTransactionSuccessful()
+            } finally {
+                database.endTransaction()
             }
-            database.insertWithOnConflict(
-                SYNC_TABLE,
-                null,
-                ContentValues().apply {
-                    put("sync_key", METADATA_SYNC_KEY)
-                    if (nextCursor == null) putNull("next_cursor") else put("next_cursor", nextCursor)
-                    put("updated_at_ms", System.currentTimeMillis())
-                },
-                SQLiteDatabase.CONFLICT_REPLACE,
-            )
-            database.setTransactionSuccessful()
-        } finally {
-            database.endTransaction()
+            // Never expose an optimistic baseline: a failed transaction must
+            // make the next pass derive its state from committed SQLite rows.
+            metadataBaseline = checkNotNull(committedBaseline)
+        }
+    }
+
+    private fun metadataRevision(database: SQLiteDatabase): Long? = database.query(
+        SYNC_TABLE,
+        arrayOf("updated_at_ms"),
+        "sync_key = ?",
+        arrayOf(METADATA_SYNC_KEY),
+        null,
+        null,
+        null,
+        "1",
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+
+    private fun persistedMetadata(database: SQLiteDatabase): Map<String, PhotoSummary> = database.query(
+        ASSETS_TABLE,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    ).use { cursor ->
+        buildMap {
+            while (cursor.moveToNext()) {
+                val asset = cursor.photoSummary()
+                put(asset.id, asset)
+            }
         }
     }
 
@@ -143,13 +215,16 @@ class PhotosSqliteCatalog(context: Context) :
 
     /** Clears every account-derived catalog row in one transaction. */
     suspend fun clearAccountData(): Unit = withContext(Dispatchers.IO) {
-        val database = writableDatabase
-        database.beginTransaction()
-        try {
-            ACCOUNT_CLEAR_TABLES.forEach { table -> database.delete(table, null, null) }
-            database.setTransactionSuccessful()
-        } finally {
-            database.endTransaction()
+        synchronized(metadataMutationLock) {
+            val database = writableDatabase
+            database.beginTransaction()
+            try {
+                ACCOUNT_CLEAR_TABLES.forEach { table -> database.delete(table, null, null) }
+                database.setTransactionSuccessful()
+            } finally {
+                database.endTransaction()
+            }
+            metadataBaseline = null
         }
     }
 
@@ -329,4 +404,70 @@ class PhotosSqliteCatalog(context: Context) :
             )
         }
     }
+}
+
+private data class PhotoMetadataBaseline(
+    val revision: Long,
+    val assetsById: Map<String, PhotoSummary>,
+)
+
+private val photoMetadataRevisionAllocator = PhotoMetadataRevisionAllocator()
+
+/** SQLite work is proportional to a changed page, even when callers pass the full accumulated snapshot. */
+internal data class PhotoMetadataMutationPlan(
+    val insertedAssets: List<PhotoSummary>,
+    val updatedAssets: List<PhotoSummary>,
+    val removedAssetIds: List<String>,
+    val assetsById: Map<String, PhotoSummary>,
+) {
+    val assetWriteCount: Int
+        get() = insertedAssets.size + updatedAssets.size + removedAssetIds.size
+}
+
+/** Duplicate records resolve to the newest occurrence, matching [app.openbubbles.core.photos.PhotosBrowser.next]. */
+internal fun planPhotoMetadataMutation(
+    previousAssets: Map<String, PhotoSummary>,
+    incomingAssets: List<PhotoSummary>,
+): PhotoMetadataMutationPlan {
+    val assetsById = LinkedHashMap<String, PhotoSummary>(incomingAssets.size)
+    incomingAssets.forEach { asset -> assetsById[asset.id] = asset }
+
+    val inserted = ArrayList<PhotoSummary>()
+    val updated = ArrayList<PhotoSummary>()
+    assetsById.forEach { (assetId, asset) ->
+        val previous = previousAssets[assetId]
+        when {
+            previous == null -> inserted += asset
+            previous != asset -> updated += asset
+        }
+    }
+    val removed = previousAssets.keys.filterNot(assetsById::containsKey)
+    return PhotoMetadataMutationPlan(inserted, updated, removed, assetsById)
+}
+
+/** Keep IN clauses comfortably below Android's SQLite host-parameter limit. */
+internal const val MAX_PHOTO_METADATA_DELETE_BATCH_SIZE = 250
+
+internal fun photoMetadataDeletionBatches(assetIds: List<String>): List<List<String>> =
+    assetIds.chunked(MAX_PHOTO_METADATA_DELETE_BATCH_SIZE)
+
+/** Revisions remain unique across helper instances even after account cleanup deletes the sync row. */
+internal class PhotoMetadataRevisionAllocator(initialFloor: Long = Long.MIN_VALUE) {
+    private val processFloor = AtomicLong(initialFloor)
+
+    fun reserve(previousRevision: Long?, nowMs: Long): Long {
+        val persistedMinimum = nextPhotoMetadataRevision(previousRevision, nowMs)
+        while (true) {
+            val observedFloor = processFloor.get()
+            check(observedFloor != Long.MAX_VALUE) { "Photos metadata revision is exhausted" }
+            val nextRevision = maxOf(persistedMinimum, observedFloor + 1)
+            if (processFloor.compareAndSet(observedFloor, nextRevision)) return nextRevision
+        }
+    }
+}
+
+/** Wall-clock collisions or backwards clock changes must not hide another catalog instance's write. */
+internal fun nextPhotoMetadataRevision(previousRevision: Long?, nowMs: Long): Long {
+    check(previousRevision != Long.MAX_VALUE) { "Photos metadata revision is exhausted" }
+    return maxOf(nowMs, previousRevision?.plus(1) ?: nowMs)
 }
