@@ -527,25 +527,135 @@ async fn send_msg_on(
     send_inst_on(&state, inst).await
 }
 
-/// Poll an async export inside the protocol runtime without detaching its work.
-///
-/// UniFFI polls exported futures from foreign threads. Entering `RUNTIME` for
-/// each individual poll supplies Tokio timers, sockets, and spawned protocol
-/// tasks without parking a worker or carrying an enter guard across an await.
-/// Crucially, the protocol future remains owned by the exported future: when
-/// Kotlin cancels and UniFFI frees it, the active request, file, and callback
-/// are dropped synchronously before account cleanup can continue.
+/// Coordinates destruction of an account-bound protocol future with the
+/// foreign UniFFI future that owns it.
+struct FfiTaskCompletion {
+    dropped: Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+
+impl FfiTaskCompletion {
+    fn new() -> Self {
+        Self {
+            dropped: Mutex::new(false),
+            changed: std::sync::Condvar::new(),
+        }
+    }
+
+    fn acknowledge_drop(&self) {
+        let mut dropped = self.dropped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *dropped = true;
+        self.changed.notify_all();
+    }
+
+    fn wait_for_drop(&self) {
+        let wait = || {
+            let mut dropped = self.dropped.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            while !*dropped {
+                dropped = self.changed.wait(dropped)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+        };
+
+        if tokio::runtime::Handle::try_current()
+            .map(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+            .unwrap_or(false)
+        {
+            // Cancellation can itself run on a Tokio worker. Hand its core to
+            // another worker before waiting for the aborted task to be dropped.
+            tokio::task::block_in_place(wait);
+        } else {
+            wait();
+        }
+    }
+}
+
+/// Constructed before spawning so abort-before-first-poll still acknowledges.
+struct FfiProtocolTask {
+    task: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
+    completion: Arc<FfiTaskCompletion>,
+}
+
+impl std::future::Future for FfiProtocolTask {
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let task = self.get_mut()
+            .task
+            .as_mut()
+            .expect("protocol task polled after destruction")
+            .as_mut();
+        std::future::Future::poll(task, context)
+    }
+}
+
+impl Drop for FfiProtocolTask {
+    fn drop(&mut self) {
+        // Struct fields normally drop *after* `Drop::drop` returns. Explicitly
+        // destroy the real protocol future first: its file/request/callback
+        // must be gone before account teardown receives this acknowledgment.
+        drop(self.task.take());
+        self.completion.acknowledge_drop();
+    }
+}
+
+struct FfiRuntimeTask {
+    handle: tokio::task::JoinHandle<()>,
+    completion: Arc<FfiTaskCompletion>,
+}
+
+impl std::future::Future for FfiRuntimeTask {
+    type Output = Result<(), tokio::task::JoinError>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::future::Future::poll(std::pin::Pin::new(&mut self.get_mut().handle), context)
+    }
+}
+
+impl Drop for FfiRuntimeTask {
+    fn drop(&mut self) {
+        self.handle.abort();
+        self.completion.wait_for_drop();
+    }
+}
+
+/// Run an async export on a Rust runtime worker, never on UniFFI's small
+/// Android dispatcher stack. Dropping its foreign future aborts the genuinely
+/// cancellable Tokio task and synchronously waits for protocol ownership to be
+/// destroyed before returning control to Kotlin account cleanup.
 async fn drive_ffi<T, F>(task: F) -> Result<T, UError>
 where
     T: Send + 'static,
     F: std::future::Future<Output = Result<T, UError>> + Send + 'static,
 {
-    let mut task = Box::pin(task);
-    futures::future::poll_fn(move |context| {
-        let _runtime = RUNTIME.enter();
-        std::future::Future::poll(task.as_mut(), context)
-    })
+    let completion = Arc::new(FfiTaskCompletion::new());
+    let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+    let erased_task: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+        Box::pin(async move {
+            let result = task.await;
+            let _ = result_sender.send(result);
+        });
+    let task = FfiProtocolTask {
+        task: Some(erased_task),
+        completion: completion.clone(),
+    };
+    FfiRuntimeTask {
+        handle: RUNTIME.spawn(task),
+        completion,
+    }
     .await
+    .map_err(|error| UError::Failed {
+        reason: format!("engine task failed: {error}"),
+    })?;
+    result_receiver.await.map_err(|_| UError::Failed {
+        reason: "engine task finished without returning its result".to_string(),
+    })?
 }
 
 #[cfg(test)]
@@ -593,6 +703,53 @@ mod ffi_execution_tests {
         .expect("protocol runtime should drive a Tokio timer");
 
         assert_eq!(completed, 7);
+    }
+
+    #[test]
+    fn small_foreign_stack_never_polls_the_protocol_future() {
+        let thread = std::thread::Builder::new()
+            .name("small-foreign-ffi".to_string())
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                futures::executor::block_on(drive_ffi(async {
+                    let worker = std::thread::current()
+                        .name()
+                        .unwrap_or("unnamed")
+                        .to_string();
+                    Ok::<String, UError>(worker)
+                }))
+            })
+            .expect("start small-stack foreign FFI thread");
+
+        let worker = thread
+            .join()
+            .expect("foreign thread must not overflow")
+            .expect("protocol task must complete");
+        assert_eq!(worker, "tokio-rustpush");
+    }
+
+    #[test]
+    fn cancelling_started_protocol_task_waits_for_owned_resources_to_drop() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let signal = DropSignal(dropped.clone());
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let mut exported = Box::pin(drive_ffi(async move {
+            let _owned_file_or_request = signal;
+            started_tx.send(()).expect("signal protocol task start");
+            std::future::pending::<Result<(), UError>>().await
+        }));
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        assert!(matches!(exported.as_mut().poll(&mut context), Poll::Pending));
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("protocol task should start on the Rust runtime");
+        assert!(!dropped.load(Ordering::SeqCst));
+
+        drop(exported);
+
+        assert!(dropped.load(Ordering::SeqCst));
     }
 }
 
@@ -3986,7 +4143,7 @@ impl NativePushState {
     /// cloud syncing) when the device fell out of the iCloud clique.
     pub fn is_in_clique(&self) -> Result<bool, UError> {
         let keychain = keychain_client(self.shared())?;
-        Ok(RUNTIME.block_on(api::is_in_clique(&keychain)))
+        RUNTIME.block_on(drive_ffi(async move { Ok(api::is_in_clique(&keychain).await) }))
     }
 
     /// Trusted-device escrow bottles available for non-destructive iCloud
@@ -5058,10 +5215,12 @@ impl NativePushState {
     /// (api.rs `get_beacon_items`).
     pub fn get_beacon_items(&self) -> Result<Vec<UFmItem>, UError> {
         let fmfd = fmfd_client(self.shared())?;
-        let items = RUNTIME
-            .block_on(api::get_beacon_items(&fmfd))
-            .map_err(|e| UError::Failed { reason: format!("findmy items failed: {e}") })?;
-        Ok(items.iter().map(conv_beacon).collect())
+        RUNTIME.block_on(drive_ffi(async move {
+            let items = api::get_beacon_items(&fmfd)
+                .await
+                .map_err(|e| UError::Failed { reason: format!("findmy items failed: {e}") })?;
+            Ok(items.iter().map(conv_beacon).collect())
+        }))
     }
 
     /// Last persisted own + shared Find My items without a network refresh.
