@@ -4,9 +4,12 @@ import app.openbubbles.core.attachment.AttachmentMedia
 import app.openbubbles.core.attachment.TransferState
 import app.openbubbles.core.model.InteractivePayload
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -268,9 +271,13 @@ interface ChatListRepository {
     fun setBlocked(id: Long, blocked: Boolean, archive: Boolean = false) = Unit
     fun clearTranscript(id: Long) = Unit
     fun recentlyDeleted(): List<ChatListItem> = emptyList()
+    fun observeRecentlyDeleted(): Flow<List<ChatListItem>> =
+        flow { emit(recentlyDeleted()) }.flowOn(Dispatchers.IO)
 
     /** Count for the settings badge; avoids projecting every deleted chat. */
     fun recentlyDeletedCount(): Int = recentlyDeleted().size
+    fun observeRecentlyDeletedCount(): Flow<Int> =
+        flow { emit(recentlyDeletedCount()) }.flowOn(Dispatchers.IO)
     fun restoreDeleted(id: Long) = Unit
     fun permanentlyDelete(id: Long) = Unit
     fun delete(id: Long)
@@ -307,7 +314,11 @@ interface MessageListRepository {
     fun release(chatId: Long) = Unit
 
     fun bookmarked(chatId: Long): List<MessageItem> = emptyList()
+    fun observeBookmarked(chatId: Long): Flow<List<MessageItem>> =
+        flow { emit(bookmarked(chatId)) }.flowOn(Dispatchers.IO)
     fun recentlyDeleted(chatId: Long? = null): List<MessageItem> = emptyList()
+    fun observeRecentlyDeleted(chatId: Long? = null): Flow<List<MessageItem>> =
+        flow { emit(recentlyDeleted(chatId)) }.flowOn(Dispatchers.IO)
     fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) = Unit
     fun markForwarded(messageIds: Collection<Long>) = Unit
     fun deleteLocal(messageIds: Collection<Long>) = Unit

@@ -2047,11 +2047,21 @@ private class CoreChatListRepository(
             .getOrElse { emptyList() }
     }
 
+    override fun observeRecentlyDeleted(): Flow<List<ChatListItem>> =
+        repo.observeRecentlyDeleted()
+            .map { deleted -> deleted.map(::coreChatToUi) }
+            .flowOn(Dispatchers.IO)
+
     override fun recentlyDeletedCount(): Int {
         val st = CoreGraph.store ?: return 0
         if (st.isClosed) return 0
         return runCatching { repo.recentlyDeletedCount().toInt() }.getOrDefault(0)
     }
+
+    override fun observeRecentlyDeletedCount(): Flow<Int> =
+        repo.observeRecentlyDeletedCount()
+            .map(Long::toInt)
+            .flowOn(Dispatchers.IO)
 
     override fun restoreDeleted(id: Long) = repo.restoreDeleted(id)
 
@@ -2222,8 +2232,18 @@ internal class CoreMessageListRepository(
     override fun bookmarked(chatId: Long): List<MessageItem> =
         repo.bookmarked(chatId).map(::coreMessageToUi)
 
+    override fun observeBookmarked(chatId: Long): Flow<List<MessageItem>> =
+        repo.observeBookmarked(chatId)
+            .map { bookmarked -> bookmarked.map(::coreMessageToUi) }
+            .flowOn(Dispatchers.IO)
+
     override fun recentlyDeleted(chatId: Long?): List<MessageItem> =
         repo.recentlyDeleted(chatId).map(::coreMessageToUi)
+
+    override fun observeRecentlyDeleted(chatId: Long?): Flow<List<MessageItem>> =
+        repo.observeRecentlyDeleted(chatId)
+            .map { deleted -> deleted.map(::coreMessageToUi) }
+            .flowOn(Dispatchers.IO)
 
     override fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) =
         repo.setBookmarked(messageIds, bookmarked)

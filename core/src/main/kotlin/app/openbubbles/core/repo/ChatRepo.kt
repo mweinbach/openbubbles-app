@@ -102,6 +102,14 @@ class ChatRepo(
     fun recentlyDeletedCount(): Long =
         chatBox.query().notNull(Chat_.dateDeleted).build().use { it.count() }
 
+    /** Observe the native deleted-chat count without projecting conversation rows. */
+    fun observeRecentlyDeletedCount(): Flow<Long> =
+        invalidations.changesForWithInitial(StoreEntityChange.CHAT)
+            .conflate()
+            .map { recentlyDeletedCount() }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
     /** Recoverably deleted conversations, newest deletion first. */
     fun recentlyDeleted(limit: Int = 0): List<ChatListItem> = store.callInReadTx {
         val found = chatBox.query()
@@ -113,6 +121,18 @@ class ChatRepo(
         val projected = found.map { toItem(it, contactInfo, addressInfo) }
         if (limit > 0) projected.take(limit) else projected
     }
+
+    /** Observe recoverable conversations and their contact-backed display data. */
+    fun observeRecentlyDeleted(limit: Int = 0): Flow<List<ChatListItem>> =
+        invalidations.changesForWithInitial(
+            StoreEntityChange.CHAT,
+            StoreEntityChange.CONTACT,
+            StoreEntityChange.HANDLE,
+        )
+            .conflate()
+            .map { recentlyDeleted(limit) }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
 
     /**
      * Protocol chat ids represented by one direct-contact conversation.

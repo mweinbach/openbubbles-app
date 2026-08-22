@@ -312,6 +312,18 @@ class MessageRepo(
         }
     }
 
+    /** Observe bookmarked rows and the attachment/contact data in their projections. */
+    fun observeBookmarked(chatId: Long, limit: Int = 0): Flow<List<MessageItem>> =
+        invalidations.changesForWithInitial(
+            StoreEntityChange.MESSAGE,
+            StoreEntityChange.ATTACHMENT,
+            StoreEntityChange.CONTACT,
+        )
+            .conflate()
+            .map { bookmarked(chatId, limit) }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+
     fun recentlyDeleted(chatId: Long? = null, limit: Int = 0): List<MessageItem> {
         var condition: QueryCondition<Message> = Message_.dateDeleted.notNull()
             .and(Message_.associatedMessageGuid.isNull())
@@ -329,6 +341,21 @@ class MessageRepo(
             projectPage(if (limit > 0) found.take(limit) else found)
         }
     }
+
+    /** Observe recoverable rows across all chats or one grouped conversation. */
+    fun observeRecentlyDeleted(
+        chatId: Long? = null,
+        limit: Int = 0,
+    ): Flow<List<MessageItem>> =
+        invalidations.changesForWithInitial(
+            StoreEntityChange.MESSAGE,
+            StoreEntityChange.ATTACHMENT,
+            StoreEntityChange.CONTACT,
+        )
+            .conflate()
+            .map { recentlyDeleted(chatId, limit) }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
 
     fun setBookmarked(messageIds: Collection<Long>, bookmarked: Boolean) {
         if (messageIds.isEmpty()) return
