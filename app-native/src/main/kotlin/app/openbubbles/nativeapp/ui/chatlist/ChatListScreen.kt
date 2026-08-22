@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.ui.chatlist
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,13 +26,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChatBubble
@@ -53,9 +55,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +73,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.animateFloatingActionButton
+import androidx.compose.material3.ripple
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -82,9 +89,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -92,14 +102,17 @@ import androidx.compose.ui.unit.dp
 import app.openbubbles.nativeapp.data.ChatListItem
 import app.openbubbles.nativeapp.data.visibleTranscriptPrefetchIds
 import app.openbubbles.nativeapp.ui.common.ChatAvatar
+import app.openbubbles.nativeapp.ui.common.SegmentedRowGap
 import app.openbubbles.nativeapp.ui.common.formatListTimestamp
 import app.openbubbles.nativeapp.ui.common.rememberContactAvatarPath
 import app.openbubbles.nativeapp.ui.common.rememberPolygonMorph
+import app.openbubbles.nativeapp.ui.common.segmentedRowShape
 import app.openbubbles.nativeapp.ui.common.sharedChatContainer
 import app.openbubbles.nativeapp.ui.settings.SettingsChoiceItem
 import app.openbubbles.nativeapp.ui.settings.SettingsGroup
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
 import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 import app.openbubbles.nativeapp.ui.theme.rememberItemAnimationSpecs
 import kotlinx.coroutines.flow.collectLatest
@@ -191,6 +204,7 @@ fun ChatListScreen(
             ChatListKind.Archive -> uiState.archived
         }
     }
+    val unreadCount = remember(visibleChats) { visibleChats.sumOf(ChatListItem::unread) }
     LaunchedEffect(transcriptPrefetchEnabled) {
         if (!transcriptPrefetchEnabled) onVisibleChatsChanged(emptyList())
     }
@@ -238,9 +252,31 @@ fun ChatListScreen(
                                 kind == ChatListKind.Archive -> "Archived"
                                 else -> "OpenGarden"
                             },
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
                             maxLines = 1,
                         )
+                    },
+                    subtitle = {
+                        if (!selecting) {
+                            val conversationLabel = if (visibleChats.size == 1) {
+                                "1 conversation"
+                            } else {
+                                "${visibleChats.size} conversations"
+                            }
+                            val supportingText = when {
+                                uiState.loading -> "Getting your conversations ready"
+                                visibleChats.isEmpty() -> "Messages · Your conversations"
+                                unreadCount > 0 -> "$unreadCount unread · $conversationLabel"
+                                else -> conversationLabel
+                            }
+                            Text(
+                                text = supportingText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     },
                     navigationIcon = {
                         when {
@@ -289,7 +325,7 @@ fun ChatListScreen(
                                 }
                             }
                         } else if (kind == ChatListKind.Inbox) {
-                            IconButton(onClick = onOpenSearch) {
+                            FilledTonalIconButton(onClick = onOpenSearch) {
                                 Icon(
                                     imageVector = Icons.Filled.Search,
                                     contentDescription = "Search",
@@ -397,8 +433,8 @@ fun ChatListScreen(
                 kind = kind,
                 listState = listState,
                 contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 4.dp,
-                    bottom = padding.calculateBottomPadding() + 88.dp,
+                    top = padding.calculateTopPadding() + 8.dp,
+                    bottom = padding.calculateBottomPadding() + 104.dp,
                 ),
                 onChatClick = { chat ->
                     if (selecting) toggleSelected(chat) else onChatClick(chat)
@@ -551,7 +587,7 @@ private fun ChatSections(
             .testTag(if (listIsScrollable) ChatListScrollableTag else ChatListIdleTag),
         state = listState,
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+        verticalArrangement = Arrangement.spacedBy(SegmentedRowGap),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item(key = "header") {
@@ -578,18 +614,34 @@ private fun ChatSections(
         }
         val rows = if (kind == ChatListKind.Archive) uiState.archived else uiState.chats
         if (rows.isNotEmpty()) {
-            items(
+            item(key = "conversation-section", contentType = "section-heading") {
+                ConversationSectionHeader(
+                    title = when {
+                        kind == ChatListKind.Archive -> "Archived conversations"
+                        uiState.pinned.isNotEmpty() -> "Recent conversations"
+                        else -> "All conversations"
+                    },
+                    count = rows.size,
+                    modifier = Modifier
+                        .widthIn(max = ListContentMaxWidth)
+                        .fillMaxWidth(),
+                )
+            }
+            itemsIndexed(
                 items = rows,
-                key = { "chat-${it.id}" },
-                contentType = { "conversation" },
-            ) { chat ->
+                key = { _, chat -> "chat-${chat.id}" },
+                contentType = { _, _ -> "conversation" },
+            ) { index, chat ->
                 ChatListRow(
                     chat = chat,
                     onClick = onChatClick,
                     onLongClick = onChatLongClick,
                     selected = chat.id == selectedChatId || chat.id in checkedIds,
                     checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
-                    modifier = Modifier.widthIn(max = ListContentMaxWidth)
+                    shape = segmentedRowShape(index = index, count = rows.size),
+                    modifier = Modifier
+                        .widthIn(max = ListContentMaxWidth)
+                        .padding(horizontal = 14.dp)
                         .animateItem(
                             fadeInSpec = itemSpecs.fadeIn,
                             fadeOutSpec = itemSpecs.fadeOut,
@@ -605,6 +657,30 @@ private fun ChatSections(
 }
 
 @Composable
+private fun ConversationSectionHeader(
+    title: String,
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmallEmphasized,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun PinnedChatsGrid(
     chats: List<ChatListItem>,
     onChatClick: (ChatListItem) -> Unit,
@@ -613,27 +689,59 @@ private fun PinnedChatsGrid(
     checkedIds: Set<Long>,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
-        val columns = pinnedChatColumnCount(maxWidth)
-        val avatarSize = if (columns >= 4) 76.dp else 72.dp
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            chats.chunked(columns).forEach { rowChats ->
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    rowChats.forEach { chat ->
-                        key(chat.id) {
-                            PinnedChatTile(
-                                chat = chat,
-                                onClick = onChatClick,
-                                onLongClick = onChatLongClick,
-                                selected = chat.id == selectedChatId || chat.id in checkedIds,
-                                checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
-                                avatarSize = avatarSize,
-                                modifier = Modifier.weight(1f),
-                            )
+    Surface(
+        shape = MaterialTheme.shapes.extraLargeIncreased,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+    ) {
+        Column(modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PushPin,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = "Pinned",
+                    style = MaterialTheme.typography.titleSmallEmphasized,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = chats.size.toString(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            BoxWithConstraints(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
+                val columns = pinnedChatColumnCount(maxWidth)
+                val avatarSize = if (columns >= 4) 72.dp else 68.dp
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    chats.chunked(columns).forEach { rowChats ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            rowChats.forEach { chat ->
+                                key(chat.id) {
+                                    PinnedChatTile(
+                                        chat = chat,
+                                        onClick = onChatClick,
+                                        onLongClick = onChatLongClick,
+                                        selected = chat.id == selectedChatId || chat.id in checkedIds,
+                                        checked = if (checkedIds.isEmpty()) null else chat.id in checkedIds,
+                                        avatarSize = avatarSize,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            repeat(columns - rowChats.size) {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
-                    }
-                    repeat(columns - rowChats.size) {
-                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -654,9 +762,21 @@ private fun PinnedChatTile(
 ) {
     val unread = chat.unread > 0
     val avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress)
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressedScale by animateFloatAsState(
+        targetValue = if (pressed) 0.95f else 1f,
+        animationSpec = fastSpatialSpec(),
+        label = "pinnedChatPressScale",
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        animationSpec = fastEffectsSpec(),
+        label = "pinnedChatSelectionColor",
+    )
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        color = containerColor,
         contentColor = if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
@@ -664,8 +784,14 @@ private fun PinnedChatTile(
         },
         modifier = modifier
             .padding(horizontal = 2.dp)
+            .graphicsLayer {
+                scaleX = pressedScale
+                scaleY = pressedScale
+            }
             .sharedChatContainer(chat.id)
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
                 onClick = { onClick(chat) },
                 onLongClick = { onLongClick(chat) },
                 onLongClickLabel = "Select conversations",
@@ -709,7 +835,7 @@ private fun PinnedChatTile(
     }
 }
 
-/** One flat, Messages-style conversation row. */
+/** One connected, Messages-style conversation row with restrained expressive feedback. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListRow(
@@ -721,40 +847,77 @@ fun ChatListRow(
     selected: Boolean = false,
     /** Null when the list is not in selection mode. */
     checked: Boolean? = null,
+    /** Connected-group corners supplied by the owning conversation section. */
+    shape: Shape? = null,
 ) {
     val unread = chat.unread > 0
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressedScale by animateFloatAsState(
+        targetValue = if (pressed) 0.985f else 1f,
+        animationSpec = fastSpatialSpec(),
+        label = "conversationPressScale",
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+        animationSpec = fastEffectsSpec(),
+        label = "conversationSelectionColor",
+    )
     val secondaryText = if (selected) {
         MaterialTheme.colorScheme.onSecondaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
-        shape = if (selected) MaterialTheme.shapes.extraLarge else RectangleShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = if (selected) MaterialTheme.shapes.extraLarge else shape ?: MaterialTheme.shapes.largeIncreased,
+        color = containerColor,
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = pressedScale
+                scaleY = pressedScale
+            }
             // Container transform into the conversation (compact windows only;
             // the helper no-ops in multi-pane and outside SharedTransitionLayout).
             .sharedChatContainer(chat.id)
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
                 onClick = { onClick(chat) },
                 onLongClick = { onLongClick(chat) },
                 onLongClickLabel = "Select conversations",
             ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Box(
+                modifier = Modifier.size(width = 8.dp, height = 52.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (unread) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
             Box {
                 ChatAvatar(
                     title = chat.title,
                     avatarColor = chat.avatarColor,
-                    size = 56.dp,
+                    size = 52.dp,
                     avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
                 )
-                SelectionCheck(checked = checked, size = 56.dp)
+                SelectionCheck(checked = checked, size = 52.dp)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -785,8 +948,16 @@ fun ChatListRow(
                         color = secondaryText,
                         modifier = Modifier.padding(start = 8.dp),
                     )
+                    if (checked == null) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = secondaryText.copy(alpha = 0.72f),
+                            modifier = Modifier.padding(start = 2.dp).size(17.dp),
+                        )
+                    }
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = chat.snippet.orEmpty(),
@@ -800,7 +971,7 @@ fun ChatListRow(
                             unread -> MaterialTheme.colorScheme.onSurface
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
@@ -836,50 +1007,89 @@ private fun ChatListActionSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            text = chat.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        )
-        ChatActionButton(
-            text = if (chat.pinned) "Unpin" else "Pin",
-            icon = Icons.Filled.PushPin,
-            onClick = onTogglePinned,
-        )
-        if (onSendFrom != null) {
-            ChatActionButton(
-                text = chat.senderOverride
-                    ?.let { "Send from ${handleLabel(it)}" }
-                    ?: "Send from…",
-                icon = Icons.AutoMirrored.Filled.Send,
-                onClick = onSendFrom,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ChatAvatar(
+                title = chat.title,
+                avatarColor = chat.avatarColor,
+                size = 48.dp,
+                avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = chat.title,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (chat.muted) "Notifications are hidden" else "Conversation options",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        if (chat.muted) {
+        Spacer(Modifier.height(16.dp))
+        val count = 1 + (if (onSendFrom != null) 1 else 0) + if (chat.muted) 1 else 3
+        val notificationIndex = if (onSendFrom != null) 2 else 1
+        SettingsGroup(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            title = "Manage conversation",
+        ) {
             ChatActionButton(
-                text = "Show alerts",
-                icon = Icons.Filled.NotificationsOff,
-                onClick = onToggleMuted,
+                text = if (chat.pinned) "Unpin" else "Pin",
+                icon = Icons.Filled.PushPin,
+                onClick = onTogglePinned,
+                index = 0,
+                count = count,
             )
-        } else {
-            ChatActionButton(
-                text = "Mute for 1 hour",
-                icon = Icons.Filled.NotificationsOff,
-                onClick = { onMuteFor(60 * 60 * 1_000L) },
-            )
-            ChatActionButton(
-                text = "Mute for 8 hours",
-                icon = Icons.Filled.NotificationsOff,
-                onClick = { onMuteFor(8 * 60 * 60 * 1_000L) },
-            )
-            ChatActionButton(
-                text = "Hide alerts",
-                icon = Icons.Filled.NotificationsOff,
-                onClick = onToggleMuted,
-            )
+            if (onSendFrom != null) {
+                ChatActionButton(
+                    text = chat.senderOverride
+                        ?.let { "Send from ${handleLabel(it)}" }
+                        ?: "Send from…",
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    onClick = onSendFrom,
+                    index = 1,
+                    count = count,
+                )
+            }
+            if (chat.muted) {
+                ChatActionButton(
+                    text = "Show alerts",
+                    icon = Icons.Filled.NotificationsOff,
+                    onClick = onToggleMuted,
+                    index = notificationIndex,
+                    count = count,
+                )
+            } else {
+                ChatActionButton(
+                    text = "Mute for 1 hour",
+                    icon = Icons.Filled.NotificationsOff,
+                    onClick = { onMuteFor(60 * 60 * 1_000L) },
+                    index = notificationIndex,
+                    count = count,
+                )
+                ChatActionButton(
+                    text = "Mute for 8 hours",
+                    icon = Icons.Filled.NotificationsOff,
+                    onClick = { onMuteFor(8 * 60 * 60 * 1_000L) },
+                    index = notificationIndex + 1,
+                    count = count,
+                )
+                ChatActionButton(
+                    text = "Hide alerts",
+                    icon = Icons.Filled.NotificationsOff,
+                    onClick = onToggleMuted,
+                    index = notificationIndex + 2,
+                    count = count,
+                )
+            }
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -977,17 +1187,24 @@ internal fun sendFromChoices(handles: Set<String>): List<String> =
 private fun SelectionCheck(checked: Boolean?, size: androidx.compose.ui.unit.Dp) {
     if (checked != true) return
     Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)),
-        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(size),
+        contentAlignment = Alignment.BottomEnd,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Check,
-            contentDescription = "Selected",
-            tint = MaterialTheme.colorScheme.onPrimary,
-        )
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surfaceContainer),
+            modifier = Modifier.size(24.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Selected",
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+        }
     }
 }
 
@@ -996,14 +1213,37 @@ private fun ChatActionButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
+    index: Int,
+    count: Int,
 ) {
-    TextButton(
+    ListItem(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-        Text(text, modifier = Modifier.fillMaxWidth().padding(start = 12.dp))
-    }
+        modifier = Modifier.fillMaxWidth(),
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        colors = ListItemDefaults.segmentedColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        leadingContent = {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
+                }
+            }
+        },
+        trailingContent = {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+    ) { Text(text, style = MaterialTheme.typography.bodyLarge) }
 }
 
 /** Primary-colored pill with a 99+ cap, iMessage-style unread marker. */
@@ -1013,7 +1253,9 @@ private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
-        modifier = modifier,
+        modifier = modifier.semantics {
+            contentDescription = if (count == 1) "1 unread message" else "$count unread messages"
+        },
     ) {
         Text(
             text = if (count > 99) "99+" else count.toString(),
@@ -1063,11 +1305,22 @@ private fun NewChatFab(
 @Composable
 private fun LoadingState(modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        LoadingIndicator()
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            LoadingIndicator()
+            Text(
+                text = "Loading conversations",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
 /** Branded, actionable empty state pointing at the new-chat FAB. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun EmptyState(
     onNewChat: () -> Unit,
@@ -1080,16 +1333,20 @@ private fun EmptyState(
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(
-            shape = MaterialTheme.shapes.extraLargeIncreased,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.size(72.dp),
+            shape = if (archive) {
+                MaterialTheme.shapes.extraLargeIncreased
+            } else {
+                MaterialShapes.SoftBurst.toShape()
+            },
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size(84.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = if (archive) Icons.Filled.Archive else Icons.Filled.ChatBubble,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(36.dp),
                 )
             }
         }
