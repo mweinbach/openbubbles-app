@@ -45,11 +45,26 @@ data class DecodedImageResult(
     val isLoading: Boolean,
 )
 
+private const val MinimumDecodedImageCacheSizeKb = 24 * 1024
+private const val MaximumDecodedImageCacheSizeKb = 64 * 1024
+private const val DecodedImageCacheHeapFraction = 6L
+
+/** Keep several full-quality images on capable devices without overcommitting smaller heaps. */
+internal fun decodedImageCacheSizeKb(maxHeapBytes: Long): Int {
+    if (maxHeapBytes <= 0L) return MinimumDecodedImageCacheSizeKb
+    return (maxHeapBytes / DecodedImageCacheHeapFraction / 1024L)
+        .coerceIn(
+            MinimumDecodedImageCacheSizeKb.toLong(),
+            MaximumDecodedImageCacheSizeKb.toLong(),
+        )
+        .toInt()
+}
+
 /** Size-bounded decoded bitmap cache shared by visible lazy-list rows. */
 object ImageDecodeCache {
-    private const val MAX_SIZE_KB = 24 * 1024
-
-    private val cache = object : LruCache<String, DecodedImage>(MAX_SIZE_KB) {
+    private val cache = object : LruCache<String, DecodedImage>(
+        decodedImageCacheSizeKb(Runtime.getRuntime().maxMemory()),
+    ) {
         override fun sizeOf(key: String, value: DecodedImage): Int {
             val bitmap = value.image.asAndroidBitmap()
             val gainmapBytes = if (Build.VERSION.SDK_INT >= 34) {

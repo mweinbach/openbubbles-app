@@ -9,6 +9,41 @@ import kotlin.test.assertTrue
 class ImageDecodeFallbackTest {
 
     @Test
+    fun `small heaps retain the existing minimum decoded-image cache budget`() {
+        assertEquals(24 * 1024, decodedImageCacheSizeKb(64L * 1024L * 1024L))
+        assertEquals(24 * 1024, decodedImageCacheSizeKb(144L * 1024L * 1024L))
+    }
+
+    @Test
+    fun `ordinary heaps reserve one sixth for decoded images`() {
+        assertEquals(32 * 1024, decodedImageCacheSizeKb(192L * 1024L * 1024L))
+        assertEquals(43_690, decodedImageCacheSizeKb(256L * 1024L * 1024L))
+    }
+
+    @Test
+    fun `256 MiB heaps retain two full resolution gain mapped iPhone screenshots`() {
+        val screenshotBytes = 1320L * 2868L * 4L
+        val halfResolutionGainmapBytes = 660L * 1434L * 4L
+        val cacheBytes = decodedImageCacheSizeKb(256L * 1024L * 1024L) * 1024L
+
+        assertTrue(cacheBytes >= 2L * (screenshotBytes + halfResolutionGainmapBytes))
+    }
+
+    @Test
+    fun `large heaps never exceed the bounded decoded-image cache budget`() {
+        assertEquals(64 * 1024, decodedImageCacheSizeKb(384L * 1024L * 1024L))
+        assertEquals(64 * 1024, decodedImageCacheSizeKb(1024L * 1024L * 1024L))
+        assertEquals(64 * 1024, decodedImageCacheSizeKb(Long.MAX_VALUE))
+    }
+
+    @Test
+    fun `invalid heap sizes safely use the minimum decoded-image cache budget`() {
+        assertEquals(24 * 1024, decodedImageCacheSizeKb(0L))
+        assertEquals(24 * 1024, decodedImageCacheSizeKb(-1L))
+        assertEquals(24 * 1024, decodedImageCacheSizeKb(Long.MIN_VALUE))
+    }
+
+    @Test
     fun `successful original decode preserves HDR and skips SDR fallback`() {
         var fallbackAttempts = 0
 

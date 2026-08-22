@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class HdrDisplayTest {
 
     @Test
-    fun `image ratio is preserved when it fits the display and comfort limit`() {
+    fun `image ratio is preserved when it fits the display`() {
         assertEquals(1.8f, desiredHdrHeadroom(imageRatio = 1.8f, displayRatio = 3f))
     }
 
@@ -16,9 +16,15 @@ class HdrDisplayTest {
     }
 
     @Test
-    fun `headroom is capped to avoid excessive brightness jumps`() {
-        assertEquals(2.5f, desiredHdrHeadroom(imageRatio = 6f, displayRatio = 8f))
+    fun `strong HDR uses the authored image headroom instead of an arbitrary ceiling`() {
+        assertEquals(6f, desiredHdrHeadroom(imageRatio = 6f, displayRatio = 8f))
+        assertEquals(8f, desiredHdrHeadroom(imageRatio = 12f, displayRatio = 8f))
         assertEquals(1.4f, desiredHdrHeadroom(imageRatio = 6f, displayRatio = 8f, limit = 1.4f))
+    }
+
+    @Test
+    fun `headroom never exceeds the platform supported request range`() {
+        assertEquals(10_000f, desiredHdrHeadroom(imageRatio = 20_000f, displayRatio = 30_000f))
     }
 
     @Test

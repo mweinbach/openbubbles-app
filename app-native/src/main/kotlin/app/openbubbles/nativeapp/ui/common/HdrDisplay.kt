@@ -36,12 +36,16 @@ fun HdrColorModeEffect(image: ImageBitmap?) {
     val showHdr = gainmap != null || hasHdrColorSpace
     val displayHeadroom = if (Build.VERSION.SDK_INT >= 36) {
         runCatching { activity.display?.highestHdrSdrRatio }.getOrNull()
-            ?: DefaultMaximumHdrHeadroom
+            ?.takeIf { it.isFinite() && it >= MinimumHdrHeadroom }
     } else {
-        DefaultMaximumHdrHeadroom
+        null
     }
-    val imageHeadroom = gainmap?.displayRatioForFullHdr ?: displayHeadroom
-    val headroom = desiredHdrHeadroom(imageHeadroom, displayHeadroom)
+    val headroom = gainmap?.displayRatioForFullHdr?.let { imageHeadroom ->
+        desiredHdrHeadroom(
+            imageRatio = imageHeadroom,
+            displayRatio = displayHeadroom ?: imageHeadroom,
+        )
+    } ?: AutomaticHdrHeadroom
 
     DisposableEffect(window) {
         val previousColorMode = window.colorMode
@@ -80,7 +84,7 @@ fun HdrColorModeEffect(image: ImageBitmap?) {
 internal fun desiredHdrHeadroom(
     imageRatio: Float,
     displayRatio: Float,
-    limit: Float = DefaultMaximumHdrHeadroom,
+    limit: Float = MaximumPlatformHdrHeadroom,
 ): Float {
     val validLimit = limit.takeIf { it.isFinite() && it >= MinimumHdrHeadroom }
         ?: return MinimumHdrHeadroom
@@ -91,5 +95,6 @@ internal fun desiredHdrHeadroom(
     return minOf(validImageRatio, validDisplayRatio, validLimit)
 }
 
+private const val AutomaticHdrHeadroom = 0f
 private const val MinimumHdrHeadroom = 1f
-private const val DefaultMaximumHdrHeadroom = 2.5f
+private const val MaximumPlatformHdrHeadroom = 10_000f
