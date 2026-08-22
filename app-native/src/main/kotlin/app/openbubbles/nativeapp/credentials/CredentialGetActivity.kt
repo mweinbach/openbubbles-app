@@ -12,10 +12,8 @@ import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
-import java.io.ByteArrayOutputStream
 import java.security.KeyFactory
 import java.security.PrivateKey
-import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import org.json.JSONObject
 import uniffi.rust_lib_bluebubbles.NativePushState
@@ -97,7 +95,6 @@ class CredentialGetActivity : FragmentActivity() {
         val credId = selection.credentialId
         val type = selection.type
         val origin = selection.origin
-        val packageName = selection.packageName
         val requestJson = selection.requestJson
         val clientDataHash = selection.clientDataHash
         val accountGeneration = VaultCatalogSync.captureGeneration()
@@ -161,47 +158,31 @@ class CredentialGetActivity : FragmentActivity() {
                             val requestObj = JSONObject(requestJson)
                             val challenge = requestObj.optString("challenge", "")
                             val rpId = requestObj.optString("rpId", site)
-                            if (rpId.isNotEmpty() && selection.browserOrigin &&
-                                !originMatchesRpId(origin, rpId)
+                            if (
+                                !passkeyRequestMatchesSelection(
+                                    site,
+                                    rpId,
+                                    origin,
+                                    selection.browserOrigin,
+                                ) ||
+                                !passkeyClientDataHashValid(clientDataHash, selection.browserOrigin)
                             ) {
-                                finish()
+                                failWith("The passkey request could not be verified")
                                 return
                             }
 
-                            val clientDataJsonPlain = JSONObject()
-                                .put("type", "webauthn.get")
-                                .put("challenge", challenge)
-                                .put("origin", origin)
-                                .apply {
-                                    if (origin.startsWith("android:apk-key-hash:")) {
-                                        put("androidPackageName", packageName)
-                                    }
-                                }
-                                .toString().replace("\\/", "/")
-                            val clientDataJson = if (clientDataHash != null) {
-                                "{}".toByteArray(Charsets.UTF_8)
-                            } else {
-                                clientDataJsonPlain.toByteArray(Charsets.UTF_8)
-                            }
-
-                            val dataHash = clientDataHash ?: sha256(clientDataJson)
-                            val rpIdHash = sha256(rpId.toByteArray(Charsets.UTF_8))
-
-                            val flags = (0x01 or 0x04 or 0x08 or 0x10).toByte() // UP
-                            val signCount = byteArrayOf(0, 0, 0, 0)
-
-                            val authData = ByteArrayOutputStream().apply {
-                                    write(rpIdHash)
-                                write(byteArrayOf(flags))
-                                write(signCount)
-                            }.toByteArray()
-
-                            val privateKey = decodeEcPrivateKey(saved.key)
-                            val signature = Signature.getInstance("SHA256withECDSA").apply {
-                                initSign(privateKey)
-                                update(authData)
-                                update(dataHash)
-                            }.sign()
+                            val assertion = createPasskeyAssertion(
+                                rpId = rpId,
+                                challenge = challenge,
+                                origin = origin,
+                                packageName = selection.packageName,
+                                providedClientDataHash = clientDataHash,
+                                privateKey = decodeEcPrivateKey(saved.key),
+                            )
+                            val clientDataJson = assertion.clientDataJson
+                            val dataHash = assertion.clientDataHash
+                            val authData = assertion.authenticatorData
+                            val signature = assertion.signature
 
                             val user = decodeUserTag(saved.tag)
                             val endTheThing = { clientExtensionResults: JSONObject ->
