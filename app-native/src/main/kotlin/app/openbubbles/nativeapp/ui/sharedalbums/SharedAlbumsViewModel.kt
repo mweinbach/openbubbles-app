@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.openbubbles.core.attachment.AttachmentMedia
+import app.openbubbles.core.attachment.AttachmentMediaKind
 import app.openbubbles.nativeapp.data.PushStateHolder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +20,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import uniffi.rust_lib_bluebubbles.NativePushState
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
 
 data class SharedAlbumUi(
     val id: String,
@@ -29,7 +35,11 @@ data class SharedAlbumUi(
     val syncStatus: String?,
 )
 
-data class SharedAlbumAssetUi(val id: String, val filename: String)
+data class SharedAlbumAssetUi(
+    val id: String,
+    val filename: String,
+    val localPath: String? = null,
+)
 
 data class SharedAlbumsUiState(
     val loading: Boolean = true,
@@ -47,6 +57,63 @@ internal fun filterSharedAlbums(albums: List<SharedAlbumUi>, query: String): Lis
     return if (needle.isEmpty()) albums else albums.filter {
         it.name.lowercase().contains(needle) || it.owner.orEmpty().lowercase().contains(needle)
     }
+}
+
+private const val MaximumInspectedSharedAlbumFiles = 10_000
+
+/** Resolves exactly the folder created by the user's explicit album-sync action. */
+internal fun syncedSharedAlbumDirectory(albumsRoot: File?, albumName: String): File? {
+    if (albumsRoot == null || Files.isSymbolicLink(albumsRoot.toPath())) return null
+    val safeName = albumName.replace(Regex("[^A-Za-z0-9._ -]"), "_")
+    if (safeName.isBlank() || safeName == "." || safeName == "..") return null
+
+    return runCatching {
+        val canonicalRoot = albumsRoot.canonicalFile
+        val directory = File(canonicalRoot, safeName)
+        if (Files.isSymbolicLink(directory.toPath())) return@runCatching null
+        directory.canonicalFile.takeIf { it.parentFile == canonicalRoot }
+    }.getOrNull()
+}
+
+/**
+ * Reads only previously downloaded, direct media children. Opening the gallery
+ * must never fetch metadata, start sync, upload a file, or create a directory.
+ */
+internal fun listSyncedSharedAlbumAssets(
+    album: SharedAlbumUi,
+    albumsRoot: File?,
+): List<SharedAlbumAssetUi> {
+    val directory = syncedSharedAlbumDirectory(albumsRoot, album.name) ?: return emptyList()
+    if (!Files.isDirectory(directory.toPath(), LinkOption.NOFOLLOW_LINKS)) return emptyList()
+
+    val files = mutableListOf<File>()
+    Files.newDirectoryStream(directory.toPath()).use { entries ->
+        val iterator = entries.iterator()
+        var inspected = 0
+        while (inspected < MaximumInspectedSharedAlbumFiles && iterator.hasNext()) {
+            inspected++
+            val entry = iterator.next()
+            val kind = AttachmentMedia.kind(null, null, entry.fileName.toString())
+            if (kind != AttachmentMediaKind.IMAGE && kind != AttachmentMediaKind.VIDEO) continue
+            if (!Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS) || !Files.isReadable(entry)) continue
+            val file = runCatching {
+                entry.toFile().canonicalFile.takeIf { candidate ->
+                    candidate.parentFile == directory && candidate.length() > 0L
+                }
+            }.getOrNull() ?: continue
+            files += file
+        }
+    }
+
+    return files
+        .sortedWith(compareByDescending<File> { it.lastModified() }.thenBy { it.name.lowercase() })
+        .map { file ->
+            SharedAlbumAssetUi(
+                id = "${album.id}/${file.name}",
+                filename = file.name,
+                localPath = file.absolutePath,
+            )
+        }
 }
 
 interface SharedAlbumsPort {
@@ -100,7 +167,10 @@ class FakeSharedAlbumsPort(var albums: List<SharedAlbumUi> = emptyList()) : Shar
     override suspend fun assets(albumId: String) = listOf(SharedAlbumAssetUi("asset", "photo.jpg"))
 }
 
-class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
+class SharedAlbumsViewModel(
+    private val port: SharedAlbumsPort,
+    private val fileDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
     private val mutableState = MutableStateFlow(SharedAlbumsUiState())
     val uiState: StateFlow<SharedAlbumsUiState> = mutableState.asStateFlow()
 
@@ -134,6 +204,20 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
     }
 
     fun select(album: SharedAlbumUi?) {
+        loadSelection(album) { selected -> serialized { port.assets(selected.id) } }
+    }
+
+    /** Selects an album using local files only; the remote asset API performs network requests. */
+    fun selectSyncedAlbum(album: SharedAlbumUi, albumsRoot: File?) {
+        loadSelection(album) { selected ->
+            withContext(fileDispatcher) { listSyncedSharedAlbumAssets(selected, albumsRoot) }
+        }
+    }
+
+    private fun loadSelection(
+        album: SharedAlbumUi?,
+        loadAssets: suspend (SharedAlbumUi) -> List<SharedAlbumAssetUi>,
+    ) {
         if (activeOperations.values.any { it == OperationKind.Action }) return
         val generation = ++selectionGeneration
         selectionJob?.cancel()
@@ -144,7 +228,7 @@ class SharedAlbumsViewModel(private val port: SharedAlbumsPort) : ViewModel() {
         }
 
         selectionJob = startOperation(OperationKind.Selection) {
-            val assets = serialized { port.assets(album.id) }
+            val assets = loadAssets(album)
             if (generation == selectionGeneration) {
                 mutableState.update { current ->
                     if (current.selected?.id == album.id) current.copy(assets = assets) else current
