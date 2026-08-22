@@ -181,7 +181,7 @@ class MapTileStore(
     private fun execute(call: Call): ByteArray? = try {
         call.execute().use { response ->
             if (!response.isSuccessful) return null
-            val body = response.body ?: return null
+            val body = response.body
             val contentLength = body.contentLength()
             if (contentLength > MAX_ENCODED_BYTES.toLong()) return null
             body.byteStream().use(::readBounded)

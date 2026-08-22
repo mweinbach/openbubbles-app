@@ -39,9 +39,9 @@ biometric = "1.1.0"
 autofill = "1.3.0"
 appcompat = "1.8.0"
 exifInterface = "1.4.2"
-materialComponents = "1.12.0"
+materialComponents = "1.14.0"
 # 1.5 is required by AGP 9's current DSL; 1.4.x still probes AppExtension.
-benchmark = "1.5.0-alpha07"
+benchmark = "1.5.0-rc01"
 profileInstaller = "1.4.1"
 testExtJunit = "1.3.0"
 testRunner = "1.7.0"
@@ -60,12 +60,12 @@ avifCoder = "3.0.0-alpha15"
 
 # --- misc ------------------------------------------------------------------
 coroutines = "1.11.0"
-serializationJson = "1.9.0"
-okhttp = "4.12.0"
-cbor = "4.5.2"
+serializationJson = "1.11.0"
+okhttp = "5.5.0"
+cbor = "4.5.6"
 mlkitBarcode = "17.3.0"
 screenshotValidation = "0.0.1-alpha16"
-firebaseBom = "34.17.0"
+firebaseBom = "34.18.0"
 
 [libraries]
 # --- compose platform ------------------------------------------------------
@@ -174,4 +174,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 objectbox = { id = "io.objectbox", version.ref = "objectbox" }
 google-services = { id = "com.google.gms.google-services", version = "4.5.0" }
-firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.7" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.8" }

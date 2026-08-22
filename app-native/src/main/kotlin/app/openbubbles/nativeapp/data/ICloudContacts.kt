@@ -560,7 +560,7 @@ private class ICloudCardDavClient(
                     return@repeat
                 }
                 if (response.code !in 200..299) return null
-                val bytes = response.body?.bytes() ?: return null
+                val bytes = response.body.bytes()
                 return bytes.takeIf { it.isNotEmpty() && it.size <= MAX_PHOTO_BYTES }
             }
         }
@@ -593,7 +593,7 @@ private class ICloudCardDavClient(
                     current = next
                     return@repeat
                 }
-                val text = response.body?.string().orEmpty()
+                val text = response.body.string()
                 if (response.code !in 200..299) {
                     throw CardDavHttpException(response.code, "iCloud CardDAV $method failed (${response.code})")
                 }

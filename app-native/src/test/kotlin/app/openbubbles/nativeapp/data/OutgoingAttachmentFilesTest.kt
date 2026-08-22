@@ -35,7 +35,7 @@ class OutgoingAttachmentFilesTest {
             val failure = assertFailsWith<DraftTooLargeException> {
                 copyWithByteLimit(ByteArrayInputStream(ByteArray(9)), partial, maxBytes = 8)
             }
-            assertTrue(failure is IOException)
+            assertTrue(IOException::class.java.isAssignableFrom(failure.javaClass))
             assertTrue(partial.length() <= 8L)
         } finally {
             root.deleteRecursively()

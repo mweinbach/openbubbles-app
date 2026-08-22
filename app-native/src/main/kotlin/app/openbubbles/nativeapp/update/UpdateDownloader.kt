@@ -51,9 +51,7 @@ class UpdateDownloader(
         try {
             client.newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) throw DownloadException.Http(response.code)
-                val body = response.body ?: throw DownloadException.Io(
-                    IllegalStateException("null body"),
-                )
+                val body = response.body
                 val digest = MessageDigest.getInstance("SHA-256")
                 var written = 0L
                 var lastReported = 0L

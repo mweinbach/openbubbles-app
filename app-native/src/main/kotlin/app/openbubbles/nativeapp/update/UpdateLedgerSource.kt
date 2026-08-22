@@ -38,7 +38,8 @@ class UpdateLedgerSource(
         val body = try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw SourceException.Http(response.code)
-                response.body?.bytes() ?: throw SourceException.Malformed("empty Update Ledger appcast")
+                response.body.bytes().takeIf(ByteArray::isNotEmpty)
+                    ?: throw SourceException.Malformed("empty Update Ledger appcast")
             }
         } catch (e: SourceException) {
             throw e
