@@ -15,10 +15,15 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.rust_lib_bluebubbles.NativePushState
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -42,6 +47,25 @@ private const val KEY_ATTACHMENT_DELETES = "attachmentDeletionIds"
 private const val KEY_HISTORY_SYNC_COMPLETE = "historySyncComplete"
 private const val KEY_WALLPAPER_BACKFILL = "wallpaperBackfillV1"
 private const val KEY_AUTO_SYNC_ATTEMPT = "autoSyncAttemptMs"
+private const val KEY_ACCOUNT_OWNER = "messagingAccountOwner"
+
+internal enum class MessagingAccountTransition {
+    INITIAL,
+    SAME_ACCOUNT,
+    DIFFERENT_ACCOUNT,
+}
+
+internal fun messagingAccountTransition(
+    previousOwner: String?,
+    nextOwner: String,
+): MessagingAccountTransition {
+    require(nextOwner.isNotBlank()) { "messaging account owner must not be blank" }
+    return when {
+        previousOwner.isNullOrBlank() -> MessagingAccountTransition.INITIAL
+        previousOwner == nextOwner -> MessagingAccountTransition.SAME_ACCOUNT
+        else -> MessagingAccountTransition.DIFFERENT_ACCOUNT
+    }
+}
 
 /**
  * The push state is re-installed on every reconnect (process restarts, socket
@@ -66,6 +90,7 @@ internal fun shouldAutoSyncOnConnect(
 object CloudSyncWiring {
 
     private val managerRef = AtomicReference<CloudSyncManager?>(null)
+    private val accountMutex = Mutex()
     private val syncCoordinator = HistorySyncCoordinator(
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         sync = { mode -> managerRef.get()?.sync(mode) },
@@ -75,9 +100,56 @@ object CloudSyncWiring {
     val syncing: StateFlow<Boolean> = syncCoordinator.running
     val lastSummary: StateFlow<SyncSummary?> = syncCoordinator.lastSummary
 
+    /**
+     * Bind cursors and pending remote mutations to the owner of the ObjectBox
+     * history before a new NativePushState can issue any CloudKit request.
+     * Existing installs have no owner yet; their first restored account adopts
+     * the existing history without forcing a destructive migration.
+     */
+    @SuppressLint("UseKtx") // commit() must succeed before exposing account work.
+    internal suspend fun ensureAccount(
+        context: Context,
+        owner: String,
+        isolatePreviousAccount: suspend () -> Unit,
+    ): MessagingAccountTransition = accountMutex.withLock {
+        val app = context.applicationContext
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val transition = messagingAccountTransition(prefs.getString(KEY_ACCOUNT_OWNER, null), owner)
+        if (transition == MessagingAccountTransition.DIFFERENT_ACCOUNT) {
+            cancelAndJoin()
+            isolatePreviousAccount()
+            check(prefs.edit().clear().putString(KEY_ACCOUNT_OWNER, owner).commit()) {
+                "failed to isolate CloudKit history for the new Apple account"
+            }
+            // Pending/started belong to the account which armed the backfill.
+            InitialHistoryDownload.abandon(app)
+        } else if (transition == MessagingAccountTransition.INITIAL) {
+            check(prefs.edit().putString(KEY_ACCOUNT_OWNER, owner).commit()) {
+                "failed to persist Apple messaging account ownership"
+            }
+        }
+        transition
+    }
+
+    /** Drop account-bound cursors/deletes while retaining transcript ownership. */
+    @SuppressLint("UseKtx") // account teardown must fail closed on persistence failure.
+    fun clearAccountState(context: Context) {
+        val app = context.applicationContext
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
+        val editor = prefs.edit().clear()
+        if (!owner.isNullOrBlank()) editor.putString(KEY_ACCOUNT_OWNER, owner)
+        check(editor.commit()) { "failed to clear account-bound CloudKit history state" }
+        InitialHistoryDownload.abandon(app)
+        InitialHistoryDownload.setPostSignInOnboardingActive(app, false)
+    }
+
     fun onStateInstalled(context: Context, state: NativePushState, autoSync: Boolean = true) {
         val store = CoreGraph.store ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        check(!prefs.getString(KEY_ACCOUNT_OWNER, null).isNullOrBlank()) {
+            "cannot start CloudKit history without an account owner"
+        }
         val stateStore = PrefsCloudSyncStateStore(prefs)
         val limitPreferences = HistorySyncPreferences(context.applicationContext)
         val port = HistoryLimitedCloudSyncPort(
@@ -160,8 +232,11 @@ object CloudSyncWiring {
 
     fun resetHistorySync(context: Context): Boolean {
         cancelHistorySync()
-        val cleared = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().clear().commit()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
+        val editor = prefs.edit().clear()
+        if (!owner.isNullOrBlank()) editor.putString(KEY_ACCOUNT_OWNER, owner)
+        val cleared = editor.commit()
         val state = PushStateHolder.state ?: return cleared
         onStateInstalled(context.applicationContext, state, autoSync = false)
         return cleared && startHistorySync(context.applicationContext, SyncMode.FULL)
@@ -201,6 +276,13 @@ object CloudSyncWiring {
 
     fun clear() {
         managerRef.getAndSet(null)?.cancel()
+        syncCoordinator.cancel()
+    }
+
+    /** A cancellation request is not a shutdown barrier; await the real writer. */
+    suspend fun cancelAndJoin() {
+        managerRef.getAndSet(null)?.cancel()
+        syncCoordinator.cancelAndJoin()
     }
 
     /** Queue a local chat deletion so the next sync flushes it before pulling. */
@@ -232,7 +314,9 @@ object CloudSyncWiring {
         prefs: android.content.SharedPreferences,
         state: CloudSyncBackupState,
     ): Boolean {
+        val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
         val editor = prefs.edit().clear()
+        if (!owner.isNullOrBlank()) editor.putString(KEY_ACCOUNT_OWNER, owner)
         state.chatCursor?.let { editor.putString(KEY_CHAT_CURSOR, encodeCursor(it)) }
         state.messageCursor?.let { editor.putString(KEY_MESSAGE_CURSOR, encodeCursor(it)) }
         state.attachmentCursor?.let { editor.putString(KEY_ATTACHMENT_CURSOR, encodeCursor(it)) }
@@ -250,6 +334,7 @@ internal class HistorySyncCoordinator(
 ) {
     private val lock = Any()
     private var activeJob: Job? = null
+    private var generation = 0L
     private val _running = MutableStateFlow(false)
     private val _lastSummary = MutableStateFlow<SyncSummary?>(null)
 
@@ -263,6 +348,7 @@ internal class HistorySyncCoordinator(
     ): Boolean =
         synchronized(lock) {
             if (activeJob?.isActive == true) return@synchronized false
+            val launchGeneration = generation
             onStarting()
             _lastSummary.value = null
             _running.value = true
@@ -271,7 +357,9 @@ internal class HistorySyncCoordinator(
             launched = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     val summary = sync(mode)
-                    _lastSummary.value = if (
+                    currentCoroutineContext().ensureActive()
+                    if (!isCurrent(launchGeneration, launched)) return@launch
+                    val result = if (
                         summary != null && summary.error == null && !summary.cancelled
                     ) {
                         runCatching { afterSuccessfulSync() }
@@ -286,6 +374,8 @@ internal class HistorySyncCoordinator(
                     } else {
                         summary
                     }
+                    currentCoroutineContext().ensureActive()
+                    if (isCurrent(launchGeneration, launched)) _lastSummary.value = result
                 } finally {
                     synchronized(lock) {
                         if (activeJob === launched) {
@@ -299,6 +389,25 @@ internal class HistorySyncCoordinator(
             launched.start()
             true
         }
+
+    fun cancel() {
+        val job = synchronized(lock) {
+            generation += 1
+            activeJob
+        }
+        job?.cancel()
+    }
+
+    suspend fun cancelAndJoin() {
+        val job = synchronized(lock) {
+            generation += 1
+            activeJob
+        }
+        job?.cancelAndJoin()
+    }
+
+    private fun isCurrent(expectedGeneration: Long, job: Job): Boolean =
+        synchronized(lock) { generation == expectedGeneration && activeJob === job }
 }
 
 private class PrefsCloudSyncStateStore(

@@ -47,6 +47,46 @@ class NativePushServiceStartTest {
     }
 
     @Test
+    fun `push callbacks require both current service and current account generations`() {
+        assertTrue(
+            acceptsPushCallback(
+                callbackServiceGeneration = 2,
+                activeServiceGeneration = 2,
+                callbackAccountGeneration = 7,
+                activeAccountGeneration = 7,
+                accountActive = true,
+            ),
+        )
+        assertFalse(
+            acceptsPushCallback(
+                callbackServiceGeneration = 1,
+                activeServiceGeneration = 2,
+                callbackAccountGeneration = 7,
+                activeAccountGeneration = 7,
+                accountActive = true,
+            ),
+        )
+        assertFalse(
+            acceptsPushCallback(
+                callbackServiceGeneration = 2,
+                activeServiceGeneration = 2,
+                callbackAccountGeneration = 6,
+                activeAccountGeneration = 7,
+                accountActive = true,
+            ),
+        )
+        assertFalse(
+            acceptsPushCallback(
+                callbackServiceGeneration = 2,
+                activeServiceGeneration = 2,
+                callbackAccountGeneration = 7,
+                activeAccountGeneration = 7,
+                accountActive = false,
+            ),
+        )
+    }
+
+    @Test
     fun `reconnect backoff is bounded`() {
         assertEquals(2_000L, reconnectDelayMs(0))
         assertEquals(4_000L, reconnectDelayMs(1))

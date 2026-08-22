@@ -140,9 +140,10 @@ class NativePushService : Service(), MsgReceiver {
      */
     private inner class InitReceiver(
         private val generation: Int,
+        private val accountGeneration: Long = CoreGraph.messagingGeneration(),
     ) : MsgReceiver {
         override fun receievedMsg(msg: ULong, retry: ULong) {
-            this@NativePushService.receievedMsg(msg, retry)
+            handleReceivedMessage(generation, accountGeneration, msg, retry)
         }
 
         override fun nativeReady(state: NativePushState?) {
@@ -165,19 +166,48 @@ class NativePushService : Service(), MsgReceiver {
     // -- MsgReceiver (called on Rust threads — keep them light) -------------
 
     override fun receievedMsg(msg: kotlin.ULong, retry: kotlin.ULong) {
-        scope.launch {
+        handleReceivedMessage(initGeneration.get(), CoreGraph.messagingGeneration(), msg, retry)
+    }
+
+    private fun handleReceivedMessage(
+        generation: Int,
+        accountGeneration: Long,
+        msg: ULong,
+        retry: ULong,
+    ) {
+        if (!acceptsPushCallback(
+                generation,
+                initGeneration.get(),
+                accountGeneration,
+                CoreGraph.messagingGeneration(),
+                CoreGraph.isCurrentMessagingGeneration(accountGeneration),
+            )
+        ) return
+        CoreGraph.launchMessagingWork(accountGeneration) {
             try {
+                if (!acceptsCurrentCallback(generation, accountGeneration)) return@launchMessagingWork
                 val handles = PushStateHolder.myHandles
                 val decoded = runInterruptible(Dispatchers.IO) { ptrToMessage(msg) }
+                if (!acceptsCurrentCallback(generation, accountGeneration)) return@launchMessagingWork
                 when (decoded) {
                     null -> Unit
                     UPushMessage.ProcessQueue ->
-                        drainMessageJournal(handles, IncomingNotificationSource.LIVE)
+                        drainMessageJournal(handles, IncomingNotificationSource.LIVE, generation, accountGeneration)
                     UPushMessage.RegistrationState -> handleRegistrationState()
-                    else -> ingestAndNotify(decoded, handles, IncomingNotificationSource.LIVE)
+                    else -> ingestAndNotify(
+                        decoded,
+                        handles,
+                        IncomingNotificationSource.LIVE,
+                        generation,
+                        accountGeneration,
+                    )
                 }
+                if (!acceptsCurrentCallback(generation, accountGeneration)) return@launchMessagingWork
                 runInterruptible(Dispatchers.IO) { completeMessage(msg) }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             } catch (error: Throwable) {
+                if (!acceptsCurrentCallback(generation, accountGeneration)) return@launchMessagingWork
                 // Leave the entry queued; Rust re-emits with backoff.
                 Log.e(TAG, "incoming message failed on attempt ${retry + 1uL} (${diagnosticKind(error)})")
                 PushStateHolder.reportError(
@@ -186,6 +216,15 @@ class NativePushService : Service(), MsgReceiver {
             }
         }
     }
+
+    private fun acceptsCurrentCallback(serviceGeneration: Int, accountGeneration: Long): Boolean =
+        acceptsPushCallback(
+            serviceGeneration,
+            initGeneration.get(),
+            accountGeneration,
+            CoreGraph.messagingGeneration(),
+            CoreGraph.isCurrentMessagingGeneration(accountGeneration),
+        )
 
     private fun handleRegistrationState() {
         val state = activeState ?: return
@@ -242,9 +281,13 @@ class NativePushService : Service(), MsgReceiver {
     private suspend fun drainMessageJournal(
         handles: Set<String>,
         drainSource: IncomingNotificationSource,
+        serviceGeneration: Int,
+        accountGeneration: Long,
     ) = journalMutex.withLock {
         while (true) {
+            if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
             val entry = runInterruptible(Dispatchers.IO) { readQueuedJournal() } ?: return@withLock
+            if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
             try {
                 // Fresh live entries preserve duplicate suppression. A prior
                 // failed attempt, or any startup drain, uses recovery semantics
@@ -254,8 +297,11 @@ class NativePushService : Service(), MsgReceiver {
                     priorAttempts = entry.attempts.toInt(),
                     failedInThisProcess = entry.id in journalFailures,
                 )
-                ingestAndNotify(entry.message, handles, entrySource)
+                ingestAndNotify(entry.message, handles, entrySource, serviceGeneration, accountGeneration)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             } catch (error: Throwable) {
+                if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
                 journalFailures += entry.id
                 Log.e(TAG, "journal message failed on attempt ${entry.attempts.toUInt() + 1u} (${diagnosticKind(error)})")
                 runCatching {
@@ -267,6 +313,7 @@ class NativePushService : Service(), MsgReceiver {
                 continue
             }
             try {
+                if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return@withLock
                 runInterruptible(Dispatchers.IO) { markJournalAttempt(entry.id, true) }
                 journalFailures -= entry.id
             } catch (error: Throwable) {
@@ -280,15 +327,21 @@ class NativePushService : Service(), MsgReceiver {
         decoded: UPushMessage,
         handles: Set<String>,
         notificationSource: IncomingNotificationSource,
+        serviceGeneration: Int,
+        accountGeneration: Long,
     ) {
+        if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return
         if (FaceTimeDispatch.onPushMessage(this, decoded)) return
         val ingestor = CoreGraph.ingestor
             ?: error("message store unavailable")
         val result = ingestor.ingestWithResult(decoded, handles)
+        if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return
         val chat = result.chat
         syncGroupIcon(decoded, chat)
+        if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return
         syncStickerAttachments(decoded)
         syncTranscriptBackground(decoded, chat)
+        if (!acceptsCurrentCallback(serviceGeneration, accountGeneration)) return
         if (result.isNewIncomingMessage) {
             val liveMessage = (decoded as? UPushMessage.IMessage)?.inst
             val normal = liveMessage?.message as? UMessage.Normal
@@ -462,7 +515,15 @@ class NativePushService : Service(), MsgReceiver {
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempt = 0
-            PushStateHolder.install(live, handles, registration)
+            try {
+                PushStateHolder.install(live, handles, registration)
+            } catch (error: Throwable) {
+                activeState = null
+                stopState(live)
+                PushStateHolder.reportError("Apple account isolation failed (${diagnosticKind(error)})")
+                scheduleReconnect(generation, "account isolation failed")
+                return@launch
+            }
             if (registration is URegisterState.Failed && registrationRequiresSignIn(registration)) {
                 markAccountSignInRequired(registration)
             } else {
@@ -474,12 +535,16 @@ class NativePushService : Service(), MsgReceiver {
                     },
                 )
             }
+            val accountGeneration = CoreGraph.messagingGeneration()
             // Contact sync is independent of Messages-in-iCloud history and
             // uses the same self-hosted Apple session. Keep it off the APNs
             // owner coroutine so a slow CardDAV collection never delays the
-            // live receive loop.
-            scope.launch {
-                ICloudContactSync.sync(applicationContext, live)
+            // live receive loop, but retain the real writer in the same account
+            // lease as message ingestion so logout cannot race CardDAV rows.
+            CoreGraph.launchMessagingWork(accountGeneration) {
+                if (acceptsCurrentCallback(generation, accountGeneration)) {
+                    ICloudContactSync.sync(applicationContext, live)
+                }
             }
             // Recover durable messages left by a process death before starting
             // the live loop. A replay alerts only while its persisted row is
@@ -487,7 +552,16 @@ class NativePushService : Service(), MsgReceiver {
             // not persist a separate "notification posted" disposition, so a
             // process death in the tiny interval after notify() but before the
             // platform exposes the active notification remains a bounded race.
-            drainMessageJournal(handles, IncomingNotificationSource.JOURNAL_RECOVERY)
+            val recovery = CoreGraph.launchMessagingWork(accountGeneration) {
+                drainMessageJournal(
+                    handles,
+                    IncomingNotificationSource.JOURNAL_RECOVERY,
+                    generation,
+                    accountGeneration,
+                )
+            } ?: return@launch
+            recovery.join()
+            if (!acceptsCurrentCallback(generation, accountGeneration)) return@launch
             runCatching { live.startLoop(InitReceiver(generation)) }
                 .onFailure {
                     Log.e(TAG, "failed to start Apple push loop (${diagnosticKind(it)})")
@@ -517,6 +591,7 @@ class NativePushService : Service(), MsgReceiver {
                 val appCtx = applicationContext
                 app.openbubbles.nativeapp.data.CoreGraph.pollOnce(
                     appCtx, live,
+                    accountHandles = handles,
                     onNewUnread = { chatId, body ->
                         notifyPollResult(chatId, body, handles)
                     },
@@ -843,6 +918,16 @@ internal fun shouldStopAfterPoll(
     currentGeneration: Int,
     pollMode: Boolean,
 ): Boolean = pollMode && pollGeneration == currentGeneration
+
+internal fun acceptsPushCallback(
+    callbackServiceGeneration: Int,
+    activeServiceGeneration: Int,
+    callbackAccountGeneration: Long,
+    activeAccountGeneration: Long,
+    accountActive: Boolean,
+): Boolean = accountActive &&
+    callbackServiceGeneration == activeServiceGeneration &&
+    callbackAccountGeneration == activeAccountGeneration
 
 internal fun journalRetryDelayMs(attempt: Int): Long = when (val safeAttempt = attempt.coerceAtLeast(0)) {
     0 -> 2_000L

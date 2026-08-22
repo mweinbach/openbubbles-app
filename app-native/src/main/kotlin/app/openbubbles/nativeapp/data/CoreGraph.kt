@@ -23,11 +23,13 @@ import app.openbubbles.core.send.selectSendingHandle
 import app.openbubbles.nativeapp.data.passwords.VaultAccountCleanup
 import app.openbubbles.nativeapp.data.passwords.VaultCatalogSync
 import app.openbubbles.nativeapp.data.photos.PhotosAccountCleanup
+import app.openbubbles.nativeapp.data.photos.PhotosWorkRegistry
 import app.openbubbles.nativeapp.service.Notifications
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
+import app.openbubbles.db.ContactV2
 import app.openbubbles.db.Db
 import app.openbubbles.db.Handle
 import app.openbubbles.db.Message
@@ -37,8 +39,10 @@ import io.objectbox.query.QueryBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -61,7 +65,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -80,7 +86,13 @@ import uniffi.rust_lib_bluebubbles.URegisterState
 import uniffi.rust_lib_bluebubbles.UReportMessage
 import uniffi.rust_lib_bluebubbles.USendAttachmentsRequest
 import uniffi.rust_lib_bluebubbles.parseCallPoster
+import uniffi.rust_lib_bluebubbles.savedLoginUsername
 import java.io.File
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
@@ -94,10 +106,60 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object CoreGraph {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val messagingWork = MessagingAccountWorkRegistry(scope)
 
     internal fun launchBackground(block: suspend () -> Unit) {
         scope.launch { block() }
     }
+
+    internal fun messagingGeneration(): Long = messagingWork.generation()
+
+    internal fun isCurrentMessagingGeneration(generation: Long): Boolean =
+        messagingWork.isCurrent(generation)
+
+    internal fun launchMessagingWork(
+        generation: Long,
+        block: suspend () -> Unit,
+    ): Job? = messagingWork.launch(generation, block)
+
+    private suspend fun ensureMessagingAccount(context: Context, handles: Set<String>) {
+        val username = runCatching { savedLoginUsername(context.filesDir.absolutePath) }.getOrNull()
+        val owner = messagingAccountOwner(username, handles)
+        CloudSyncWiring.ensureAccount(context, owner) {
+            messagingWork.invalidateAndJoin()
+            UploadProgressBoard.clearAll()
+            attachmentManager?.cancelAndJoin()
+            PhotosWorkRegistry.cancelAndJoinAll()
+            val currentStore = store ?: error("message store unavailable during account isolation")
+            clearMessagingAccountStore(currentStore, File(context.dataDir, "app_flutter"))
+            listOf("chat_backgrounds", "chat_avatars", "group_icons", "shared_profiles")
+                .forEach { clearOwnedMessagingRoot(context.filesDir, it) }
+            check(context.getSharedPreferences("profile_prefs", Context.MODE_PRIVATE).edit().clear().commit()) {
+                "failed to clear account-bound profile preferences"
+            }
+            (messages as? CoreMessageListRepository)?.clearAccountSnapshots()
+            CoreContacts.invalidateAccountCaches()
+        }
+    }
+
+    internal suspend fun activateMessagingAccount(context: Context, handles: Set<String>) {
+        ensureMessagingAccount(context, handles)
+        messagingWork.activate()
+        attachmentManager?.beginAccount()
+        PhotosWorkRegistry.activate()
+    }
+
+    private suspend fun stopAccountWork(): Result<Unit> =
+        withContext(Dispatchers.IO + NonCancellable) {
+            runAccountCleanupSteps(
+                { messagingWork.invalidateAndJoin() },
+                { UploadProgressBoard.clearAll() },
+                { CloudSyncWiring.cancelAndJoin() },
+                { attachmentManager?.cancelAndJoin() },
+                { PhotosWorkRegistry.cancelAndJoinAll() },
+                { VaultCatalogSync.beginAccountCleanup() },
+            )
+        }
 
     @Volatile
     private var restoreRestartRequired = false
@@ -296,11 +358,13 @@ object CoreGraph {
      * that gained unread messages. The service then tears itself down; the
      * persistent APNs loop never starts.
      */
-    fun pollOnce(
+    suspend fun pollOnce(
         context: android.content.Context,
         state: NativePushState,
+        accountHandles: Set<String>,
         onNewUnread: (chatId: Long, body: String) -> Unit,
     ) {
+        ensureMessagingAccount(context, accountHandles)
         val st = store ?: return
         val chatBox = st.boxFor(Chat::class.java)
         val allowNotifications = CloudSyncWiring.hasCompletedHistorySync(context)
@@ -409,25 +473,25 @@ object CoreGraph {
 
     /**
      * Sign out: deregister from iMessage (best effort), tear down the Rust
-     * state, stop the push service, clear account-derived Contacts/Photos
-     * state, and clear the holders — the sign-in banner reappears on the
-     * chat list. Message history and hardware setup remain untouched.
+     * state, stop the push service, and clear account-bound workers, CloudKit
+     * cursors, recovery secrets, Contacts, and Photos. Message history stays
+     * tagged with its owner so signing back into the same account preserves
+     * it; a different account clears that history before becoming visible.
      */
     suspend fun signOut(context: android.content.Context): Result<Unit> {
         Log.i("CoreGraph", "Apple account sign-out requested")
-        // Invalidate and join every vault writer while the Rust state is still
-        // usable. Teardown can suspend, so waiting until local cleanup would
-        // leave a window where the previous account could be republished.
-        val vaultWriters = withContext(Dispatchers.IO) {
-            runCatching { VaultCatalogSync.beginAccountCleanup() }
-        }
+        val previousState = PushStateHolder.state
+        // Hide the previous state immediately so a retained Photos ViewModel
+        // cannot reactivate account workers while teardown is acquiring fences.
+        PushStateHolder.clear(resetError = true)
+        val accountWorkers = stopAccountWork()
+        if (accountWorkers.isFailure) return accountWorkers
         val teardown = withContext(Dispatchers.IO) {
-            runCatching { PushStateHolder.state?.teardown(true) }.map { Unit }
+            runCatching { previousState?.teardown(true) }.map { Unit }
         }
         teardown.onFailure { error ->
             Log.e("CoreGraph", "Apple account sign-out teardown failed (${error.javaClass.simpleName})")
         }
-        PushStateHolder.clear(resetError = true)
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
@@ -436,6 +500,8 @@ object CoreGraph {
         }
         val localCleanup = withContext(Dispatchers.IO + NonCancellable) {
             runAccountCleanupSteps(
+                { CloudSyncWiring.clearAccountState(context) },
+                { ICloudKeychainEnrollment.clearRecoveryCode(context) },
                 { ICloudContactSync.clearAccountState(context).getOrThrow() },
                 { PhotosAccountCleanup.clear(context).getOrThrow() },
                 {
@@ -449,7 +515,7 @@ object CoreGraph {
         }
         Log.i("CoreGraph", "Apple account sign-out finished")
         return runAccountCleanupSteps(
-            { vaultWriters.getOrThrow() },
+            { accountWorkers.getOrThrow() },
             { teardown.getOrThrow() },
             { localCleanup.getOrThrow() },
         )
@@ -465,6 +531,8 @@ object CoreGraph {
     suspend fun repairICloudServices(context: android.content.Context): Result<Unit> {
         Log.i("CoreGraph", "iCloud service repair requested")
         PushStateHolder.clear(resetError = true)
+        val accountWorkers = stopAccountWork()
+        if (accountWorkers.isFailure) return accountWorkers
         runCatching {
             context.stopService(
                 android.content.Intent(context, app.openbubbles.nativeapp.service.NativePushService::class.java))
@@ -476,6 +544,10 @@ object CoreGraph {
         val vaultCleanup = runCatching { VaultAccountCleanup.clear(context).getOrThrow() }.onFailure { error ->
             Log.e("CoreGraph", "vault catalog clear failed during iCloud repair (${error.javaClass.simpleName})")
         }
+        val accountStateCleanup = runAccountCleanupSteps(
+            { CloudSyncWiring.clearAccountState(context) },
+            { ICloudKeychainEnrollment.clearRecoveryCode(context) },
+        )
         val serviceRepair = withContext(Dispatchers.IO) {
             runCatching {
                 // Let the service's teardown finish so a final trust sync
@@ -485,7 +557,9 @@ object CoreGraph {
             }.map { }
         }
         return runAccountCleanupSteps(
+            { accountWorkers.getOrThrow() },
             { vaultCleanup.getOrThrow() },
+            { accountStateCleanup.getOrThrow() },
             { serviceRepair.getOrThrow() },
         ).onSuccess {
             // The login screen consumes this and auto-runs the sessioned
@@ -732,6 +806,10 @@ object CoreGraph {
             } finally {
                 PushStateHolder.clear(resetError = true)
             }
+            runBlocking {
+                stopAccountWork().getOrThrow()
+                (messages as? CoreMessageListRepository)?.closeAndJoin()
+            }
             store?.let { openStore ->
                 releaseStoreInvalidationObservers(openStore)
                 openStore.close()
@@ -793,6 +871,160 @@ object CoreGraph {
     }
 }
 
+/** Stable private owner token; handles are only a fallback for legacy sessions. */
+internal fun messagingAccountOwner(username: String?, handles: Set<String>): String {
+    val identity = username
+        ?.trim()
+        ?.lowercase(Locale.ROOT)
+        ?.takeIf(String::isNotEmpty)
+        ?.let { "apple-id:$it" }
+        ?: handles.asSequence()
+            .map { it.trim().lowercase(Locale.ROOT) }
+            .filter(String::isNotEmpty)
+            .sorted()
+            .joinToString(separator = "\u0000", prefix = "handles:")
+            .takeIf { it != "handles:" }
+        ?: error("cannot identify the active Apple messaging account")
+    return MessageDigest.getInstance("SHA-256")
+        .digest(identity.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
+
+/** Account-owned coroutine lease: invalidation blocks starts before joining publishers. */
+internal class MessagingAccountWorkRegistry(
+    private val scope: CoroutineScope,
+) {
+    private val lock = Any()
+    private val jobs = linkedSetOf<Job>()
+    private var generation = 0L
+    private var accepting = false
+
+    fun activate(): Long = synchronized(lock) {
+        if (!accepting) {
+            generation += 1
+            accepting = true
+        }
+        generation
+    }
+
+    fun generation(): Long = synchronized(lock) { generation }
+
+    fun isCurrent(expectedGeneration: Long): Boolean =
+        synchronized(lock) { accepting && generation == expectedGeneration }
+
+    fun launch(expectedGeneration: Long, block: suspend () -> Unit): Job? {
+        lateinit var job: Job
+        synchronized(lock) {
+            if (!accepting || generation != expectedGeneration) return null
+            job = scope.launch(start = CoroutineStart.LAZY) {
+                if (isCurrent(expectedGeneration)) block()
+            }
+            jobs += job
+            job.invokeOnCompletion { synchronized(lock) { jobs.remove(job) } }
+        }
+        job.start()
+        return job
+    }
+
+    suspend fun invalidateAndJoin() {
+        val active = synchronized(lock) {
+            generation += 1
+            accepting = false
+            jobs.toList()
+        }
+        active.forEach(Job::cancel)
+        active.joinAll()
+    }
+}
+
+/**
+ * Remove Apple-account history while retaining carrier conversations, their
+ * attachments, and device-native contacts. The ObjectBox path/model remain
+ * untouched so Flutter-era in-place upgrades stay compatible.
+ */
+internal fun clearMessagingAccountStore(store: BoxStore, root: File) {
+    val chatBox = store.boxFor(Chat::class.java)
+    val messageBox = store.boxFor(Message::class.java)
+    val attachmentBox = store.boxFor(Attachment::class.java)
+    val handleBox = store.boxFor(Handle::class.java)
+    val contactBox = store.boxFor(ContactV2::class.java)
+    val disk = AttachmentStore(store, root)
+    val removedAttachments = arrayListOf<Attachment>()
+
+    store.runInTx {
+        val carrierChats = chatBox.all.filter { it.isRpSms == true }
+        val carrierChatIds = carrierChats.mapTo(HashSet()) { it.id }
+        val carrierMessages = messageBox.all.filter { it.chat.targetId in carrierChatIds }
+        val carrierMessageIds = carrierMessages.mapTo(HashSet()) { it.id }
+        val carrierHandleIds = carrierChats
+            .flatMapTo(HashSet<Long>()) { chat -> chat.handles.map { it.id } }
+            .apply { carrierMessages.mapTo(this) { it.handleRelation.targetId } }
+
+        attachmentBox.all.forEach { attachment ->
+            if (attachment.message.targetId !in carrierMessageIds) {
+                removedAttachments += attachment
+                attachmentBox.remove(attachment)
+            }
+        }
+        messageBox.all.forEach { message ->
+            if (message.id !in carrierMessageIds) messageBox.remove(message)
+        }
+        chatBox.all.forEach { chat ->
+            if (chat.id !in carrierChatIds) chatBox.remove(chat)
+        }
+        contactBox.all.forEach { contact ->
+            if (ContactSync.isICloudContactId(contact.nativeContactId)) {
+                contact.handles.clear()
+                contactBox.put(contact)
+                contactBox.remove(contact)
+            } else {
+                val retained = contact.handles.filter { it.id in carrierHandleIds }
+                if (retained.size != contact.handles.size) {
+                    contact.handles.clear()
+                    contact.handles.addAll(retained)
+                    contactBox.put(contact)
+                }
+            }
+        }
+        handleBox.all.forEach { handle ->
+            if (handle.id !in carrierHandleIds) handleBox.remove(handle)
+        }
+    }
+
+    removedAttachments.forEach(disk::deleteLocalFiles)
+    val carrierDirectories = attachmentBox.all
+        .mapNotNull { it.guid }
+        .mapTo(HashSet()) { disk.directoryFor(it).name }
+    disk.attachmentsDir.listFiles().orEmpty().forEach { directory ->
+        if (directory.name !in carrierDirectories) clearOwnedMessagingRoot(disk.attachmentsDir, directory.name)
+    }
+    clearOwnedMessagingRoot(root, AttachmentStore.GROUP_ICONS_DIR_NAME)
+}
+
+/** Delete a named app-owned child without resolving or following symlinks. */
+internal fun clearOwnedMessagingRoot(parent: File, childName: String) {
+    require(childName.isNotBlank() && childName != "." && childName != "..") {
+        "invalid messaging cache root"
+    }
+    require(!childName.contains('/') && !childName.contains('\\')) {
+        "messaging cache root escaped its parent"
+    }
+    val target = parent.toPath().resolve(childName)
+    if (!Files.exists(target, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return
+    Files.walkFileTree(target, object : SimpleFileVisitor<Path>() {
+        override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+            Files.delete(file)
+            return FileVisitResult.CONTINUE
+        }
+
+        override fun postVisitDirectory(directory: Path, error: java.io.IOException?): FileVisitResult {
+            if (error != null) throw error
+            Files.delete(directory)
+            return FileVisitResult.CONTINUE
+        }
+    })
+}
+
 /**
  * Pass-through [StoreGate] with a process-wide mutex: serializes
  * backup/restore against each other and against anything else that takes
@@ -828,21 +1060,24 @@ object PushStateHolder {
     val registrationStateFlow = _registrationState.asStateFlow()
     val registrationState: URegisterState? get() = _registrationState.value
 
-    fun install(
+    suspend fun install(
         state: NativePushState,
         handles: Set<String>,
         registration: URegisterState,
     ) {
+        val context = AppContext.current
+            ?: error("cannot install Apple messaging state without an application context")
+        // Ownership must be proven (and a previous account isolated) before
+        // either the UI or CloudKit can observe this live NativePushState.
+        CoreGraph.activateMessagingAccount(context, handles)
         _state.value = state
         _myHandles.value = handles
         updateRegistration(registration)
-        AppContext.current?.let {
-            CloudSyncWiring.onStateInstalled(it, state)
-            // Warm the vault catalog now: the credential provider and Autofill
-            // service are started by the system with no chance to wait for a
-            // keychain sync, so a cold catalog shows an empty picker.
-            VaultCatalogSync.refresh(it, state)
-        }
+        CloudSyncWiring.onStateInstalled(context, state)
+        // Warm the vault catalog now: the credential provider and Autofill
+        // service are started by the system with no chance to wait for a
+        // keychain sync, so a cold catalog shows an empty picker.
+        VaultCatalogSync.refresh(context, state)
     }
 
     fun updateRegistration(registration: URegisterState) {
@@ -1243,6 +1478,11 @@ private object CoreContacts {
         handleIndex = null // force rebuild so fresh linkages resolve
         displayInfoIndex = null
         CoreGraph.invalidateRelatedChats()
+    }
+
+    fun invalidateAccountCaches() {
+        sync?.invalidateProjections()
+        invalidateIndexes()
     }
 
     fun remove(nativeContactIds: Collection<String>): Int {
@@ -1726,6 +1966,23 @@ internal class CoreMessageListRepository(
     internal fun close() {
         cacheScope.cancel()
     }
+
+    internal fun clearAccountSnapshots() {
+        prefetchGeneration.incrementAndGet()
+        changeGeneration.incrementAndGet()
+        desired = emptySet()
+        snapshots.clear()
+        windows.clear()
+        retained.clear()
+        locks.clear()
+    }
+
+    internal suspend fun closeAndJoin() {
+        clearAccountSnapshots()
+        val job = cacheScope.coroutineContext[Job]
+        job?.cancel()
+        job?.join()
+    }
 }
 
 internal fun applyUploadProgress(
@@ -1957,6 +2214,8 @@ private object CoreSender : Sender {
         val store = graph.store ?: error("store unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
         val pushState = PushStateHolder.state
+        val accountGeneration = graph.messagingGeneration()
+        val accountHandles = PushStateHolder.myHandles.toSet()
         val (stage, myHandle) = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val handle = sendingHandle(chat)
@@ -1984,13 +2243,21 @@ private object CoreSender : Sender {
             return accepted
         }
 
-        graph.launchBackground {
+        val dispatch = graph.launchMessagingWork(accountGeneration) {
             sendLocks.computeIfAbsent(chatId) { Mutex() }.withLock {
                 var failureLookupGuid = tempGuid
                 try {
+                    check(graph.isCurrentMessagingGeneration(accountGeneration) &&
+                        PushStateHolder.state === pushState) {
+                        "Apple messaging account is no longer active"
+                    }
                     val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
                     val conversation = sendConversation(store, chat, myHandle)
                     maybeShareProfile(pushState, chat, conversation, myHandle)
+                    check(graph.isCurrentMessagingGeneration(accountGeneration) &&
+                        PushStateHolder.state === pushState) {
+                        "Apple messaging account changed before send"
+                    }
                     val inst = if (mentions.isEmpty()) {
                         pushState.sendText(
                             conversation,
@@ -2013,18 +2280,27 @@ private object CoreSender : Sender {
                         )
                     }
                     failureLookupGuid = inst.id
+                    if (!graph.isCurrentMessagingGeneration(accountGeneration) ||
+                        PushStateHolder.state !== pushState
+                    ) return@withLock
                     // Promote the staged row to the Rust staging guid so the echo and
                     // SendConfirm receipts find it (same swap Dart performs).
                     promoteOutgoingText(store, tempGuid, inst.id)
-                    ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                    if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@withLock
+                    ing.ingest(UPushMessage.IMessage(inst), accountHandles)
+                } catch (failure: CancellationException) {
+                    throw failure
                 } catch (failure: Throwable) {
-                    failOutgoingText(
-                        store,
-                        failureLookupGuid,
-                        "Message send failed (${failure.javaClass.simpleName})",
-                    )
+                    if (graph.isCurrentMessagingGeneration(accountGeneration)) {
+                        val reason = "Message send failed (${failure.javaClass.simpleName})"
+                        failOutgoingText(store, failureLookupGuid, reason)
+                            ?: failOutgoingText(store, tempGuid, reason)
+                    }
                 }
             }
+        }
+        if (dispatch == null) {
+            failOutgoingText(store, tempGuid, "Apple messaging account is no longer active")
         }
         return accepted
     }
@@ -2580,6 +2856,10 @@ internal object UploadProgressBoard {
     fun clear(guid: String) {
         _progress.value = _progress.value - guid
     }
+
+    fun clearAll() {
+        _progress.value = emptyMap()
+    }
 }
 
 /**
@@ -2661,6 +2941,8 @@ internal object CoreAttachmentSender : AttachmentSender {
         val store = graph.store ?: error("store unavailable")
         val ing = graph.ingestor ?: error("ingestor unavailable")
         val pushState = PushStateHolder.state
+        val accountGeneration = graph.messagingGeneration()
+        val accountHandles = PushStateHolder.myHandles.toSet()
         val prepared = withContext(Dispatchers.IO) {
             val chat = store.boxFor(Chat::class.java).get(chatId) ?: error("no chat $chatId")
             val myHandle = sendingHandle(chat)
@@ -2734,9 +3016,13 @@ internal object CoreAttachmentSender : AttachmentSender {
             return OutgoingAttachmentSend(prepared.messageId)
         }
 
-        graph.launchBackground {
+        val dispatch = graph.launchMessagingWork(accountGeneration) {
             var failureLookupGuid = prepared.tempGuid
             try {
+                check(graph.isCurrentMessagingGeneration(accountGeneration) &&
+                    PushStateHolder.state === pushState) {
+                    "Apple messaging account is no longer active"
+                }
                 Log.i(
                     ATTACHMENT_SEND_TAG,
                     "attachment send request files=${prepared.payloads.size} " +
@@ -2760,12 +3046,18 @@ internal object CoreAttachmentSender : AttachmentSender {
                     attachmentSendProgressCallback(),
                 )
                 failureLookupGuid = inst.id
+                if (!graph.isCurrentMessagingGeneration(accountGeneration) ||
+                    PushStateHolder.state !== pushState
+                ) return@launchMessagingWork
                 val normal = inst.message as? uniffi.rust_lib_bluebubbles.UMessage.Normal
                 val returned = returnedAttachmentPlan(normal, inst.id, prepared.stagedGuids)
                 // Move every returned payload before ingest. Even an
                 // incomplete response promotes the subset whose ObjectBox
                 // rows the echo is about to move to real guids.
                 returned.promotions.forEach { (local, real) ->
+                    check(graph.isCurrentMessagingGeneration(accountGeneration)) {
+                        "Apple messaging account changed during attachment promotion"
+                    }
                     prepared.disk.promoteLocalDirectory(local, real)
                 }
                 Log.i(
@@ -2780,6 +3072,7 @@ internal object CoreAttachmentSender : AttachmentSender {
                 // receipts find the row (same swap Dart performs).
                 val messageBox = store.boxFor(Message::class.java)
                 store.runInTx {
+                    if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@runInTx
                     messageBox.query()
                         .equal(
                             Message_.guid,
@@ -2793,7 +3086,8 @@ internal object CoreAttachmentSender : AttachmentSender {
                             messageBox.put(this)
                         }
                 }
-                ing.ingest(UPushMessage.IMessage(inst), PushStateHolder.myHandles)
+                if (!graph.isCurrentMessagingGeneration(accountGeneration)) return@launchMessagingWork
+                ing.ingest(UPushMessage.IMessage(inst), accountHandles)
                 if (!returned.complete) {
                     // The accepted message does not carry the attachment set we
                     // staged, so this send is not a success. Surface it after
@@ -2809,16 +3103,27 @@ internal object CoreAttachmentSender : AttachmentSender {
                         "Only ${returned.rawAttachmentCount} of ${prepared.stagedGuids.size} attachments were sent",
                     )
                 }
+            } catch (failure: CancellationException) {
+                throw failure
             } catch (failure: Throwable) {
-                val marked = CoreGraphStageHolder.messageRepo(store)
-                    .failOutgoing(failureLookupGuid, "Attachment send failed (${failure.javaClass.simpleName})")
-                Log.w(
-                    ATTACHMENT_SEND_TAG,
-                    "attachment send failed (${failure.javaClass.simpleName}) marked=${marked != null}",
-                )
+                if (graph.isCurrentMessagingGeneration(accountGeneration)) {
+                    val reason = "Attachment send failed (${failure.javaClass.simpleName})"
+                    val repository = CoreGraphStageHolder.messageRepo(store)
+                    val marked = repository.failOutgoing(failureLookupGuid, reason)
+                        ?: repository.failOutgoing(prepared.tempGuid, reason)
+                    Log.w(
+                        ATTACHMENT_SEND_TAG,
+                        "attachment send failed (${failure.javaClass.simpleName}) marked=${marked != null}",
+                    )
+                }
             } finally {
                 UploadProgressBoard.clear(progressGuid)
             }
+        }
+        if (dispatch == null) {
+            CoreGraphStageHolder.messageRepo(store)
+                .failOutgoing(prepared.tempGuid, "Apple messaging account is no longer active")
+            UploadProgressBoard.clear(progressGuid)
         }
         return OutgoingAttachmentSend(prepared.messageId)
     }
