@@ -96,6 +96,14 @@ class MessageIngestor(
 ) {
     private data class PendingSendConfirm(val error: String?)
 
+    private data class PendingReactionTarget(
+        val chatId: Long,
+        val chatGuid: String,
+        val messageGuid: String,
+    )
+
+    private data class PendingReactionChat(val id: Long, val guid: String)
+
     /**
      * Persistence result used by notification consumers. [isNewIncomingMessage]
      * is true only when this call inserted a previously unseen incoming message
@@ -111,6 +119,9 @@ class MessageIngestor(
         /** How long a typing indicator survives without a refresh (Dart uses 1 minute). */
         private const val TYPING_TIMEOUT_MS = 60_000L
         private const val MAX_PENDING_SEND_CONFIRMS = 256
+        private const val MAX_PENDING_REACTION_TARGETS = 256
+        private const val MAX_PENDING_REACTIONS_PER_TARGET = 8
+        private const val MAX_RECOVERED_REACTIONS_PER_CHAT = 256
         private val RNG = SecureRandom()
         private const val ALPHANUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -127,6 +138,23 @@ class MessageIngestor(
     private val attachmentBox = store.boxFor(Attachment::class.java)
     private val mutex = Mutex()
     private val pendingSendConfirms = LinkedHashMap<String, PendingSendConfirm>()
+    private val pendingReactionTargets =
+        LinkedHashMap<PendingReactionTarget, LinkedHashMap<Long, String>>()
+    private val initializedReactionChats = LinkedHashMap<PendingReactionChat, Unit>()
+    private val overflowedReactionChats = LinkedHashMap<PendingReactionChat, Unit>()
+
+    /** Regression diagnostics: ordinary messages must never probe reaction rows. */
+    internal var pendingReactionValidationCount = 0
+        private set
+
+    internal var pendingReactionRecoveryQueryCount = 0
+        private set
+
+    internal val pendingReactionTargetCount: Int
+        get() = pendingReactionTargets.size
+
+    internal val pendingReactionReferenceCount: Int
+        get() = pendingReactionTargets.values.sumOf { it.size }
 
     private val _typing = MutableStateFlow<List<TypingIndicator>>(emptyList())
 
@@ -936,6 +964,117 @@ class MessageIngestor(
         return null
     }
 
+    /**
+     * A reaction can reach ObjectBox before its target. Remember only those
+     * proven misses instead of searching unindexed associatedMessageGuid for
+     * every ordinary message already present in the entire account.
+     */
+    private fun rememberPendingReaction(chat: Chat, targetGuid: String, reaction: Message) {
+        rememberInitializedReactionChat(chat)
+        val key = PendingReactionTarget(chat.id, chat.guid, targetGuid)
+        val reactions = pendingReactionTargets.remove(key) ?: LinkedHashMap()
+        reactions.remove(reaction.id)
+        reactions[reaction.id] = reaction.guid
+        while (reactions.size > MAX_PENDING_REACTIONS_PER_TARGET) {
+            val iterator = reactions.entries.iterator()
+            iterator.next()
+            iterator.remove()
+            rememberOverflowedReactionChat(PendingReactionChat(chat.id, chat.guid))
+        }
+        pendingReactionTargets[key] = reactions
+        while (pendingReactionTargets.size > MAX_PENDING_REACTION_TARGETS) {
+            val iterator = pendingReactionTargets.entries.iterator()
+            val evicted = iterator.next()
+            iterator.remove()
+            rememberOverflowedReactionChat(
+                PendingReactionChat(evicted.key.chatId, evicted.key.chatGuid),
+            )
+        }
+    }
+
+    private fun rememberInitializedReactionChat(chat: Chat) {
+        val key = PendingReactionChat(chat.id, chat.guid)
+        initializedReactionChats.remove(key)
+        initializedReactionChats[key] = Unit
+        while (initializedReactionChats.size > MAX_PENDING_REACTION_TARGETS) {
+            val iterator = initializedReactionChats.entries.iterator()
+            iterator.next()
+            iterator.remove()
+        }
+    }
+
+    private fun rememberOverflowedReactionChat(chat: PendingReactionChat) {
+        overflowedReactionChats.remove(chat)
+        overflowedReactionChats[chat] = Unit
+        while (overflowedReactionChats.size > MAX_PENDING_REACTION_TARGETS) {
+            val iterator = overflowedReactionChats.entries.iterator()
+            iterator.next()
+            iterator.remove()
+        }
+    }
+
+    private fun recoverPendingReactions(chat: Chat, latest: Message?) {
+        if (latest?.associatedMessageGuid == null || latest.associatedMessageType == null) return
+        val chatKey = PendingReactionChat(chat.id, chat.guid)
+        if (initializedReactionChats.containsKey(chatKey)) return
+
+        // This is only reached after an ingestor/process restart left a
+        // reaction as the persisted latest item. ObjectBox starts from the
+        // indexed chat relation, caps the result, and never scans the account.
+        pendingReactionRecoveryQueryCount += 1
+        val reactions = messageBox.query()
+            .equal(Message_.chatId, chat.id)
+            .notNull(Message_.associatedMessageGuid)
+            .notNull(Message_.associatedMessageType)
+            .orderDesc(Message_.dateCreated)
+            .build()
+            .use { it.find(0, MAX_RECOVERED_REACTIONS_PER_CHAT.toLong()) }
+        reactions.forEach { reaction ->
+            val targetGuid = reaction.associatedMessageGuid ?: return@forEach
+            rememberPendingReaction(chat, targetGuid, reaction)
+        }
+        rememberInitializedReactionChat(chat)
+    }
+
+    private fun applyPendingReactions(message: Message, chat: Chat, latest: Message?) {
+        val key = PendingReactionTarget(chat.id, chat.guid, message.guid)
+        if (!pendingReactionTargets.containsKey(key)) recoverPendingReactions(chat, latest)
+        val candidates = pendingReactionTargets[key]
+
+        val hasTrackedReaction = candidates?.any { (id, guid) ->
+            pendingReactionValidationCount += 1
+            val reaction = messageBox.get(id)
+            reaction != null &&
+                reaction.guid == guid &&
+                reaction.associatedMessageGuid == message.guid &&
+                reaction.associatedMessageType != null &&
+                reaction.chat.targetId == chat.id
+        } == true
+        val hasPersistedReaction = hasTrackedReaction || findOverflowedReaction(message, chat) != null
+        if (hasPersistedReaction) {
+            message.hasReactions = true
+            // Do not consume the pending target until its durable flag exists.
+            messageBox.put(message)
+        }
+        pendingReactionTargets.remove(key)
+    }
+
+    private fun findOverflowedReaction(message: Message, chat: Chat): Message? {
+        val key = PendingReactionChat(chat.id, chat.guid)
+        if (!overflowedReactionChats.containsKey(key)) return null
+
+        // A bounded registry may evict an older target, but its durable
+        // reaction must still be honored. Only overflowed chats pay for this
+        // indexed chat-scoped probe; ordinary chats never issue the query.
+        pendingReactionRecoveryQueryCount += 1
+        return messageBox.query()
+            .equal(Message_.chatId, chat.id)
+            .equal(Message_.associatedMessageGuid, message.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
+            .notNull(Message_.associatedMessageType)
+            .build()
+            .use { it.findFirst() }
+    }
+
     private fun persistMapped(
         mapped: MessageMapper.Mapped,
         chat: Chat,
@@ -1007,25 +1146,29 @@ class MessageIngestor(
 
             persistAttachments(mapped.attachments, saved)
 
+            val latest = chat.dbLatestMessage.target
             // Reaction bookkeeping (Message.save): flag the target message.
-            if (saved.associatedMessageGuid != null && saved.associatedMessageType != null) {
-                findMessageByGuidOrStaging(saved.associatedMessageGuid)?.let { target ->
+            val reactionTarget = saved.associatedMessageGuid
+            if (reactionTarget != null && saved.associatedMessageType != null) {
+                val target = findMessageByGuidOrStaging(reactionTarget)
+                    ?.takeIf { it.chat.targetId == chat.id }
+                if (target != null) {
                     if (!target.hasReactions) {
                         target.hasReactions = true
                         messageBox.put(target)
                     }
+                    pendingReactionTargets.remove(
+                        PendingReactionTarget(chat.id, chat.guid, reactionTarget),
+                    )
+                } else {
+                    // Register only after messageBox.put(saved) succeeded.
+                    rememberPendingReaction(chat, reactionTarget, saved)
                 }
             } else if (!saved.hasReactions) {
-                messageBox.query()
-                    .equal(Message_.associatedMessageGuid, saved.guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
-                    .build().use { it.findFirst() }?.let { reaction ->
-                        saved.hasReactions = true
-                        messageBox.put(saved)
-                    }
+                applyPendingReactions(saved, chat, latest)
             }
 
             // Chat.setLatestMessage + unread semantics (addMessageLocal).
-            val latest = chat.dbLatestMessage.target
             val isNewer = latest == null ||
                 (saved.dateCreated != null && (latest.dateCreated == null || saved.dateCreated.after(latest.dateCreated)))
             if (isNewer) {
@@ -1134,5 +1277,9 @@ class MessageIngestor(
 
     fun close() {
         scope.cancel()
+        pendingReactionTargets.clear()
+        initializedReactionChats.clear()
+        overflowedReactionChats.clear()
+        pendingSendConfirms.clear()
     }
 }

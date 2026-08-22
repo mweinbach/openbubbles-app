@@ -117,6 +117,28 @@ class MessageIngestorTest {
         verificationFailed = false,
     )
 
+    private fun reactionInst(
+        id: String,
+        targetGuid: String,
+        sender: String = friend,
+        timestamp: ULong = 1_700_000_100_000uL,
+    ) = UMessageInst(
+        id = id,
+        sender = sender,
+        conversation = conversation(me, if (sender == me) friend else sender),
+        message = UMessage.React(
+            toUuid = targetGuid,
+            toPart = 0uL,
+            reactionJson = """{"React":{"reaction":"Heart","enable":true}}""",
+            toText = "react to me",
+            parts = emptyList(),
+            profileJson = null,
+        ),
+        sentTimestamp = timestamp,
+        sendDelivered = false,
+        verificationFailed = false,
+    )
+
     private fun push(inst: UMessageInst) = UPushMessage.IMessage(inst)
 
     private fun chatBox() = store.boxFor(Chat::class.java)
@@ -1376,6 +1398,152 @@ class MessageIngestorTest {
     // ------------------------------------------------------------------
     // Reactions, renames, participants
     // ------------------------------------------------------------------
+
+    @Test
+    fun `ordinary messages never query or validate reaction backfills`() = runBlocking<Unit> {
+        repeat(5) { index ->
+            ingestor.ingest(
+                push(textInst("ordinary-$index", friend, "message $index")),
+                myHandles,
+            )
+        }
+
+        assertEquals(0, ingestor.pendingReactionTargetCount)
+        assertEquals(0, ingestor.pendingReactionReferenceCount)
+        assertEquals(0, ingestor.pendingReactionValidationCount)
+        assertEquals(0, ingestor.pendingReactionRecoveryQueryCount)
+    }
+
+    @Test
+    fun `reaction arriving before its target flags that target without scanning history`() = runBlocking<Unit> {
+        ingestor.ingest(push(reactionInst("early-reaction", "late-target")), myHandles)
+
+        assertEquals(1, ingestor.pendingReactionTargetCount)
+        assertEquals(1, ingestor.pendingReactionReferenceCount)
+        assertEquals(0, ingestor.pendingReactionValidationCount)
+
+        ingestor.ingest(push(textInst("late-target", friend, "react to me")), myHandles)
+
+        assertTrue(assertNotNull(messageByGuid("late-target")).hasReactions)
+        assertEquals(0, ingestor.pendingReactionTargetCount)
+        assertEquals(1, ingestor.pendingReactionValidationCount)
+        assertEquals(0, ingestor.pendingReactionRecoveryQueryCount)
+        assertEquals("love", messageRepo.messages(chatRepo.chats().single().id).single().reactionType)
+    }
+
+    @Test
+    fun `duplicate early reactions retain one pending durable reference`() = runBlocking<Unit> {
+        val reaction = push(reactionInst("duplicate-early-reaction", "duplicate-late-target"))
+
+        ingestor.ingest(reaction, myHandles)
+        ingestor.ingest(reaction, myHandles)
+
+        assertEquals(1, ingestor.pendingReactionTargetCount)
+        assertEquals(1, ingestor.pendingReactionReferenceCount)
+
+        ingestor.ingest(push(textInst("duplicate-late-target", friend, "react to me")), myHandles)
+
+        assertTrue(assertNotNull(messageByGuid("duplicate-late-target")).hasReactions)
+        assertEquals(2, messageBox().count())
+        assertEquals(1, ingestor.pendingReactionValidationCount)
+    }
+
+    @Test
+    fun `reaction-first delivery survives ingestor recreation with one bounded same-chat recovery`() =
+        runBlocking<Unit> {
+            ingestor.ingest(push(reactionInst("early-one", "late-one")), myHandles)
+            ingestor.ingest(
+                push(reactionInst("early-two", "late-two", timestamp = 1_700_000_200_000uL)),
+                myHandles,
+            )
+            ingestor.close()
+            ingestor = MessageIngestor(store, attachmentStore = AttachmentStore(store, testDir))
+
+            ingestor.ingest(push(textInst("late-one", friend, "first target")), myHandles)
+
+            assertTrue(assertNotNull(messageByGuid("late-one")).hasReactions)
+            assertEquals(1, ingestor.pendingReactionRecoveryQueryCount)
+            assertEquals(1, ingestor.pendingReactionTargetCount)
+
+            ingestor.ingest(push(textInst("late-two", friend, "second target")), myHandles)
+
+            assertTrue(assertNotNull(messageByGuid("late-two")).hasReactions)
+            assertEquals(1, ingestor.pendingReactionRecoveryQueryCount)
+            assertEquals(2, ingestor.pendingReactionValidationCount)
+            assertEquals(0, ingestor.pendingReactionTargetCount)
+        }
+
+    @Test
+    fun `deleted early reaction cannot mark a later target or cross an account boundary`() = runBlocking<Unit> {
+        ingestor.ingest(push(reactionInst("deleted-early-reaction", "deleted-late-target")), myHandles)
+        val removed = assertNotNull(messageByGuid("deleted-early-reaction"))
+        messageBox().remove(removed)
+
+        ingestor.ingest(push(textInst("deleted-late-target", friend, "not reacted")), myHandles)
+
+        assertFalse(assertNotNull(messageByGuid("deleted-late-target")).hasReactions)
+        assertEquals(1, ingestor.pendingReactionValidationCount)
+        assertEquals(0, ingestor.pendingReactionTargetCount)
+    }
+
+    @Test
+    fun `reaction in another conversation never flags a different chats target`() = runBlocking<Unit> {
+        val otherFriend = "mailto:other@icloud.com"
+        ingestor.ingest(push(textInst("other-chat-target", friend, "private")), myHandles)
+
+        ingestor.ingest(
+            push(reactionInst("wrong-chat-reaction", "other-chat-target", sender = otherFriend)),
+            myHandles,
+        )
+
+        assertFalse(assertNotNull(messageByGuid("other-chat-target")).hasReactions)
+        assertEquals(1, ingestor.pendingReactionTargetCount)
+        assertEquals(0, ingestor.pendingReactionValidationCount)
+    }
+
+    @Test
+    fun `pending reactions bound the number of retained rows per target`() = runBlocking<Unit> {
+        repeat(12) { index ->
+            ingestor.ingest(push(reactionInst("bounded-row-$index", "bounded-target")), myHandles)
+        }
+
+        assertEquals(1, ingestor.pendingReactionTargetCount)
+        assertEquals(8, ingestor.pendingReactionReferenceCount)
+
+        ingestor.ingest(push(textInst("bounded-target", friend, "react to me")), myHandles)
+
+        assertTrue(assertNotNull(messageByGuid("bounded-target")).hasReactions)
+        assertEquals(0, ingestor.pendingReactionTargetCount)
+    }
+
+    @Test
+    fun `bounded pending reaction registry recovers evicted targets from their indexed chat`() = runBlocking<Unit> {
+        repeat(257) { index ->
+            ingestor.ingest(
+                push(
+                    reactionInst(
+                        "bounded-target-reaction-$index",
+                        "pending-target-$index",
+                        timestamp = 1_700_000_100_000uL + index.toULong(),
+                    ),
+                ),
+                myHandles,
+            )
+        }
+
+        assertEquals(256, ingestor.pendingReactionTargetCount)
+        assertEquals(256, ingestor.pendingReactionReferenceCount)
+
+        ingestor.ingest(push(textInst("pending-target-0", friend, "evicted")), myHandles)
+        assertTrue(assertNotNull(messageByGuid("pending-target-0")).hasReactions)
+        assertEquals(0, ingestor.pendingReactionValidationCount)
+        assertEquals(1, ingestor.pendingReactionRecoveryQueryCount)
+
+        ingestor.ingest(push(textInst("pending-target-256", friend, "retained")), myHandles)
+        assertTrue(assertNotNull(messageByGuid("pending-target-256")).hasReactions)
+        assertEquals(1, ingestor.pendingReactionValidationCount)
+        assertEquals(1, ingestor.pendingReactionRecoveryQueryCount)
+    }
 
     @Test
     fun `reaction maps associated fields and flags target`() = runBlocking<Unit> {
