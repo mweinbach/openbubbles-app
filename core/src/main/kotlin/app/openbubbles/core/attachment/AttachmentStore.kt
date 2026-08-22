@@ -9,9 +9,14 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 
 /**
  * Canonical attachment disk layout, ported from the Dart app's
@@ -53,6 +58,9 @@ class AttachmentStore(
 
         /** Suffix reserved for an incomplete app-owned attachment download. */
         internal const val DOWNLOAD_PARTIAL_SUFFIX = ".openbubbles-partial"
+
+        private const val MAX_ATTACHMENT_CLEANUP_ENTRIES = 1_024
+        private const val MAX_ATTACHMENT_CLEANUP_DEPTH = 8
 
         /**
          * Characters replaced in file/directory names — the union of the Dart
@@ -212,22 +220,43 @@ class AttachmentStore(
     }
 
     /**
-     * Deletes every local representation of [attachment] — the payload, the
-     * converted `.png` and the two `.thumbnail` siblings — as
-     * `AttachmentsService.redownloadAttachment` does before forcing a fresh
-     * download. Missing files are ignored.
+     * Delete the complete app-owned GUID directory, including converted
+     * payloads, thumbnails, interrupted staging files, and stale private
+     * variants. Walks are bounded and never follow directory symlinks.
      */
     fun deleteLocalFiles(attachment: Attachment) {
-        if (attachment.guid == null) return
-        val primary = pathFor(attachment)
-        listOf(
-            primary,
-            partialPathFor(attachment),
-            File(primary.path + ".png"),
-            File(primary.path + ".thumbnail"),
-            File(primary.path + ".png.thumbnail"),
-        ).forEach { it.delete() }
-        primary.parentFile?.takeIf { it.isDirectory && it.list().isNullOrEmpty() }?.delete()
+        val guid = attachment.guid ?: return
+        val parent = attachmentsDir.toPath().toAbsolutePath().normalize()
+        val directory = directoryFor(guid).toPath().toAbsolutePath().normalize()
+        require(directory.parent == parent) { "attachment cleanup escaped its owned root" }
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) return
+        if (Files.isSymbolicLink(parent)) {
+            throw IOException("attachment cleanup refuses a symbolic-link root")
+        }
+
+        var visited = 0
+        Files.walkFileTree(
+            directory,
+            emptySet(),
+            MAX_ATTACHMENT_CLEANUP_DEPTH,
+            object : SimpleFileVisitor<Path>() {
+                private fun remove(path: Path): FileVisitResult {
+                    if (++visited > MAX_ATTACHMENT_CLEANUP_ENTRIES) {
+                        throw IOException("attachment cleanup exceeded its entry limit")
+                    }
+                    Files.delete(path)
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult =
+                    remove(file)
+
+                override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
+                    if (error != null) throw error
+                    return remove(dir)
+                }
+            },
+        )
     }
 
     /** Directory fsync is unavailable on some Android/filesystem pairs. */

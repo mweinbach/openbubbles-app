@@ -44,6 +44,41 @@ interface CloudSyncStateStore {
 
     fun savePendingAttachmentDeletes(ids: List<String>)
 
+    /** Local-only privacy tombstones never become remote CloudKit deletions. */
+    fun suppressedMessageRecordIds(): List<String> = emptyList()
+
+    fun suppressedAttachmentRecordIds(): List<String> = emptyList()
+
+    fun saveSuppressedMessageRecordIds(ids: List<String>) {}
+
+    fun saveSuppressedAttachmentRecordIds(ids: List<String>) {}
+
+    /** Remove only confirmed IDs so a concurrent new deletion is never lost. */
+    fun acknowledgePendingChatDeletes(ids: Collection<String>) {
+        val confirmed = ids.toHashSet()
+        savePendingChatDeletes(pendingChatDeletes().filterNot(confirmed::contains))
+    }
+
+    fun acknowledgePendingMessageDeletes(ids: Collection<String>) {
+        val confirmed = ids.toHashSet()
+        savePendingMessageDeletes(pendingMessageDeletes().filterNot(confirmed::contains))
+    }
+
+    fun acknowledgePendingAttachmentDeletes(ids: Collection<String>) {
+        val confirmed = ids.toHashSet()
+        savePendingAttachmentDeletes(pendingAttachmentDeletes().filterNot(confirmed::contains))
+    }
+
+    fun acknowledgeSuppressedMessageTombstones(ids: Collection<String>) {
+        val removed = ids.toHashSet()
+        saveSuppressedMessageRecordIds(suppressedMessageRecordIds().filterNot(removed::contains))
+    }
+
+    fun acknowledgeSuppressedAttachmentTombstones(ids: Collection<String>) {
+        val removed = ids.toHashSet()
+        saveSuppressedAttachmentRecordIds(suppressedAttachmentRecordIds().filterNot(removed::contains))
+    }
+
     /**
      * True once type-138 wallpapers have been queried or the message
      * zone has been rewound to recover ones the incremental cursor
@@ -64,6 +99,8 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
     private var chatDeletes: List<String> = emptyList()
     private var messageDeletes: List<String> = emptyList()
     private var attachmentDeletes: List<String> = emptyList()
+    private var suppressedMessages: List<String> = emptyList()
+    private var suppressedAttachments: List<String> = emptyList()
 
     override fun chatCursor(): ByteArray? = chatCursor
 
@@ -99,6 +136,18 @@ class InMemoryCloudSyncStateStore : CloudSyncStateStore {
 
     override fun savePendingAttachmentDeletes(ids: List<String>) {
         attachmentDeletes = ids.toList()
+    }
+
+    override fun suppressedMessageRecordIds(): List<String> = suppressedMessages
+
+    override fun suppressedAttachmentRecordIds(): List<String> = suppressedAttachments
+
+    override fun saveSuppressedMessageRecordIds(ids: List<String>) {
+        suppressedMessages = ids.toList()
+    }
+
+    override fun saveSuppressedAttachmentRecordIds(ids: List<String>) {
+        suppressedAttachments = ids.toList()
     }
 
     var wallpaperBackfillComplete: Boolean = true

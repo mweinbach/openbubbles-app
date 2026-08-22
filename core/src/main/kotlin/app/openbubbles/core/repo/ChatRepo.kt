@@ -11,6 +11,7 @@ import app.openbubbles.core.model.isGroupConversation
 import app.openbubbles.core.model.otherDirectHandle
 import app.openbubbles.core.model.otherDirectHandles
 import app.openbubbles.core.model.participantAddresses
+import app.openbubbles.db.Attachment
 import app.openbubbles.db.Chat
 import app.openbubbles.db.Chat_
 import app.openbubbles.db.ContactV2
@@ -434,8 +435,19 @@ class ChatRepo(
     fun restoreDeleted(chatId: Long) {
         val chat = chatBox.get(chatId) ?: return
         store.runInTx {
+            val messages = chat.messages.toList()
+            val attachments = messages.flatMap { it.dbAttachments.toList() }
+            StoreDeletionCoordinators.restore(
+                store,
+                cloudDeletionRecordIds(
+                    chats = listOf(chat),
+                    messages = messages,
+                    attachments = attachments,
+                    includeChats = true,
+                ),
+            )
             chat.dateDeleted = null
-            chat.messages.forEach { message ->
+            messages.forEach { message ->
                 message.dateDeleted = null
                 messageBox.put(message)
             }
@@ -445,18 +457,48 @@ class ChatRepo(
 
     fun permanentlyDelete(chatId: Long) {
         val chat = chatBox.get(chatId) ?: return
+        val attachmentBox = store.boxFor(Attachment::class.java)
+        val removedAttachments = arrayListOf<Attachment>()
         store.runInTx {
-            chat.messages.toList().forEach(messageBox::remove)
+            val messages = chat.messages.toList()
+            messages.forEach { message -> removedAttachments += message.dbAttachments.toList() }
+            StoreDeletionCoordinators.enqueue(
+                store = store,
+                recordIds = cloudDeletionRecordIds(
+                    chats = listOf(chat),
+                    messages = messages,
+                    attachments = removedAttachments,
+                    includeChats = true,
+                ),
+                requireRegistration = false,
+            )
+            removedAttachments.forEach(attachmentBox::remove)
+            messages.forEach(messageBox::remove)
             chatBox.remove(chat)
         }
+        StoreDeletionCoordinators.deleteAttachmentFiles(store, removedAttachments)
+        StoreDeletionCoordinators.deleteChatFiles(store, listOf(chat))
     }
 
     /** Soft-delete so a genuinely new incoming message can restore the chat. */
     fun softDelete(chatId: Long): String? {
         val chat = chatBox.get(chatId) ?: return null
-        chat.dateDeleted = java.util.Date()
-        chat.hasUnreadMessage = false
-        chatBox.put(chat)
+        store.runInTx {
+            val messages = chat.messages.toList()
+            StoreDeletionCoordinators.enqueue(
+                store = store,
+                recordIds = cloudDeletionRecordIds(
+                    chats = listOf(chat),
+                    messages = messages,
+                    attachments = messages.flatMap { it.dbAttachments.toList() },
+                    includeChats = true,
+                ),
+                requireRegistration = false,
+            )
+            chat.dateDeleted = java.util.Date()
+            chat.hasUnreadMessage = false
+            chatBox.put(chat)
+        }
         return chat.ckRecordId
     }
 

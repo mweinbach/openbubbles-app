@@ -68,6 +68,7 @@ private class FakeCloudSyncPort : CloudSyncPort {
     /** Invoked after each served chat page (index 1-based), for mid-run hooks. */
     var onChatsPageServed: ((Int) -> Unit)? = null
     var onMessagesPageServed: ((Int) -> Unit)? = null
+    var onMessagesDeleted: ((List<String>) -> Unit)? = null
     private var chatPagesServed = 0
     private var messagePagesServed = 0
 
@@ -119,6 +120,7 @@ private class FakeCloudSyncPort : CloudSyncPort {
     override suspend fun deleteMessagesRemote(recordIds: List<String>) {
         calls += "delete-messages"
         deletedMessages += recordIds
+        onMessagesDeleted?.invoke(recordIds)
     }
 
     override suspend fun deleteAttachmentsRemote(recordIds: List<String>) {
@@ -1211,6 +1213,166 @@ class CloudSyncManagerTest {
         assertEquals(1uL, summary.messageTombstones)
     }
 
+    @Test
+    fun `local-only tombstones suppress exact cloud records but never suppress genuinely new messages`() {
+        syncStore.saveSuppressedMessageRecordIds(listOf("record-locally-deleted"))
+        syncStore.saveSuppressedAttachmentRecordIds(listOf("attachment-locally-deleted"))
+        port.chatPages += chatPage(UChatChange("record-chat", cloudChat("record-chat"), blob = byteArrayOf()))
+        port.messagePages += messagePage(
+            UMessageChange(
+                "record-locally-deleted",
+                cloudMessage(
+                    "record-locally-deleted",
+                    guid = "old-private-message",
+                    chatId = "iMessage;-;+15551234567",
+                    attachmentGuids = listOf("old-private-attachment"),
+                ),
+                blob = byteArrayOf(),
+            ),
+            UMessageChange(
+                "record-genuine-new-message",
+                cloudMessage(
+                    "record-genuine-new-message",
+                    guid = "genuine-new-message",
+                    chatId = "iMessage;-;+15551234567",
+                    attachmentGuids = listOf("genuine-new-attachment"),
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.attachmentPages += attachmentPage(
+            UAttachmentChange(
+                "attachment-locally-deleted",
+                UCloudAttachment(
+                    guid = "old-private-attachment",
+                    messageGuid = "old-private-message",
+                    uti = "public.jpeg",
+                    mimeType = "image/jpeg",
+                    isOutgoing = false,
+                    transferName = "old.jpg",
+                    totalBytes = 10,
+                ),
+            ),
+            UAttachmentChange(
+                "attachment-genuine-new",
+                UCloudAttachment(
+                    guid = "genuine-new-attachment",
+                    messageGuid = "genuine-new-message",
+                    uti = "public.jpeg",
+                    mimeType = "image/jpeg",
+                    isOutgoing = false,
+                    transferName = "new.jpg",
+                    totalBytes = 10,
+                ),
+            ),
+        )
+
+        val result = runSync(SyncMode.FULL)
+
+        assertNull(result.error)
+        assertNull(messageByGuid("old-private-message"))
+        assertNull(attachmentByGuid("old-private-attachment"))
+        assertNotNull(messageByGuid("genuine-new-message"))
+        assertNotNull(attachmentByGuid("genuine-new-attachment"))
+        assertEquals(listOf("record-locally-deleted"), syncStore.suppressedMessageRecordIds())
+        assertEquals(listOf("attachment-locally-deleted"), syncStore.suppressedAttachmentRecordIds())
+        assertTrue(port.deletedMessages.isEmpty())
+        assertTrue(port.deletedAttachments.isEmpty())
+    }
+
+    @Test
+    fun `actual server tombstones retire matching local-only privacy suppression`() {
+        syncStore.saveSuppressedMessageRecordIds(listOf("deleted-message", "keep-message"))
+        syncStore.saveSuppressedAttachmentRecordIds(listOf("deleted-attachment", "keep-attachment"))
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(UMessageChange("deleted-message", null, blob = byteArrayOf()))
+        port.attachmentPages += attachmentPage(UAttachmentChange("deleted-attachment", null))
+
+        val result = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(result.error)
+        assertEquals(listOf("keep-message"), syncStore.suppressedMessageRecordIds())
+        assertEquals(listOf("keep-attachment"), syncStore.suppressedAttachmentRecordIds())
+    }
+
+    @Test
+    fun `message tombstone repairs the surviving chat latest-message pointer`() {
+        port.chatPages += chatPage(UChatChange("record-chat", cloudChat("record-chat"), blob = byteArrayOf()))
+        port.messagePages += messagePage(
+            UMessageChange(
+                "record-older",
+                cloudMessage(
+                    "record-older",
+                    guid = "older-message",
+                    chatId = "iMessage;-;+15551234567",
+                    time = 700_000_000_000_000_000L,
+                ),
+                blob = byteArrayOf(),
+            ),
+            UMessageChange(
+                "record-newer",
+                cloudMessage(
+                    "record-newer",
+                    guid = "newer-message",
+                    chatId = "iMessage;-;+15551234567",
+                    time = 701_000_000_000_000_000L,
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        runSync()
+        assertEquals("newer-message", chatByGuid("iMessage;-;+15551234567")?.dbLatestMessage?.target?.guid)
+
+        port.chatPages += chatPage()
+        port.messagePages += messagePage(UMessageChange("record-newer", null, blob = byteArrayOf()))
+        val result = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(result.error)
+        val remaining = requireNotNull(chatByGuid("iMessage;-;+15551234567"))
+        assertEquals("older-message", remaining.dbLatestMessage.target?.guid)
+        assertEquals(remaining.dbLatestMessage.target?.dateCreated, remaining.dbOnlyLatestMessageDate)
+    }
+
+    @Test
+    fun `recently deleted remote records cannot reappear from an eventually consistent same-run page`() {
+        syncStore.savePendingChatDeletes(listOf("record-chat"))
+        syncStore.savePendingMessageDeletes(listOf("record-message"))
+        syncStore.savePendingAttachmentDeletes(listOf("record-attachment"))
+        port.chatPages += chatPage(UChatChange("record-chat", cloudChat("record-chat"), blob = byteArrayOf()))
+        port.messagePages += messagePage(
+            UMessageChange(
+                "record-message",
+                cloudMessage(
+                    "record-message",
+                    guid = "deleted-message",
+                    chatId = "iMessage;-;+15551234567",
+                ),
+                blob = byteArrayOf(),
+            ),
+        )
+        port.attachmentPages += attachmentPage(
+            UAttachmentChange(
+                "record-attachment",
+                UCloudAttachment(
+                    guid = "deleted-attachment",
+                    messageGuid = "deleted-message",
+                    uti = "public.jpeg",
+                    mimeType = "image/jpeg",
+                    isOutgoing = false,
+                    transferName = "deleted.jpg",
+                    totalBytes = 10,
+                ),
+            ),
+        )
+
+        val result = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(result.error)
+        assertEquals(0L, store.boxFor(Chat::class.java).count())
+        assertEquals(0L, store.boxFor(Message::class.java).count())
+        assertEquals(0L, store.boxFor(Attachment::class.java).count())
+    }
+
     // ------------------------------------------------------------------
     // Cursors + incremental
     // ------------------------------------------------------------------
@@ -1371,6 +1533,21 @@ class CloudSyncManagerTest {
         assertEquals(listOf(listOf("dead-chat")), port.deletedChats)
         assertTrue(syncStore.pendingChatDeletes().isEmpty())
         assertTrue(syncStore.pendingMessageDeletes().isEmpty())
+    }
+
+    @Test
+    fun `acknowledging a remote deletion never drops a concurrently queued newer record`() {
+        syncStore.savePendingMessageDeletes(listOf("record-confirmed"))
+        port.onMessagesDeleted = {
+            syncStore.savePendingMessageDeletes(listOf("record-confirmed", "record-newer"))
+        }
+        port.chatPages += chatPage()
+        port.messagePages += messagePage()
+
+        val result = runSync(SyncMode.INCREMENTAL)
+
+        assertNull(result.error)
+        assertEquals(listOf("record-newer"), syncStore.pendingMessageDeletes())
     }
 
     @Test

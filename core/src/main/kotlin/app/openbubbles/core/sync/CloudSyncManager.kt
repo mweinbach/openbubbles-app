@@ -3,6 +3,7 @@ package app.openbubbles.core.sync
 import app.openbubbles.core.attachment.AttachmentStore
 import app.openbubbles.core.intake.HandleResolver
 import app.openbubbles.core.model.MessageMapper
+import app.openbubbles.core.repo.StoreDeletionCoordinators
 import app.openbubbles.core.repo.StoreInvalidationCoordinators
 import app.openbubbles.db.Attachment
 import app.openbubbles.db.Attachment_
@@ -215,6 +216,9 @@ class CloudSyncManager(
     private val invalidations = StoreInvalidationCoordinators.forStore(store)
     private val mutex = Mutex()
     private val cancelled = AtomicBoolean(false)
+    private val deletedChatRecordsThisRun = hashSetOf<String>()
+    private val deletedMessageRecordsThisRun = hashSetOf<String>()
+    private val deletedAttachmentRecordsThisRun = hashSetOf<String>()
 
     private val _progress = MutableStateFlow(SyncProgress(SyncPhase.IDLE))
 
@@ -239,6 +243,9 @@ class CloudSyncManager(
         withContext(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
             cancelled.set(false)
+            deletedChatRecordsThisRun.clear()
+            deletedMessageRecordsThisRun.clear()
+            deletedAttachmentRecordsThisRun.clear()
             var state = SyncProgress(SyncPhase.CHECKING)
             fun update(phase: SyncPhase = state.phase) {
                 state = state.copy(phase = phase)
@@ -279,15 +286,18 @@ class CloudSyncManager(
                 //    remote calls and three state commits for nothing.
                 syncStore.pendingMessageDeletes().takeIf { it.isNotEmpty() }?.let {
                     port.deleteMessagesRemote(it)
-                    syncStore.savePendingMessageDeletes(emptyList())
+                    deletedMessageRecordsThisRun += it
+                    syncStore.acknowledgePendingMessageDeletes(it)
                 }
                 syncStore.pendingAttachmentDeletes().takeIf { it.isNotEmpty() }?.let {
                     port.deleteAttachmentsRemote(it)
-                    syncStore.savePendingAttachmentDeletes(emptyList())
+                    deletedAttachmentRecordsThisRun += it
+                    syncStore.acknowledgePendingAttachmentDeletes(it)
                 }
                 syncStore.pendingChatDeletes().takeIf { it.isNotEmpty() }?.let {
                     port.deleteChatsRemote(it)
-                    syncStore.savePendingChatDeletes(emptyList())
+                    deletedChatRecordsThisRun += it
+                    syncStore.acknowledgePendingChatDeletes(it)
                 }
 
                 val lookup = HistorySyncLookup(store)
@@ -654,6 +664,8 @@ class CloudSyncManager(
         val pendingBackgrounds = ArrayList<PendingChatBackground>()
         invalidations.coalesce {
             records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                val removedAttachments = arrayListOf<Attachment>()
+                val removedChats = arrayListOf<Chat>()
                 store.runInTx {
                     val tombstonesByRecordId = chatsByRecordIdsLocked(
                         batch.filter { it.chat == null }.map(UChatChange::recordId),
@@ -663,9 +675,10 @@ class CloudSyncManager(
                         if (cloud == null) {
                             tombstonesByRecordId[record.recordId]
                                 .orEmpty()
-                                .forEach { deleteChatLocked(it, lookup) }
+                                .forEach { deleteChatLocked(it, lookup, removedAttachments, removedChats) }
                             continue
                         }
+                        if (record.recordId in deletedChatRecordsThisRun) continue
                         if (cloud.serviceName != "iMessage") continue // Dart: iMessage only
                         val chat = findOrImportChatLocked(cloud, lookup)
                         // Always refresh identifiers (Dart applies these before the
@@ -744,6 +757,8 @@ class CloudSyncManager(
                         lookup.putChat(chat)
                     }
                 }
+                removedAttachments.forEach { attachmentStore?.deleteLocalFiles(it) }
+                StoreDeletionCoordinators.deleteChatFiles(store, removedChats)
             }
         }
         downloadPendingGroupPhotos(pendingPhotos)
@@ -824,13 +839,19 @@ class CloudSyncManager(
     }
 
     /** Tombstone: remove the chat, its messages and attachment rows. */
-    private fun deleteChatLocked(chat: Chat, lookup: HistorySyncLookup) {
+    private fun deleteChatLocked(
+        chat: Chat,
+        lookup: HistorySyncLookup,
+        removedAttachments: MutableList<Attachment>,
+        removedChats: MutableList<Chat>,
+    ) {
         val messages = chat.messages.toList()
         messages.forEach { message ->
-            message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+            message.dbAttachments.toList().forEach { removeAttachmentLocked(it, removedAttachments) }
         }
         messages.forEach { messageBox.remove(it) }
         chatBox.remove(chat)
+        removedChats += chat
         lookup.removeChat(chat)
     }
 
@@ -921,7 +942,10 @@ class CloudSyncManager(
         val transcriptBackgrounds = mutableListOf<TranscriptBackgroundUpdate>()
         invalidations.coalesce {
             records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                val removedAttachments = arrayListOf<Attachment>()
+                val acknowledgedLocalTombstones = hashSetOf<String>()
                 store.runInTx {
+                    val suppressedRecords = syncStore.suppressedMessageRecordIds().toHashSet()
                     val latestChatsToPersist = LinkedHashMap<Long, Chat>()
                     val cloudMessages = batch.mapNotNull(UMessageChange::message)
                     val messagesByGuid = messagesByGuidsLocked(
@@ -941,14 +965,20 @@ class CloudSyncManager(
                     for (record in batch) {
                         val cloud = record.message
                         if (cloud == null) {
+                            if (record.recordId in suppressedRecords) {
+                                acknowledgedLocalTombstones += record.recordId
+                            }
                             tombstonesByRecordId[record.recordId]
                                 .orEmpty()
                                 .forEach { message ->
                                     messagesByGuid.remove(message.guid)
-                                    deleteMessageLocked(message)
+                                    deleteMessageLocked(message, latestChatsToPersist, removedAttachments)
                                 }
                             continue
                         }
+                        if (record.recordId in suppressedRecords ||
+                            record.recordId in deletedMessageRecordsThisRun
+                        ) continue
                         if (cloud.msgType == TRANSCRIPT_BACKGROUND_MESSAGE_TYPE) {
                             // A wallpaper record must never wedge the message
                             // zone: an undecodable payload or a chat we do not
@@ -971,6 +1001,7 @@ class CloudSyncManager(
                                 cloud.guid,
                                 messagesByGuid,
                                 latestChatsToPersist,
+                                removedAttachments,
                             )
                             val version = background.version
                                 .takeIf { it <= Long.MAX_VALUE.toULong() }
@@ -994,6 +1025,10 @@ class CloudSyncManager(
                         )
                     }
                     latestChatsToPersist.values.forEach(chatBox::put)
+                }
+                removedAttachments.forEach { attachmentStore?.deleteLocalFiles(it) }
+                if (acknowledgedLocalTombstones.isNotEmpty()) {
+                    syncStore.acknowledgeSuppressedMessageTombstones(acknowledgedLocalTombstones)
                 }
             }
         }
@@ -1026,20 +1061,38 @@ class CloudSyncManager(
     }
 
     /** Tombstone: remove the row matched by ckRecordId. */
-    private fun deleteMessageLocked(message: Message) {
-        message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+    private fun deleteMessageLocked(
+        message: Message,
+        latestChatsToPersist: MutableMap<Long, Chat>,
+        removedAttachments: MutableList<Attachment>,
+    ) {
+        val chat = message.chat.target?.let { latestChatsToPersist[it.id] ?: it }
+        val wasLatest = chat?.dbLatestMessage?.targetId == message.id
+        message.dbAttachments.toList().forEach { removeAttachmentLocked(it, removedAttachments) }
         messageBox.remove(message)
+        if (chat != null && wasLatest) {
+            val latest = messageBox.query()
+                .equal(Message_.chatId, chat.id)
+                .isNull(Message_.dateDeleted)
+                .orderDesc(Message_.dateCreated)
+                .orderDesc(Message_.id)
+                .build().use { it.findFirst() }
+            chat.dbLatestMessage.target = latest
+            chat.dbOnlyLatestMessageDate = latest?.dateCreated
+            latestChatsToPersist[chat.id] = chat
+        }
     }
 
     private fun removeLegacyTranscriptBackgroundMessageLocked(
         guid: String,
         messagesByGuid: MutableMap<String, Message>,
         latestChatsToPersist: MutableMap<Long, Chat>,
+        removedAttachments: MutableList<Attachment>,
     ) {
         val message = messagesByGuid.remove(guid) ?: return
-        val chat = message.chat.target
+        val chat = message.chat.target?.let { latestChatsToPersist[it.id] ?: it }
         val wasLatest = chat?.dbLatestMessage?.targetId == message.id
-        message.dbAttachments.toList().forEach(::removeAttachmentLocked)
+        message.dbAttachments.toList().forEach { removeAttachmentLocked(it, removedAttachments) }
         messageBox.remove(message)
         if (chat != null && wasLatest) {
             val latest = messageBox.query()
@@ -1114,7 +1167,7 @@ class CloudSyncManager(
         }
 
         val chat = lookup.chatForCloudMessage(cloud.chatId) ?: return
-        if (chat.isRpSms == true) return
+        if (chat.isRpSms == true || chat.dateDeleted != null) return
 
         val message = Message().apply {
             guid = cloud.guid
@@ -1181,7 +1234,6 @@ class CloudSyncManager(
         if (shouldReplaceLatestMessage(chat, message.dateCreated)) {
             chat.dbLatestMessage.target = message
             chat.dbOnlyLatestMessageDate = message.dateCreated
-            if (chat.dateDeleted != null) chat.dateDeleted = null // Chat.unDelete
             latestChatsToPersist[chat.id] = chat
         }
     }
@@ -1207,7 +1259,10 @@ class CloudSyncManager(
     private suspend fun applyAttachmentPage(records: List<UAttachmentChange>) {
         invalidations.coalesce {
             records.chunked(DB_WRITE_BATCH_SIZE).forEach { batch ->
+                val removedAttachments = arrayListOf<Attachment>()
+                val acknowledgedLocalTombstones = hashSetOf<String>()
                 store.runInTx {
+                    val suppressedRecords = syncStore.suppressedAttachmentRecordIds().toHashSet()
                     val cloudAttachments = batch.mapNotNull(UAttachmentChange::attachment)
                     val attachmentsByGuid = attachmentsByGuidsLocked(
                         cloudAttachments.map(UCloudAttachment::guid),
@@ -1221,25 +1276,35 @@ class CloudSyncManager(
                     for (record in batch) {
                         val cloud = record.attachment
                         if (cloud == null) {
+                            if (record.recordId in suppressedRecords) {
+                                acknowledgedLocalTombstones += record.recordId
+                            }
                             tombstonesByRecordId[record.recordId]
                                 .orEmpty()
                                 .forEach { attachment ->
                                     attachmentsByGuid.remove(attachment.guid)
-                                    removeAttachmentLocked(attachment)
+                                    removeAttachmentLocked(attachment, removedAttachments)
                                 }
                             continue
                         }
+                        if (record.recordId in suppressedRecords ||
+                            record.recordId in deletedAttachmentRecordsThisRun
+                        ) continue
                         applyAttachmentLocked(record.recordId, cloud, attachmentsByGuid, messagesByGuid)
                     }
+                }
+                removedAttachments.forEach { attachmentStore?.deleteLocalFiles(it) }
+                if (acknowledgedLocalTombstones.isNotEmpty()) {
+                    syncStore.acknowledgeSuppressedAttachmentTombstones(acknowledgedLocalTombstones)
                 }
             }
         }
         flushDuplicateAttachmentDeletes()
     }
 
-    private fun removeAttachmentLocked(attachment: Attachment) {
-        attachmentStore?.deleteLocalFiles(attachment)
+    private fun removeAttachmentLocked(attachment: Attachment, removedAttachments: MutableList<Attachment>) {
         attachmentBox.remove(attachment)
+        removedAttachments += attachment
     }
 
     private fun applyAttachmentLocked(

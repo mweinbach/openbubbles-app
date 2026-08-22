@@ -28,7 +28,143 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.util.Date
+import java.util.WeakHashMap
+
+/** CloudKit zone identities; local-only operations never publish this value. */
+data class CloudDeletionRecordIds(
+    val chatRecordIds: Set<String> = emptySet(),
+    val messageRecordIds: Set<String> = emptySet(),
+    val attachmentRecordIds: Set<String> = emptySet(),
+) {
+    val isEmpty: Boolean
+        get() = chatRecordIds.isEmpty() && messageRecordIds.isEmpty() && attachmentRecordIds.isEmpty()
+}
+
+/** Platform-owned durable queue for explicitly synchronized Apple deletions. */
+interface CloudDeletionSink {
+    fun enqueue(recordIds: CloudDeletionRecordIds)
+    fun restore(recordIds: CloudDeletionRecordIds)
+    fun suppressLocally(recordIds: CloudDeletionRecordIds)
+}
+
+/**
+ * Per-store ownership lets transient repository instances share the Android
+ * attachment root and account-fenced durable CloudKit deletion queue without
+ * moving Android types into :core or changing the ObjectBox model.
+ */
+object StoreDeletionCoordinators {
+    private data class Registration(
+        val attachmentsRoot: File,
+        val privateRoots: List<File>,
+        val cloudDeletionSink: CloudDeletionSink,
+    )
+
+    private val lock = Any()
+    private val registrations = WeakHashMap<BoxStore, Registration>()
+    private val ownedChatDirectories = setOf("chat_backgrounds", "chat_avatars", "group_icons")
+
+    fun register(
+        store: BoxStore,
+        attachmentsRoot: File,
+        privateRoots: List<File> = emptyList(),
+        cloudDeletionSink: CloudDeletionSink,
+    ) {
+        synchronized(lock) {
+            registrations[store] = Registration(
+                attachmentsRoot = attachmentsRoot,
+                privateRoots = (privateRoots + attachmentsRoot).distinct(),
+                cloudDeletionSink = cloudDeletionSink,
+            )
+        }
+    }
+
+    fun unregister(store: BoxStore) {
+        synchronized(lock) { registrations.remove(store) }
+    }
+
+    internal fun enqueue(
+        store: BoxStore,
+        recordIds: CloudDeletionRecordIds,
+        requireRegistration: Boolean,
+    ) {
+        if (recordIds.isEmpty) return
+        val registration = synchronized(lock) { registrations[store] }
+        if (registration == null) {
+            check(!requireRegistration) { "CloudKit deletion queue is unavailable for this account" }
+            return
+        }
+        registration.cloudDeletionSink.enqueue(recordIds)
+    }
+
+    internal fun restore(store: BoxStore, recordIds: CloudDeletionRecordIds) {
+        if (recordIds.isEmpty) return
+        synchronized(lock) { registrations[store] }?.cloudDeletionSink?.restore(recordIds)
+    }
+
+    internal fun suppressLocally(store: BoxStore, recordIds: CloudDeletionRecordIds) {
+        if (recordIds.isEmpty) return
+        synchronized(lock) { registrations[store] }?.cloudDeletionSink?.suppressLocally(recordIds)
+    }
+
+    internal fun deleteAttachmentFiles(
+        store: BoxStore,
+        attachments: Collection<Attachment>,
+        fallback: AttachmentStore? = null,
+    ) {
+        if (attachments.isEmpty()) return
+        val registration = synchronized(lock) { registrations[store] }
+        val disk = fallback ?: registration?.let { AttachmentStore(store, it.attachmentsRoot) } ?: return
+        attachments.distinctBy { it.guid }.forEach(disk::deleteLocalFiles)
+    }
+
+    internal fun deleteChatFiles(store: BoxStore, chats: Collection<Chat>) {
+        if (chats.isEmpty()) return
+        val registration = synchronized(lock) { registrations[store] } ?: return
+        val roots = registration.privateRoots.flatMap { root ->
+            ownedChatDirectories.map { directory -> root.toPath().resolve(directory).normalize().toAbsolutePath() }
+        }
+        chats.flatMap { chat ->
+            listOfNotNull(chat.customAvatarPath, chat.customBackgroundPath, chat.transcriptPosterPath)
+        }.distinct().forEach { storedPath ->
+            val candidate = File(storedPath).toPath().normalize().toAbsolutePath()
+            val root = roots.firstOrNull { candidate.parent == it } ?: return@forEach
+            if (Files.isSymbolicLink(root)) return@forEach
+            if (Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) Files.delete(candidate)
+        }
+    }
+}
+
+internal fun cloudDeletionRecordIds(
+    chats: Collection<Chat> = emptyList(),
+    messages: Collection<Message> = emptyList(),
+    attachments: Collection<Attachment> = emptyList(),
+    includeChats: Boolean = false,
+): CloudDeletionRecordIds {
+    val appleChats = chats.filter { it.isRpSms != true }
+    val appleChatIds = appleChats.mapTo(HashSet()) { it.id }
+    val appleMessages = messages.filter { message ->
+        val chat = message.chat.target
+        chat != null && chat.isRpSms != true &&
+            (appleChatIds.isEmpty() || chat.id in appleChatIds)
+    }
+    val appleMessageIds = appleMessages.mapTo(HashSet()) { it.id }
+    return CloudDeletionRecordIds(
+        chatRecordIds = if (includeChats) {
+            appleChats.mapNotNullTo(LinkedHashSet()) { it.ckRecordId?.takeIf(String::isNotBlank) }
+        } else {
+            emptySet()
+        },
+        messageRecordIds = appleMessages.mapNotNullTo(LinkedHashSet()) {
+            it.ckRecordId?.takeIf(String::isNotBlank)
+        },
+        attachmentRecordIds = attachments.mapNotNullTo(LinkedHashSet()) { attachment ->
+            attachment.ckRecordId?.takeIf { it.isNotBlank() && attachment.message.targetId in appleMessageIds }
+        },
+    )
+}
 
 /**
  * ObjectBox-backed repository for a chat's transcript.
@@ -158,6 +294,9 @@ class MessageRepo(
             .equal(Message_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
 
+    /** Stable numeric identity survives staging-guid promotion and process restart. */
+    fun messageById(messageId: Long): Message? = messageBox.get(messageId)
+
     fun bookmarked(chatId: Long, limit: Int = 0): List<MessageItem> {
         val chatIds = conversationChatIds(chatId)
         var condition: QueryCondition<Message> = Message_.chatId.equal(chatIds.first())
@@ -212,17 +351,42 @@ class MessageRepo(
     }
 
     fun deleteLocal(messageIds: Collection<Long>) {
+        deleteMessages(messageIds, synchronizeAppleDevices = false)
+    }
+
+    /** Explicitly remove synced Apple messages everywhere; carrier traffic stays local. */
+    fun deleteEverywhere(messageIds: Collection<Long>) {
+        deleteMessages(messageIds, synchronizeAppleDevices = true)
+    }
+
+    private fun deleteMessages(messageIds: Collection<Long>, synchronizeAppleDevices: Boolean) {
         if (messageIds.isEmpty()) return
         val attachmentBox = store.boxFor(Attachment::class.java)
         val affectedChats = linkedSetOf<Long>()
+        val removedAttachments = arrayListOf<Attachment>()
         store.runInTx {
-            messageBox.get(messageIds.toLongArray()).forEach { message ->
+            val selected = messageBox.get(messageIds.toLongArray())
+            selected.forEach { message -> removedAttachments += message.dbAttachments.toList() }
+            if (synchronizeAppleDevices) {
+                StoreDeletionCoordinators.enqueue(
+                    store = store,
+                    recordIds = cloudDeletionRecordIds(messages = selected, attachments = removedAttachments),
+                    requireRegistration = true,
+                )
+            } else {
+                StoreDeletionCoordinators.suppressLocally(
+                    store,
+                    cloudDeletionRecordIds(messages = selected, attachments = removedAttachments),
+                )
+            }
+            selected.forEach { message ->
                 affectedChats += message.chat.targetId
                 message.dbAttachments.toList().forEach(attachmentBox::remove)
                 messageBox.remove(message)
             }
             affectedChats.forEach(::refreshChatLatest)
         }
+        StoreDeletionCoordinators.deleteAttachmentFiles(store, removedAttachments, attachmentDisk)
     }
 
     fun cancelOutgoing(messageId: Long): Boolean {
@@ -245,7 +409,15 @@ class MessageRepo(
     fun restoreDeleted(messageIds: Collection<Long>) {
         if (messageIds.isEmpty()) return
         store.runInTx {
-            messageBox.get(messageIds.toLongArray()).forEach { message ->
+            val selected = messageBox.get(messageIds.toLongArray())
+            StoreDeletionCoordinators.restore(
+                store,
+                cloudDeletionRecordIds(
+                    messages = selected,
+                    attachments = selected.flatMap { it.dbAttachments.toList() },
+                ),
+            )
+            selected.forEach { message ->
                 message.dateDeleted = null
                 messageBox.put(message)
                 refreshChatLatest(message.chat.targetId)
@@ -267,6 +439,7 @@ class MessageRepo(
                     .and(Message_.associatedMessageGuid.isNull())
                     .and(Message_.dateDeleted.isNull()),
             )
+                .apply { link(Message_.chat).isNull(Chat_.dateDeleted) }
                 .orderDesc(Message_.dateCreated)
                 .orderDesc(Message_.id)
                 .build()
@@ -293,6 +466,7 @@ class MessageRepo(
                     .and(Message_.associatedMessageGuid.isNull())
                     .and(Message_.dateDeleted.isNull()),
             )
+                .apply { link(Message_.chat).isNull(Chat_.dateDeleted) }
                 .orderDesc(Message_.dateCreated)
                 .orderDesc(Message_.id)
                 .build()
@@ -403,6 +577,8 @@ class MessageRepo(
         attachments: List<OutgoingAttachmentStage>,
         sendingServiceId: String? = DEFAULT_SENDING_SERVICE_ID,
         subject: String? = null,
+        threadOriginatorGuid: String? = null,
+        threadOriginatorPart: String? = null,
     ): Message = withContext(Dispatchers.IO) {
         require(attachments.isNotEmpty()) { "attachment send requires at least one attachment" }
         val chat = chatBox.query()
@@ -420,6 +596,8 @@ class MessageRepo(
                 dateCreated = Date()
                 this.sendingServiceId = sendingServiceId
                 this.subject = subject
+                this.threadOriginatorGuid = threadOriginatorGuid
+                this.threadOriginatorPart = threadOriginatorPart
                 hasAttachments = true
             }
             HandleResolver.resolve(store, sender, "iMessage").let {
@@ -478,6 +656,34 @@ class MessageRepo(
         message
     }
 
+    /** Re-arm only a durable, failed self-send without changing its payload identity. */
+    fun retryOutgoing(messageId: Long): Message? = store.callInTx {
+        val message = messageBox.get(messageId) ?: return@callInTx null
+        if (!message.isFromMe ||
+            message.dateDeleted != null ||
+            message.chat.target?.dateDeleted != null ||
+            message.dateDelivered != null ||
+            message.dateRead != null ||
+            message.sendingServiceId != null ||
+            statusOf(message) != MessageStatus.FAILED
+        ) {
+            return@callInTx null
+        }
+        if (message.guid.startsWith("error")) {
+            val recoverableGuid = message.stagingGuid
+                ?.takeIf { it.isNotBlank() && !it.startsWith("error") }
+                ?: return@callInTx null
+            val conflicting = messageByGuid(recoverableGuid)
+            if (conflicting != null && conflicting.id != message.id) return@callInTx null
+            message.guid = recoverableGuid
+        }
+        message.error = null
+        message.errorMessage = null
+        message.sendingServiceId = DEFAULT_SENDING_SERVICE_ID
+        messageBox.put(message)
+        message
+    }
+
     /** Delivery status for a bubble, mirroring `Message.indicatorToShow`. */
     fun statusOf(message: Message): MessageStatus {
         if (
@@ -488,7 +694,10 @@ class MessageRepo(
             return MessageStatus.FAILED
         }
         if (!message.isFromMe) return MessageStatus.SENT
-        if (message.sendingServiceId != null || message.guid.startsWith("temp")) return MessageStatus.SENDING
+        if (message.sendingServiceId != null) return MessageStatus.SENDING
+        if (message.guid.startsWith("temp") && message.chat.target?.isRpSms != true) {
+            return MessageStatus.SENDING
+        }
         if (message.dateRead != null) return MessageStatus.READ
         if (message.dateDelivered != null) return MessageStatus.DELIVERED
         return MessageStatus.SENT

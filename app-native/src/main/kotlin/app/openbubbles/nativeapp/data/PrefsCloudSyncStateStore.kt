@@ -5,6 +5,9 @@ import android.content.Context
 import android.util.Base64
 import androidx.core.content.edit
 import app.openbubbles.core.attachment.AttachmentStore
+import app.openbubbles.core.repo.CloudDeletionRecordIds
+import app.openbubbles.core.repo.CloudDeletionSink
+import app.openbubbles.core.repo.StoreDeletionCoordinators
 import app.openbubbles.core.sync.CloudSyncManager
 import app.openbubbles.core.sync.CloudSyncStateStore
 import app.openbubbles.core.sync.SyncMode
@@ -44,10 +47,40 @@ private const val KEY_ATTACHMENT_CURSOR = "attachmentSyncToken"
 private const val KEY_CHAT_DELETES = "chatDeletionIds"
 private const val KEY_MESSAGE_DELETES = "messageDeletionIds"
 private const val KEY_ATTACHMENT_DELETES = "attachmentDeletionIds"
+private const val KEY_LOCAL_MESSAGE_DELETES = "localOnlyMessageDeletionIds"
+private const val KEY_LOCAL_ATTACHMENT_DELETES = "localOnlyAttachmentDeletionIds"
 private const val KEY_HISTORY_SYNC_COMPLETE = "historySyncComplete"
 private const val KEY_WALLPAPER_BACKFILL = "wallpaperBackfillV1"
 private const val KEY_AUTO_SYNC_ATTEMPT = "autoSyncAttemptMs"
 private const val KEY_ACCOUNT_OWNER = "messagingAccountOwner"
+internal const val MAX_LOCAL_ONLY_DELETION_IDS = 2_048
+private val deletionStateLock = Any()
+
+private enum class CloudDeletionMutation {
+    ENQUEUE_REMOTE,
+    RESTORE,
+    SUPPRESS_LOCAL,
+}
+
+internal fun boundedLocalDeletionIds(
+    existing: Collection<String>,
+    added: Collection<String>,
+    limit: Int = MAX_LOCAL_ONLY_DELETION_IDS,
+): Set<String> {
+    require(limit > 0) { "local deletion capacity must be positive" }
+    val retained = LinkedHashSet<String>()
+    existing.filter(String::isNotBlank).forEach(retained::add)
+    added.filter(String::isNotBlank).forEach { id ->
+        retained.remove(id)
+        retained += id
+    }
+    while (retained.size > limit) {
+        val oldest = retained.iterator()
+        oldest.next()
+        oldest.remove()
+    }
+    return retained
+}
 
 internal enum class MessagingAccountTransition {
     INITIAL,
@@ -137,8 +170,14 @@ object CloudSyncWiring {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
+        val localMessageDeletes = prefs.getStringSet(KEY_LOCAL_MESSAGE_DELETES, emptySet()).orEmpty().toSet()
+        val localAttachmentDeletes = prefs.getStringSet(KEY_LOCAL_ATTACHMENT_DELETES, emptySet()).orEmpty().toSet()
         val editor = prefs.edit().clear()
-        if (!owner.isNullOrBlank()) editor.putString(KEY_ACCOUNT_OWNER, owner)
+        if (!owner.isNullOrBlank()) {
+            editor.putString(KEY_ACCOUNT_OWNER, owner)
+            editor.putStringSet(KEY_LOCAL_MESSAGE_DELETES, localMessageDeletes)
+            editor.putStringSet(KEY_LOCAL_ATTACHMENT_DELETES, localAttachmentDeletes)
+        }
         check(editor.commit()) { "failed to clear account-bound CloudKit history state" }
         InitialHistoryDownload.abandon(app)
         InitialHistoryDownload.setPostSignInOnboardingActive(app, false)
@@ -147,9 +186,29 @@ object CloudSyncWiring {
     fun onStateInstalled(context: Context, state: NativePushState, autoSync: Boolean = true) {
         val store = CoreGraph.store ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        check(!prefs.getString(KEY_ACCOUNT_OWNER, null).isNullOrBlank()) {
+        val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
+        check(!owner.isNullOrBlank()) {
             "cannot start CloudKit history without an account owner"
         }
+        val documents = File(context.dataDir, "app_flutter")
+        StoreDeletionCoordinators.register(
+            store = store,
+            attachmentsRoot = documents,
+            privateRoots = listOf(context.filesDir),
+            cloudDeletionSink = object : CloudDeletionSink {
+                override fun enqueue(recordIds: CloudDeletionRecordIds) {
+                    updateDeletionState(prefs, owner, recordIds, CloudDeletionMutation.ENQUEUE_REMOTE)
+                }
+
+                override fun restore(recordIds: CloudDeletionRecordIds) {
+                    updateDeletionState(prefs, owner, recordIds, CloudDeletionMutation.RESTORE)
+                }
+
+                override fun suppressLocally(recordIds: CloudDeletionRecordIds) {
+                    updateDeletionState(prefs, owner, recordIds, CloudDeletionMutation.SUPPRESS_LOCAL)
+                }
+            },
+        )
         val stateStore = PrefsCloudSyncStateStore(prefs)
         val limitPreferences = HistorySyncPreferences(context.applicationContext)
         val port = HistoryLimitedCloudSyncPort(
@@ -163,7 +222,7 @@ object CloudSyncWiring {
                 store,
                 port,
                 stateStore,
-                AttachmentStore(store, File(context.dataDir, "app_flutter")),
+                AttachmentStore(store, documents),
                 transcriptBackgroundStore,
             ),
         )
@@ -234,8 +293,14 @@ object CloudSyncWiring {
         cancelHistorySync()
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val owner = prefs.getString(KEY_ACCOUNT_OWNER, null)
+        val localMessageDeletes = prefs.getStringSet(KEY_LOCAL_MESSAGE_DELETES, emptySet()).orEmpty().toSet()
+        val localAttachmentDeletes = prefs.getStringSet(KEY_LOCAL_ATTACHMENT_DELETES, emptySet()).orEmpty().toSet()
         val editor = prefs.edit().clear()
-        if (!owner.isNullOrBlank()) editor.putString(KEY_ACCOUNT_OWNER, owner)
+        if (!owner.isNullOrBlank()) {
+            editor.putString(KEY_ACCOUNT_OWNER, owner)
+            editor.putStringSet(KEY_LOCAL_MESSAGE_DELETES, localMessageDeletes)
+            editor.putStringSet(KEY_LOCAL_ATTACHMENT_DELETES, localAttachmentDeletes)
+        }
         val cleared = editor.commit()
         val state = PushStateHolder.state ?: return cleared
         onStateInstalled(context.applicationContext, state, autoSync = false)
@@ -289,11 +354,71 @@ object CloudSyncWiring {
     @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     fun queueChatDelete(context: Context, recordId: String) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val pending = prefs.getStringSet(KEY_CHAT_DELETES, emptySet()).orEmpty().toMutableSet()
-        pending += recordId
-        check(prefs.edit().putStringSet(KEY_CHAT_DELETES, pending).commit()) {
-            "failed to persist pending chat deletion"
+        val owner = checkNotNull(prefs.getString(KEY_ACCOUNT_OWNER, null)) {
+            "cannot queue CloudKit deletion without an account owner"
         }
+        updateDeletionState(
+            prefs,
+            owner,
+            CloudDeletionRecordIds(chatRecordIds = setOf(recordId)),
+            CloudDeletionMutation.ENQUEUE_REMOTE,
+        )
+    }
+
+    @SuppressLint("UseKtx") // Three queues and privacy tombstones commit atomically.
+    private fun updateDeletionState(
+        prefs: android.content.SharedPreferences,
+        expectedOwner: String,
+        recordIds: CloudDeletionRecordIds,
+        mutation: CloudDeletionMutation,
+    ) = synchronized(deletionStateLock) {
+        check(prefs.getString(KEY_ACCOUNT_OWNER, null) == expectedOwner) {
+            "CloudKit deletion belongs to an inactive Apple account"
+        }
+        val chats = prefs.getStringSet(KEY_CHAT_DELETES, emptySet()).orEmpty().toMutableSet()
+        val messages = prefs.getStringSet(KEY_MESSAGE_DELETES, emptySet()).orEmpty().toMutableSet()
+        val attachments = prefs.getStringSet(KEY_ATTACHMENT_DELETES, emptySet()).orEmpty().toMutableSet()
+        val localMessages = prefs.getStringSet(KEY_LOCAL_MESSAGE_DELETES, emptySet()).orEmpty().toMutableSet()
+        val localAttachments = prefs.getStringSet(KEY_LOCAL_ATTACHMENT_DELETES, emptySet()).orEmpty().toMutableSet()
+        when (mutation) {
+            CloudDeletionMutation.ENQUEUE_REMOTE -> {
+                chats += recordIds.chatRecordIds
+                messages += recordIds.messageRecordIds
+                attachments += recordIds.attachmentRecordIds
+                localMessages -= recordIds.messageRecordIds
+                localAttachments -= recordIds.attachmentRecordIds
+            }
+
+            CloudDeletionMutation.RESTORE -> {
+                chats -= recordIds.chatRecordIds
+                messages -= recordIds.messageRecordIds
+                attachments -= recordIds.attachmentRecordIds
+                localMessages -= recordIds.messageRecordIds
+                localAttachments -= recordIds.attachmentRecordIds
+            }
+
+            CloudDeletionMutation.SUPPRESS_LOCAL -> {
+                localMessages.clear()
+                localMessages += boundedLocalDeletionIds(
+                    prefs.getStringSet(KEY_LOCAL_MESSAGE_DELETES, emptySet()).orEmpty(),
+                    recordIds.messageRecordIds,
+                )
+                localAttachments.clear()
+                localAttachments += boundedLocalDeletionIds(
+                    prefs.getStringSet(KEY_LOCAL_ATTACHMENT_DELETES, emptySet()).orEmpty(),
+                    recordIds.attachmentRecordIds,
+                )
+            }
+        }
+        check(
+            prefs.edit()
+                .putStringSet(KEY_CHAT_DELETES, chats)
+                .putStringSet(KEY_MESSAGE_DELETES, messages)
+                .putStringSet(KEY_ATTACHMENT_DELETES, attachments)
+                .putStringSet(KEY_LOCAL_MESSAGE_DELETES, localMessages)
+                .putStringSet(KEY_LOCAL_ATTACHMENT_DELETES, localAttachments)
+                .commit(),
+        ) { "failed to persist account-owned CloudKit deletion state" }
     }
 
     private fun snapshot(prefs: android.content.SharedPreferences): CloudSyncBackupState {
@@ -305,6 +430,8 @@ object CloudSyncWiring {
             pendingChatDeletes = stateStore.pendingChatDeletes().sorted(),
             pendingMessageDeletes = stateStore.pendingMessageDeletes().sorted(),
             pendingAttachmentDeletes = stateStore.pendingAttachmentDeletes().sorted(),
+            localMessageDeletes = stateStore.suppressedMessageRecordIds().sorted(),
+            localAttachmentDeletes = stateStore.suppressedAttachmentRecordIds().sorted(),
             historySyncComplete = prefs.getBoolean(KEY_HISTORY_SYNC_COMPLETE, false),
         )
     }
@@ -323,6 +450,8 @@ object CloudSyncWiring {
         editor.putStringSet(KEY_CHAT_DELETES, state.pendingChatDeletes.toSet())
         editor.putStringSet(KEY_MESSAGE_DELETES, state.pendingMessageDeletes.toSet())
         editor.putStringSet(KEY_ATTACHMENT_DELETES, state.pendingAttachmentDeletes.toSet())
+        editor.putStringSet(KEY_LOCAL_MESSAGE_DELETES, state.localMessageDeletes.toSet())
+        editor.putStringSet(KEY_LOCAL_ATTACHMENT_DELETES, state.localAttachmentDeletes.toSet())
         editor.putBoolean(KEY_HISTORY_SYNC_COMPLETE, state.historySyncComplete)
         return editor.commit()
     }
@@ -451,6 +580,35 @@ private class PrefsCloudSyncStateStore(
         persistDeletes(KEY_ATTACHMENT_DELETES, ids)
     }
 
+    override fun suppressedMessageRecordIds(): List<String> =
+        prefs.getStringSet(KEY_LOCAL_MESSAGE_DELETES, emptySet())?.toList().orEmpty()
+
+    override fun suppressedAttachmentRecordIds(): List<String> =
+        prefs.getStringSet(KEY_LOCAL_ATTACHMENT_DELETES, emptySet())?.toList().orEmpty()
+
+    override fun saveSuppressedMessageRecordIds(ids: List<String>) {
+        persistDeletes(KEY_LOCAL_MESSAGE_DELETES, boundedLocalDeletionIds(emptySet(), ids).toList())
+    }
+
+    override fun saveSuppressedAttachmentRecordIds(ids: List<String>) {
+        persistDeletes(KEY_LOCAL_ATTACHMENT_DELETES, boundedLocalDeletionIds(emptySet(), ids).toList())
+    }
+
+    override fun acknowledgePendingChatDeletes(ids: Collection<String>) =
+        acknowledgeDeletes(KEY_CHAT_DELETES, ids)
+
+    override fun acknowledgePendingMessageDeletes(ids: Collection<String>) =
+        acknowledgeDeletes(KEY_MESSAGE_DELETES, ids)
+
+    override fun acknowledgePendingAttachmentDeletes(ids: Collection<String>) =
+        acknowledgeDeletes(KEY_ATTACHMENT_DELETES, ids)
+
+    override fun acknowledgeSuppressedMessageTombstones(ids: Collection<String>) =
+        acknowledgeDeletes(KEY_LOCAL_MESSAGE_DELETES, ids)
+
+    override fun acknowledgeSuppressedAttachmentTombstones(ids: Collection<String>) =
+        acknowledgeDeletes(KEY_LOCAL_ATTACHMENT_DELETES, ids)
+
     override fun wallpaperBackfillDone(): Boolean =
         prefs.getBoolean(KEY_WALLPAPER_BACKFILL, false)
 
@@ -469,9 +627,18 @@ private class PrefsCloudSyncStateStore(
     }
 
     @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
-    private fun persistDeletes(key: String, ids: List<String>) {
+    private fun persistDeletes(key: String, ids: List<String>) = synchronized(deletionStateLock) {
         check(prefs.edit().putStringSet(key, ids.toSet()).commit()) {
-            "failed to persist pending CloudKit deletions"
+            "failed to persist account-owned CloudKit deletion state"
+        }
+    }
+
+    @SuppressLint("UseKtx") // Read, remove, and durable commit share one account-state lock.
+    private fun acknowledgeDeletes(key: String, ids: Collection<String>) = synchronized(deletionStateLock) {
+        val remaining = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        remaining.removeAll(ids.toSet())
+        check(prefs.edit().putStringSet(key, remaining).commit()) {
+            "failed to acknowledge account-owned CloudKit deletion state"
         }
     }
 
@@ -489,12 +656,15 @@ internal data class CloudSyncBackupState(
     val pendingChatDeletes: List<String> = emptyList(),
     val pendingMessageDeletes: List<String> = emptyList(),
     val pendingAttachmentDeletes: List<String> = emptyList(),
+    val localMessageDeletes: List<String> = emptyList(),
+    val localAttachmentDeletes: List<String> = emptyList(),
     val historySyncComplete: Boolean = false,
 )
 
 internal object CloudSyncBackupCodec {
     private const val MAGIC = 0x4f425343
-    private const val VERSION = 1
+    private const val LEGACY_VERSION = 1
+    private const val VERSION = 2
     private const val MAX_STATE_BYTES = 512 * 1024
     private const val MAX_CURSOR_BYTES = 256 * 1024
     private const val MAX_DELETE_IDS = 100_000
@@ -511,6 +681,8 @@ internal object CloudSyncBackupCodec {
             output.writeStrings(state.pendingMessageDeletes)
             output.writeStrings(state.pendingAttachmentDeletes)
             output.writeBoolean(state.historySyncComplete)
+            output.writeStrings(state.localMessageDeletes)
+            output.writeStrings(state.localAttachmentDeletes)
         }
         return bytes.toByteArray().also {
             require(it.size <= MAX_STATE_BYTES) { "history sync state is too large to back up" }
@@ -522,7 +694,10 @@ internal object CloudSyncBackupCodec {
         return try {
             DataInputStream(ByteArrayInputStream(bytes)).use { input ->
                 require(input.readInt() == MAGIC) { "invalid history sync backup state" }
-                require(input.readInt() == VERSION) { "unsupported history sync backup state version" }
+                val version = input.readInt()
+                require(version == LEGACY_VERSION || version == VERSION) {
+                    "unsupported history sync backup state version"
+                }
                 val state = CloudSyncBackupState(
                     chatCursor = input.readNullableBytes(),
                     messageCursor = input.readNullableBytes(),
@@ -531,6 +706,8 @@ internal object CloudSyncBackupCodec {
                     pendingMessageDeletes = input.readStrings(),
                     pendingAttachmentDeletes = input.readStrings(),
                     historySyncComplete = input.readBoolean(),
+                    localMessageDeletes = if (version >= VERSION) input.readStrings() else emptyList(),
+                    localAttachmentDeletes = if (version >= VERSION) input.readStrings() else emptyList(),
                 )
                 require(input.read() == -1) { "trailing history sync backup data" }
                 state

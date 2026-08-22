@@ -238,4 +238,36 @@ class AttachmentStoreTest {
         assertTrue(!thumb.exists())
         assertTrue(!partial.exists())
     }
+
+    @Test
+    fun `attachment deletion removes a symlinked guid without following its target`() {
+        val outside = File(testDir, "outside-attachment-root").apply { mkdirs() }
+        val protected = File(outside, "private-export.jpg").apply { writeText("keep") }
+        val att = attachment("symlinked-guid", "private-export.jpg")
+        disk.attachmentsDir.mkdirs()
+        java.nio.file.Files.createSymbolicLink(disk.directoryFor(att.guid).toPath(), outside.toPath())
+
+        disk.deleteLocalFiles(att)
+
+        assertEquals("keep", protected.readText())
+        assertTrue(!java.nio.file.Files.exists(disk.directoryFor(att.guid).toPath()))
+    }
+
+    @Test
+    fun `attachment deletion refuses a symbolic-link attachment root`() {
+        val outside = File(testDir, "outside-root").apply { mkdirs() }
+        val protected = File(outside, "evil-guid/private-export.jpg").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("keep")
+        }
+        rootDir.mkdirs()
+        java.nio.file.Files.createSymbolicLink(disk.attachmentsDir.toPath(), outside.toPath())
+        val att = attachment("evil-guid", "private-export.jpg")
+
+        assertFailsWith<IOException> {
+            disk.deleteLocalFiles(att)
+        }
+
+        assertEquals("keep", protected.readText())
+    }
 }
