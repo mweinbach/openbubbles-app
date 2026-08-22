@@ -68,7 +68,7 @@ fun OnboardingKeychainPasscodeScreenshot() {
             devices = devices,
             selectedDevice = devices.first(),
             onSelectDevice = {},
-            passcode = "1234",
+            passcode = "123456",
             onPasscodeChange = {},
             joining = false,
             error = null,
