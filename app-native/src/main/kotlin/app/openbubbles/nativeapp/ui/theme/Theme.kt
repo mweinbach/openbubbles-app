@@ -5,6 +5,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -16,7 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openbubbles.nativeapp.data.AppearancePrefs
 
@@ -26,75 +30,155 @@ import app.openbubbles.nativeapp.data.AppearancePrefs
  * so screens can build proper hierarchy without inventing colors.
  */
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF0061D5),
+    primary = Color(0xFF0069E8),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD6E3FF),
-    onPrimaryContainer = Color(0xFF0B2F60),
-    secondary = Color(0xFF555F71),
+    primaryContainer = Color(0xFFDBE8FF),
+    onPrimaryContainer = Color(0xFF12345E),
+    secondary = Color(0xFF525F73),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFDAE2F9),
-    onSecondaryContainer = Color(0xFF121C2B),
-    tertiary = Color(0xFF006874),
+    secondaryContainer = Color(0xFFE5EAF3),
+    onSecondaryContainer = Color(0xFF202A3B),
+    tertiary = Color(0xFF39656E),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFF9CF1FF),
-    onTertiaryContainer = Color(0xFF001F24),
+    tertiaryContainer = Color(0xFFD2EDF2),
+    onTertiaryContainer = Color(0xFF123D46),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFF9F9FD),
-    onBackground = Color(0xFF191C20),
-    surface = Color(0xFFF9F9FD),
-    onSurface = Color(0xFF191C20),
-    surfaceVariant = Color(0xFFE0E2EC),
-    onSurfaceVariant = Color(0xFF44474E),
+    background = Color(0xFFF8FAFE),
+    onBackground = Color(0xFF1A1D22),
+    surface = Color(0xFFF8FAFE),
+    onSurface = Color(0xFF1A1D22),
+    surfaceVariant = Color(0xFFE4E8F0),
+    onSurfaceVariant = Color(0xFF4A505C),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF3F3F9),
-    surfaceContainer = Color(0xFFEDEDF4),
-    surfaceContainerHigh = Color(0xFFE7E8EE),
-    surfaceContainerHighest = Color(0xFFE1E2E9),
-    outline = Color(0xFF74757F),
-    outlineVariant = Color(0xFFC4C6D0),
-    inverseSurface = Color(0xFF2E3036),
-    inverseOnSurface = Color(0xFFF1F0F7),
-    inversePrimary = Color(0xFFA8C8FF),
-    surfaceTint = Color(0xFF0061D5),
+    surfaceContainerLow = Color(0xFFF2F5FA),
+    surfaceContainer = Color(0xFFECF0F6),
+    surfaceContainerHigh = Color(0xFFE6EAF1),
+    surfaceContainerHighest = Color(0xFFE0E5ED),
+    outline = Color(0xFF737985),
+    outlineVariant = Color(0xFFC4CAD5),
+    inverseSurface = Color(0xFF2E3239),
+    inverseOnSurface = Color(0xFFF0F2F7),
+    inversePrimary = Color(0xFFA9C9FF),
+    surfaceTint = Color(0xFF0069E8),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFA8C8FF),
-    onPrimary = Color(0xFF00315E),
-    primaryContainer = Color(0xFF0B4A91),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFFBFC6DC),
-    onSecondary = Color(0xFF283041),
-    secondaryContainer = Color(0xFF3E4759),
-    onSecondaryContainer = Color(0xFFDAE2F9),
-    tertiary = Color(0xFF80D4E4),
-    onTertiary = Color(0xFF00363D),
-    tertiaryContainer = Color(0xFF004F58),
-    onTertiaryContainer = Color(0xFF9CF1FF),
+    primary = Color(0xFFA9C9FF),
+    onPrimary = Color(0xFF062F60),
+    primaryContainer = Color(0xFF234A79),
+    onPrimaryContainer = Color(0xFFDCE8FF),
+    secondary = Color(0xFFC0C8D8),
+    onSecondary = Color(0xFF263140),
+    secondaryContainer = Color(0xFF343B47),
+    onSecondaryContainer = Color(0xFFE0E5EF),
+    tertiary = Color(0xFFA7CDD3),
+    onTertiary = Color(0xFF17363D),
+    tertiaryContainer = Color(0xFF23464D),
+    onTertiaryContainer = Color(0xFFC9ECF1),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
     background = Color(0xFF111318),
-    onBackground = Color(0xFFE2E2E9),
+    onBackground = Color(0xFFE2E5EA),
     surface = Color(0xFF111318),
-    onSurface = Color(0xFFE2E2E9),
-    surfaceVariant = Color(0xFF44474E),
-    onSurfaceVariant = Color(0xFFC4C6D0),
-    surfaceContainerLowest = Color(0xFF0C0E13),
-    surfaceContainerLow = Color(0xFF191C21),
-    surfaceContainer = Color(0xFF1D2025),
-    surfaceContainerHigh = Color(0xFF282A2F),
-    surfaceContainerHighest = Color(0xFF33353A),
-    outline = Color(0xFF8E9099),
-    outlineVariant = Color(0xFF44474E),
-    inverseSurface = Color(0xFFE2E2E9),
-    inverseOnSurface = Color(0xFF2E3036),
-    inversePrimary = Color(0xFF0061D5),
-    surfaceTint = Color(0xFFA8C8FF),
+    onSurface = Color(0xFFE2E5EA),
+    surfaceVariant = Color(0xFF414750),
+    onSurfaceVariant = Color(0xFFC3C8D2),
+    surfaceContainerLowest = Color(0xFF0C0E12),
+    surfaceContainerLow = Color(0xFF171B21),
+    surfaceContainer = Color(0xFF1C2027),
+    surfaceContainerHigh = Color(0xFF272B32),
+    surfaceContainerHighest = Color(0xFF32363E),
+    outline = Color(0xFF8D949F),
+    outlineVariant = Color(0xFF414750),
+    inverseSurface = Color(0xFFE2E5EA),
+    inverseOnSurface = Color(0xFF2E3239),
+    inversePrimary = Color(0xFF0069E8),
+    surfaceTint = Color(0xFFA9C9FF),
+)
+
+/**
+ * Keep Material's complete, font-scale-aware type ramp while giving headings a
+ * quieter, more deliberate hierarchy. The font-family constructor propagates
+ * Android's system sans-serif to all 30 baseline and emphasized styles; copied
+ * tokens retain Material's accessible sizes and line heights.
+ */
+private val SystemTypography = Typography(fontFamily = FontFamily.SansSerif)
+
+private val AppTypography = Typography(
+    fontFamily = FontFamily.SansSerif,
+    displayLarge = SystemTypography.displayLarge.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.45).sp,
+    ),
+    displayMedium = SystemTypography.displayMedium.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.35).sp,
+    ),
+    displaySmall = SystemTypography.displaySmall.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.25).sp,
+    ),
+    headlineLarge = SystemTypography.headlineLarge.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.20).sp,
+    ),
+    headlineMedium = SystemTypography.headlineMedium.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.15).sp,
+    ),
+    headlineSmall = SystemTypography.headlineSmall.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.10).sp,
+    ),
+    titleLarge = SystemTypography.titleLarge.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.10).sp,
+    ),
+    titleMedium = SystemTypography.titleMedium.copy(
+        fontWeight = FontWeight.Medium,
+        letterSpacing = (-0.05).sp,
+    ),
+    titleSmall = SystemTypography.titleSmall.copy(fontWeight = FontWeight.Medium),
+    displayLargeEmphasized = SystemTypography.displayLargeEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.45).sp,
+    ),
+    displayMediumEmphasized = SystemTypography.displayMediumEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.35).sp,
+    ),
+    displaySmallEmphasized = SystemTypography.displaySmallEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.25).sp,
+    ),
+    headlineLargeEmphasized = SystemTypography.headlineLargeEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.20).sp,
+    ),
+    headlineMediumEmphasized = SystemTypography.headlineMediumEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.15).sp,
+    ),
+    headlineSmallEmphasized = SystemTypography.headlineSmallEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.10).sp,
+    ),
+    titleLargeEmphasized = SystemTypography.titleLargeEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.10).sp,
+    ),
+    titleMediumEmphasized = SystemTypography.titleMediumEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.05).sp,
+    ),
+    titleSmallEmphasized = SystemTypography.titleSmallEmphasized.copy(
+        fontWeight = FontWeight.SemiBold,
+    ),
 )
 
 /**
@@ -159,6 +243,7 @@ fun OpenBubblesTheme(
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
             shapes = AppShapes,
+            typography = AppTypography,
             motionScheme = appMotionScheme(),
             content = content,
         )
