@@ -1,6 +1,7 @@
 package app.openbubbles.nativeapp.data.photos
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
@@ -357,6 +358,7 @@ internal suspend fun stageCameraBackupImage(
 }
 
 /** Runtime permissions the backup switch asks for on this OS version. */
+@SuppressLint("InlinedApi") // sdkInt is injected for deterministic cross-version permission tests.
 internal fun photoBackupPermissions(sdkInt: Int): List<String> = buildList {
     addAll(photoBackupReadPermissions(sdkInt))
     if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -366,12 +368,14 @@ internal fun photoBackupPermissions(sdkInt: Int): List<String> = buildList {
 }
 
 /** Selected-photos grants cannot observe future camera captures or establish a complete baseline. */
+@SuppressLint("InlinedApi") // sdkInt guards the inlined permission while remaining unit-testable.
 internal fun photoBackupReadPermissions(sdkInt: Int): List<String> = when {
     sdkInt >= Build.VERSION_CODES.TIRAMISU -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
     else -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 }
 
 /** Full-library access is mandatory; Android 10+ also needs the unredacted-location grant. */
+@SuppressLint("InlinedApi") // The injected SDK guard keeps the permission off pre-Android-10 devices.
 internal fun hasRequiredPhotoBackupGrants(
     sdkInt: Int,
     isGranted: (String) -> Boolean,

@@ -596,7 +596,6 @@ internal class PhotosViewModel(
 
     override fun onCleared() {
         workSession.close()
-        super.onCleared()
     }
 
     private fun launchWork(block: suspend () -> Unit): Job? =

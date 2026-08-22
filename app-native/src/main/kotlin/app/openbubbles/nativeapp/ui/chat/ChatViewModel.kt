@@ -1215,7 +1215,6 @@ class ChatViewModel(
             .forEach(::deleteDraft)
         optimisticMessageOverlays.value = emptyMap()
         messageRepository.release(chatId)
-        super.onCleared()
     }
 
     private fun deleteDraft(file: File) {
