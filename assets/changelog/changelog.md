@@ -13,8 +13,8 @@ Below are the last few OpenGarden App release changelogs
 
 ### Fixes
 
-- iPhone HDR screenshots and other HEIC originals that a device cannot decode
-  now display their existing preview instead of opening to a black screen.
+- iPhone HDR screenshots and other HEIC originals stay visible using their
+  existing preview when needed, without misleading unsupported-quality alerts.
 - HEIC compatibility follows the device's actual image decoder, avoiding
   false unsupported warnings on newer Android devices.
 - HEIC originals can be saved to DCIM/iCloud or shared without incorrectly
