@@ -34,6 +34,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -376,6 +377,14 @@ class PhotosBackgroundSyncWorker(
             NativePushService.start(context)
             return Result.retry()
         }
+        val owner = currentCoroutineContext()[Job] ?: return Result.retry()
+        val session = PhotosWorkRegistry.register()
+        if (!session.adopt(owner)) {
+            session.close()
+            // Sign-out fenced this account between the state lookup and worker
+            // registration. Never rearm a stale account's upload schedule.
+            return Result.success()
+        }
         return try {
             val outcome = PhotosBackgroundSync.runPass(context, state)
             PhotosBackgroundSync.armFollowUp(context, backlog = outcome.backlog)
@@ -388,6 +397,11 @@ class PhotosBackgroundSyncWorker(
                 PhotosBackgroundSync.armFollowUp(context, backlog = false)
             }
             Result.retry()
+        } finally {
+            // close() cancels every tracked job, so release the currently
+            // executing WorkManager owner before disposing its session.
+            session.release(owner)
+            session.close()
         }
     }
 }

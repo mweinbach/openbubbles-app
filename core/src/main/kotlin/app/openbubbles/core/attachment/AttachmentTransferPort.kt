@@ -5,8 +5,12 @@ import app.openbubbles.db.Attachment_
 import app.openbubbles.db.Message_
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -15,16 +19,18 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
-/** Concurrent MMCS transfers; each one parks an IO thread in blocking FFI. */
+/** Bound simultaneous MMCS transfers independently of coroutine dispatcher capacity. */
 private const val MAX_CONCURRENT_TRANSFERS = 4
 
 /**
@@ -96,21 +102,81 @@ class AttachmentManager(
     private val attachmentBox = store.boxFor(Attachment::class.java)
 
     /** One live transfer per guid; late subscribers replay the latest state. */
-    private class InFlight {
+    private class InFlight(val generation: Long) {
         val states = MutableStateFlow<TransferState?>(null)
     }
 
     private val inFlightGuard = Mutex()
     private val inFlight = ConcurrentHashMap<String, InFlight>()
+    private val lifecycleLock = Any()
+    private val shutdownGuard = Mutex()
+    private val transferJobs = mutableSetOf<Job>()
+    private var generation = 0L
+    private var acceptingTransfers = true
+    private var cleanupInProgress = false
 
     /**
-     * The downloader occupies a thread for the entire network transfer (the
-     * Rust call is blocking), and enqueue sites fan out a chat's whole
-     * backlog at once. Without a cap that saturates the shared
-     * [Dispatchers.IO] pool and every other IO-bound path in the app queues
-     * behind attachment transfers.
+     * Enqueue sites fan out a chat's whole backlog at once. Bound network,
+     * decoding, and file pressure even though the UniFFI transfer now suspends
+     * instead of parking a dispatcher thread.
      */
     private val transferPermits = Semaphore(MAX_CONCURRENT_TRANSFERS)
+
+    /**
+     * Reopen this process-lifetime manager for a newly validated account.
+     * Sign-out leaves transfers blocked until the push owner explicitly calls
+     * this method; a retained screen cannot revive the previous account.
+     */
+    fun beginAccount() {
+        synchronized(lifecycleLock) {
+            check(!cleanupInProgress) { "attachment account cleanup is still running" }
+            if (!acceptingTransfers) {
+                generation += 1
+                acceptingTransfers = true
+            }
+        }
+    }
+
+    /**
+     * Fence new transfers, cancel every detached transfer owner, and wait for
+     * its native request, partial-file cleanup, and final publication to stop.
+     * The manager remains reusable through [beginAccount].
+     */
+    suspend fun cancelAndJoin() = shutdownGuard.withLock {
+        val jobs = synchronized(lifecycleLock) {
+            acceptingTransfers = false
+            cleanupInProgress = true
+            generation += 1
+            transferJobs.toList()
+        }
+        try {
+            jobs.forEach(Job::cancel)
+            jobs.joinAll()
+            inFlightGuard.withLock {
+                inFlight.values.forEach { entry ->
+                    entry.states.value = TransferState.Failed("Attachment transfer interrupted")
+                }
+                inFlight.clear()
+            }
+        } finally {
+            synchronized(lifecycleLock) { cleanupInProgress = false }
+        }
+    }
+
+    private fun currentGeneration(): Long? = synchronized(lifecycleLock) {
+        generation.takeIf { acceptingTransfers }
+    }
+
+    /** Serialize durable publication with generation invalidation. */
+    private inline fun publishIfCurrent(capturedGeneration: Long, publish: () -> Unit): Boolean =
+        synchronized(lifecycleLock) {
+            if (!acceptingTransfers || generation != capturedGeneration) {
+                false
+            } else {
+                publish()
+                true
+            }
+        }
 
     /**
      * Attachments of a chat that are not on disk yet and carry enough payload
@@ -133,6 +199,11 @@ class AttachmentManager(
      * re-subscribe) still observe completion.
      */
     fun download(attachment: Attachment, maxBytes: Long? = null): Flow<TransferState> = flow {
+        val requestedGeneration = currentGeneration()
+        if (requestedGeneration == null) {
+            emit(TransferState.Failed("Attachment transfers are unavailable for this account"))
+            return@flow
+        }
         val guid = attachment.guid
         if (guid == null) {
             emit(TransferState.Failed("Attachment has no guid"))
@@ -149,21 +220,55 @@ class AttachmentManager(
             .equal(Attachment_.guid, guid, QueryBuilder.StringOrder.CASE_SENSITIVE)
             .build().use { it.findFirst() }
         if (current != null && disk.existingFile(current) != null) {
-            runCatching { disk.deleteDownloadPartial(current) }
-            disk.markDownloaded(guid)
+            if (!publishIfCurrent(requestedGeneration) {
+                    runCatching { disk.deleteDownloadPartial(current) }
+                    disk.markDownloaded(guid)
+                }
+            ) {
+                emit(TransferState.Failed("Attachment account changed during download"))
+                return@flow
+            }
             emit(TransferState.Done)
             return@flow
         }
         if (current?.isDownloaded == true) {
-            disk.markNotDownloaded(guid)
+            if (!publishIfCurrent(requestedGeneration) { disk.markNotDownloaded(guid) }) {
+                emit(TransferState.Failed("Attachment account changed during download"))
+                return@flow
+            }
         }
 
         val entry = inFlightGuard.withLock {
-            inFlight.getOrPut(guid) {
-                InFlight().also { entry ->
-                    scope.launch { runTransfer(guid, entry, maxBytes) }
+            var createdJob: Job? = null
+            val tracked = synchronized(lifecycleLock) {
+                if (!acceptingTransfers || generation != requestedGeneration) {
+                    null
+                } else {
+                    inFlight.getOrPut(guid) {
+                        InFlight(requestedGeneration).also { transfer ->
+                            lateinit var job: Job
+                            job = scope.launch(start = CoroutineStart.LAZY) {
+                                runTransfer(guid, transfer, maxBytes)
+                            }
+                            transferJobs += job
+                            job.invokeOnCompletion { cause ->
+                                if (cause is CancellationException) {
+                                    transfer.states.value =
+                                        TransferState.Failed("Attachment transfer interrupted")
+                                }
+                                synchronized(lifecycleLock) { transferJobs.remove(job) }
+                            }
+                            createdJob = job
+                        }
+                    }
                 }
             }
+            createdJob?.start()
+            tracked
+        }
+        if (entry == null) {
+            emit(TransferState.Failed("Attachment account changed during download"))
+            return@flow
         }
         emitAll(
             entry.states
@@ -214,7 +319,6 @@ class AttachmentManager(
                 finish(guid, entry, TransferState.Failed(e.message ?: "invalid attachment path"))
                 return
             }
-            dest.parentFile?.mkdirs()
             val partial = try {
                 disk.partialPathFor(fresh)
             } catch (e: IOException) {
@@ -225,20 +329,40 @@ class AttachmentManager(
             // A process may have died after writing the sibling but before
             // promotion. It is never a completed payload and must not resume
             // implicitly across a new downloader invocation.
-            disk.deleteDownloadPartial(fresh)
+            if (!publishIfCurrent(entry.generation) {
+                    dest.parentFile?.mkdirs()
+                    disk.deleteDownloadPartial(fresh)
+                }
+            ) {
+                finish(guid, entry, TransferState.Failed("Attachment account changed during download"))
+                return
+            }
 
             val result = downloader.download(guid, partial.absolutePath, maxBytes) { done, total ->
                 // StateFlow assignment is thread-safe; the Rust callback may
-                // fire from any thread.
-                entry.states.value = TransferState.Progress(done, total)
+                // fire from any thread. Never revive an invalidated account.
+                publishIfCurrent(entry.generation) {
+                    entry.states.value = TransferState.Progress(done, total)
+                }
             }
 
             result.fold(
                 onSuccess = {
                     try {
-                        val completed = disk.promoteCompletedDownload(fresh, partial)
-                        disk.markDownloaded(guid, completed.length())
-                        finish(guid, entry, TransferState.Done)
+                        if (publishIfCurrent(entry.generation) {
+                                val completed = disk.promoteCompletedDownload(fresh, partial)
+                                disk.markDownloaded(guid, completed.length())
+                            }
+                        ) {
+                            finish(guid, entry, TransferState.Done)
+                        } else {
+                            partial.delete()
+                            finish(
+                                guid,
+                                entry,
+                                TransferState.Failed("Attachment account changed during download"),
+                            )
+                        }
                     } catch (cause: IOException) {
                         partial.delete()
                         finish(guid, entry, TransferState.Failed(cause.message ?: "download validation failed"))
@@ -251,6 +375,12 @@ class AttachmentManager(
                     finish(guid, entry, TransferState.Failed(cause.message ?: "download failed"))
                 },
             )
+        } catch (cancelled: CancellationException) {
+            ownedPartial?.delete()
+            withContext(NonCancellable) {
+                finish(guid, entry, TransferState.Failed("Attachment transfer interrupted"))
+            }
+            throw cancelled
         } catch (t: Throwable) {
             ownedPartial?.delete()
             finish(guid, entry, TransferState.Failed(t.message ?: "download failed"))

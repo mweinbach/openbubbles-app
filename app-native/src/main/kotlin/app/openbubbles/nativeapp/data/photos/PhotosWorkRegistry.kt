@@ -80,6 +80,28 @@ internal class PhotosWorkSession(
         }
     }
 
+    /**
+     * Adopt a job owned elsewhere, such as WorkManager's CoroutineWorker.
+     * Cancellation must reach that real worker; wrapping it in a detached job
+     * would let account cleanup finish while the underlying upload survives.
+     */
+    fun adopt(job: Job): Boolean = synchronized(lock) {
+        if (invalidated || !job.isActive) {
+            false
+        } else {
+            jobs += job
+            job.invokeOnCompletion {
+                synchronized(lock) { jobs.remove(job) }
+            }
+            true
+        }
+    }
+
+    /** Release an externally owned job before closing its temporary session. */
+    fun release(job: Job) {
+        synchronized(lock) { jobs.remove(job) }
+    }
+
     internal fun invalidate(): List<Job> {
         val snapshot = synchronized(lock) {
             invalidated = true

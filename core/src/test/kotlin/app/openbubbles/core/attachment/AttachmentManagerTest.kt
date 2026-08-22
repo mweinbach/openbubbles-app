@@ -8,16 +8,20 @@ import app.openbubbles.db.Message
 import app.openbubbles.db.MyObjectBox
 import io.objectbox.BoxStore
 import io.objectbox.query.QueryBuilder
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
@@ -25,6 +29,7 @@ import org.junit.Test
 import java.io.File
 import java.util.Date
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -235,6 +240,67 @@ class AttachmentManagerTest {
         assertTrue(second.any { it is TransferState.Progress })
         assertTrue(stored("att-3")!!.isDownloaded)
     }
+
+    @Test
+    fun `account cleanup cancels and joins detached attachment transfers before deleting partials`() =
+        runBlocking<Unit> {
+            val chat = seedChat("chat-cancel-account", "friend@icloud.com")
+            val attachment = seedAttachment(chat, "att-cancel-account", "photo.png")
+            val started = CompletableDeferred<Unit>()
+            val released = CompletableDeferred<Unit>()
+            val tracked = AttachmentManager(
+                store,
+                rootDir,
+                AttachmentDownloader { _, destination, _, _ ->
+                    File(destination).writeText("incomplete")
+                    started.complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable) {
+                            delay(20)
+                            released.complete(Unit)
+                        }
+                    }
+                },
+                scope,
+            )
+            val collected = async(start = CoroutineStart.UNDISPATCHED) {
+                tracked.download(attachment).toList()
+            }
+
+            withTimeout(5_000) { started.await() }
+            withTimeout(5_000) { tracked.cancelAndJoin() }
+
+            assertTrue(released.isCompleted, "cleanup must wait for the actual transfer owner")
+            assertTrue(withTimeout(5_000) { collected.await() }.last() is TransferState.Failed)
+            assertFalse(File(rootDir, "attachments/att-cancel-account/photo.png").exists())
+            assertFalse(
+                File(rootDir, "attachments/att-cancel-account/.photo.png.openbubbles-partial").exists(),
+            )
+            assertFalse(checkNotNull(stored("att-cancel-account")).isDownloaded)
+        }
+
+    @Test
+    fun `account cleanup blocks new transfers until the next validated account starts`() =
+        runBlocking<Unit> {
+            val chat = seedChat("chat-account-reopen", "friend@icloud.com")
+            val attachment = seedAttachment(chat, "att-account-reopen", "photo.png")
+
+            manager.cancelAndJoin()
+
+            val blocked = withTimeout(5_000) { manager.download(attachment).toList() }
+            assertTrue(blocked.single() is TransferState.Failed)
+            assertTrue(synchronized(fake.calls) { fake.calls.isEmpty() })
+            assertFalse(File(rootDir, "attachments/att-account-reopen").exists())
+
+            manager.beginAccount()
+
+            val resumed = withTimeout(5_000) { manager.download(attachment).toList() }
+            assertEquals(TransferState.Done, resumed.last())
+            assertTrue(checkNotNull(stored("att-account-reopen")).isDownloaded)
+            assertEquals(listOf("att-account-reopen"), synchronized(fake.calls) { fake.calls.toList() })
+        }
 
     @Test
     fun `failed transfer removes partial file and leaves attachment pending`() = runBlocking<Unit> {

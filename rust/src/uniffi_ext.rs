@@ -527,23 +527,73 @@ async fn send_msg_on(
     send_inst_on(&state, inst).await
 }
 
-/// Runs an async export's work without occupying a runtime worker: the
-/// future is driven to completion from a blocking-pool thread — the same
-/// execution profile the sync exports have (a parked thread polling via
-/// `block_on`), except the parked thread is Rust's, so the Kotlin caller
-/// suspends instead of blocking one of its Dispatchers.IO threads for the
-/// whole network transfer.
+/// Poll an async export inside the protocol runtime without detaching its work.
+///
+/// UniFFI polls exported futures from foreign threads. Entering `RUNTIME` for
+/// each individual poll supplies Tokio timers, sockets, and spawned protocol
+/// tasks without parking a worker or carrying an enter guard across an await.
+/// Crucially, the protocol future remains owned by the exported future: when
+/// Kotlin cancels and UniFFI frees it, the active request, file, and callback
+/// are dropped synchronously before account cleanup can continue.
 async fn drive_ffi<T, F>(task: F) -> Result<T, UError>
 where
     T: Send + 'static,
     F: std::future::Future<Output = Result<T, UError>> + Send + 'static,
 {
-    // Spawn on RUNTIME's own blocking pool (not the ambient context uniffi's
-    // async wrapper provides) so this never depends on who polls the export.
-    RUNTIME
-        .spawn_blocking(move || RUNTIME.block_on(task))
-        .await
-        .unwrap_or_else(|join| Err(UError::Failed { reason: format!("engine task panicked: {join}") }))
+    let mut task = Box::pin(task);
+    futures::future::poll_fn(move |context| {
+        let _runtime = RUNTIME.enter();
+        std::future::Future::poll(task.as_mut(), context)
+    })
+    .await
+}
+
+#[cfg(test)]
+mod ffi_execution_tests {
+    use super::{drive_ffi, UError};
+    use std::future::Future;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::task::{Context, Poll};
+    use std::time::Duration;
+
+    struct DropSignal(Arc<AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn dropping_export_immediately_drops_the_in_flight_protocol_future() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let signal = DropSignal(dropped.clone());
+        let mut exported = Box::pin(drive_ffi(async move {
+            let _owned_file_or_request = signal;
+            std::future::pending::<Result<(), UError>>().await
+        }));
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        assert!(matches!(exported.as_mut().poll(&mut context), Poll::Pending));
+        assert!(!dropped.load(Ordering::SeqCst));
+
+        drop(exported);
+
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn foreign_thread_can_poll_tokio_timers_inside_the_protocol_runtime() {
+        let completed = futures::executor::block_on(drive_ffi(async {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            Ok::<u8, UError>(7)
+        }))
+        .expect("protocol runtime should drive a Tokio timer");
+
+        assert_eq!(completed, 7);
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
