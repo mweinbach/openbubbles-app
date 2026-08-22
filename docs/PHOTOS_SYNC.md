@@ -82,10 +82,14 @@ The 2026-08-19 static audit established that:
 
 - `rustpush/src/photos.rs` opens the private `com.apple.photos.cloud` container as the native
   Photos client, probes `CheckIndexingState` in `PrimarySync`, and performs a metadata-only
-  `CPLAssetAndMasterByAddedDate` query.
+  `CPLAssetAndMasterByAssetDate` query, matching the index used by Apple's installed Photos
+  client. CloudKit's opaque continuation marker, not an inferred record rank, advances each
+  bounded page. The initial request includes the query and zone; continuation requests retain
+  the zone but omit the original query, as required by the Photos CloudKit endpoint.
 - Pages are capped at 100 photo pairs. Rust joins `CPLAsset` to `CPLMaster`, skips soft-deleted
-  records, and returns only a small summary. Raw records, asset values, download URLs, location,
-  captions, and encryption material stay behind the Rust boundary.
+  records, decrypts protected native capture dates, media types, and visibility flags with each
+  record's own Photos PCS key, and returns only a small summary. Raw records, asset values,
+  download URLs, location, captions, and encryption material stay behind the Rust boundary.
 - `photos_access_state()` and `list_photos_page(cursor, limit)` are async UniFFI exports with
   regenerated committed Kotlin bindings.
 - `core/photos/PhotosPort.kt` provides the fakeable port and a deduplicating pager. It has tests
@@ -103,7 +107,9 @@ The 2026-08-19 static audit established that:
   the FFI boundary, streams byte progress, flushes, and fsyncs the staging file.
 - `PhotoTransferCoordinator` creates deterministic app-owned preview paths, writes to `.part`,
   atomically promotes successful files, removes failures, coalesces same-asset requests, and
-  persists queued/running/succeeded/failed state for clean retries.
+  persists queued/running/succeeded/failed state for clean retries. Cancellation durably restores
+  the queued state even when the SQLite write suspends, so scrolled-away previews do not become
+  permanently stuck in `Running`.
 - Android now owns a separate WAL-enabled `openbubbles-photos.db`. Metadata plus its next cursor
   commit in one transaction; transfer rows include direction, resource kind, local path, progress,
   attempts, error, and timestamps. Interrupted `Running` rows recover to `Queued` at startup. The
@@ -237,9 +243,10 @@ call, no additional field, and no change to what the bounded listing requests.
 - `ui/photos/PhotosTimeline.kt` is pure: it filters (All / Favorites / Videos), drops hidden assets,
   orders by capture time falling back to added time, groups into day/month/year sections, decides the
   pinch density step, and formats the info sheet. `PhotosTimelineTest` is the oracle for all of it.
-- Grouping is client-side over the pages already loaded. The protocol still pages by Apple's
-  added-date index, so a section can grow as later pages arrive; the grid must not be described as a
-  complete date-ordered library until the incremental catalog of slice 3 exists.
+- Grouping is client-side over the pages already loaded. The protocol follows Apple's asset-date
+  index and its opaque continuation markers, so a section can still grow as later pages arrive;
+  the grid must not be described as a complete incremental library until the change catalog of
+  slice 3 exists.
 - Hidden assets are now excluded from the grid. The flag was already stored; showing them contradicted
   what it is for.
 - The viewer is a pager over the same timeline. Only the **settled** page is selected, which is what

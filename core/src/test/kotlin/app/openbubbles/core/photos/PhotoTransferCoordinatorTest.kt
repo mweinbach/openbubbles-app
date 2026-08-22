@@ -9,10 +9,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class PhotoTransferCoordinatorTest {
     @Test
@@ -96,11 +98,11 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
-    fun cancellingDownloadPublishesQueuedStateAndDeletesPartialFile() = runBlocking {
+    fun cancellingDownloadDurablyRequeuesWithSuspendingCatalogAndDeletesPartialFile() = runBlocking {
         val root = createTempDirectory("photo-preview-cancel").toFile()
         try {
             val started = CompletableDeferred<Unit>()
-            val catalog = FakeCatalog()
+            val catalog = FakeCatalog(suspendWrites = true)
             val port = object : PhotosPort {
                 override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
                 override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
@@ -127,6 +129,70 @@ class PhotoTransferCoordinatorTest {
             ))
             assertEquals(PhotoTransferState.Queued, persisted.state)
             assertEquals(PhotoTransferState.Queued, updates.last().state)
+            assertFalse(File(persisted.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cancellingDownloadWhileRunningStateIsPersistedDurablyRequeuesIt() = runBlocking {
+        val root = createTempDirectory("photo-preview-cancel-running-write").toFile()
+        try {
+            val runningWritePersisted = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog(
+                suspendWrites = true,
+                runningWritePersisted = runningWritePersisted,
+            )
+            val port = FakePort(jpegPayload())
+            val updates = mutableListOf<PhotoTransfer>()
+            val coordinator = PhotoTransferCoordinator(port, catalog, root)
+            val job = launch { coordinator.downloadPreview(photo(), updates::add) }
+            runningWritePersisted.await()
+
+            job.cancelAndJoin()
+
+            val persisted = checkNotNull(catalog.transfer(
+                PhotoTransferCoordinator.downloadId("master-1", PhotoResourceKind.Preview),
+            ))
+            assertEquals(PhotoTransferState.Queued, persisted.state)
+            assertEquals("Transfer interrupted", persisted.lastError)
+            assertEquals(PhotoTransferState.Queued, updates.last().state)
+            assertEquals(0, port.calls)
+            assertFalse(File(persisted.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cancellingDownloadDuringTerminalWriteStillPersistsItsCompletedFile() = runBlocking {
+        val root = createTempDirectory("photo-preview-cancel-terminal-write").toFile()
+        try {
+            val terminalWriteStarted = CompletableDeferred<Unit>()
+            val releaseTerminalWrite = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog(
+                suspendWrites = true,
+                terminalWriteStarted = terminalWriteStarted,
+                releaseTerminalWrite = releaseTerminalWrite,
+            )
+            val port = FakePort(jpegPayload())
+            val updates = mutableListOf<PhotoTransfer>()
+            val coordinator = PhotoTransferCoordinator(port, catalog, root)
+            val job = launch { coordinator.downloadPreview(photo(), updates::add) }
+            terminalWriteStarted.await()
+
+            job.cancel()
+            releaseTerminalWrite.complete(Unit)
+            job.join()
+
+            val persisted = checkNotNull(catalog.transfer(
+                PhotoTransferCoordinator.downloadId("master-1", PhotoResourceKind.Preview),
+            ))
+            assertEquals(PhotoTransferState.Succeeded, persisted.state)
+            assertEquals(PhotoTransferState.Succeeded, updates.last().state)
+            assertEquals(1, port.calls)
+            assertContentEquals(jpegPayload(), File(persisted.localPath).readBytes())
             assertFalse(File(persisted.localPath + ".part").exists())
         } finally {
             root.deleteRecursively()
@@ -454,6 +520,146 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
+    fun cancellingUploadDurablyRequeuesWithSuspendingCatalog() = runBlocking {
+        val root = createTempDirectory("photo-upload-cancel").toFile()
+        try {
+            val source = File(root, "upload.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val started = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog(suspendWrites = true)
+            val port = object : PhotosPort {
+                override suspend fun access() = PhotosAccess(PhotosAvailability.Ready, "ready")
+                override suspend fun page(cursor: String?, limit: Int) = PhotosPage(emptyList(), null)
+                override suspend fun uploadJpeg(
+                    originalPath: String,
+                    previewPath: String,
+                    filename: String,
+                    capturedAtMs: Long?,
+                    orientation: Int,
+                    fallbackTimeZone: PhotoTimeZone?,
+                ): Result<PhotoUploadReceipt> {
+                    started.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            val coordinator = PhotoTransferCoordinator(
+                port,
+                catalog,
+                File(root, "previews"),
+                File(root, "uploads"),
+            )
+            val queued = coordinator.planUpload(
+                source.path,
+                preview.path,
+                source.name,
+                "image/jpeg",
+                1,
+            )
+            val updates = mutableListOf<PhotoTransfer>()
+            val job = launch { coordinator.upload(queued, updates::add) }
+            started.await()
+
+            job.cancelAndJoin()
+
+            val persisted = checkNotNull(catalog.transfer(queued.id))
+            assertEquals(PhotoTransferState.Queued, persisted.state)
+            assertEquals("Transfer interrupted", persisted.lastError)
+            assertEquals(PhotoTransferState.Queued, updates.last().state)
+            assertTrue(File(persisted.localPath).isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cancellingUploadWhileRunningStateIsPersistedDurablyRequeuesIt() = runBlocking {
+        val root = createTempDirectory("photo-upload-cancel-running-write").toFile()
+        try {
+            val source = File(root, "upload.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val runningWritePersisted = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog(
+                suspendWrites = true,
+                runningWritePersisted = runningWritePersisted,
+            )
+            val port = FakePort(byteArrayOf())
+            val coordinator = PhotoTransferCoordinator(
+                port,
+                catalog,
+                File(root, "previews"),
+                File(root, "uploads"),
+            )
+            val queued = coordinator.planUpload(
+                source.path,
+                preview.path,
+                source.name,
+                "image/jpeg",
+                1,
+            )
+            val updates = mutableListOf<PhotoTransfer>()
+            val job = launch { coordinator.upload(queued, updates::add) }
+            runningWritePersisted.await()
+
+            job.cancelAndJoin()
+
+            val persisted = checkNotNull(catalog.transfer(queued.id))
+            assertEquals(PhotoTransferState.Queued, persisted.state)
+            assertEquals("Transfer interrupted", persisted.lastError)
+            assertEquals(PhotoTransferState.Queued, updates.last().state)
+            assertEquals(0, port.uploadCalls)
+            assertTrue(File(persisted.localPath).isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cancellingUploadDuringTerminalWriteStillPersistsItsRemoteReceipt() = runBlocking {
+        val root = createTempDirectory("photo-upload-cancel-terminal-write").toFile()
+        try {
+            val source = File(root, "upload.jpg").apply { writeBytes(jpegPayload()) }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val terminalWriteStarted = CompletableDeferred<Unit>()
+            val releaseTerminalWrite = CompletableDeferred<Unit>()
+            val catalog = FakeCatalog(
+                suspendWrites = true,
+                terminalWriteStarted = terminalWriteStarted,
+                releaseTerminalWrite = releaseTerminalWrite,
+            )
+            val port = FakePort(byteArrayOf())
+            val coordinator = PhotoTransferCoordinator(
+                port,
+                catalog,
+                File(root, "previews"),
+                File(root, "uploads"),
+            )
+            val queued = coordinator.planUpload(
+                source.path,
+                preview.path,
+                source.name,
+                "image/jpeg",
+                1,
+            )
+            val updates = mutableListOf<PhotoTransfer>()
+            val job = launch { coordinator.upload(queued, updates::add) }
+            terminalWriteStarted.await()
+
+            job.cancel()
+            releaseTerminalWrite.complete(Unit)
+            job.join()
+
+            val persisted = checkNotNull(catalog.transfer(queued.id))
+            assertEquals(PhotoTransferState.Succeeded, persisted.state)
+            assertEquals("master-uploaded", persisted.assetId)
+            assertEquals(PhotoTransferState.Succeeded, updates.last().state)
+            assertEquals(1, port.uploadCalls)
+            assertTrue(File(persisted.localPath).isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun uploadMetadataSidecarRoundTripsAndStillReadsVersionOne() = runBlocking {
         val root = createTempDirectory("photo-upload-sidecar").toFile()
         try {
@@ -606,7 +812,12 @@ class PhotoTransferCoordinatorTest {
         }
     }
 
-    private class FakeCatalog : PhotosCatalog {
+    private class FakeCatalog(
+        private val suspendWrites: Boolean = false,
+        private val runningWritePersisted: CompletableDeferred<Unit>? = null,
+        private val terminalWriteStarted: CompletableDeferred<Unit>? = null,
+        private val releaseTerminalWrite: CompletableDeferred<Unit>? = null,
+    ) : PhotosCatalog {
         private var metadata = CachedPhotos()
         private val transferRows = linkedMapOf<String, PhotoTransfer>()
 
@@ -618,7 +829,21 @@ class PhotoTransferCoordinatorTest {
         override suspend fun transfers() = transferRows.values.toList()
         override suspend fun transfer(id: String) = transferRows[id]
         override suspend fun putTransfer(transfer: PhotoTransfer) {
-            transferRows[transfer.id] = transfer
+            if (suspendWrites) {
+                withContext(Dispatchers.IO) {
+                    if (transfer.state == PhotoTransferState.Succeeded && terminalWriteStarted != null) {
+                        terminalWriteStarted.complete(Unit)
+                        checkNotNull(releaseTerminalWrite).await()
+                    }
+                    transferRows[transfer.id] = transfer
+                    if (transfer.state == PhotoTransferState.Running && runningWritePersisted != null) {
+                        runningWritePersisted.complete(Unit)
+                        awaitCancellation()
+                    }
+                }
+            } else {
+                transferRows[transfer.id] = transfer
+            }
         }
 
         override suspend fun recoverInterruptedTransfers() = Unit

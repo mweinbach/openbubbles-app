@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -203,10 +204,10 @@ class PhotoTransferCoordinator(
             state = PhotoTransferState.Running,
             attemptCount = base.attemptCount + 1,
         ))
-        catalog.putTransfer(current.get())
-        onProgress(current.get())
 
         try {
+            catalog.putTransfer(current.get())
+            onProgress(current.get())
             val result = download(partialFile.absolutePath) { done, total ->
                 val progress = current.updateAndGet { transfer ->
                     transfer.copy(
@@ -248,8 +249,10 @@ class PhotoTransferCoordinator(
                     updatedAtMs = nowMs(),
                 )
             }
-            catalog.putTransfer(current.get())
-            onProgress(current.get())
+            withContext(NonCancellable) {
+                catalog.putTransfer(current.get())
+                onProgress(current.get())
+            }
             throw cancelled
         } catch (error: Throwable) {
             partialFile.delete()
@@ -262,8 +265,10 @@ class PhotoTransferCoordinator(
             }
         }
         val completed = current.get()
-        catalog.putTransfer(completed)
-        onProgress(completed)
+        withContext(NonCancellable) {
+            catalog.putTransfer(completed)
+            onProgress(completed)
+        }
         return completed
     }
 
@@ -327,9 +332,9 @@ class PhotoTransferCoordinator(
             lastError = null,
             updatedAtMs = nowMs(),
         )
-        catalog.putTransfer(current)
-        onProgress(current)
         try {
+            catalog.putTransfer(current)
+            onProgress(current)
             val source = File(checkNotNull(transfer.localPath))
             val preview = uploadCompanion(source, ".preview.jpg")
             val metadata = readUploadMetadata(uploadCompanion(source, ".metadata"))
@@ -355,8 +360,10 @@ class PhotoTransferCoordinator(
                 lastError = "Transfer interrupted",
                 updatedAtMs = nowMs(),
             )
-            catalog.putTransfer(current)
-            onProgress(current)
+            withContext(NonCancellable) {
+                catalog.putTransfer(current)
+                onProgress(current)
+            }
             throw cancelled
         } catch (error: Throwable) {
             current = current.copy(
@@ -365,8 +372,10 @@ class PhotoTransferCoordinator(
                 updatedAtMs = nowMs(),
             )
         }
-        catalog.putTransfer(current)
-        onProgress(current)
+        withContext(NonCancellable) {
+            catalog.putTransfer(current)
+            onProgress(current)
+        }
         current
     }
 

@@ -48,6 +48,7 @@
 use crate::api::api::{self, PushMessage, SharedPushState};
 use crate::native::NativePushState;
 use crate::RUNTIME;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use prost::Message as ProstMessage;
 // All message-model types are re-exported at the rustpush crate root.
 use rustpush::{
@@ -975,6 +976,17 @@ fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
                 Some("CloudKit rejected request".to_string())
             }
         }
+        rustpush::PushError::StatusError(status) => {
+            Some(format!("CloudKit HTTP {}", status.as_u16()))
+        }
+        rustpush::PushError::IoError(error)
+            if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+            Some("CloudKit response was incomplete".to_string())
+        }
+        rustpush::PushError::IoError(error)
+            if error.kind() == std::io::ErrorKind::InvalidData => {
+            Some("CloudKit response was invalid".to_string())
+        }
         _ => None,
     };
     let reason = safe_detail
@@ -1048,27 +1060,49 @@ impl NativePushState {
                 reason: "Photos page size must be between 1 and 100".to_string(),
             });
         }
-        let offset = cursor
-            .as_deref()
-            .unwrap_or("0")
-            .parse::<u64>()
-            .map_err(|_| UError::InvalidArgument {
-                reason: "Photos cursor is invalid".to_string(),
-            })?;
-        if offset > i64::MAX as u64 {
-            return Err(UError::InvalidArgument {
-                reason: "Photos cursor is invalid".to_string(),
-            });
-        }
+        // Legacy numeric ranks restart the native asset-date query; current
+        // cursors wrap CloudKit's opaque continuation marker without changing
+        // the Kotlin-visible String contract or generated UniFFI bindings.
+        const CURSOR_PREFIX: &str = "ck1:";
+        const MAX_CURSOR_BYTES: usize = 64 * 1024;
+
+        let invalid_cursor = || UError::InvalidArgument {
+            reason: "Photos cursor is invalid".to_string(),
+        };
+        let continuation = match cursor.as_deref() {
+            None => None,
+            Some(cursor) if cursor.starts_with(CURSOR_PREFIX) => {
+                let encoded = &cursor[CURSOR_PREFIX.len()..];
+                if encoded.len() > MAX_CURSOR_BYTES.saturating_mul(4) / 3 + 4 {
+                    return Err(invalid_cursor());
+                }
+                let marker = URL_SAFE_NO_PAD
+                    .decode(encoded)
+                    .map_err(|_| invalid_cursor())?;
+                if marker.is_empty() || marker.len() > MAX_CURSOR_BYTES {
+                    return Err(invalid_cursor());
+                }
+                Some(marker)
+            }
+            Some(cursor) => {
+                let legacy_rank = cursor.parse::<u64>().map_err(|_| invalid_cursor())?;
+                if legacy_rank > i64::MAX as u64 {
+                    return Err(invalid_cursor());
+                }
+                None
+            }
+        };
         let client = native_photos(self)?;
         drive_ffi(async move {
             let page = client
-                .list_assets(offset, limit)
+                .list_assets(continuation, limit)
                 .await
                 .map_err(|error| photos_protocol_error("metadata query", error))?;
             Ok(UPhotosPage {
                 assets: page.assets.into_iter().map(u_photo_asset).collect(),
-                next_cursor: page.next_offset.map(|offset| offset.to_string()),
+                next_cursor: page
+                    .next_cursor
+                    .map(|marker| format!("{CURSOR_PREFIX}{}", URL_SAFE_NO_PAD.encode(marker))),
             })
         })
         .await

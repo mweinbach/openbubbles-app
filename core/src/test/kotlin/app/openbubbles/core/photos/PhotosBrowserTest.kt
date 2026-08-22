@@ -89,6 +89,28 @@ class PhotosBrowserTest {
     }
 
     @Test
+    fun `short cloudkit pages continue with opaque markers`() = runBlocking {
+        val first = photo("master-1")
+        val second = photo("master-2")
+        val marker = "ck1:AAECAwQFBgcICQ"
+        val port = FakePhotosPort(
+            pages = ArrayDeque(
+                listOf(
+                    PhotosPage(listOf(first), marker),
+                    PhotosPage(listOf(second), null),
+                ),
+            ),
+        )
+        val browser = PhotosBrowser(port, pageSize = 60)
+
+        val snapshot = browser.next(browser.initial())
+
+        assertEquals(listOf(first.id, second.id), snapshot.assets.map(PhotoSummary::id))
+        assertEquals(null, snapshot.nextCursor)
+        assertEquals(listOf(null, marker), port.cursors)
+    }
+
+    @Test
     fun `page size stays inside ffi bound`() {
         assertFailsWith<IllegalArgumentException> { PhotosBrowser(FakePhotosPort(), 101) }
     }
