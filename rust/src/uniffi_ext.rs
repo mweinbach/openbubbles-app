@@ -1194,6 +1194,10 @@ fn photos_protocol_error(action: &str, error: rustpush::PushError) -> UError {
             if error.kind() == std::io::ErrorKind::InvalidData => {
             Some("CloudKit response was invalid".to_string())
         }
+        rustpush::PushError::IoError(error)
+            if error.kind() == std::io::ErrorKind::WriteZero => {
+            Some("resource exceeded its download size limit".to_string())
+        }
         _ => None,
     };
     let reason = safe_detail
@@ -1226,6 +1230,11 @@ fn u_photo_asset(asset: rustpush::photos::PhotoAssetSummary) -> UPhotoAssetSumma
         hidden: asset.hidden,
     }
 }
+
+// Keep these private protocol-boundary ceilings in sync with the Kotlin
+// coordinator's advertised-size preflight. Neither limit crosses UniFFI.
+const MAX_PHOTO_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_PHOTO_ORIGINAL_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[uniffi::export(async_runtime = "tokio")]
 impl NativePushState {
@@ -1342,10 +1351,18 @@ impl NativePushState {
         let client = native_photos(self)?;
         drive_ffi(async move {
             let mut file = create_dest(&dest_path)?;
-            client
-                .download_preview(&master_id, media_kind.clone(), &mut file, progress_cb(progress))
-                .await
-                .map_err(|error| photos_protocol_error("preview download", error))?;
+            {
+                let mut bounded = BoundedWriter::new(&mut file, Some(MAX_PHOTO_PREVIEW_BYTES));
+                client
+                    .download_preview(
+                        &master_id,
+                        media_kind.clone(),
+                        &mut bounded,
+                        progress_cb(progress),
+                    )
+                    .await
+                    .map_err(|error| photos_protocol_error("preview download", error))?;
+            }
             file.flush().map_err(|error| UError::Failed {
                 reason: format!("failed to flush Photos preview: {error}"),
             })?;
@@ -1396,10 +1413,13 @@ impl NativePushState {
         let client = native_photos(self)?;
         drive_ffi(async move {
             let mut file = create_dest(&dest_path)?;
-            client
-                .download_original(&master_id, &mut file, progress_cb(progress))
-                .await
-                .map_err(|error| photos_protocol_error("original download", error))?;
+            {
+                let mut bounded = BoundedWriter::new(&mut file, Some(MAX_PHOTO_ORIGINAL_BYTES));
+                client
+                    .download_original(&master_id, &mut bounded, progress_cb(progress))
+                    .await
+                    .map_err(|error| photos_protocol_error("original download", error))?;
+            }
             file.flush().map_err(|error| UError::Failed {
                 reason: format!("failed to flush Photos original: {error}"),
             })?;
@@ -2986,6 +3006,69 @@ mod download_destination_tests {
         let error = writer.write_all(b"5").expect_err("over limit");
         assert_eq!(std::io::ErrorKind::WriteZero, error.kind());
         assert_eq!(4, writer.written);
+    }
+
+    #[test]
+    fn photos_resource_limits_match_the_coordinator_policy() {
+        assert_eq!(MAX_PHOTO_PREVIEW_BYTES, 33_554_432);
+        assert_eq!(MAX_PHOTO_ORIGINAL_BYTES, 1_073_741_824);
+    }
+
+    #[test]
+    fn bounded_writer_rejects_an_entire_chunk_before_it_reaches_disk() {
+        let mut writer = BoundedWriter::new(Vec::new(), Some(4));
+        writer.write_all(b"123").expect("initial bytes");
+
+        let error = writer.write_all(b"45").expect_err("crossing chunk");
+
+        assert_eq!(std::io::ErrorKind::WriteZero, error.kind());
+        assert_eq!(3, writer.written);
+        assert_eq!(writer.inner, b"123");
+    }
+
+    #[test]
+    fn bounded_photo_destination_remains_readable_after_the_writer_is_dropped() {
+        let path = std::env::temp_dir().join(format!(
+            "openbubbles-bounded-download-dest-{}",
+            std::process::id(),
+        ));
+        let mut file = create_dest(path.to_str().expect("temporary path")).expect("create dest");
+        {
+            let mut bounded = BoundedWriter::new(&mut file, Some(4));
+            bounded.write_all(b"1234").expect("bounded payload");
+            let error = bounded.write_all(b"5").expect_err("over limit");
+            assert_eq!(std::io::ErrorKind::WriteZero, error.kind());
+        }
+
+        file.flush().expect("flush bounded payload");
+        file.rewind().expect("rewind bounded payload");
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).expect("read bounded payload");
+        file.sync_all().expect("sync bounded payload");
+        drop(file);
+        std::fs::remove_file(path).expect("remove bounded staged file");
+
+        assert_eq!(bytes, b"1234");
+    }
+
+    #[test]
+    fn photos_size_limit_errors_do_not_expose_upstream_details() {
+        let error = photos_protocol_error(
+            "preview download",
+            rustpush::PushError::IoError(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "sensitive remote response details",
+            )),
+        );
+        let UError::Failed { reason } = error else {
+            panic!("expected sanitized Photos failure");
+        };
+
+        assert_eq!(
+            reason,
+            "iCloud Photos preview download failed: resource exceeded its download size limit",
+        );
+        assert!(!reason.contains("sensitive"));
     }
 }
 
