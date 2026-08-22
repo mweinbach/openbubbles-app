@@ -127,7 +127,6 @@ import app.openbubbles.nativeapp.ui.attachmentviewer.openAttachmentExternally
 import app.openbubbles.nativeapp.ui.attachmentviewer.requiresLegacyMediaWritePermission
 import app.openbubbles.nativeapp.ui.common.HdrColorModeEffect
 import app.openbubbles.nativeapp.ui.common.rememberDecodedImage
-import app.openbubbles.nativeapp.ui.common.rememberDecodedImageResult
 import app.openbubbles.nativeapp.ui.common.rememberVideoPoster
 import app.openbubbles.nativeapp.ui.theme.OpenBubblesTheme
 import app.openbubbles.nativeapp.ui.tooling.LightDarkPreviews
@@ -1005,7 +1004,7 @@ private fun PhotoPage(
     val previewFile = preview?.takeIf { it.state == PhotoTransferState.Succeeded }
         ?.localPath?.let(::File)
     val originalImage = if (asset.mediaKind == PhotoMediaKind.Image) {
-        rememberDecodedImageResult(originalFile, maxDimensionPx = 2048)
+        rememberDecodedImage(originalFile, maxDimensionPx = 2048)
     } else {
         null
     }
@@ -1015,9 +1014,8 @@ private fun PhotoPage(
         null
     }
     val imageState = photoViewerImageState(
-        originalAvailable = originalFile != null && asset.mediaKind == PhotoMediaKind.Image,
-        originalDecoded = originalImage?.image != null,
-        originalDecodeInProgress = originalImage?.isLoading == true,
+        originalAvailable = originalFile != null,
+        originalDecoded = originalImage != null,
         previewDecoded = previewImage != null,
     )
     var scale by remember(asset.id) { mutableFloatStateOf(1f) }
@@ -1053,7 +1051,7 @@ private fun PhotoPage(
     ) {
         when (asset.mediaKind) {
             PhotoMediaKind.Image -> {
-                val decoded = originalImage?.image ?: previewImage.takeIf { imageState.showPreview }
+                val decoded = originalImage ?: previewImage.takeIf { imageState.showPreview }
                 HdrColorModeEffect(decoded?.image.takeIf { playbackEnabled })
                 if (decoded != null) {
                     Image(
@@ -1094,7 +1092,7 @@ private fun PhotoPage(
             }
             PhotoMediaKind.Unknown -> Unit
         }
-        if (originalFile == null || imageState.originalUnsupported) {
+        if (imageState.showTransferStatus) {
             Surface(
                 shape = MaterialTheme.shapes.large,
                 color = Color.Black.copy(alpha = 0.7f),
@@ -1106,8 +1104,6 @@ private fun PhotoPage(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     when {
-                        imageState.originalUnsupported ->
-                            Text("Full quality can't be displayed on this device", color = Color.White)
                         asset.originalSize == null || asset.mediaKind == PhotoMediaKind.Unknown ->
                             Text("Full-quality file is unavailable", color = Color.White)
                         original?.state == PhotoTransferState.Failed -> {
@@ -1136,17 +1132,16 @@ private fun PhotoPage(
 
 internal data class PhotoViewerImageState(
     val showPreview: Boolean,
-    val originalUnsupported: Boolean,
+    val showTransferStatus: Boolean,
 )
 
 internal fun photoViewerImageState(
     originalAvailable: Boolean,
     originalDecoded: Boolean,
-    originalDecodeInProgress: Boolean,
     previewDecoded: Boolean,
 ): PhotoViewerImageState = PhotoViewerImageState(
     showPreview = previewDecoded && !originalDecoded,
-    originalUnsupported = originalAvailable && !originalDecoded && !originalDecodeInProgress,
+    showTransferStatus = !originalAvailable,
 )
 
 /** Viewer subtitle for the one-way `DCIM/iCloud` mirror, or null while idle. */
