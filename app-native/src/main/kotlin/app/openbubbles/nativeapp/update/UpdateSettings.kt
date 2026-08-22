@@ -1,5 +1,6 @@
 package app.openbubbles.nativeapp.update
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.core.content.edit
 
@@ -46,6 +47,7 @@ object UpdateSettings {
      * advertisement, so that value must never become the new trusted floor.
      * Removing it and establishing the replacement is one synchronous write.
      */
+    @SuppressLint("UseKtx") // commit() boolean is checked; KTX edit() returns Unit.
     @Synchronized
     fun highestVerifiedVersionCode(
         context: Context,
