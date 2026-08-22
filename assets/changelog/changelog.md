@@ -2,6 +2,43 @@
 
 Below are the last few OpenGarden App release changelogs
 
+## v3.5.5
+
+### Enhancements
+
+- Forward individual messages or multiple selected messages, including their
+  downloaded attachments, into an existing or new conversation.
+- Notifications and message search now open and highlight the exact message,
+  even when older conversation history must be loaded first.
+- Shared Albums now offer private, locally synced photo and video galleries
+  with full-screen viewing.
+- iCloud Photos adds clearer image-viewer controls, accessible zoom, and
+  recoverable page loading without losing the photos already on screen.
+- App startup, conversation lists, message processing, iCloud Photos, and
+  Passwords are faster through dedicated startup profiles, incremental
+  database updates, and reduced background work.
+
+### Fixes
+
+- Automatic camera backup uploads only newly captured, explicitly authorized
+  camera photos; manual selections and previously exported iCloud images are
+  never uploaded silently.
+- Photos downloads enforce safe size limits, verify completed files, recover
+  cleanly after interruption, and preserve the gallery when a later page fails.
+- Message effects remain smooth on high-refresh-rate displays, and large
+  attachment saves no longer block the interface.
+- Bookmarks, recently deleted conversations, and deleted-message counts update
+  immediately when their underlying data changes.
+- Find My clearly distinguishes loading failures from empty results, while
+  password and sharing forms preserve sensitive drafts until changes succeed.
+- App updates now require a fully verified, correctly signed package before
+  changing rollback protection, and update notifications survive Firebase
+  token changes.
+- Releases must pass validation for their exact source commit and match the
+  pinned OpenGarden production signing certificate before publication.
+- OpenGarden branding is now consistent throughout the app, notifications,
+  credential provider, and attachment workflows.
+
 ## v3.5.4
 
 ### Enhancements
