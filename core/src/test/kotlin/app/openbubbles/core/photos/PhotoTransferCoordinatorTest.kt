@@ -42,7 +42,7 @@ class PhotoTransferCoordinatorTest {
         val root = createTempDirectory("photo-preview-invalid").toFile()
         try {
             val transfer = PhotoTransferCoordinator(
-                FakePort("encrypted bytes".toByteArray()),
+                FakePort("invalid".toByteArray()),
                 FakeCatalog(),
                 root,
             ).downloadPreview(photo())
@@ -51,6 +51,67 @@ class PhotoTransferCoordinatorTest {
             assertTrue(transfer.lastError!!.contains("expected media format"))
             assertFalse(File(transfer.localPath).exists())
             assertFalse(File(transfer.localPath + ".part").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun previewsRejectTruncatedAndOversizedPayloadsBeforePromotion() = runBlocking {
+        val root = createTempDirectory("photo-preview-byte-count").toFile()
+        try {
+            val expected = jpegPayload()
+            listOf(
+                expected.copyOf(expected.size - 1),
+                expected + byteArrayOf(9),
+            ).forEachIndexed { index, actual ->
+                val asset = photo().copy(id = "master-byte-count-$index")
+                val transfer = PhotoTransferCoordinator(
+                    FakePort(actual),
+                    FakeCatalog(),
+                    root,
+                ).downloadPreview(asset)
+
+                assertEquals(PhotoTransferState.Failed, transfer.state)
+                assertTrue(transfer.lastError!!.contains("expected byte size"))
+                assertFalse(File(transfer.localPath).exists())
+                assertFalse(File(transfer.localPath + ".part").exists())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun advertisedDownloadByteLimitsFailBeforeCrossingTheProtocolBoundary() = runBlocking {
+        val root = createTempDirectory("photo-download-byte-limits").toFile()
+        try {
+            val port = FakePort(jpegPayload())
+            val coordinator = PhotoTransferCoordinator(port, FakeCatalog(), root)
+            val previews = listOf(
+                0L,
+                PhotoTransferCoordinator.MAX_PHOTO_PREVIEW_BYTES + 1,
+            )
+            val originals = listOf(
+                0L,
+                PhotoTransferCoordinator.MAX_PHOTO_ORIGINAL_BYTES + 1,
+            )
+
+            previews.forEachIndexed { index, bytes ->
+                val transfer = coordinator.downloadPreview(
+                    photo().copy(id = "preview-limit-$index", previewSize = bytes),
+                )
+                assertEquals(PhotoTransferState.Failed, transfer.state)
+            }
+            originals.forEachIndexed { index, bytes ->
+                val transfer = coordinator.downloadOriginal(
+                    photo().copy(id = "original-limit-$index", originalSize = bytes),
+                )
+                assertEquals(PhotoTransferState.Failed, transfer.state)
+            }
+
+            assertEquals(0, port.calls)
+            assertEquals(0, port.originalCalls)
         } finally {
             root.deleteRecursively()
         }
@@ -78,6 +139,28 @@ class PhotoTransferCoordinatorTest {
     }
 
     @Test
+    fun headerValidButTruncatedCompletedPreviewIsDownloadedAgain() = runBlocking {
+        val root = createTempDirectory("photo-preview-truncated-cache").toFile()
+        try {
+            val catalog = FakeCatalog()
+            val asset = photo()
+            val first = PhotoTransferCoordinator(FakePort(jpegPayload()), catalog, root)
+                .downloadPreview(asset)
+            File(first.localPath).writeBytes(jpegPayload().copyOf(4))
+            val retryPort = FakePort(jpegPayload())
+
+            val retried = PhotoTransferCoordinator(retryPort, catalog, root)
+                .downloadPreview(asset)
+
+            assertEquals(PhotoTransferState.Succeeded, retried.state)
+            assertEquals(1, retryPort.calls)
+            assertContentEquals(jpegPayload(), File(retried.localPath).readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun missingCompletedPreviewIsDurablyRequeuedOnRestore() = runBlocking {
         val root = createTempDirectory("photo-preview-restore").toFile()
         try {
@@ -91,6 +174,27 @@ class PhotoTransferCoordinatorTest {
             assertEquals(PhotoTransferState.Queued, restored.state)
             assertEquals(0, restored.bytesDone)
             assertEquals(null, restored.lastError)
+            assertEquals(restored, catalog.transfer(restored.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun headerValidButWrongSizeCompletedPreviewIsDurablyRequeuedOnRestore() = runBlocking {
+        val root = createTempDirectory("photo-preview-restore-byte-count").toFile()
+        try {
+            val catalog = FakeCatalog()
+            val coordinator = PhotoTransferCoordinator(FakePort(jpegPayload()), catalog, root)
+            val asset = photo()
+            val completed = coordinator.downloadPreview(asset)
+            File(completed.localPath).writeBytes(jpegPayload().copyOf(4))
+
+            val restored = coordinator.revalidateCompletedDownload(asset, completed)
+
+            assertEquals(PhotoTransferState.Queued, restored.state)
+            assertEquals(0, restored.bytesDone)
+            assertEquals(asset.previewSize, restored.totalBytes)
             assertEquals(restored, catalog.transfer(restored.id))
         } finally {
             root.deleteRecursively()
@@ -307,7 +411,7 @@ class PhotoTransferCoordinatorTest {
                 catalog = catalog,
                 previewRoot = File(root, "previews"),
                 originalRoot = File(root, "originals"),
-            ).downloadOriginal(photo().copy(filename = null))
+            ).downloadOriginal(photo().copy(filename = null, originalSize = payload.size.toLong()))
 
             assertEquals(PhotoTransferState.Succeeded, transfer.state)
             assertTrue(transfer.localPath.endsWith(".heic"))
@@ -348,9 +452,10 @@ class PhotoTransferCoordinatorTest {
     fun legacyImageCacheIsRenamedAndRetypedWhenRestored() = runBlocking {
         val root = createTempDirectory("photo-original-legacy").toFile()
         try {
-            val asset = photo().copy(filename = null)
+            val payload = ftypPayload("heix", "mif1")
+            val asset = photo().copy(filename = null, originalSize = payload.size.toLong())
             val catalog = FakeCatalog()
-            val port = FakePort(ftypPayload("heix", "mif1"))
+            val port = FakePort(payload)
             val coordinator = PhotoTransferCoordinator(
                 port = port,
                 catalog = catalog,
@@ -420,6 +525,7 @@ class PhotoTransferCoordinatorTest {
             )
 
             assertEquals(PhotoTransferDirection.Upload, transfer.direction)
+            assertEquals(PhotoTransferOrigin.Manual, transfer.origin)
             assertEquals(PhotoTransferState.Queued, transfer.state)
             assertEquals(null, transfer.lastError)
             assertTrue(File(transfer.localPath).isFile)
@@ -427,6 +533,65 @@ class PhotoTransferCoordinatorTest {
             assertContentEquals(source.readBytes(), File(transfer.localPath).readBytes())
             assertEquals(3, uploadRoot.listFiles().orEmpty().size)
             assertEquals(transfer, catalog.transfer(transfer.id))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun uploadOriginIsDurableAndExistingManualConsentCannotBeUpgraded() = runBlocking {
+        val root = createTempDirectory("photo-upload-origin").toFile()
+        try {
+            val manualSource = File(root, "manual.jpg").apply { writeBytes(jpegPayload()) }
+            val cameraSource = File(root, "camera.jpg").apply {
+                writeBytes(jpegPayload() + byteArrayOf(9))
+            }
+            val preview = File(root, "preview.jpg").apply { writeBytes(jpegPayload()) }
+            val catalog = FakeCatalog()
+            val coordinator = PhotoTransferCoordinator(
+                FakePort(byteArrayOf()),
+                catalog,
+                File(root, "previews"),
+                File(root, "uploads"),
+            )
+
+            val manual = coordinator.planUpload(
+                manualSource.path,
+                preview.path,
+                manualSource.name,
+                "image/jpeg",
+                1,
+            )
+            val collided = coordinator.planUpload(
+                manualSource.path,
+                preview.path,
+                manualSource.name,
+                "image/jpeg",
+                1,
+                origin = PhotoTransferOrigin.CameraBackup,
+            )
+            val camera = coordinator.planUpload(
+                cameraSource.path,
+                preview.path,
+                cameraSource.name,
+                "image/jpeg",
+                1,
+                origin = PhotoTransferOrigin.CameraBackup,
+            )
+            val reselected = coordinator.planUpload(
+                cameraSource.path,
+                preview.path,
+                cameraSource.name,
+                "image/jpeg",
+                1,
+            )
+
+            assertEquals(PhotoTransferOrigin.Manual, manual.origin)
+            assertEquals(PhotoTransferOrigin.Manual, collided.origin)
+            assertEquals(PhotoTransferOrigin.Manual, catalog.transfer(manual.id)?.origin)
+            assertEquals(PhotoTransferOrigin.CameraBackup, camera.origin)
+            assertEquals(PhotoTransferOrigin.CameraBackup, reselected.origin)
+            assertEquals(PhotoTransferOrigin.CameraBackup, catalog.transfer(camera.id)?.origin)
         } finally {
             root.deleteRecursively()
         }
@@ -719,8 +884,8 @@ class PhotoTransferCoordinatorTest {
         livePhoto = false,
         width = 480,
         height = 360,
-        originalSize = 1_000,
-        previewSize = 7,
+        originalSize = jpegPayload().size.toLong(),
+        previewSize = jpegPayload().size.toLong(),
         capturedAtMs = 1,
         addedAtMs = 1,
         favorite = false,

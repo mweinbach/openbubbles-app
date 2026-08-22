@@ -92,9 +92,16 @@ class PhotoTransferCoordinator(
             transfer.assetId != asset.id ||
             transfer.state != PhotoTransferState.Succeeded
         ) return transfer
+        val expectedBytes = when (transfer.resourceKind) {
+            PhotoResourceKind.Preview -> asset.previewSize
+            PhotoResourceKind.Original -> asset.originalSize
+            PhotoResourceKind.LivePhotoVideo -> null
+        }
         val restored = withContext(ioDispatcher) {
             val file = File(transfer.localPath)
-            val valid = when (transfer.resourceKind) {
+            val valid = expectedBytes != null &&
+                expectedBytes in 1..downloadByteLimit(transfer.resourceKind) &&
+                file.length() == expectedBytes && when (transfer.resourceKind) {
                 PhotoResourceKind.Preview -> validPreviewFile(file, asset.mediaKind)
                 PhotoResourceKind.Original -> validOriginalFile(file, asset.mediaKind)
                 PhotoResourceKind.LivePhotoVideo -> false
@@ -124,11 +131,6 @@ class PhotoTransferCoordinator(
             return restored
         }
 
-        val expectedBytes = when (transfer.resourceKind) {
-            PhotoResourceKind.Preview -> asset.previewSize
-            PhotoResourceKind.Original -> asset.originalSize
-            PhotoResourceKind.LivePhotoVideo -> null
-        }
         return transfer.copy(
             state = PhotoTransferState.Queued,
             bytesDone = 0,
@@ -169,10 +171,24 @@ class PhotoTransferCoordinator(
             updatedAtMs = timestamp,
         )
 
+        if (expectedBytes == null || asset.mediaKind == PhotoMediaKind.Unknown) {
+            return base.copy(
+                state = PhotoTransferState.Failed,
+                lastError = "No ${resourceKind.name.lowercase()} resource was advertised for this asset",
+            ).also { catalog.putTransfer(it) }
+        }
+        val byteLimit = downloadByteLimit(resourceKind)
+        if (expectedBytes <= 0 || expectedBytes > byteLimit) {
+            return base.copy(
+                state = PhotoTransferState.Failed,
+                lastError = "The advertised ${resourceKind.name.lowercase()} size exceeds its supported byte limits",
+            ).also { catalog.putTransfer(it) }
+        }
+
         val existingFile = sequenceOf(existing?.localPath?.let(::File), initialFinalFile)
             .filterNotNull()
             .distinctBy(File::getAbsolutePath)
-            .firstOrNull(validate)
+            .firstOrNull { file -> file.length() == expectedBytes && validate(file) }
         if (existingFile != null) {
             val destination = if (resourceKind == PhotoResourceKind.Original) {
                 originalDestination(existingFile, asset, root)
@@ -191,13 +207,6 @@ class PhotoTransferCoordinator(
                 totalBytes = destination.file.length(),
             ).also { catalog.putTransfer(it) }
         }
-        if (expectedBytes == null || asset.mediaKind == PhotoMediaKind.Unknown) {
-            return base.copy(
-                state = PhotoTransferState.Failed,
-                lastError = "No ${resourceKind.name.lowercase()} resource was advertised for this asset",
-            ).also { catalog.putTransfer(it) }
-        }
-
         root.mkdirs()
         partialFile.delete()
         val current = AtomicReference(base.copy(
@@ -220,6 +229,9 @@ class PhotoTransferCoordinator(
             }
             result.getOrThrow()
             check(partialFile.isFile) { "Photo download completed without a file" }
+            check(partialFile.length() == expectedBytes) {
+                "Downloaded ${resourceKind.name.lowercase()} did not match its expected byte size"
+            }
             check(validate(partialFile)) {
                 "Downloaded ${resourceKind.name.lowercase()} did not match its expected media format"
             }
@@ -280,6 +292,7 @@ class PhotoTransferCoordinator(
         orientation: Int,
         capturedAtMs: Long? = null,
         timeZone: PhotoTimeZone? = null,
+        origin: PhotoTransferOrigin = PhotoTransferOrigin.Manual,
     ): PhotoTransfer = withContext(ioDispatcher) {
         val source = File(sourcePath)
         val preview = File(previewPath)
@@ -317,6 +330,7 @@ class PhotoTransferCoordinator(
             lastError = null,
             createdAtMs = existing?.createdAtMs ?: timestamp,
             updatedAtMs = timestamp,
+            origin = existing?.origin ?: origin,
         ).also { catalog.putTransfer(it) }
     }
 
@@ -420,8 +434,19 @@ class PhotoTransferCoordinator(
     }
 
     companion object {
+        // Keep these in sync with the Rust facade's bounded Photos writers.
+        internal const val MAX_PHOTO_PREVIEW_BYTES = 32L * 1024 * 1024
+        internal const val MAX_PHOTO_ORIGINAL_BYTES = 1024L * 1024 * 1024
+
         fun downloadId(assetId: String, kind: PhotoResourceKind): String =
             "download:${kind.name.lowercase()}:$assetId"
+
+        private fun downloadByteLimit(resourceKind: PhotoResourceKind): Long = when (resourceKind) {
+            PhotoResourceKind.Preview -> MAX_PHOTO_PREVIEW_BYTES
+            PhotoResourceKind.Original,
+            PhotoResourceKind.LivePhotoVideo,
+            -> MAX_PHOTO_ORIGINAL_BYTES
+        }
 
         private fun safeKey(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))

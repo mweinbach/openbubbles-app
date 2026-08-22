@@ -11,6 +11,12 @@ enum class PhotoTransferDirection {
     Upload,
 }
 
+/** Only camera-backup intents may cross the Apple write boundary automatically. */
+enum class PhotoTransferOrigin {
+    Manual,
+    CameraBackup,
+}
+
 enum class PhotoResourceKind {
     Preview,
     Original,
@@ -40,6 +46,7 @@ data class PhotoTransfer(
     val lastError: String? = null,
     val createdAtMs: Long,
     val updatedAtMs: Long,
+    val origin: PhotoTransferOrigin = PhotoTransferOrigin.Manual,
 )
 
 /**
