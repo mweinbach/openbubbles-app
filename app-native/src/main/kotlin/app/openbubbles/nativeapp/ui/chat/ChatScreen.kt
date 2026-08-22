@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -41,6 +42,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -97,6 +99,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -123,6 +126,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -971,6 +975,12 @@ fun ChatScreen(
     // Container-transform target for the chat row (no-op in multi-pane and in
     // previews without a SharedTransitionLayout).
     val sharedContainer = uiState.chat?.let { Modifier.sharedChatContainer(it.id) } ?: Modifier
+    val conversationChromeColor = if (background != null) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val chromeDividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
 
     Box(modifier = modifier.then(sharedContainer)) {
         background?.image?.let { image ->
@@ -992,23 +1002,39 @@ fun ChatScreen(
             containerColor = when {
                 background != null -> Color.Transparent
                 LocalIsMultiPane.current -> MaterialTheme.colorScheme.surface
-                else -> MaterialTheme.colorScheme.background
+                else -> MaterialTheme.colorScheme.surface
             },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
+                    modifier = Modifier.drawBehind {
+                        val strokeWidth = 1.dp.toPx()
+                        val dividerY = size.height - strokeWidth / 2f
+                        drawLine(
+                            color = chromeDividerColor,
+                            start = Offset(0f, dividerY),
+                            end = Offset(size.width, dividerY),
+                            strokeWidth = strokeWidth,
+                        )
+                    },
                     title = {
                         if (openThread != null) {
-                            Text("Thread")
+                            Text(
+                                text = "Thread",
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                            )
                         } else {
                             ChatHeader(
                                 chat = uiState.chat,
-                                modifier = Modifier.clickable(
-                                    onClickLabel = "Open conversation details",
-                                    role = Role.Button,
-                                    onClick = onOpenChatInfo,
-                                ),
+                                modifier = Modifier
+                                    .clip(MaterialTheme.shapes.large)
+                                    .clickable(
+                                        onClickLabel = "Open conversation details",
+                                        role = Role.Button,
+                                        onClick = onOpenChatInfo,
+                                    )
+                                    .padding(start = 2.dp, end = 8.dp),
                             )
                         }
                     },
@@ -1030,6 +1056,11 @@ fun ChatScreen(
                             FilledTonalIconButton(
                                 onClick = onCloseReplyThread,
                                 shapes = IconButtonDefaults.shapes(),
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                modifier = Modifier.size(48.dp),
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -1040,6 +1071,11 @@ fun ChatScreen(
                             FilledTonalIconButton(
                                 onClick = onBack,
                                 shapes = IconButtonDefaults.shapes(),
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                modifier = Modifier.size(48.dp),
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
@@ -1051,6 +1087,11 @@ fun ChatScreen(
                                 onClick = onStartFaceTime,
                                 shapes = IconButtonDefaults.shapes(),
                                 enabled = !uiState.faceTimeStarting,
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                                modifier = Modifier.size(48.dp),
                             ) {
                                 if (uiState.faceTimeStarting) {
                                     // Too small for the morphing polygon; the
@@ -1065,6 +1106,10 @@ fun ChatScreen(
                             }
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = conversationChromeColor,
+                        scrolledContainerColor = conversationChromeColor,
+                    ),
                 )
             },
             bottomBar = {
@@ -1167,7 +1212,11 @@ fun ChatScreen(
                     },
                     composerActionFromMe = uiState.replyingTo?.message?.isFromMe == true,
                     smsChat = smsChat,
-                    inputPlaceholder = if (openThread != null || uiState.replyingTo != null) "Reply" else "Message",
+                    inputPlaceholder = when {
+                        openThread != null || uiState.replyingTo != null -> "Reply"
+                        smsChat -> "Text message"
+                        else -> "iMessage"
+                    },
                     onClearComposerAction = onCancelComposerAction,
                     sendEnabled = !uiState.textSendInProgress && !uiState.attachmentSendInProgress,
                 )
@@ -1221,7 +1270,7 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = if (arrivals.pendingCount > 0) 68.dp else 0.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         if (isTyping) {
@@ -1776,8 +1825,11 @@ private fun StickerPlacementSheet(
 
 @Composable
 private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
+    // The app bar has a fixed compact height. At larger accessibility text sizes,
+    // keep the contact name intact instead of squeezing or clipping two lines.
+    val showServiceLabel = LocalDensity.current.fontScale < 1.4f
     Row(
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1785,16 +1837,31 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
             ChatAvatar(
                 title = chat.title,
                 avatarColor = chat.avatarColor,
-                size = 38.dp,
+                size = 40.dp,
                 avatarPath = chat.avatarPath ?: rememberContactAvatarPath(chat.avatarAddress),
             )
-            Text(
-                text = chat.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = chat.title,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (showServiceLabel) {
+                    Text(
+                        text = when {
+                            chat.isGroup && chat.isSms -> "Group text message"
+                            chat.isGroup -> "Group iMessage"
+                            chat.isSms -> "Text message"
+                            else -> "iMessage"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (chat.notifsSilenced) {
                 Icon(
                     imageVector = Icons.Filled.Bedtime,
@@ -1805,7 +1872,7 @@ private fun ChatHeader(chat: ChatListItem?, modifier: Modifier = Modifier) {
             }
             Icon(
                 imageVector = Icons.Filled.ExpandMore,
-                contentDescription = "Conversation details",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
@@ -1829,30 +1896,30 @@ private fun ChatEmptyState(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.size(64.dp),
+            shape = MaterialTheme.shapes.extraLargeIncreased,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(72.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Filled.ChatBubble,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(30.dp),
                 )
             }
         }
         Text(
             text = "No messages yet",
             style = MaterialTheme.typography.titleLargeEmphasized,
-            modifier = Modifier.padding(top = 14.dp),
+            modifier = Modifier.padding(top = 18.dp),
         )
         Text(
             text = "Say hi — everything stays in sync with iMessage.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.widthIn(max = 320.dp).padding(top = 5.dp),
         )
     }
 }
@@ -2108,6 +2175,7 @@ private fun MessageInputBar(
     // A live voice take is sendable even with an empty draft: the send circle
     // is the stop-and-send action for it.
     val sendActive = hasContent || recording != null
+    val serviceColors = if (smsChat) smsServiceColors() else null
     val inputFocus = remember { FocusRequester() }
     LaunchedEffect(composerActionLabel) {
         if (composerActionLabel != null) {
@@ -2119,7 +2187,7 @@ private fun MessageInputBar(
     // (The spec helpers read the theme scheme and honor reduced motion.)
     val sendContainer by animateColorAsState(
         targetValue = if (sendActive) {
-            MaterialTheme.colorScheme.primary
+            serviceColors?.container ?: MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
@@ -2128,7 +2196,7 @@ private fun MessageInputBar(
     )
     val sendContent by animateColorAsState(
         targetValue = if (sendActive) {
-            MaterialTheme.colorScheme.onPrimary
+            serviceColors?.content ?: MaterialTheme.colorScheme.onPrimary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
@@ -2136,7 +2204,7 @@ private fun MessageInputBar(
         label = "sendContent",
     )
     val sendScale by animateFloatAsState(
-        targetValue = if (sendActive) 1f else 0.9f,
+        targetValue = if (sendActive) 1f else 0.94f,
         animationSpec = fastSpatialSpec(),
         label = "sendScale",
     )
@@ -2149,10 +2217,21 @@ private fun MessageInputBar(
         animationSpec = fastSpatialSpec(),
         label = "sendCorner",
     )
+    val composerDividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                drawLine(
+                    color = composerDividerColor,
+                    start = Offset(0f, strokeWidth / 2f),
+                    end = Offset(size.width, strokeWidth / 2f),
+                    strokeWidth = strokeWidth,
+                )
+            }
             .navigationBarsPadding()
             .imePadding(),
     ) {
@@ -2269,18 +2348,20 @@ private fun MessageInputBar(
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 11.dp)
                     .widthIn(max = ConversationContentMaxWidth)
                     .fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Surface(
                     shape = MaterialTheme.shapes.extraLargeIncreased,
                     // The container role already carries the tonal layer; stacking
                     // elevation tint on it double-signals the same thing.
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier
+                        .weight(1f)
+                        .animateContentSize(animationSpec = defaultSpatialSpec()),
                 ) {
                     if (recording != null) {
                         RecordingComposerRow(
@@ -2319,13 +2400,20 @@ private fun MessageInputBar(
                 // circle to squircle while pressed.
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(52.dp)
                         .graphicsLayer {
                             scaleX = sendScale
                             scaleY = sendScale
                         }
                         .clip(RoundedCornerShape(sendCornerPercent.roundToInt()))
                         .background(sendContainer)
+                        .semantics {
+                            contentDescription = if (sendActive && !sendEnabled) {
+                                "Sending message"
+                            } else {
+                                "Send"
+                            }
+                        }
                         .combinedClickable(
                             interactionSource = sendInteractionSource,
                             indication = LocalIndication.current,
@@ -2338,12 +2426,20 @@ private fun MessageInputBar(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.ArrowUpward,
-                        contentDescription = "Send",
-                        tint = sendContent,
-                        modifier = Modifier.size(24.dp),
-                    )
+                    if (sendActive && !sendEnabled) {
+                        CircularProgressIndicator(
+                            color = sendContent,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowUpward,
+                            contentDescription = null,
+                            tint = sendContent,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 }
             }
         }
@@ -2371,11 +2467,29 @@ private fun AttachMenuButton(
         animationSpec = fastSpatialSpec(),
         label = "attachIconRotation",
     )
+    val containerColor by animateColorAsState(
+        targetValue = if (menuOpen) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = fastEffectsSpec(),
+        label = "attachMenuContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (menuOpen) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = fastEffectsSpec(),
+        label = "attachMenuContent",
+    )
     Box(modifier = modifier) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = containerColor,
+            contentColor = contentColor,
             modifier = Modifier.size(48.dp).clickable(
                 role = Role.Button,
                 onClickLabel = "Attach",
@@ -2532,7 +2646,7 @@ private fun RecordingComposerRow(
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.size(40.dp).clickable(
+            modifier = Modifier.size(48.dp).clickable(
                 role = Role.Button,
                 onClickLabel = "Finish recording",
                 onClick = onFinish,
@@ -2553,6 +2667,41 @@ private fun RecordingComposerRow(
 private val StagedThumbSize = 84.dp
 
 @Composable
+private fun StagedAttachmentRemoveButton(
+    label: String,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .semantics { contentDescription = "Remove $label" }
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Remove $label",
+                onClick = onRemove,
+            ),
+        contentAlignment = Alignment.TopEnd,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shadowElevation = 2.dp,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun StagedAttachmentThumb(
     attachment: OutgoingAttachment,
     onRemove: () -> Unit,
@@ -2565,9 +2714,9 @@ private fun StagedAttachmentThumb(
         return
     }
     val decoded = rememberDecodedImage(attachment.file, maxDimensionPx = 256)
-    Box(modifier = modifier.size(StagedThumbSize + 14.dp)) {
+    Box(modifier = modifier.size(StagedThumbSize + 24.dp)) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.largeIncreased,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
                 .align(Alignment.Center)
@@ -2606,27 +2755,11 @@ private fun StagedAttachmentThumb(
                 }
             }
         }
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(26.dp)
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = "Remove ${attachment.name ?: "attachment"}",
-                    onClick = onRemove,
-                ),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
+        StagedAttachmentRemoveButton(
+            label = attachment.name ?: "attachment",
+            onRemove = onRemove,
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
     }
 }
 
@@ -2641,11 +2774,11 @@ private fun StagedVoiceMemoCard(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.padding(top = 7.dp, end = 7.dp)) {
+    Box(modifier = modifier.padding(top = 9.dp, end = 9.dp)) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.largeIncreased,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.width(232.dp),
+            modifier = Modifier.width(280.dp),
         ) {
             VoiceMemoPlayerContent(
                 playerKey = "staged:${attachment.file.absolutePath}",
@@ -2654,28 +2787,15 @@ private fun StagedVoiceMemoCard(
                 onPlayCircle = MaterialTheme.colorScheme.onPrimary,
                 wave = MaterialTheme.colorScheme.primary,
                 fallbackLabel = attachment.name,
+                // Reserve the full remove-button target so it never intercepts
+                // taps or horizontal drags on the playable waveform.
+                modifier = Modifier.padding(end = 48.dp),
             )
         }
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(26.dp)
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = "Remove ${attachment.name ?: "voice memo"}",
-                    onClick = onRemove,
-                ),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
+        StagedAttachmentRemoveButton(
+            label = attachment.name ?: "voice memo",
+            onRemove = onRemove,
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
     }
 }

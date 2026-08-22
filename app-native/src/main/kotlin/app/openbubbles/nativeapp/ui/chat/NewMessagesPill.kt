@@ -1,16 +1,18 @@
 package app.openbubbles.nativeapp.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
@@ -79,10 +81,13 @@ fun NewMessagesJumpPill(
     ) {
         Surface(
             onClick = onClick,
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            tonalElevation = 3.dp,
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+            ),
             shadowElevation = 3.dp,
             // Compact pill, but never below the minimum activation target.
             modifier = Modifier
@@ -93,19 +98,29 @@ fun NewMessagesJumpPill(
                 },
         ) {
             Box(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(start = 7.dp, end = 15.dp, top = 6.dp, bottom = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
+                    modifier = Modifier.animateContentSize(animationSpec = defaultSpatialSpec()),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier.defaultMinSize(minWidth = 20.dp, minHeight = 20.dp),
-                    )
-                    Text(text = label, style = MaterialTheme.typography.labelLarge)
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Text(text = label, style = MaterialTheme.typography.labelLargeEmphasized)
                 }
             }
         }

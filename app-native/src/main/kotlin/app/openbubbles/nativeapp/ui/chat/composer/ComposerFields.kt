@@ -1,17 +1,26 @@
 package app.openbubbles.nativeapp.ui.chat.composer
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,6 +31,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -32,11 +42,16 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import app.openbubbles.nativeapp.ui.theme.defaultEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.defaultSpatialSpec
+import app.openbubbles.nativeapp.ui.theme.fastEffectsSpec
+import app.openbubbles.nativeapp.ui.theme.fastSpatialSpec
 
 data class MentionCandidate(val displayName: String, val handle: String)
 
@@ -82,15 +97,31 @@ fun ComposerTextField(
     val query = activeMentionQuery(fieldValue)?.takeUnless { it.start == dismissedQueryStart }
     val matches = query?.let { matchingMentionCandidates(it.query, candidates) }.orEmpty()
     Column(modifier = modifier) {
-        if (matches.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = matches.isNotEmpty(),
+            enter = expandVertically(defaultSpatialSpec()) + fadeIn(defaultEffectsSpec()),
+            exit = shrinkVertically(fastSpatialSpec()) + fadeOut(fastEffectsSpec()),
+        ) {
             LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(matches, key = { it.handle }) { candidate ->
-                    AssistChip(
+                    val isSelected = matches.getOrNull(selectedIndex)?.handle == candidate.handle
+                    val containerColor by animateColorAsState(
+                        targetValue = if (isSelected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                        animationSpec = defaultEffectsSpec(),
+                        label = "mentionCandidateContainer",
+                    )
+                    Surface(
                         onClick = {
-                            val active = activeMentionQuery(fieldValue) ?: return@AssistChip
+                            val active = activeMentionQuery(fieldValue) ?: return@Surface
                             val replacement = "@${candidate.displayName} "
                             fieldValue = fieldValue.copy(
                                 text = fieldValue.text.replaceRange(active.start, active.end, replacement),
@@ -99,8 +130,58 @@ fun ComposerTextField(
                             dismissedQueryStart = null
                             onMentionSelected(active.start, active.end, candidate)
                         },
-                        label = { Text("${candidate.displayName} · ${candidate.handle}") },
-                    )
+                        shape = MaterialTheme.shapes.large,
+                        color = containerColor,
+                        contentColor = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .semantics { selected = isSelected },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                },
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "@",
+                                        style = MaterialTheme.typography.labelLargeEmphasized,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = candidate.displayName,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                )
+                                Text(
+                                    text = candidate.handle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -114,7 +195,7 @@ fun ComposerTextField(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp)
+                .padding(start = 8.dp, end = 12.dp)
                 .focusRequester(focusRequester)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown || matches.isEmpty()) return@onPreviewKeyEvent false
@@ -153,7 +234,11 @@ fun ComposerTextField(
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
                     if (fieldValue.text.isEmpty()) {
-                        Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     inner()
                 }
@@ -166,18 +251,47 @@ fun ComposerTextField(
 fun SubjectField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 2.dp),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
-            Text("Subject", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Subject",
+                style = MaterialTheme.typography.labelLargeEmphasized,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(20.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.weight(1f).padding(start = 10.dp).semantics { contentDescription = "Subject" },
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Subject" },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 singleLine = true,
+                decorationBox = { innerField ->
+                    Box(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        innerField()
+                    }
+                },
             )
         }
     }
