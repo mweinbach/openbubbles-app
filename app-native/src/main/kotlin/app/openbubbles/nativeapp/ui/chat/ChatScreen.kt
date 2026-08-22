@@ -2457,22 +2457,27 @@ private fun AttachMenuButton(
         animationSpec = fastEffectsSpec(),
         label = "attachMenuContent",
     )
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Attach",
+            ) { menuOpen = true },
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
             color = containerColor,
             contentColor = contentColor,
-            modifier = Modifier.size(48.dp).clickable(
-                role = Role.Button,
-                onClickLabel = "Attach",
-            ) { menuOpen = true },
+            modifier = Modifier.size(40.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "Attach",
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .graphicsLayer { rotationZ = iconRotation },
                 )
             }
