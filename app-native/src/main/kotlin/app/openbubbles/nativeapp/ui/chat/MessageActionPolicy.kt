@@ -76,11 +76,25 @@ internal fun bubbleReactionSummary(
 }
 
 internal fun canOpenMessageActions(message: MessageItem): Boolean =
-    !message.isGroupEvent && !message.unsent && message.status != MessageStatus.SENDING
+    !message.isGroupEvent && !message.unsent &&
+        (message.status != MessageStatus.SENDING || message.isFromMe)
 
 /** Double-tap is the iMessage Tapback shortcut; SMS and failed rows keep long-press only. */
 internal fun canDoubleTapMessageActions(message: MessageItem): Boolean =
-    canOpenMessageActions(message) && !message.isSms && message.status != MessageStatus.FAILED
+    canOpenMessageActions(message) && !message.isSms &&
+        message.status !in setOf(MessageStatus.SENDING, MessageStatus.FAILED)
+
+internal fun canRetryOutgoingMessage(message: MessageItem): Boolean =
+    message.isFromMe && !message.isSms && message.status == MessageStatus.FAILED
+
+internal fun canCancelOutgoingMessage(message: MessageItem): Boolean =
+    message.isFromMe && message.status in setOf(MessageStatus.SENDING, MessageStatus.FAILED)
+
+internal fun canDeleteMessageLocally(message: MessageItem): Boolean =
+    !message.isFromMe || message.status != MessageStatus.SENDING
+
+internal fun canDeleteMessageEverywhere(message: MessageItem): Boolean =
+    !message.isSms && message.status !in setOf(MessageStatus.SENDING, MessageStatus.FAILED)
 
 internal fun reactionsForPart(
     reactions: List<MessageReactionUi>,

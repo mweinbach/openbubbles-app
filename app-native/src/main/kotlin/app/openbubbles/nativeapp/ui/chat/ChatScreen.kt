@@ -429,6 +429,7 @@ fun ChatScreen(
     var reactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var customReactionTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     var confirmUnsend by remember { mutableStateOf<MessageItem?>(null) }
+    var confirmDeleteEverywhere by remember { mutableStateOf<MessageItem?>(null) }
     var stickerTarget by remember { mutableStateOf<SelectedMessageAction?>(null) }
     val pendingStickerState = remember { mutableStateOf<OutgoingAttachment?>(null) }
     var pendingSticker by pendingStickerState
@@ -1592,10 +1593,30 @@ fun ChatScreen(
                     AppGraph.messageActions.deleteLocal(listOf(message.id))
                 }
             },
+            onDeleteEverywhere = {
+                selectedAction = null
+                confirmDeleteEverywhere = message
+            },
+            onRetrySend = {
+                selectedAction = null
+                scope.launch {
+                    val retried = runCatching {
+                        AppGraph.messageActions.retryOutgoing(message.id)
+                    }.getOrDefault(false)
+                    if (!retried) {
+                        snackbarHostState.showSnackbar("Message could not be retried")
+                    }
+                }
+            },
             onCancelSend = {
                 selectedAction = null
                 scope.launch {
-                    AppGraph.messageActions.cancelOutgoing(message.id)
+                    val cancelled = runCatching {
+                        AppGraph.messageActions.cancelOutgoing(message.id)
+                    }.getOrDefault(false)
+                    if (!cancelled) {
+                        snackbarHostState.showSnackbar("Send can no longer be canceled")
+                    }
                 }
             },
             onResult = { text ->
@@ -1640,6 +1661,31 @@ fun ChatScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmUnsend = null }) { Text("Cancel") }
+            },
+        )
+    }
+    confirmDeleteEverywhere?.let { message ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteEverywhere = null },
+            title = { Text("Delete message on all devices?") },
+            text = { Text("This removes the message and its attachments from your synced Apple account.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteEverywhere = null
+                        scope.launch {
+                            val deleted = runCatching {
+                                AppGraph.messageActions.deleteEverywhere(listOf(message.id))
+                            }.isSuccess
+                            if (!deleted) {
+                                snackbarHostState.showSnackbar("Message could not be deleted on all devices")
+                            }
+                        }
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteEverywhere = null }) { Text("Cancel") }
             },
         )
     }

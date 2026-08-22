@@ -18,13 +18,14 @@ class MessageActionPolicyTest {
         assertTrue(canOpenMessageActions(message(fromMe = false)))
         assertTrue(canOpenMessageActions(message(fromMe = true, status = MessageStatus.DELIVERED)))
         assertTrue(canOpenMessageActions(message(status = MessageStatus.FAILED)))
+        assertTrue(canOpenMessageActions(message(fromMe = true, status = MessageStatus.SENDING)))
     }
 
     @Test
-    fun `group events unsent and sending cannot open actions`() {
+    fun `group events unsent and incoming sending cannot open actions`() {
         assertFalse(canOpenMessageActions(message(isGroupEvent = true)))
         assertFalse(canOpenMessageActions(message(unsent = true)))
-        assertFalse(canOpenMessageActions(message(status = MessageStatus.SENDING)))
+        assertFalse(canOpenMessageActions(message(fromMe = false, status = MessageStatus.SENDING)))
     }
 
     @Test
@@ -35,6 +36,48 @@ class MessageActionPolicyTest {
         assertFalse(canDoubleTapMessageActions(message(status = MessageStatus.FAILED)))
         assertFalse(canDoubleTapMessageActions(message(unsent = true)))
         assertFalse(canDoubleTapMessageActions(message(isGroupEvent = true)))
+    }
+
+    @Test
+    fun `only failed outgoing iMessages offer a retry action`() {
+        assertTrue(canRetryOutgoingMessage(message(fromMe = true, status = MessageStatus.FAILED)))
+        assertFalse(canRetryOutgoingMessage(message(fromMe = false, status = MessageStatus.FAILED)))
+        assertFalse(canRetryOutgoingMessage(message(fromMe = true, status = MessageStatus.SENDING)))
+        assertFalse(canRetryOutgoingMessage(message(fromMe = true, status = MessageStatus.DELIVERED)))
+        assertFalse(
+            canRetryOutgoingMessage(message(fromMe = true, status = MessageStatus.FAILED, isSms = true)),
+        )
+    }
+
+    @Test
+    fun `outgoing sending and failed messages offer cancellation without enabling reactions`() {
+        val sending = message(fromMe = true, status = MessageStatus.SENDING)
+        val failed = message(fromMe = true, status = MessageStatus.FAILED)
+
+        assertTrue(canOpenMessageActions(sending))
+        assertTrue(canCancelOutgoingMessage(sending))
+        assertTrue(canCancelOutgoingMessage(failed))
+        assertFalse(canDoubleTapMessageActions(sending))
+        assertFalse(canDoubleTapMessageActions(failed))
+        assertFalse(canCancelOutgoingMessage(message(fromMe = false, status = MessageStatus.SENDING)))
+        assertFalse(canCancelOutgoingMessage(message(fromMe = true, status = MessageStatus.DELIVERED)))
+    }
+
+    @Test
+    fun `synced deletion is explicit and never applies to carrier or unfinished messages`() {
+        assertTrue(canDeleteMessageEverywhere(message(fromMe = false, status = MessageStatus.DELIVERED)))
+        assertTrue(canDeleteMessageEverywhere(message(fromMe = true, status = MessageStatus.DELIVERED)))
+        assertFalse(canDeleteMessageEverywhere(message(isSms = true)))
+        assertFalse(canDeleteMessageEverywhere(message(fromMe = true, status = MessageStatus.SENDING)))
+        assertFalse(canDeleteMessageEverywhere(message(fromMe = true, status = MessageStatus.FAILED)))
+    }
+
+    @Test
+    fun `local deletion cannot bypass cancellation for an active outgoing send`() {
+        assertFalse(canDeleteMessageLocally(message(fromMe = true, status = MessageStatus.SENDING)))
+        assertTrue(canDeleteMessageLocally(message(fromMe = true, status = MessageStatus.FAILED)))
+        assertTrue(canDeleteMessageLocally(message(fromMe = true, status = MessageStatus.DELIVERED)))
+        assertTrue(canDeleteMessageLocally(message(fromMe = false, status = MessageStatus.DELIVERED)))
     }
 
     @Test

@@ -76,6 +76,8 @@ internal fun MessageActionSheet(
     onStartConversation: () -> Unit,
     onBlockSender: () -> Unit,
     onDeleteLocal: () -> Unit,
+    onDeleteEverywhere: () -> Unit,
+    onRetrySend: () -> Unit,
     onCancelSend: () -> Unit,
     onResult: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -146,8 +148,16 @@ internal fun MessageActionSheet(
                 item { ActionRow("Edit") { finish(onEdit) } }
                 item { ActionRow("Unsend") { finish(onUnsend) } }
             }
-            item { ActionRow("Delete from this device", destructive = true) { finish(onDeleteLocal) } }
-            if (message.isFromMe && message.status in setOf(MessageStatus.SENDING, MessageStatus.FAILED)) {
+            if (canRetryOutgoingMessage(message)) {
+                item { ActionRow("Retry send") { finish(onRetrySend) } }
+            }
+            if (canDeleteMessageLocally(message)) {
+                item { ActionRow("Delete from this device", destructive = true) { finish(onDeleteLocal) } }
+            }
+            if (canDeleteMessageEverywhere(message)) {
+                item { ActionRow("Delete on all devices", destructive = true) { finish(onDeleteEverywhere) } }
+            }
+            if (canCancelOutgoingMessage(message)) {
                 item { ActionRow("Cancel send", destructive = true) { finish(onCancelSend) } }
             }
         }
