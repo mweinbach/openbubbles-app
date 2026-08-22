@@ -16,8 +16,11 @@ Below are the last few OpenGarden App release changelogs
 
 - iPhone screenshots no longer stay blurry after opening because only their
   small iCloud preview was displayed instead of the full-quality original.
-- HDR brightness now follows each photo's authored gain map and the display's
-  actual capabilities, preventing full-screen brightness flashes while paging.
+- HDR brightness now follows each photo's authored gain map up to the display's
+  actual capabilities, without an artificial limit or full-screen flashes while
+  paging.
+- Recently opened full-resolution HDR photos stay cached according to available
+  device memory, reducing repeat decoding while browsing back and forth.
 - HEIC originals can be saved to DCIM/iCloud or shared without incorrectly
   reporting that the gallery does not support them.
 - Protected iCloud Photos downloads accept Apple's shortened CloudKit key
